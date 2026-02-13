@@ -1,255 +1,509 @@
 pub mod vortex_io
+
 pub mod vortex_io::file
+
 pub mod vortex_io::file::std_file
+
 pub struct vortex_io::file::std_file::FileReadAdapter
+
 impl vortex_io::file::std_file::FileReadAdapter
+
 pub fn vortex_io::file::std_file::FileReadAdapter::open(path: impl core::convert::AsRef<std::path::Path>, handle: vortex_io::runtime::Handle) -> vortex_error::VortexResult<Self>
+
 impl vortex_io::VortexReadAt for vortex_io::file::std_file::FileReadAdapter
+
 pub fn vortex_io::file::std_file::FileReadAdapter::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+
 pub fn vortex_io::file::std_file::FileReadAdapter::concurrency(&self) -> usize
+
 pub fn vortex_io::file::std_file::FileReadAdapter::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
 pub fn vortex_io::file::std_file::FileReadAdapter::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
 pub fn vortex_io::file::std_file::FileReadAdapter::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+
 pub mod vortex_io::kanal_ext
+
 pub trait vortex_io::kanal_ext::KanalExt<T>
+
 pub fn vortex_io::kanal_ext::KanalExt::into_stream(self) -> impl futures_core::stream::Stream<Item = T>
+
 impl<T> vortex_io::kanal_ext::KanalExt<T> for kanal::AsyncReceiver<T>
+
 pub fn kanal::AsyncReceiver<T>::into_stream(self) -> impl futures_core::stream::Stream<Item = T>
+
 pub mod vortex_io::runtime
+
 pub mod vortex_io::runtime::current
+
 pub struct vortex_io::runtime::current::CurrentThreadIterator<'a, T>
+
 impl<T> core::iter::traits::iterator::Iterator for vortex_io::runtime::current::CurrentThreadIterator<'_, T>
+
 pub type vortex_io::runtime::current::CurrentThreadIterator<'_, T>::Item = T
+
 pub fn vortex_io::runtime::current::CurrentThreadIterator<'_, T>::next(&mut self) -> core::option::Option<Self::Item>
+
 pub struct vortex_io::runtime::current::CurrentThreadRuntime
+
 impl vortex_io::runtime::current::CurrentThreadRuntime
+
 pub fn vortex_io::runtime::current::CurrentThreadRuntime::block_on_stream_thread_safe<F, S, R>(&self, f: F) -> vortex_io::runtime::current::ThreadSafeIterator<R> where F: core::ops::function::FnOnce(vortex_io::runtime::Handle) -> S, S: futures_core::stream::Stream<Item = R> + core::marker::Send + 'static, R: core::marker::Send + 'static
+
 pub fn vortex_io::runtime::current::CurrentThreadRuntime::new() -> Self
+
 pub fn vortex_io::runtime::current::CurrentThreadRuntime::new_pool(&self) -> vortex_io::runtime::current::CurrentThreadWorkerPool
+
 impl core::clone::Clone for vortex_io::runtime::current::CurrentThreadRuntime
+
 pub fn vortex_io::runtime::current::CurrentThreadRuntime::clone(&self) -> vortex_io::runtime::current::CurrentThreadRuntime
+
 impl core::default::Default for vortex_io::runtime::current::CurrentThreadRuntime
+
 pub fn vortex_io::runtime::current::CurrentThreadRuntime::default() -> vortex_io::runtime::current::CurrentThreadRuntime
+
 impl vortex_io::runtime::BlockingRuntime for vortex_io::runtime::current::CurrentThreadRuntime
+
 pub type vortex_io::runtime::current::CurrentThreadRuntime::BlockingIterator<'a, R: 'a> = vortex_io::runtime::current::CurrentThreadIterator<'a, R>
+
 pub fn vortex_io::runtime::current::CurrentThreadRuntime::block_on<Fut, R>(&self, fut: Fut) -> R where Fut: core::future::future::Future<Output = R>
+
 pub fn vortex_io::runtime::current::CurrentThreadRuntime::block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator where S: futures_core::stream::Stream<Item = R> + core::marker::Send + 'a, R: core::marker::Send + 'a
+
 pub fn vortex_io::runtime::current::CurrentThreadRuntime::handle(&self) -> vortex_io::runtime::Handle
+
 pub struct vortex_io::runtime::current::CurrentThreadWorkerPool
+
 impl vortex_io::runtime::current::CurrentThreadWorkerPool
+
 pub fn vortex_io::runtime::current::CurrentThreadWorkerPool::set_workers(&self, n: usize)
+
 pub fn vortex_io::runtime::current::CurrentThreadWorkerPool::set_workers_to_available_parallelism(&self)
+
 pub fn vortex_io::runtime::current::CurrentThreadWorkerPool::worker_count(&self) -> usize
+
 impl core::clone::Clone for vortex_io::runtime::current::CurrentThreadWorkerPool
+
 pub fn vortex_io::runtime::current::CurrentThreadWorkerPool::clone(&self) -> vortex_io::runtime::current::CurrentThreadWorkerPool
+
 impl core::ops::drop::Drop for vortex_io::runtime::current::CurrentThreadWorkerPool
+
 pub fn vortex_io::runtime::current::CurrentThreadWorkerPool::drop(&mut self)
+
 pub struct vortex_io::runtime::current::ThreadSafeIterator<T>
+
 impl<T> core::clone::Clone for vortex_io::runtime::current::ThreadSafeIterator<T>
+
 pub fn vortex_io::runtime::current::ThreadSafeIterator<T>::clone(&self) -> Self
+
 impl<T> core::iter::traits::iterator::Iterator for vortex_io::runtime::current::ThreadSafeIterator<T>
+
 pub type vortex_io::runtime::current::ThreadSafeIterator<T>::Item = T
+
 pub fn vortex_io::runtime::current::ThreadSafeIterator<T>::next(&mut self) -> core::option::Option<Self::Item>
+
 pub mod vortex_io::runtime::single
+
 pub struct vortex_io::runtime::single::SingleThreadIterator<'a, T>
+
 impl<T> core::iter::traits::iterator::Iterator for vortex_io::runtime::single::SingleThreadIterator<'_, T>
+
 pub type vortex_io::runtime::single::SingleThreadIterator<'_, T>::Item = T
+
 pub fn vortex_io::runtime::single::SingleThreadIterator<'_, T>::next(&mut self) -> core::option::Option<Self::Item>
+
 pub struct vortex_io::runtime::single::SingleThreadRuntime
+
 impl core::default::Default for vortex_io::runtime::single::SingleThreadRuntime
+
 pub fn vortex_io::runtime::single::SingleThreadRuntime::default() -> Self
+
 impl vortex_io::runtime::BlockingRuntime for vortex_io::runtime::single::SingleThreadRuntime
+
 pub type vortex_io::runtime::single::SingleThreadRuntime::BlockingIterator<'a, R: 'a> = vortex_io::runtime::single::SingleThreadIterator<'a, R>
+
 pub fn vortex_io::runtime::single::SingleThreadRuntime::block_on<Fut, R>(&self, fut: Fut) -> R where Fut: core::future::future::Future<Output = R>
+
 pub fn vortex_io::runtime::single::SingleThreadRuntime::block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator where S: futures_core::stream::Stream<Item = R> + core::marker::Send + 'a, R: core::marker::Send + 'a
+
 pub fn vortex_io::runtime::single::SingleThreadRuntime::handle(&self) -> vortex_io::runtime::Handle
+
 pub fn vortex_io::runtime::single::block_on<F, Fut, R>(f: F) -> R where F: core::ops::function::FnOnce(vortex_io::runtime::Handle) -> Fut, Fut: core::future::future::Future<Output = R>
+
 pub fn vortex_io::runtime::single::block_on_stream<'a, F, S, R>(f: F) -> vortex_io::runtime::single::SingleThreadIterator<'a, R> where F: core::ops::function::FnOnce(vortex_io::runtime::Handle) -> S, S: futures_core::stream::Stream<Item = R> + core::marker::Send + core::marker::Unpin + 'a, R: core::marker::Send + 'a
+
 pub struct vortex_io::runtime::Handle
+
 impl vortex_io::runtime::Handle
+
 pub fn vortex_io::runtime::Handle::find() -> core::option::Option<Self>
+
 pub fn vortex_io::runtime::Handle::spawn<Fut, R>(&self, f: Fut) -> vortex_io::runtime::Task<R> where Fut: core::future::future::Future<Output = R> + core::marker::Send + 'static, R: core::marker::Send + 'static
+
 pub fn vortex_io::runtime::Handle::spawn_blocking<F, R>(&self, f: F) -> vortex_io::runtime::Task<R> where F: core::ops::function::FnOnce() -> R + core::marker::Send + 'static, R: core::marker::Send + 'static
+
 pub fn vortex_io::runtime::Handle::spawn_cpu<F, R>(&self, f: F) -> vortex_io::runtime::Task<R> where F: core::ops::function::FnOnce() -> R + core::marker::Send + 'static, R: core::marker::Send + 'static
+
 pub fn vortex_io::runtime::Handle::spawn_nested<F, Fut, R>(&self, f: F) -> vortex_io::runtime::Task<R> where F: core::ops::function::FnOnce(vortex_io::runtime::Handle) -> Fut, Fut: core::future::future::Future<Output = R> + core::marker::Send + 'static, R: core::marker::Send + 'static
+
 impl core::clone::Clone for vortex_io::runtime::Handle
+
 pub fn vortex_io::runtime::Handle::clone(&self) -> vortex_io::runtime::Handle
+
 pub struct vortex_io::runtime::Task<T>
+
 impl<T> vortex_io::runtime::Task<T>
+
 pub fn vortex_io::runtime::Task<T>::detach(self)
+
 impl<T> core::future::future::Future for vortex_io::runtime::Task<T>
+
 pub type vortex_io::runtime::Task<T>::Output = T
+
 pub fn vortex_io::runtime::Task<T>::poll(self: core::pin::Pin<&mut Self>, cx: &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<Self::Output>
+
 impl<T> core::ops::drop::Drop for vortex_io::runtime::Task<T>
+
 pub fn vortex_io::runtime::Task<T>::drop(&mut self)
+
 pub trait vortex_io::runtime::BlockingRuntime
+
 pub type vortex_io::runtime::BlockingRuntime::BlockingIterator<'a, R: 'a>: core::iter::traits::iterator::Iterator<Item = R> + 'a
+
 pub fn vortex_io::runtime::BlockingRuntime::block_on<Fut, R>(&self, fut: Fut) -> R where Fut: core::future::future::Future<Output = R>
+
 pub fn vortex_io::runtime::BlockingRuntime::block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator where S: futures_core::stream::Stream<Item = R> + core::marker::Send + 'a, R: core::marker::Send + 'a
+
 pub fn vortex_io::runtime::BlockingRuntime::handle(&self) -> vortex_io::runtime::Handle
+
 impl vortex_io::runtime::BlockingRuntime for vortex_io::runtime::current::CurrentThreadRuntime
+
 pub type vortex_io::runtime::current::CurrentThreadRuntime::BlockingIterator<'a, R: 'a> = vortex_io::runtime::current::CurrentThreadIterator<'a, R>
+
 pub fn vortex_io::runtime::current::CurrentThreadRuntime::block_on<Fut, R>(&self, fut: Fut) -> R where Fut: core::future::future::Future<Output = R>
+
 pub fn vortex_io::runtime::current::CurrentThreadRuntime::block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator where S: futures_core::stream::Stream<Item = R> + core::marker::Send + 'a, R: core::marker::Send + 'a
+
 pub fn vortex_io::runtime::current::CurrentThreadRuntime::handle(&self) -> vortex_io::runtime::Handle
+
 impl vortex_io::runtime::BlockingRuntime for vortex_io::runtime::single::SingleThreadRuntime
+
 pub type vortex_io::runtime::single::SingleThreadRuntime::BlockingIterator<'a, R: 'a> = vortex_io::runtime::single::SingleThreadIterator<'a, R>
+
 pub fn vortex_io::runtime::single::SingleThreadRuntime::block_on<Fut, R>(&self, fut: Fut) -> R where Fut: core::future::future::Future<Output = R>
+
 pub fn vortex_io::runtime::single::SingleThreadRuntime::block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator where S: futures_core::stream::Stream<Item = R> + core::marker::Send + 'a, R: core::marker::Send + 'a
+
 pub fn vortex_io::runtime::single::SingleThreadRuntime::handle(&self) -> vortex_io::runtime::Handle
+
 pub mod vortex_io::session
+
 pub struct vortex_io::session::RuntimeSession
+
 impl core::default::Default for vortex_io::session::RuntimeSession
+
 pub fn vortex_io::session::RuntimeSession::default() -> Self
+
 impl core::fmt::Debug for vortex_io::session::RuntimeSession
+
 pub fn vortex_io::session::RuntimeSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 pub trait vortex_io::session::RuntimeSessionExt: vortex_session::SessionExt
+
 pub fn vortex_io::session::RuntimeSessionExt::handle(&self) -> vortex_io::runtime::Handle
+
 pub fn vortex_io::session::RuntimeSessionExt::with_handle(self, handle: vortex_io::runtime::Handle) -> Self
+
 impl<S: vortex_session::SessionExt> vortex_io::session::RuntimeSessionExt for S
+
 pub struct vortex_io::AsyncWriteAdapter<W: futures_io::if_std::AsyncWrite>(pub W)
+
 impl<W: futures_io::if_std::AsyncWrite + core::marker::Unpin> vortex_io::VortexWrite for vortex_io::AsyncWriteAdapter<W>
+
 pub async fn vortex_io::AsyncWriteAdapter<W>::flush(&mut self) -> std::io::error::Result<()>
+
 pub async fn vortex_io::AsyncWriteAdapter<W>::shutdown(&mut self) -> std::io::error::Result<()>
+
 pub async fn vortex_io::AsyncWriteAdapter<W>::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> std::io::error::Result<B>
+
 pub struct vortex_io::CoalesceConfig
+
 pub vortex_io::CoalesceConfig::distance: u64
+
 pub vortex_io::CoalesceConfig::max_size: u64
+
 impl vortex_io::CoalesceConfig
+
 pub fn vortex_io::CoalesceConfig::local() -> Self
+
 pub fn vortex_io::CoalesceConfig::new(distance: u64, max_size: u64) -> Self
+
 pub fn vortex_io::CoalesceConfig::object_storage() -> Self
+
 impl core::clone::Clone for vortex_io::CoalesceConfig
+
 pub fn vortex_io::CoalesceConfig::clone(&self) -> vortex_io::CoalesceConfig
+
 impl core::fmt::Debug for vortex_io::CoalesceConfig
+
 pub fn vortex_io::CoalesceConfig::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::marker::Copy for vortex_io::CoalesceConfig
+
 pub struct vortex_io::InstrumentedReadAt<T: vortex_io::VortexReadAt + core::clone::Clone>
+
 impl<T: vortex_io::VortexReadAt + core::clone::Clone> vortex_io::InstrumentedReadAt<T>
+
 pub fn vortex_io::InstrumentedReadAt<T>::new(read: T, metrics_registry: &dyn vortex_metrics::MetricsRegistry) -> Self
+
 pub fn vortex_io::InstrumentedReadAt<T>::new_with_labels<I, L>(read: T, metrics_registry: &dyn vortex_metrics::MetricsRegistry, labels: I) -> Self where I: core::iter::traits::collect::IntoIterator<Item = L>, L: core::convert::Into<vortex_metrics::Label>
+
 impl<T: core::clone::Clone + vortex_io::VortexReadAt + core::clone::Clone> core::clone::Clone for vortex_io::InstrumentedReadAt<T>
+
 pub fn vortex_io::InstrumentedReadAt<T>::clone(&self) -> vortex_io::InstrumentedReadAt<T>
+
 impl<T: vortex_io::VortexReadAt + core::clone::Clone> vortex_io::VortexReadAt for vortex_io::InstrumentedReadAt<T>
+
 pub fn vortex_io::InstrumentedReadAt<T>::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+
 pub fn vortex_io::InstrumentedReadAt<T>::concurrency(&self) -> usize
+
 pub fn vortex_io::InstrumentedReadAt<T>::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
 pub fn vortex_io::InstrumentedReadAt<T>::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
 pub fn vortex_io::InstrumentedReadAt<T>::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+
 pub struct vortex_io::OwnedSlice<T>
+
 impl<T> vortex_io::OwnedSlice<T>
+
 pub fn vortex_io::OwnedSlice<T>::into_inner(self) -> T
+
 impl<T: vortex_io::IoBuf> vortex_io::IoBuf for vortex_io::OwnedSlice<T>
+
 pub fn vortex_io::OwnedSlice<T>::as_slice(&self) -> &[u8]
+
 pub fn vortex_io::OwnedSlice<T>::bytes_init(&self) -> usize
+
 pub fn vortex_io::OwnedSlice<T>::read_ptr(&self) -> *const u8
+
 pub struct vortex_io::SizeLimitedStream<Fut>
+
 impl<Fut> vortex_io::SizeLimitedStream<Fut> where Fut: core::future::future::Future
+
 pub async fn vortex_io::SizeLimitedStream<Fut>::push(&self, fut: Fut, bytes: usize)
+
 pub fn vortex_io::SizeLimitedStream<Fut>::try_push(&self, fut: Fut, bytes: usize) -> core::result::Result<(), Fut>
+
 impl<Fut> vortex_io::SizeLimitedStream<Fut>
+
 pub fn vortex_io::SizeLimitedStream<Fut>::bytes_available(&self) -> usize
+
 pub fn vortex_io::SizeLimitedStream<Fut>::new(max_bytes: usize) -> Self
+
 impl<'__pin, Fut> core::marker::Unpin for vortex_io::SizeLimitedStream<Fut> where pin_project_lite::__private::PinnedFieldsOf<__Origin<'__pin, Fut>>: core::marker::Unpin
+
 impl<Fut> futures_core::stream::Stream for vortex_io::SizeLimitedStream<Fut> where Fut: core::future::future::Future
+
 pub type vortex_io::SizeLimitedStream<Fut>::Item = <Fut as core::future::future::Future>::Output
+
 pub fn vortex_io::SizeLimitedStream<Fut>::poll_next(self: core::pin::Pin<&mut Self>, cx: &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<core::option::Option<Self::Item>>
+
 pub unsafe trait vortex_io::IoBuf: core::marker::Unpin + 'static
+
 pub fn vortex_io::IoBuf::as_slice(&self) -> &[u8]
+
 pub fn vortex_io::IoBuf::bytes_init(&self) -> usize
+
 pub fn vortex_io::IoBuf::read_ptr(&self) -> *const u8
+
 pub fn vortex_io::IoBuf::slice_owned(self, range: core::ops::range::Range<usize>) -> vortex_io::OwnedSlice<Self> where Self: core::marker::Sized
+
 impl vortex_io::IoBuf for &'static [u8]
+
 pub fn &'static [u8]::as_slice(&self) -> &[u8]
+
 pub fn &'static [u8]::bytes_init(&self) -> usize
+
 pub fn &'static [u8]::read_ptr(&self) -> *const u8
+
 impl vortex_io::IoBuf for alloc::vec::Vec<u8>
+
 pub fn alloc::vec::Vec<u8>::as_slice(&self) -> &[u8]
+
 pub fn alloc::vec::Vec<u8>::bytes_init(&self) -> usize
+
 pub fn alloc::vec::Vec<u8>::read_ptr(&self) -> *const u8
+
 impl vortex_io::IoBuf for bytes::bytes::Bytes
+
 pub fn bytes::bytes::Bytes::as_slice(&self) -> &[u8]
+
 pub fn bytes::bytes::Bytes::bytes_init(&self) -> usize
+
 pub fn bytes::bytes::Bytes::read_ptr(&self) -> *const u8
+
 impl<T: core::marker::Unpin + 'static> vortex_io::IoBuf for vortex_buffer::buffer::Buffer<T>
+
 pub fn vortex_buffer::buffer::Buffer<T>::as_slice(&self) -> &[u8]
+
 pub fn vortex_buffer::buffer::Buffer<T>::bytes_init(&self) -> usize
+
 pub fn vortex_buffer::buffer::Buffer<T>::read_ptr(&self) -> *const u8
+
 impl<T: vortex_io::IoBuf> vortex_io::IoBuf for vortex_io::OwnedSlice<T>
+
 pub fn vortex_io::OwnedSlice<T>::as_slice(&self) -> &[u8]
+
 pub fn vortex_io::OwnedSlice<T>::bytes_init(&self) -> usize
+
 pub fn vortex_io::OwnedSlice<T>::read_ptr(&self) -> *const u8
+
 impl<const A: usize> vortex_io::IoBuf for vortex_buffer::ConstByteBuffer<A>
+
 pub fn vortex_buffer::ConstByteBuffer<A>::as_slice(&self) -> &[u8]
+
 pub fn vortex_buffer::ConstByteBuffer<A>::bytes_init(&self) -> usize
+
 pub fn vortex_buffer::ConstByteBuffer<A>::read_ptr(&self) -> *const u8
+
 impl<const N: usize> vortex_io::IoBuf for [u8; N]
+
 pub fn [u8; N]::as_slice(&self) -> &[u8]
+
 pub fn [u8; N]::bytes_init(&self) -> usize
+
 pub fn [u8; N]::read_ptr(&self) -> *const u8
+
 pub trait vortex_io::VortexReadAt: core::marker::Send + core::marker::Sync + 'static
+
 pub fn vortex_io::VortexReadAt::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+
 pub fn vortex_io::VortexReadAt::concurrency(&self) -> usize
+
 pub fn vortex_io::VortexReadAt::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
 pub fn vortex_io::VortexReadAt::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
 pub fn vortex_io::VortexReadAt::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+
 impl vortex_io::VortexReadAt for alloc::sync::Arc<dyn vortex_io::VortexReadAt>
+
 pub fn alloc::sync::Arc<dyn vortex_io::VortexReadAt>::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+
 pub fn alloc::sync::Arc<dyn vortex_io::VortexReadAt>::concurrency(&self) -> usize
+
 pub fn alloc::sync::Arc<dyn vortex_io::VortexReadAt>::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
 pub fn alloc::sync::Arc<dyn vortex_io::VortexReadAt>::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
 pub fn alloc::sync::Arc<dyn vortex_io::VortexReadAt>::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+
 impl vortex_io::VortexReadAt for vortex_buffer::ByteBuffer
+
 pub fn vortex_buffer::ByteBuffer::concurrency(&self) -> usize
+
 pub fn vortex_buffer::ByteBuffer::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
 pub fn vortex_buffer::ByteBuffer::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
 impl vortex_io::VortexReadAt for vortex_io::file::std_file::FileReadAdapter
+
 pub fn vortex_io::file::std_file::FileReadAdapter::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+
 pub fn vortex_io::file::std_file::FileReadAdapter::concurrency(&self) -> usize
+
 pub fn vortex_io::file::std_file::FileReadAdapter::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
 pub fn vortex_io::file::std_file::FileReadAdapter::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
 pub fn vortex_io::file::std_file::FileReadAdapter::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+
 impl<R: vortex_io::VortexReadAt> vortex_io::VortexReadAt for alloc::sync::Arc<R>
+
 pub fn alloc::sync::Arc<R>::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+
 pub fn alloc::sync::Arc<R>::concurrency(&self) -> usize
+
 pub fn alloc::sync::Arc<R>::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
 pub fn alloc::sync::Arc<R>::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
 pub fn alloc::sync::Arc<R>::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+
 impl<T: vortex_io::VortexReadAt + core::clone::Clone> vortex_io::VortexReadAt for vortex_io::InstrumentedReadAt<T>
+
 pub fn vortex_io::InstrumentedReadAt<T>::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+
 pub fn vortex_io::InstrumentedReadAt<T>::concurrency(&self) -> usize
+
 pub fn vortex_io::InstrumentedReadAt<T>::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
 pub fn vortex_io::InstrumentedReadAt<T>::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
 pub fn vortex_io::InstrumentedReadAt<T>::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+
 pub trait vortex_io::VortexWrite
+
 pub fn vortex_io::VortexWrite::flush(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
 pub fn vortex_io::VortexWrite::shutdown(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
 pub fn vortex_io::VortexWrite::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> impl core::future::future::Future<Output = std::io::error::Result<B>>
+
 impl vortex_io::VortexWrite for alloc::vec::Vec<u8>
+
 pub fn alloc::vec::Vec<u8>::flush(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
 pub fn alloc::vec::Vec<u8>::shutdown(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
 pub fn alloc::vec::Vec<u8>::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> impl core::future::future::Future<Output = std::io::error::Result<B>>
+
 impl vortex_io::VortexWrite for async_fs::File
+
 pub fn async_fs::File::flush(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
 pub fn async_fs::File::shutdown(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
 pub async fn async_fs::File::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> std::io::error::Result<B>
+
 impl vortex_io::VortexWrite for vortex_buffer::ByteBufferMut
+
 pub fn vortex_buffer::ByteBufferMut::flush(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
 pub fn vortex_buffer::ByteBufferMut::shutdown(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
 pub fn vortex_buffer::ByteBufferMut::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> impl core::future::future::Future<Output = std::io::error::Result<B>>
+
 impl<T> vortex_io::VortexWrite for std::io::cursor::Cursor<T> where std::io::cursor::Cursor<T>: std::io::Write
+
 pub fn std::io::cursor::Cursor<T>::flush(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
 pub fn std::io::cursor::Cursor<T>::shutdown(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
 pub fn std::io::cursor::Cursor<T>::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> impl core::future::future::Future<Output = std::io::error::Result<B>>
+
 impl<W: futures_io::if_std::AsyncWrite + core::marker::Unpin> vortex_io::VortexWrite for vortex_io::AsyncWriteAdapter<W>
+
 pub async fn vortex_io::AsyncWriteAdapter<W>::flush(&mut self) -> std::io::error::Result<()>
+
 pub async fn vortex_io::AsyncWriteAdapter<W>::shutdown(&mut self) -> std::io::error::Result<()>
+
 pub async fn vortex_io::AsyncWriteAdapter<W>::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> std::io::error::Result<B>
+
 impl<W: vortex_io::VortexWrite> vortex_io::VortexWrite for &mut W
+
 pub fn &mut W::flush(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
 pub fn &mut W::shutdown(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
 pub fn &mut W::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> impl core::future::future::Future<Output = std::io::error::Result<B>>
+
 impl<W: vortex_io::VortexWrite> vortex_io::VortexWrite for futures_util::io::cursor::Cursor<W>
+
 pub fn futures_util::io::cursor::Cursor<W>::flush(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
 pub fn futures_util::io::cursor::Cursor<W>::shutdown(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
 pub fn futures_util::io::cursor::Cursor<W>::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> impl core::future::future::Future<Output = std::io::error::Result<B>>

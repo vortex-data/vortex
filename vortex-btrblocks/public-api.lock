@@ -1,161 +1,321 @@
 pub mod vortex_btrblocks
+
 pub enum vortex_btrblocks::FloatCode
+
 pub vortex_btrblocks::FloatCode::Alp
+
 pub vortex_btrblocks::FloatCode::AlpRd
+
 pub vortex_btrblocks::FloatCode::Constant
+
 pub vortex_btrblocks::FloatCode::Dict
+
 pub vortex_btrblocks::FloatCode::Pco
+
 pub vortex_btrblocks::FloatCode::Rle
+
 pub vortex_btrblocks::FloatCode::RunEnd
+
 pub vortex_btrblocks::FloatCode::Sparse
+
 pub vortex_btrblocks::FloatCode::Uncompressed
+
 impl core::clone::Clone for vortex_btrblocks::FloatCode
+
 pub fn vortex_btrblocks::FloatCode::clone(&self) -> vortex_btrblocks::FloatCode
+
 impl core::cmp::Eq for vortex_btrblocks::FloatCode
+
 impl core::cmp::Ord for vortex_btrblocks::FloatCode
+
 pub fn vortex_btrblocks::FloatCode::cmp(&self, other: &vortex_btrblocks::FloatCode) -> core::cmp::Ordering
+
 impl core::cmp::PartialEq for vortex_btrblocks::FloatCode
+
 pub fn vortex_btrblocks::FloatCode::eq(&self, other: &vortex_btrblocks::FloatCode) -> bool
+
 impl core::cmp::PartialOrd for vortex_btrblocks::FloatCode
+
 pub fn vortex_btrblocks::FloatCode::partial_cmp(&self, other: &vortex_btrblocks::FloatCode) -> core::option::Option<core::cmp::Ordering>
+
 impl core::fmt::Debug for vortex_btrblocks::FloatCode
+
 pub fn vortex_btrblocks::FloatCode::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::hash::Hash for vortex_btrblocks::FloatCode
+
 pub fn vortex_btrblocks::FloatCode::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
 impl core::marker::Copy for vortex_btrblocks::FloatCode
+
 impl core::marker::StructuralPartialEq for vortex_btrblocks::FloatCode
+
 impl enum_iterator::Sequence for vortex_btrblocks::FloatCode
+
 pub const vortex_btrblocks::FloatCode::CARDINALITY: usize
+
 pub fn vortex_btrblocks::FloatCode::first() -> core::option::Option<Self>
+
 pub fn vortex_btrblocks::FloatCode::last() -> core::option::Option<Self>
+
 pub fn vortex_btrblocks::FloatCode::next(&self) -> core::option::Option<Self>
+
 pub fn vortex_btrblocks::FloatCode::previous(&self) -> core::option::Option<Self>
+
 pub enum vortex_btrblocks::IntCode
+
 pub vortex_btrblocks::IntCode::BitPacking
+
 pub vortex_btrblocks::IntCode::Constant
+
 pub vortex_btrblocks::IntCode::Dict
+
 pub vortex_btrblocks::IntCode::For
+
 pub vortex_btrblocks::IntCode::Pco
+
 pub vortex_btrblocks::IntCode::Rle
+
 pub vortex_btrblocks::IntCode::RunEnd
+
 pub vortex_btrblocks::IntCode::Sequence
+
 pub vortex_btrblocks::IntCode::Sparse
+
 pub vortex_btrblocks::IntCode::Uncompressed
+
 pub vortex_btrblocks::IntCode::ZigZag
+
 impl core::clone::Clone for vortex_btrblocks::IntCode
+
 pub fn vortex_btrblocks::IntCode::clone(&self) -> vortex_btrblocks::IntCode
+
 impl core::cmp::Eq for vortex_btrblocks::IntCode
+
 impl core::cmp::Ord for vortex_btrblocks::IntCode
+
 pub fn vortex_btrblocks::IntCode::cmp(&self, other: &vortex_btrblocks::IntCode) -> core::cmp::Ordering
+
 impl core::cmp::PartialEq for vortex_btrblocks::IntCode
+
 pub fn vortex_btrblocks::IntCode::eq(&self, other: &vortex_btrblocks::IntCode) -> bool
+
 impl core::cmp::PartialOrd for vortex_btrblocks::IntCode
+
 pub fn vortex_btrblocks::IntCode::partial_cmp(&self, other: &vortex_btrblocks::IntCode) -> core::option::Option<core::cmp::Ordering>
+
 impl core::fmt::Debug for vortex_btrblocks::IntCode
+
 pub fn vortex_btrblocks::IntCode::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::hash::Hash for vortex_btrblocks::IntCode
+
 pub fn vortex_btrblocks::IntCode::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
 impl core::marker::Copy for vortex_btrblocks::IntCode
+
 impl core::marker::StructuralPartialEq for vortex_btrblocks::IntCode
+
 impl enum_iterator::Sequence for vortex_btrblocks::IntCode
+
 pub const vortex_btrblocks::IntCode::CARDINALITY: usize
+
 pub fn vortex_btrblocks::IntCode::first() -> core::option::Option<Self>
+
 pub fn vortex_btrblocks::IntCode::last() -> core::option::Option<Self>
+
 pub fn vortex_btrblocks::IntCode::next(&self) -> core::option::Option<Self>
+
 pub fn vortex_btrblocks::IntCode::previous(&self) -> core::option::Option<Self>
+
 pub enum vortex_btrblocks::StringCode
+
 pub vortex_btrblocks::StringCode::Constant
+
 pub vortex_btrblocks::StringCode::Dict
+
 pub vortex_btrblocks::StringCode::Fsst
+
 pub vortex_btrblocks::StringCode::Sparse
+
 pub vortex_btrblocks::StringCode::Uncompressed
+
 pub vortex_btrblocks::StringCode::Zstd
+
 pub vortex_btrblocks::StringCode::ZstdBuffers
+
 impl core::clone::Clone for vortex_btrblocks::StringCode
+
 pub fn vortex_btrblocks::StringCode::clone(&self) -> vortex_btrblocks::StringCode
+
 impl core::cmp::Eq for vortex_btrblocks::StringCode
+
 impl core::cmp::Ord for vortex_btrblocks::StringCode
+
 pub fn vortex_btrblocks::StringCode::cmp(&self, other: &vortex_btrblocks::StringCode) -> core::cmp::Ordering
+
 impl core::cmp::PartialEq for vortex_btrblocks::StringCode
+
 pub fn vortex_btrblocks::StringCode::eq(&self, other: &vortex_btrblocks::StringCode) -> bool
+
 impl core::cmp::PartialOrd for vortex_btrblocks::StringCode
+
 pub fn vortex_btrblocks::StringCode::partial_cmp(&self, other: &vortex_btrblocks::StringCode) -> core::option::Option<core::cmp::Ordering>
+
 impl core::fmt::Debug for vortex_btrblocks::StringCode
+
 pub fn vortex_btrblocks::StringCode::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::hash::Hash for vortex_btrblocks::StringCode
+
 pub fn vortex_btrblocks::StringCode::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
 impl core::marker::Copy for vortex_btrblocks::StringCode
+
 impl core::marker::StructuralPartialEq for vortex_btrblocks::StringCode
+
 impl enum_iterator::Sequence for vortex_btrblocks::StringCode
+
 pub const vortex_btrblocks::StringCode::CARDINALITY: usize
+
 pub fn vortex_btrblocks::StringCode::first() -> core::option::Option<Self>
+
 pub fn vortex_btrblocks::StringCode::last() -> core::option::Option<Self>
+
 pub fn vortex_btrblocks::StringCode::next(&self) -> core::option::Option<Self>
+
 pub fn vortex_btrblocks::StringCode::previous(&self) -> core::option::Option<Self>
+
 pub struct vortex_btrblocks::BtrBlocksCompressor
+
 pub vortex_btrblocks::BtrBlocksCompressor::float_schemes: alloc::vec::Vec<&'static dyn vortex_btrblocks::compressor::float::FloatScheme>
+
 pub vortex_btrblocks::BtrBlocksCompressor::int_schemes: alloc::vec::Vec<&'static dyn vortex_btrblocks::compressor::integer::IntegerScheme>
+
 pub vortex_btrblocks::BtrBlocksCompressor::string_schemes: alloc::vec::Vec<&'static dyn vortex_btrblocks::compressor::string::StringScheme>
+
 impl vortex_btrblocks::BtrBlocksCompressor
+
 pub fn vortex_btrblocks::BtrBlocksCompressor::compress(&self, array: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+
 impl core::clone::Clone for vortex_btrblocks::BtrBlocksCompressor
+
 pub fn vortex_btrblocks::BtrBlocksCompressor::clone(&self) -> vortex_btrblocks::BtrBlocksCompressor
+
 impl core::default::Default for vortex_btrblocks::BtrBlocksCompressor
+
 pub fn vortex_btrblocks::BtrBlocksCompressor::default() -> Self
+
 impl vortex_btrblocks::CanonicalCompressor for vortex_btrblocks::BtrBlocksCompressor
+
 pub fn vortex_btrblocks::BtrBlocksCompressor::compress_canonical(&self, array: vortex_array::canonical::Canonical, ctx: vortex_btrblocks::ctx::CompressorContext, excludes: vortex_btrblocks::ctx::Excludes<'_>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+
 pub fn vortex_btrblocks::BtrBlocksCompressor::float_schemes(&self) -> &[&'static dyn vortex_btrblocks::compressor::float::FloatScheme]
+
 pub fn vortex_btrblocks::BtrBlocksCompressor::int_schemes(&self) -> &[&'static dyn vortex_btrblocks::compressor::integer::IntegerScheme]
+
 pub fn vortex_btrblocks::BtrBlocksCompressor::string_schemes(&self) -> &[&'static dyn vortex_btrblocks::compressor::string::StringScheme]
+
 pub struct vortex_btrblocks::BtrBlocksCompressorBuilder
+
 impl vortex_btrblocks::BtrBlocksCompressorBuilder
+
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::build(self) -> vortex_btrblocks::BtrBlocksCompressor
+
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::exclude_float(self, codes: impl core::iter::traits::collect::IntoIterator<Item = vortex_btrblocks::FloatCode>) -> Self
+
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::exclude_int(self, codes: impl core::iter::traits::collect::IntoIterator<Item = vortex_btrblocks::IntCode>) -> Self
+
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::exclude_string(self, codes: impl core::iter::traits::collect::IntoIterator<Item = vortex_btrblocks::StringCode>) -> Self
+
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::include_float(self, codes: impl core::iter::traits::collect::IntoIterator<Item = vortex_btrblocks::FloatCode>) -> Self
+
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::include_int(self, codes: impl core::iter::traits::collect::IntoIterator<Item = vortex_btrblocks::IntCode>) -> Self
+
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::include_string(self, codes: impl core::iter::traits::collect::IntoIterator<Item = vortex_btrblocks::StringCode>) -> Self
+
 impl core::clone::Clone for vortex_btrblocks::BtrBlocksCompressorBuilder
+
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::clone(&self) -> vortex_btrblocks::BtrBlocksCompressorBuilder
+
 impl core::default::Default for vortex_btrblocks::BtrBlocksCompressorBuilder
+
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::default() -> Self
+
 impl core::fmt::Debug for vortex_btrblocks::BtrBlocksCompressorBuilder
+
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 pub struct vortex_btrblocks::GenerateStatsOptions
+
 pub vortex_btrblocks::GenerateStatsOptions::count_distinct_values: bool
+
 impl core::default::Default for vortex_btrblocks::GenerateStatsOptions
+
 pub fn vortex_btrblocks::GenerateStatsOptions::default() -> Self
+
 pub struct vortex_btrblocks::IntegerStats
+
 impl core::clone::Clone for vortex_btrblocks::IntegerStats
+
 pub fn vortex_btrblocks::IntegerStats::clone(&self) -> vortex_btrblocks::IntegerStats
+
 impl core::fmt::Debug for vortex_btrblocks::IntegerStats
+
 pub fn vortex_btrblocks::IntegerStats::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl vortex_btrblocks::CompressorStats for vortex_btrblocks::IntegerStats
+
 pub type vortex_btrblocks::IntegerStats::ArrayVTable = vortex_array::arrays::primitive::vtable::PrimitiveVTable
+
 pub fn vortex_btrblocks::IntegerStats::generate_opts(input: &vortex_array::arrays::primitive::array::PrimitiveArray, opts: vortex_btrblocks::GenerateStatsOptions) -> Self
+
 pub fn vortex_btrblocks::IntegerStats::sample_opts(&self, sample_size: u32, sample_count: u32, opts: vortex_btrblocks::GenerateStatsOptions) -> Self
+
 pub fn vortex_btrblocks::IntegerStats::source(&self) -> &vortex_array::arrays::primitive::array::PrimitiveArray
+
 pub trait vortex_btrblocks::CanonicalCompressor
+
 pub fn vortex_btrblocks::CanonicalCompressor::compress_canonical(&self, array: vortex_array::canonical::Canonical, ctx: vortex_btrblocks::ctx::CompressorContext, excludes: vortex_btrblocks::ctx::Excludes<'_>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+
 pub fn vortex_btrblocks::CanonicalCompressor::float_schemes(&self) -> &[&'static dyn vortex_btrblocks::compressor::float::FloatScheme]
+
 pub fn vortex_btrblocks::CanonicalCompressor::int_schemes(&self) -> &[&'static dyn vortex_btrblocks::compressor::integer::IntegerScheme]
+
 pub fn vortex_btrblocks::CanonicalCompressor::string_schemes(&self) -> &[&'static dyn vortex_btrblocks::compressor::string::StringScheme]
+
 impl vortex_btrblocks::CanonicalCompressor for vortex_btrblocks::BtrBlocksCompressor
+
 pub fn vortex_btrblocks::BtrBlocksCompressor::compress_canonical(&self, array: vortex_array::canonical::Canonical, ctx: vortex_btrblocks::ctx::CompressorContext, excludes: vortex_btrblocks::ctx::Excludes<'_>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+
 pub fn vortex_btrblocks::BtrBlocksCompressor::float_schemes(&self) -> &[&'static dyn vortex_btrblocks::compressor::float::FloatScheme]
+
 pub fn vortex_btrblocks::BtrBlocksCompressor::int_schemes(&self) -> &[&'static dyn vortex_btrblocks::compressor::integer::IntegerScheme]
+
 pub fn vortex_btrblocks::BtrBlocksCompressor::string_schemes(&self) -> &[&'static dyn vortex_btrblocks::compressor::string::StringScheme]
+
 pub trait vortex_btrblocks::CompressorStats: core::fmt::Debug + core::clone::Clone
+
 pub type vortex_btrblocks::CompressorStats::ArrayVTable: vortex_array::vtable::VTable
+
 pub fn vortex_btrblocks::CompressorStats::generate(input: &<Self::ArrayVTable as vortex_array::vtable::VTable>::Array) -> Self
+
 pub fn vortex_btrblocks::CompressorStats::generate_opts(input: &<Self::ArrayVTable as vortex_array::vtable::VTable>::Array, opts: vortex_btrblocks::GenerateStatsOptions) -> Self
+
 pub fn vortex_btrblocks::CompressorStats::sample(&self, sample_size: u32, sample_count: u32) -> Self
+
 pub fn vortex_btrblocks::CompressorStats::sample_opts(&self, sample_size: u32, sample_count: u32, opts: vortex_btrblocks::GenerateStatsOptions) -> Self
+
 pub fn vortex_btrblocks::CompressorStats::source(&self) -> &<Self::ArrayVTable as vortex_array::vtable::VTable>::Array
+
 impl vortex_btrblocks::CompressorStats for vortex_btrblocks::IntegerStats
+
 pub type vortex_btrblocks::IntegerStats::ArrayVTable = vortex_array::arrays::primitive::vtable::PrimitiveVTable
+
 pub fn vortex_btrblocks::IntegerStats::generate_opts(input: &vortex_array::arrays::primitive::array::PrimitiveArray, opts: vortex_btrblocks::GenerateStatsOptions) -> Self
+
 pub fn vortex_btrblocks::IntegerStats::sample_opts(&self, sample_size: u32, sample_count: u32, opts: vortex_btrblocks::GenerateStatsOptions) -> Self
+
 pub fn vortex_btrblocks::IntegerStats::source(&self) -> &vortex_array::arrays::primitive::array::PrimitiveArray
+
 pub fn vortex_btrblocks::integer_dictionary_encode(stats: &vortex_btrblocks::IntegerStats) -> vortex_array::arrays::dict::array::DictArray

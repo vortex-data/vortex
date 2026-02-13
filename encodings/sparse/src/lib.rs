@@ -51,6 +51,7 @@ use vortex_scalar::ScalarValue;
 use vortex_session::VortexSession;
 
 use crate::canonical::execute_sparse;
+use crate::rules::RULES;
 
 mod canonical;
 mod compute;
@@ -96,6 +97,7 @@ impl VTable for SparseVTable {
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(SparseMetadata::decode(bytes)?))
@@ -160,6 +162,14 @@ impl VTable for SparseVTable {
         Ok(())
     }
 
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
+    }
+
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
@@ -167,14 +177,6 @@ impl VTable for SparseVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
-    }
-
-    fn reduce_parent(
-        array: &Self::Array,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        rules::RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
@@ -452,7 +454,7 @@ mod test {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
@@ -474,7 +476,7 @@ mod test {
     fn sparse_array(fill_value: Scalar) -> ArrayRef {
         // merged array: [null, null, 100, null, null, 200, null, null, 300, null]
         let mut values = buffer![100i32, 200, 300].into_array();
-        values = cast(&values, fill_value.dtype()).unwrap();
+        values = values.cast(fill_value.dtype().clone()).unwrap();
 
         SparseArray::try_new(buffer![2u64, 5, 8].into_array(), values, 10, fill_value)
             .unwrap()

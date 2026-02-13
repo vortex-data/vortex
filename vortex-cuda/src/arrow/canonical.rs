@@ -13,6 +13,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::StructArrayParts;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::vtable::ValidityHelper;
+use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::DecimalType;
 use vortex_dtype::datetime::AnyTemporal;
 use vortex_error::VortexResult;
@@ -272,5 +273,173 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
 
         // update the release function to NULL to avoid any possibility of double-frees.
         (*array).release = None;
+    }
+}
+
+#[cuda_tests]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::DecimalArray;
+    use vortex_array::arrays::NullArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::TemporalArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::validity::Validity;
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::FieldNames;
+    use vortex_dtype::datetime::TimeUnit;
+    use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
+    use super::release_array;
+    use crate::arrow::DeviceArrayExt;
+    use crate::arrow::DeviceType;
+    use crate::session::CudaSession;
+
+    #[rstest]
+    #[case::u8(PrimitiveArray::from_iter(0u8..10).into_array(), 10)]
+    #[case::u16(PrimitiveArray::from_iter(0u16..10).into_array(), 10)]
+    #[case::u32(PrimitiveArray::from_iter(0u32..10).into_array(), 10)]
+    #[case::u64(PrimitiveArray::from_iter(0u64..10).into_array(), 10)]
+    #[case::i32(PrimitiveArray::from_iter(0i32..10).into_array(), 10)]
+    #[case::i64(PrimitiveArray::from_iter(0i64..10).into_array(), 10)]
+    #[case::f32(PrimitiveArray::from_iter([1.0f32, 2.0, 3.0]).into_array(), 3)]
+    #[case::f64(PrimitiveArray::from_iter([1.0f64, 2.0, 3.0]).into_array(), 3)]
+    #[tokio::test]
+    async fn test_export_primitive(
+        #[case] array: vortex_array::ArrayRef,
+        #[case] expected_len: i64,
+    ) -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let mut device_array = array.export_device_array(&mut ctx).await?;
+
+        assert_eq!(device_array.array.length, expected_len);
+        assert_eq!(device_array.array.null_count, 0);
+        assert_eq!(device_array.array.offset, 0);
+        assert_eq!(device_array.array.n_buffers, 2);
+        assert_eq!(device_array.array.n_children, 0);
+        assert!(device_array.array.release.is_some());
+        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+
+        unsafe { release_array(&raw mut device_array.array) };
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_export_null() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = NullArray::new(7).into_array();
+        let mut device_array = array.export_device_array(&mut ctx).await?;
+
+        assert_eq!(device_array.array.length, 7);
+        assert_eq!(device_array.array.null_count, 7);
+        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+
+        unsafe { release_array(&raw mut device_array.array) };
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_export_decimal() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = DecimalArray::from_iter(0i128..5, DecimalDType::new(38, 2)).into_array();
+        let mut device_array = array.export_device_array(&mut ctx).await?;
+
+        assert_eq!(device_array.array.length, 5);
+        assert_eq!(device_array.array.null_count, 0);
+        assert_eq!(device_array.array.n_buffers, 2);
+        assert_eq!(device_array.array.n_children, 0);
+        assert!(device_array.array.release.is_some());
+        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+
+        unsafe { release_array(&raw mut device_array.array) };
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_export_temporal() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = TemporalArray::new_date(
+            PrimitiveArray::from_iter([100i32, 200, 300]).into_array(),
+            TimeUnit::Days,
+        )
+        .into_array();
+        let mut device_array = array.export_device_array(&mut ctx).await?;
+
+        assert_eq!(device_array.array.length, 3);
+        assert_eq!(device_array.array.null_count, 0);
+        assert_eq!(device_array.array.n_buffers, 2);
+        assert_eq!(device_array.array.n_children, 0);
+        assert!(device_array.array.release.is_some());
+        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+
+        unsafe { release_array(&raw mut device_array.array) };
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_export_varbinview() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = VarBinViewArray::from_iter_str([
+            "hello",
+            "world",
+            "this is a longer string for out-of-line storage",
+        ])
+        .into_array();
+        let mut device_array = array.export_device_array(&mut ctx).await?;
+
+        assert_eq!(device_array.array.length, 3);
+        assert_eq!(device_array.array.null_count, 0);
+        // VarBin export: null buffer + offsets + data
+        assert_eq!(device_array.array.n_buffers, 2);
+        assert_eq!(device_array.array.n_children, 0);
+        assert!(device_array.array.release.is_some());
+        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+
+        unsafe { release_array(&raw mut device_array.array) };
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_export_struct() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = StructArray::new(
+            FieldNames::from_iter(["a", "b"]),
+            vec![
+                PrimitiveArray::from_iter(0u32..5).into_array(),
+                PrimitiveArray::from_iter(0i64..5).into_array(),
+            ],
+            5,
+            Validity::NonNullable,
+        )
+        .into_array();
+        let mut device_array = array.export_device_array(&mut ctx).await?;
+
+        assert_eq!(device_array.array.length, 5);
+        assert_eq!(device_array.array.null_count, 0);
+        // Struct has a single (null) validity buffer
+        assert_eq!(device_array.array.n_buffers, 1);
+        assert_eq!(device_array.array.n_children, 2);
+        assert!(device_array.array.release.is_some());
+        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+
+        unsafe { release_array(&raw mut device_array.array) };
+        Ok(())
     }
 }

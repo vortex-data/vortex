@@ -22,9 +22,11 @@ use vortex_session::VortexSession;
 use crate::RLEArray;
 use crate::rle::array::rle_decompress::rle_decompress;
 use crate::rle::kernel::PARENT_KERNELS;
+use crate::rle::vtable::rules::RULES;
 
 mod array;
 mod operations;
+mod rules;
 mod validity;
 mod visitor;
 
@@ -58,6 +60,14 @@ impl VTable for RLEVTable {
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -98,6 +108,7 @@ impl VTable for RLEVTable {
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(RLEMetadata::decode(bytes)?))

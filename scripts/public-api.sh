@@ -37,20 +37,26 @@ echo "Found ${#crate_names[@]} published crates."
 echo "Pre-building all crates..."
 cargo +nightly check "${pkg_flags[@]}"
 
+# Insert blank lines between every item to reduce git conflicts
+format_api() {
+    awk 'NR > 1 { print "" } { print }'
+}
+export -f format_api
+
 # Step 2: Generate public-api.lock files in parallel.
 # Each invocation only needs to run rustdoc on a single (already-compiled) crate.
 if command -v parallel &>/dev/null; then
     echo "Generating public API lock files in parallel..."
     export REPO_ROOT
     parallel --bar \
-        'cargo +nightly public-api -p {1} -ss > "$REPO_ROOT/{2}/public-api.lock"' \
+        'cargo +nightly public-api -p {1} -ss | format_api > "$REPO_ROOT/{2}/public-api.lock"' \
         ::: "${crate_names[@]}" :::+ "${crate_paths[@]}"
 else
     echo "GNU parallel not found, falling back to sequential generation..."
     echo "  hint: brew install parallel (macOS) or apt install parallel (Linux)"
     for i in "${!crate_names[@]}"; do
         echo "  ${crate_names[$i]} -> ${crate_paths[$i]}/public-api.lock"
-        cargo +nightly public-api -p "${crate_names[$i]}" -ss > "$REPO_ROOT/${crate_paths[$i]}/public-api.lock"
+        cargo +nightly public-api -p "${crate_names[$i]}" -ss | format_api > "$REPO_ROOT/${crate_paths[$i]}/public-api.lock"
     done
 fi
 

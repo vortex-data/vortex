@@ -115,10 +115,8 @@ jobs:
             | jq -r '.workflow_runs[].head_sha' \
           )
 
-          aws s3 cp s3://vortex-benchmark-results-database/data.json.gz - --no-sign-request \
-            | gzip -d \
-            | grep $base_commit_sha \
-            > base.json
+          python3 scripts/s3-download.py s3://vortex-benchmark-results-database/data.json.gz data.json.gz --no-sign-request
+          gzip -d -c data.json.gz | grep $base_commit_sha > base.json
 
           echo '# Benchmarks: ${{ matrix.benchmark.name }}' > comment.md
           echo '' >> comment.md

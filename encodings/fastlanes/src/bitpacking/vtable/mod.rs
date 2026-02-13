@@ -31,9 +31,11 @@ use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
+use crate::bitpacking::vtable::rules::RULES;
 mod array;
 mod kernels;
 mod operations;
+mod rules;
 mod validity;
 mod visitor;
 
@@ -61,6 +63,14 @@ impl VTable for BitPackedVTable {
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -151,6 +161,7 @@ impl VTable for BitPackedVTable {
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         let inner = <ProstMetadata<BitPackedMetadata> as DeserializeMetadata>::deserialize(bytes)?;

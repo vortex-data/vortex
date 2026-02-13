@@ -7,7 +7,8 @@ use vortex_array::arrays::AnyScalarFn;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ConstantVTable;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::compute::FillNullReduceAdaptor;
+use vortex_array::compute::CastReduceAdaptor;
+use vortex_array::expr::FillNullReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_dtype::DType;
@@ -17,6 +18,10 @@ use crate::RunEndArray;
 use crate::RunEndVTable;
 
 pub(super) const RULES: ParentRuleSet<RunEndVTable> = ParentRuleSet::new(&[
+    // CastReduceAdaptor must come before RunEndScalarFnRule so that cast operations are executed
+    // eagerly (surfacing out-of-range errors immediately) rather than being pushed lazily into
+    // the values array by the generic scalar function push-down rule.
+    ParentRuleSet::lift(&CastReduceAdaptor(RunEndVTable)),
     ParentRuleSet::lift(&RunEndScalarFnRule),
     ParentRuleSet::lift(&FillNullReduceAdaptor(RunEndVTable)),
 ]);

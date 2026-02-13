@@ -18,6 +18,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::shared::SharedArray;
+use crate::buffer::BufferHandle;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::StatsSetRef;
@@ -66,6 +67,7 @@ impl VTable for SharedVTable {
         _bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         vortex_error::vortex_bail!("Shared array is not serializable")
@@ -75,7 +77,7 @@ impl VTable for SharedVTable {
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
-        _buffers: &[crate::buffer::BufferHandle],
+        _buffers: &[BufferHandle],
         children: &dyn crate::serde::ArrayChildren,
     ) -> VortexResult<SharedArray> {
         let child = children.get(0, dtype, len)?;

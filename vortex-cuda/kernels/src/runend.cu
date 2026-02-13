@@ -24,7 +24,7 @@ constexpr uint32_t MAX_CACHED_RUNS = 512;
 /// Returns the index of the first element that is greater than `value`, or
 /// `len` if no such element exists.
 template<typename T>
-__device__ __forceinline__ uint64_t upper_bound(const T *data, uint64_t len, uint64_t value) {
+__device__ inline uint64_t upper_bound(const T *data, uint64_t len, uint64_t value) {
 
     auto it = thrust::upper_bound(thrust::seq, data, data + len, value);
     return it - data;

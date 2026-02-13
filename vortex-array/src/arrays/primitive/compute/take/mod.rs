@@ -25,7 +25,7 @@ use crate::ToCanonical;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::TakeExecute;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::cast;
+use crate::builtins::ArrayBuiltins;
 use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -94,7 +94,10 @@ impl TakeExecute for PrimitiveVTable {
             indices.to_primitive()
         } else {
             // This will fail if all values cannot be converted to unsigned
-            cast(indices, &DType::Primitive(ptype.to_unsigned(), *null))?.to_primitive()
+            indices
+                .to_array()
+                .cast(DType::Primitive(ptype.to_unsigned(), *null))?
+                .to_primitive()
         };
 
         let validity = array.validity().take(unsigned_indices.as_ref())?;

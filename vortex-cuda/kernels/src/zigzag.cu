@@ -9,7 +9,7 @@
 // This interleaves positive and negative numbers: 0, -1, 1, -2, 2, -3, ...
 template<typename UnsignedT, typename SignedT>
 struct ZigZagOp {
-    __device__ __forceinline__ SignedT operator()(UnsignedT value) const {
+    __device__ inline SignedT operator()(UnsignedT value) const {
         // ZigZag decode: (n >> 1) ^ -(n & 1)
         // The -(n & 1) is equivalent to: if (n & 1) then -1 else 0
         return static_cast<SignedT>((value >> 1) ^ (~(value & 1) + 1));

@@ -73,7 +73,7 @@ jobs:
           CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
           CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
 
-          if aws s3 cp "s3://vortex-fuzz-corpus/$CORPUS_KEY" . 2>/dev/null; then
+          if python3 scripts/s3-download.py "s3://vortex-fuzz-corpus/$CORPUS_KEY" "$CORPUS_KEY"; then
             echo "Downloaded corpus successfully"
             tar -xf "$CORPUS_KEY"
           else
@@ -108,4 +108,4 @@ jobs:
           CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
           CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
           tar -acf "$CORPUS_KEY" "$CORPUS_DIR"
-          aws s3api put-object --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --body "$CORPUS_KEY" --checksum-algorithm CRC32
+          python3 scripts/s3-upload.py --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --body "$CORPUS_KEY" --checksum-algorithm CRC32

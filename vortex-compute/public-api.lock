@@ -1,1275 +1,2549 @@
 pub mod vortex_compute
+
 pub mod vortex_compute::arithmetic
+
 pub struct vortex_compute::arithmetic::Add
+
 impl vortex_compute::arithmetic::Operator<f32> for vortex_compute::arithmetic::Add
+
 pub fn vortex_compute::arithmetic::Add::apply(a: &f32, b: &f32) -> f32
+
 impl vortex_compute::arithmetic::Operator<f64> for vortex_compute::arithmetic::Add
+
 pub fn vortex_compute::arithmetic::Add::apply(a: &f64, b: &f64) -> f64
+
 impl vortex_compute::arithmetic::Operator<half::binary16::f16> for vortex_compute::arithmetic::Add
+
 pub fn vortex_compute::arithmetic::Add::apply(a: &half::binary16::f16, b: &half::binary16::f16) -> half::binary16::f16
+
 impl<T: num_traits::ops::checked::CheckedAdd> vortex_compute::arithmetic::CheckedOperator<T> for vortex_compute::arithmetic::Add
+
 pub fn vortex_compute::arithmetic::Add::apply(a: &T, b: &T) -> core::option::Option<T>
+
 pub struct vortex_compute::arithmetic::Div
+
 impl vortex_compute::arithmetic::Operator<f32> for vortex_compute::arithmetic::Div
+
 pub fn vortex_compute::arithmetic::Div::apply(a: &f32, b: &f32) -> f32
+
 impl vortex_compute::arithmetic::Operator<f64> for vortex_compute::arithmetic::Div
+
 pub fn vortex_compute::arithmetic::Div::apply(a: &f64, b: &f64) -> f64
+
 impl vortex_compute::arithmetic::Operator<half::binary16::f16> for vortex_compute::arithmetic::Div
+
 pub fn vortex_compute::arithmetic::Div::apply(a: &half::binary16::f16, b: &half::binary16::f16) -> half::binary16::f16
+
 impl<T: num_traits::ops::checked::CheckedDiv> vortex_compute::arithmetic::CheckedOperator<T> for vortex_compute::arithmetic::Div
+
 pub fn vortex_compute::arithmetic::Div::apply(a: &T, b: &T) -> core::option::Option<T>
+
 pub struct vortex_compute::arithmetic::Mul
+
 impl vortex_compute::arithmetic::Operator<f32> for vortex_compute::arithmetic::Mul
+
 pub fn vortex_compute::arithmetic::Mul::apply(a: &f32, b: &f32) -> f32
+
 impl vortex_compute::arithmetic::Operator<f64> for vortex_compute::arithmetic::Mul
+
 pub fn vortex_compute::arithmetic::Mul::apply(a: &f64, b: &f64) -> f64
+
 impl vortex_compute::arithmetic::Operator<half::binary16::f16> for vortex_compute::arithmetic::Mul
+
 pub fn vortex_compute::arithmetic::Mul::apply(a: &half::binary16::f16, b: &half::binary16::f16) -> half::binary16::f16
+
 impl<T: num_traits::ops::checked::CheckedMul> vortex_compute::arithmetic::CheckedOperator<T> for vortex_compute::arithmetic::Mul
+
 pub fn vortex_compute::arithmetic::Mul::apply(a: &T, b: &T) -> core::option::Option<T>
+
 pub struct vortex_compute::arithmetic::SaturatingAdd
+
 impl<T: num_traits::ops::saturating::SaturatingAdd> vortex_compute::arithmetic::Operator<T> for vortex_compute::arithmetic::SaturatingAdd
+
 pub fn vortex_compute::arithmetic::SaturatingAdd::apply(a: &T, b: &T) -> T
+
 pub struct vortex_compute::arithmetic::SaturatingMul
+
 impl<T: num_traits::ops::saturating::SaturatingMul> vortex_compute::arithmetic::Operator<T> for vortex_compute::arithmetic::SaturatingMul
+
 pub fn vortex_compute::arithmetic::SaturatingMul::apply(a: &T, b: &T) -> T
+
 pub struct vortex_compute::arithmetic::SaturatingSub
+
 impl<T: num_traits::ops::saturating::SaturatingSub> vortex_compute::arithmetic::Operator<T> for vortex_compute::arithmetic::SaturatingSub
+
 pub fn vortex_compute::arithmetic::SaturatingSub::apply(a: &T, b: &T) -> T
+
 pub struct vortex_compute::arithmetic::Sub
+
 impl vortex_compute::arithmetic::Operator<f32> for vortex_compute::arithmetic::Sub
+
 pub fn vortex_compute::arithmetic::Sub::apply(a: &f32, b: &f32) -> f32
+
 impl vortex_compute::arithmetic::Operator<f64> for vortex_compute::arithmetic::Sub
+
 pub fn vortex_compute::arithmetic::Sub::apply(a: &f64, b: &f64) -> f64
+
 impl vortex_compute::arithmetic::Operator<half::binary16::f16> for vortex_compute::arithmetic::Sub
+
 pub fn vortex_compute::arithmetic::Sub::apply(a: &half::binary16::f16, b: &half::binary16::f16) -> half::binary16::f16
+
 impl<T: num_traits::ops::checked::CheckedSub> vortex_compute::arithmetic::CheckedOperator<T> for vortex_compute::arithmetic::Sub
+
 pub fn vortex_compute::arithmetic::Sub::apply(a: &T, b: &T) -> core::option::Option<T>
+
 pub struct vortex_compute::arithmetic::WrappingAdd
+
 impl<T: num_traits::ops::wrapping::WrappingAdd> vortex_compute::arithmetic::Operator<T> for vortex_compute::arithmetic::WrappingAdd
+
 pub fn vortex_compute::arithmetic::WrappingAdd::apply(a: &T, b: &T) -> T
+
 pub struct vortex_compute::arithmetic::WrappingMul
+
 impl<T: num_traits::ops::wrapping::WrappingMul> vortex_compute::arithmetic::Operator<T> for vortex_compute::arithmetic::WrappingMul
+
 pub fn vortex_compute::arithmetic::WrappingMul::apply(a: &T, b: &T) -> T
+
 pub struct vortex_compute::arithmetic::WrappingSub
+
 impl<T: num_traits::ops::wrapping::WrappingSub> vortex_compute::arithmetic::Operator<T> for vortex_compute::arithmetic::WrappingSub
+
 pub fn vortex_compute::arithmetic::WrappingSub::apply(a: &T, b: &T) -> T
+
 pub trait vortex_compute::arithmetic::Arithmetic<Op, Rhs>
+
 pub type vortex_compute::arithmetic::Arithmetic::Output
+
 pub fn vortex_compute::arithmetic::Arithmetic::eval(self, rhs: Rhs) -> Self::Output
+
 impl<Op, T> vortex_compute::arithmetic::Arithmetic<Op, &T> for &vortex_buffer::buffer::Buffer<T> where Op: vortex_compute::arithmetic::Operator<T>
+
 pub type &vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &vortex_buffer::buffer::Buffer<T>::eval(self, rhs: &T) -> Self::Output
+
 impl<Op, T> vortex_compute::arithmetic::Arithmetic<Op, &T> for &vortex_vector::primitive::generic::PVector<T> where T: vortex_dtype::ptype::NativePType, Op: vortex_compute::arithmetic::Operator<T>, for<'a> &'a vortex_buffer::buffer::Buffer<T>: vortex_compute::arithmetic::Arithmetic<Op, &'a T, Output = vortex_buffer::buffer::Buffer<T>>
+
 pub type &vortex_vector::primitive::generic::PVector<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn &vortex_vector::primitive::generic::PVector<T>::eval(self, rhs: &T) -> Self::Output
+
 impl<Op, T> vortex_compute::arithmetic::Arithmetic<Op, &T> for vortex_buffer::buffer::Buffer<T> where vortex_buffer::buffer_mut::BufferMut<T>: for<'a> vortex_compute::arithmetic::Arithmetic<Op, &'a T, Output = vortex_buffer::buffer::Buffer<T>>, for<'a> &'a vortex_buffer::buffer::Buffer<T>: vortex_compute::arithmetic::Arithmetic<Op, &'a T, Output = vortex_buffer::buffer::Buffer<T>>
+
 pub type vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn vortex_buffer::buffer::Buffer<T>::eval(self, rhs: &T) -> Self::Output
+
 impl<Op, T> vortex_compute::arithmetic::Arithmetic<Op, &T> for vortex_buffer::buffer_mut::BufferMut<T> where T: core::marker::Copy, Op: vortex_compute::arithmetic::Operator<T>
+
 pub type vortex_buffer::buffer_mut::BufferMut<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn vortex_buffer::buffer_mut::BufferMut<T>::eval(self, rhs: &T) -> Self::Output
+
 impl<Op, T> vortex_compute::arithmetic::Arithmetic<Op, &T> for vortex_vector::primitive::generic::PVector<T> where T: vortex_dtype::ptype::NativePType, Op: vortex_compute::arithmetic::Operator<T>, vortex_vector::primitive::generic_mut::PVectorMut<T>: for<'a> vortex_compute::arithmetic::Arithmetic<Op, &'a T, Output = vortex_vector::primitive::generic::PVector<T>>
+
 pub type vortex_vector::primitive::generic::PVector<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn vortex_vector::primitive::generic::PVector<T>::eval(self, rhs: &T) -> Self::Output
+
 impl<Op, T> vortex_compute::arithmetic::Arithmetic<Op, &T> for vortex_vector::primitive::generic_mut::PVectorMut<T> where T: vortex_dtype::ptype::NativePType, Op: vortex_compute::arithmetic::Operator<T>, vortex_buffer::buffer_mut::BufferMut<T>: for<'a> vortex_compute::arithmetic::Arithmetic<Op, &'a T, Output = vortex_buffer::buffer::Buffer<T>>
+
 pub type vortex_vector::primitive::generic_mut::PVectorMut<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn vortex_vector::primitive::generic_mut::PVectorMut<T>::eval(self, rhs: &T) -> Self::Output
+
 impl<Op, T> vortex_compute::arithmetic::Arithmetic<Op, &vortex_buffer::buffer::Buffer<T>> for vortex_buffer::buffer::Buffer<T> where T: core::marker::Copy, vortex_buffer::buffer_mut::BufferMut<T>: for<'a> vortex_compute::arithmetic::Arithmetic<Op, &'a vortex_buffer::buffer::Buffer<T>, Output = vortex_buffer::buffer::Buffer<T>>, for<'a> &'a vortex_buffer::buffer::Buffer<T>: vortex_compute::arithmetic::Arithmetic<Op, &'a vortex_buffer::buffer::Buffer<T>, Output = vortex_buffer::buffer::Buffer<T>>
+
 pub type vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn vortex_buffer::buffer::Buffer<T>::eval(self, rhs: &vortex_buffer::buffer::Buffer<T>) -> Self::Output
+
 impl<Op, T> vortex_compute::arithmetic::Arithmetic<Op, &vortex_buffer::buffer::Buffer<T>> for vortex_buffer::buffer_mut::BufferMut<T> where T: core::marker::Copy + num_traits::identities::Zero, Op: vortex_compute::arithmetic::Operator<T>
+
 pub type vortex_buffer::buffer_mut::BufferMut<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn vortex_buffer::buffer_mut::BufferMut<T>::eval(self, rhs: &vortex_buffer::buffer::Buffer<T>) -> Self::Output
+
 impl<Op, T> vortex_compute::arithmetic::Arithmetic<Op, &vortex_vector::primitive::generic::PVector<T>> for &vortex_vector::primitive::generic::PVector<T> where T: vortex_dtype::ptype::NativePType, Op: vortex_compute::arithmetic::Operator<T>, for<'a> &'a vortex_buffer::buffer::Buffer<T>: vortex_compute::arithmetic::Arithmetic<Op, &'a vortex_buffer::buffer::Buffer<T>, Output = vortex_buffer::buffer::Buffer<T>>
+
 pub type &vortex_vector::primitive::generic::PVector<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn &vortex_vector::primitive::generic::PVector<T>::eval(self, rhs: &vortex_vector::primitive::generic::PVector<T>) -> Self::Output
+
 impl<Op, T> vortex_compute::arithmetic::Arithmetic<Op, &vortex_vector::primitive::generic::PVector<T>> for vortex_vector::primitive::generic::PVector<T> where T: vortex_dtype::ptype::NativePType, Op: vortex_compute::arithmetic::Operator<T>
+
 pub type vortex_vector::primitive::generic::PVector<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn vortex_vector::primitive::generic::PVector<T>::eval(self, rhs: &vortex_vector::primitive::generic::PVector<T>) -> Self::Output
+
 impl<Op, T> vortex_compute::arithmetic::Arithmetic<Op, &vortex_vector::primitive::generic::PVector<T>> for vortex_vector::primitive::generic_mut::PVectorMut<T> where T: vortex_dtype::ptype::NativePType, Op: vortex_compute::arithmetic::Operator<T>, vortex_buffer::buffer_mut::BufferMut<T>: for<'a> vortex_compute::arithmetic::Arithmetic<Op, &'a vortex_buffer::buffer::Buffer<T>, Output = vortex_buffer::buffer::Buffer<T>>
+
 pub type vortex_vector::primitive::generic_mut::PVectorMut<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn vortex_vector::primitive::generic_mut::PVectorMut<T>::eval(self, other: &vortex_vector::primitive::generic::PVector<T>) -> Self::Output
+
 impl<Op, T> vortex_compute::arithmetic::Arithmetic<Op, vortex_vector::primitive::generic::PVector<T>> for &T where T: vortex_dtype::ptype::NativePType, Op: vortex_compute::arithmetic::Operator<T>, vortex_buffer::buffer_mut::BufferMut<T>: for<'a> vortex_compute::arithmetic::Arithmetic<Op, &'a T, Output = vortex_buffer::buffer::Buffer<T>>, for<'a> &'a vortex_buffer::buffer::Buffer<T>: vortex_compute::arithmetic::Arithmetic<Op, &'a T, Output = vortex_buffer::buffer::Buffer<T>>
+
 pub type &T::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn &T::eval(self, rhs: vortex_vector::primitive::generic::PVector<T>) -> Self::Output
+
 impl<Op, T> vortex_compute::arithmetic::Arithmetic<Op> for &vortex_buffer::buffer::Buffer<T> where Op: vortex_compute::arithmetic::Operator<T>
+
 pub type &vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &vortex_buffer::buffer::Buffer<T>::eval(self, rhs: &vortex_buffer::buffer::Buffer<T>) -> Self::Output
+
 impl<Op, T> vortex_compute::arithmetic::Arithmetic<Op> for &vortex_vector::primitive::scalar::PScalar<T> where T: vortex_dtype::ptype::NativePType, Op: vortex_compute::arithmetic::Operator<T>
+
 pub type &vortex_vector::primitive::scalar::PScalar<T>::Output = vortex_vector::primitive::scalar::PScalar<T>
+
 pub fn &vortex_vector::primitive::scalar::PScalar<T>::eval(self, rhs: &vortex_vector::primitive::scalar::PScalar<T>) -> Self::Output
+
 impl<Op> vortex_compute::arithmetic::Arithmetic<Op, &vortex_vector::primitive::scalar::PrimitiveScalar> for &vortex_vector::primitive::scalar::PrimitiveScalar where for<'a> &'a vortex_vector::primitive::scalar::PScalar<half::binary16::f16>: vortex_compute::arithmetic::Arithmetic<Op, &'a vortex_vector::primitive::scalar::PScalar<half::binary16::f16>, Output = vortex_vector::primitive::scalar::PScalar<half::binary16::f16>>, for<'a> &'a vortex_vector::primitive::scalar::PScalar<f32>: vortex_compute::arithmetic::Arithmetic<Op, &'a vortex_vector::primitive::scalar::PScalar<f32>, Output = vortex_vector::primitive::scalar::PScalar<f32>>, for<'a> &'a vortex_vector::primitive::scalar::PScalar<f64>: vortex_compute::arithmetic::Arithmetic<Op, &'a vortex_vector::primitive::scalar::PScalar<f64>, Output = vortex_vector::primitive::scalar::PScalar<f64>>
+
 pub type &vortex_vector::primitive::scalar::PrimitiveScalar::Output = vortex_vector::primitive::scalar::PrimitiveScalar
+
 pub fn &vortex_vector::primitive::scalar::PrimitiveScalar::eval(self, rhs: &vortex_vector::primitive::scalar::PrimitiveScalar) -> Self::Output
+
 impl<Op> vortex_compute::arithmetic::Arithmetic<Op, &vortex_vector::primitive::scalar::PrimitiveScalar> for vortex_vector::primitive::vector::PrimitiveVector where for<'a> vortex_vector::primitive::generic::PVector<half::binary16::f16>: vortex_compute::arithmetic::Arithmetic<Op, &'a half::binary16::f16, Output = vortex_vector::primitive::generic::PVector<half::binary16::f16>>, for<'a> vortex_vector::primitive::generic::PVector<f32>: vortex_compute::arithmetic::Arithmetic<Op, &'a f32, Output = vortex_vector::primitive::generic::PVector<f32>>, for<'a> vortex_vector::primitive::generic::PVector<f64>: vortex_compute::arithmetic::Arithmetic<Op, &'a f64, Output = vortex_vector::primitive::generic::PVector<f64>>
+
 pub type vortex_vector::primitive::vector::PrimitiveVector::Output = vortex_vector::datum::PrimitiveDatum
+
 pub fn vortex_vector::primitive::vector::PrimitiveVector::eval(self, rhs: &vortex_vector::primitive::scalar::PrimitiveScalar) -> Self::Output
+
 impl<Op> vortex_compute::arithmetic::Arithmetic<Op, &vortex_vector::primitive::vector::PrimitiveVector> for vortex_vector::primitive::vector::PrimitiveVector where for<'a> vortex_vector::primitive::generic::PVector<half::binary16::f16>: vortex_compute::arithmetic::Arithmetic<Op, &'a vortex_vector::primitive::generic::PVector<half::binary16::f16>, Output = vortex_vector::primitive::generic::PVector<half::binary16::f16>>, for<'a> vortex_vector::primitive::generic::PVector<f32>: vortex_compute::arithmetic::Arithmetic<Op, &'a vortex_vector::primitive::generic::PVector<f32>, Output = vortex_vector::primitive::generic::PVector<f32>>, for<'a> vortex_vector::primitive::generic::PVector<f64>: vortex_compute::arithmetic::Arithmetic<Op, &'a vortex_vector::primitive::generic::PVector<f64>, Output = vortex_vector::primitive::generic::PVector<f64>>
+
 pub type vortex_vector::primitive::vector::PrimitiveVector::Output = vortex_vector::primitive::vector::PrimitiveVector
+
 pub fn vortex_vector::primitive::vector::PrimitiveVector::eval(self, rhs: &vortex_vector::primitive::vector::PrimitiveVector) -> Self::Output
+
 impl<Op> vortex_compute::arithmetic::Arithmetic<Op, vortex_vector::primitive::vector::PrimitiveVector> for &vortex_vector::primitive::scalar::PrimitiveScalar where for<'a> &'a half::binary16::f16: vortex_compute::arithmetic::Arithmetic<Op, vortex_vector::primitive::generic::PVector<half::binary16::f16>, Output = vortex_vector::primitive::generic::PVector<half::binary16::f16>>, for<'a> &'a f32: vortex_compute::arithmetic::Arithmetic<Op, vortex_vector::primitive::generic::PVector<f32>, Output = vortex_vector::primitive::generic::PVector<f32>>, for<'a> &'a f64: vortex_compute::arithmetic::Arithmetic<Op, vortex_vector::primitive::generic::PVector<f64>, Output = vortex_vector::primitive::generic::PVector<f64>>
+
 pub type &vortex_vector::primitive::scalar::PrimitiveScalar::Output = vortex_vector::datum::PrimitiveDatum
+
 pub fn &vortex_vector::primitive::scalar::PrimitiveScalar::eval(self, rhs: vortex_vector::primitive::vector::PrimitiveVector) -> Self::Output
+
 impl<Op> vortex_compute::arithmetic::Arithmetic<Op> for vortex_vector::datum::PrimitiveDatum where for<'a, 'a> &'a vortex_vector::primitive::scalar::PrimitiveScalar: vortex_compute::arithmetic::Arithmetic<Op, &'a vortex_vector::primitive::scalar::PrimitiveScalar, Output = vortex_vector::primitive::scalar::PrimitiveScalar> + vortex_compute::arithmetic::Arithmetic<Op, vortex_vector::primitive::vector::PrimitiveVector, Output = vortex_vector::datum::PrimitiveDatum>, for<'a, 'a> vortex_vector::primitive::vector::PrimitiveVector: vortex_compute::arithmetic::Arithmetic<Op, &'a vortex_vector::primitive::vector::PrimitiveVector, Output = vortex_vector::primitive::vector::PrimitiveVector> + vortex_compute::arithmetic::Arithmetic<Op, &'a vortex_vector::primitive::scalar::PrimitiveScalar, Output = vortex_vector::datum::PrimitiveDatum>
+
 pub type vortex_vector::datum::PrimitiveDatum::Output = vortex_vector::datum::PrimitiveDatum
+
 pub fn vortex_vector::datum::PrimitiveDatum::eval(self, rhs: vortex_vector::datum::PrimitiveDatum) -> Self::Output
+
 pub trait vortex_compute::arithmetic::CheckedArithmetic<Op, Rhs>
+
 pub type vortex_compute::arithmetic::CheckedArithmetic::Output
+
 pub fn vortex_compute::arithmetic::CheckedArithmetic::checked_eval(self, rhs: Rhs) -> core::option::Option<Self::Output>
+
 impl<Op, T> vortex_compute::arithmetic::CheckedArithmetic<Op, &T> for &vortex_buffer::buffer::Buffer<T> where T: core::marker::Copy + num_traits::identities::Zero, Op: vortex_compute::arithmetic::CheckedOperator<T>
+
 pub type &vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &vortex_buffer::buffer::Buffer<T>::checked_eval(self, rhs: &T) -> core::option::Option<Self::Output>
+
 impl<Op, T> vortex_compute::arithmetic::CheckedArithmetic<Op, &T> for &vortex_vector::primitive::generic::PVector<T> where T: vortex_dtype::ptype::NativePType, for<'a> &'a vortex_buffer::buffer::Buffer<T>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a T, Output = vortex_buffer::buffer::Buffer<T>>
+
 pub type &vortex_vector::primitive::generic::PVector<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn &vortex_vector::primitive::generic::PVector<T>::checked_eval(self, rhs: &T) -> core::option::Option<Self::Output>
+
 impl<Op, T> vortex_compute::arithmetic::CheckedArithmetic<Op, &T> for vortex_buffer::buffer::Buffer<T> where T: core::marker::Copy + num_traits::identities::Zero, vortex_buffer::buffer_mut::BufferMut<T>: for<'a> vortex_compute::arithmetic::CheckedArithmetic<Op, &'a T, Output = vortex_buffer::buffer::Buffer<T>>, for<'a> &'a vortex_buffer::buffer::Buffer<T>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a T, Output = vortex_buffer::buffer::Buffer<T>>
+
 pub type vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn vortex_buffer::buffer::Buffer<T>::checked_eval(self, rhs: &T) -> core::option::Option<Self::Output>
+
 impl<Op, T> vortex_compute::arithmetic::CheckedArithmetic<Op, &T> for vortex_buffer::buffer_mut::BufferMut<T> where T: core::marker::Copy + num_traits::identities::Zero, Op: vortex_compute::arithmetic::CheckedOperator<T>
+
 pub type vortex_buffer::buffer_mut::BufferMut<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn vortex_buffer::buffer_mut::BufferMut<T>::checked_eval(self, rhs: &T) -> core::option::Option<Self::Output>
+
 impl<Op, T> vortex_compute::arithmetic::CheckedArithmetic<Op, &T> for vortex_vector::primitive::generic::PVector<T> where T: vortex_dtype::ptype::NativePType, vortex_vector::primitive::generic_mut::PVectorMut<T>: for<'a> vortex_compute::arithmetic::CheckedArithmetic<Op, &'a T, Output = vortex_vector::primitive::generic::PVector<T>>, for<'a> &'a vortex_vector::primitive::generic::PVector<T>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a T, Output = vortex_vector::primitive::generic::PVector<T>>
+
 pub type vortex_vector::primitive::generic::PVector<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn vortex_vector::primitive::generic::PVector<T>::checked_eval(self, rhs: &T) -> core::option::Option<Self::Output>
+
 impl<Op, T> vortex_compute::arithmetic::CheckedArithmetic<Op, &T> for vortex_vector::primitive::generic_mut::PVectorMut<T> where T: vortex_dtype::ptype::NativePType, vortex_buffer::buffer_mut::BufferMut<T>: for<'a> vortex_compute::arithmetic::CheckedArithmetic<Op, &'a T, Output = vortex_buffer::buffer::Buffer<T>>
+
 pub type vortex_vector::primitive::generic_mut::PVectorMut<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn vortex_vector::primitive::generic_mut::PVectorMut<T>::checked_eval(self, rhs: &T) -> core::option::Option<Self::Output>
+
 impl<Op, T> vortex_compute::arithmetic::CheckedArithmetic<Op, &vortex_buffer::buffer::Buffer<T>> for vortex_buffer::buffer::Buffer<T> where T: core::marker::Copy + num_traits::identities::Zero, vortex_buffer::buffer_mut::BufferMut<T>: for<'a> vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_buffer::buffer::Buffer<T>, Output = vortex_buffer::buffer::Buffer<T>>, for<'a> &'a vortex_buffer::buffer::Buffer<T>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_buffer::buffer::Buffer<T>, Output = vortex_buffer::buffer::Buffer<T>>
+
 pub type vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn vortex_buffer::buffer::Buffer<T>::checked_eval(self, rhs: &vortex_buffer::buffer::Buffer<T>) -> core::option::Option<Self::Output>
+
 impl<Op, T> vortex_compute::arithmetic::CheckedArithmetic<Op, &vortex_buffer::buffer::Buffer<T>> for vortex_buffer::buffer_mut::BufferMut<T> where T: core::marker::Copy + num_traits::identities::Zero, Op: vortex_compute::arithmetic::CheckedOperator<T>
+
 pub type vortex_buffer::buffer_mut::BufferMut<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn vortex_buffer::buffer_mut::BufferMut<T>::checked_eval(self, rhs: &vortex_buffer::buffer::Buffer<T>) -> core::option::Option<Self::Output>
+
 impl<Op, T> vortex_compute::arithmetic::CheckedArithmetic<Op, &vortex_vector::primitive::generic::PVector<T>> for &vortex_vector::primitive::generic::PVector<T> where T: vortex_dtype::ptype::NativePType, for<'a> &'a vortex_buffer::buffer::Buffer<T>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_buffer::buffer::Buffer<T>, Output = vortex_buffer::buffer::Buffer<T>>
+
 pub type &vortex_vector::primitive::generic::PVector<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn &vortex_vector::primitive::generic::PVector<T>::checked_eval(self, rhs: &vortex_vector::primitive::generic::PVector<T>) -> core::option::Option<Self::Output>
+
 impl<Op, T> vortex_compute::arithmetic::CheckedArithmetic<Op, &vortex_vector::primitive::generic::PVector<T>> for vortex_vector::primitive::generic::PVector<T> where T: vortex_dtype::ptype::NativePType, vortex_vector::primitive::generic_mut::PVectorMut<T>: for<'a> vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::generic::PVector<T>, Output = vortex_vector::primitive::generic::PVector<T>>, for<'a> &'a vortex_vector::primitive::generic::PVector<T>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::generic::PVector<T>, Output = vortex_vector::primitive::generic::PVector<T>>
+
 pub type vortex_vector::primitive::generic::PVector<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn vortex_vector::primitive::generic::PVector<T>::checked_eval(self, rhs: &vortex_vector::primitive::generic::PVector<T>) -> core::option::Option<Self::Output>
+
 impl<Op, T> vortex_compute::arithmetic::CheckedArithmetic<Op, &vortex_vector::primitive::generic::PVector<T>> for vortex_vector::primitive::generic_mut::PVectorMut<T> where T: vortex_dtype::ptype::NativePType, vortex_buffer::buffer_mut::BufferMut<T>: for<'a> vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_buffer::buffer::Buffer<T>, Output = vortex_buffer::buffer::Buffer<T>>
+
 pub type vortex_vector::primitive::generic_mut::PVectorMut<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn vortex_vector::primitive::generic_mut::PVectorMut<T>::checked_eval(self, other: &vortex_vector::primitive::generic::PVector<T>) -> core::option::Option<Self::Output>
+
 impl<Op, T> vortex_compute::arithmetic::CheckedArithmetic<Op> for &vortex_buffer::buffer::Buffer<T> where T: core::marker::Copy + num_traits::identities::Zero, Op: vortex_compute::arithmetic::CheckedOperator<T>
+
 pub type &vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &vortex_buffer::buffer::Buffer<T>::checked_eval(self, rhs: &vortex_buffer::buffer::Buffer<T>) -> core::option::Option<Self::Output>
+
 impl<Op, T> vortex_compute::arithmetic::CheckedArithmetic<Op> for &vortex_vector::primitive::scalar::PScalar<T> where T: vortex_dtype::ptype::NativePType, Op: vortex_compute::arithmetic::CheckedOperator<T>
+
 pub type &vortex_vector::primitive::scalar::PScalar<T>::Output = vortex_vector::primitive::scalar::PScalar<T>
+
 pub fn &vortex_vector::primitive::scalar::PScalar<T>::checked_eval(self, rhs: Self) -> core::option::Option<Self::Output>
+
 impl<Op> vortex_compute::arithmetic::CheckedArithmetic<Op, &vortex_vector::primitive::vector::PrimitiveVector> for vortex_vector::primitive::vector::PrimitiveVector where for<'a> vortex_vector::primitive::generic::PVector<i8>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::generic::PVector<i8>, Output = vortex_vector::primitive::generic::PVector<i8>>, for<'a> vortex_vector::primitive::generic::PVector<i16>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::generic::PVector<i16>, Output = vortex_vector::primitive::generic::PVector<i16>>, for<'a> vortex_vector::primitive::generic::PVector<i32>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::generic::PVector<i32>, Output = vortex_vector::primitive::generic::PVector<i32>>, for<'a> vortex_vector::primitive::generic::PVector<i64>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::generic::PVector<i64>, Output = vortex_vector::primitive::generic::PVector<i64>>, for<'a> vortex_vector::primitive::generic::PVector<u8>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::generic::PVector<u8>, Output = vortex_vector::primitive::generic::PVector<u8>>, for<'a> vortex_vector::primitive::generic::PVector<u16>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::generic::PVector<u16>, Output = vortex_vector::primitive::generic::PVector<u16>>, for<'a> vortex_vector::primitive::generic::PVector<u32>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::generic::PVector<u32>, Output = vortex_vector::primitive::generic::PVector<u32>>, for<'a> vortex_vector::primitive::generic::PVector<u64>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::generic::PVector<u64>, Output = vortex_vector::primitive::generic::PVector<u64>>
+
 pub type vortex_vector::primitive::vector::PrimitiveVector::Output = vortex_vector::primitive::vector::PrimitiveVector
+
 pub fn vortex_vector::primitive::vector::PrimitiveVector::checked_eval(self, rhs: &vortex_vector::primitive::vector::PrimitiveVector) -> core::option::Option<Self::Output>
+
 impl<Op> vortex_compute::arithmetic::CheckedArithmetic<Op> for &vortex_vector::primitive::scalar::PrimitiveScalar where for<'a> &'a vortex_vector::primitive::scalar::PScalar<i8>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::scalar::PScalar<i8>, Output = vortex_vector::primitive::scalar::PScalar<i8>>, for<'a> &'a vortex_vector::primitive::scalar::PScalar<i16>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::scalar::PScalar<i16>, Output = vortex_vector::primitive::scalar::PScalar<i16>>, for<'a> &'a vortex_vector::primitive::scalar::PScalar<i32>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::scalar::PScalar<i32>, Output = vortex_vector::primitive::scalar::PScalar<i32>>, for<'a> &'a vortex_vector::primitive::scalar::PScalar<i64>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::scalar::PScalar<i64>, Output = vortex_vector::primitive::scalar::PScalar<i64>>, for<'a> &'a vortex_vector::primitive::scalar::PScalar<u8>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::scalar::PScalar<u8>, Output = vortex_vector::primitive::scalar::PScalar<u8>>, for<'a> &'a vortex_vector::primitive::scalar::PScalar<u16>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::scalar::PScalar<u16>, Output = vortex_vector::primitive::scalar::PScalar<u16>>, for<'a> &'a vortex_vector::primitive::scalar::PScalar<u32>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::scalar::PScalar<u32>, Output = vortex_vector::primitive::scalar::PScalar<u32>>, for<'a> &'a vortex_vector::primitive::scalar::PScalar<u64>: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::scalar::PScalar<u64>, Output = vortex_vector::primitive::scalar::PScalar<u64>>
+
 pub type &vortex_vector::primitive::scalar::PrimitiveScalar::Output = vortex_vector::primitive::scalar::PrimitiveScalar
+
 pub fn &vortex_vector::primitive::scalar::PrimitiveScalar::checked_eval(self, rhs: &vortex_vector::primitive::scalar::PrimitiveScalar) -> core::option::Option<Self::Output>
+
 impl<Op> vortex_compute::arithmetic::CheckedArithmetic<Op> for vortex_vector::datum::PrimitiveDatum where for<'a> &'a vortex_vector::primitive::scalar::PrimitiveScalar: vortex_compute::arithmetic::CheckedArithmetic<Op, Output = vortex_vector::primitive::scalar::PrimitiveScalar>, for<'a> vortex_vector::primitive::vector::PrimitiveVector: vortex_compute::arithmetic::CheckedArithmetic<Op, &'a vortex_vector::primitive::vector::PrimitiveVector, Output = vortex_vector::primitive::vector::PrimitiveVector>
+
 pub type vortex_vector::datum::PrimitiveDatum::Output = vortex_vector::datum::PrimitiveDatum
+
 pub fn vortex_vector::datum::PrimitiveDatum::checked_eval(self, rhs: vortex_vector::datum::PrimitiveDatum) -> core::option::Option<Self::Output>
+
 pub trait vortex_compute::arithmetic::CheckedOperator<T>
+
 pub fn vortex_compute::arithmetic::CheckedOperator::apply(a: &T, b: &T) -> core::option::Option<T>
+
 impl<T: num_traits::ops::checked::CheckedAdd> vortex_compute::arithmetic::CheckedOperator<T> for vortex_compute::arithmetic::Add
+
 pub fn vortex_compute::arithmetic::Add::apply(a: &T, b: &T) -> core::option::Option<T>
+
 impl<T: num_traits::ops::checked::CheckedDiv> vortex_compute::arithmetic::CheckedOperator<T> for vortex_compute::arithmetic::Div
+
 pub fn vortex_compute::arithmetic::Div::apply(a: &T, b: &T) -> core::option::Option<T>
+
 impl<T: num_traits::ops::checked::CheckedMul> vortex_compute::arithmetic::CheckedOperator<T> for vortex_compute::arithmetic::Mul
+
 pub fn vortex_compute::arithmetic::Mul::apply(a: &T, b: &T) -> core::option::Option<T>
+
 impl<T: num_traits::ops::checked::CheckedSub> vortex_compute::arithmetic::CheckedOperator<T> for vortex_compute::arithmetic::Sub
+
 pub fn vortex_compute::arithmetic::Sub::apply(a: &T, b: &T) -> core::option::Option<T>
+
 pub trait vortex_compute::arithmetic::Operator<T>
+
 pub fn vortex_compute::arithmetic::Operator::apply(a: &T, b: &T) -> T
+
 impl vortex_compute::arithmetic::Operator<f32> for vortex_compute::arithmetic::Add
+
 pub fn vortex_compute::arithmetic::Add::apply(a: &f32, b: &f32) -> f32
+
 impl vortex_compute::arithmetic::Operator<f32> for vortex_compute::arithmetic::Div
+
 pub fn vortex_compute::arithmetic::Div::apply(a: &f32, b: &f32) -> f32
+
 impl vortex_compute::arithmetic::Operator<f32> for vortex_compute::arithmetic::Mul
+
 pub fn vortex_compute::arithmetic::Mul::apply(a: &f32, b: &f32) -> f32
+
 impl vortex_compute::arithmetic::Operator<f32> for vortex_compute::arithmetic::Sub
+
 pub fn vortex_compute::arithmetic::Sub::apply(a: &f32, b: &f32) -> f32
+
 impl vortex_compute::arithmetic::Operator<f64> for vortex_compute::arithmetic::Add
+
 pub fn vortex_compute::arithmetic::Add::apply(a: &f64, b: &f64) -> f64
+
 impl vortex_compute::arithmetic::Operator<f64> for vortex_compute::arithmetic::Div
+
 pub fn vortex_compute::arithmetic::Div::apply(a: &f64, b: &f64) -> f64
+
 impl vortex_compute::arithmetic::Operator<f64> for vortex_compute::arithmetic::Mul
+
 pub fn vortex_compute::arithmetic::Mul::apply(a: &f64, b: &f64) -> f64
+
 impl vortex_compute::arithmetic::Operator<f64> for vortex_compute::arithmetic::Sub
+
 pub fn vortex_compute::arithmetic::Sub::apply(a: &f64, b: &f64) -> f64
+
 impl vortex_compute::arithmetic::Operator<half::binary16::f16> for vortex_compute::arithmetic::Add
+
 pub fn vortex_compute::arithmetic::Add::apply(a: &half::binary16::f16, b: &half::binary16::f16) -> half::binary16::f16
+
 impl vortex_compute::arithmetic::Operator<half::binary16::f16> for vortex_compute::arithmetic::Div
+
 pub fn vortex_compute::arithmetic::Div::apply(a: &half::binary16::f16, b: &half::binary16::f16) -> half::binary16::f16
+
 impl vortex_compute::arithmetic::Operator<half::binary16::f16> for vortex_compute::arithmetic::Mul
+
 pub fn vortex_compute::arithmetic::Mul::apply(a: &half::binary16::f16, b: &half::binary16::f16) -> half::binary16::f16
+
 impl vortex_compute::arithmetic::Operator<half::binary16::f16> for vortex_compute::arithmetic::Sub
+
 pub fn vortex_compute::arithmetic::Sub::apply(a: &half::binary16::f16, b: &half::binary16::f16) -> half::binary16::f16
+
 impl<T: num_traits::ops::saturating::SaturatingAdd> vortex_compute::arithmetic::Operator<T> for vortex_compute::arithmetic::SaturatingAdd
+
 pub fn vortex_compute::arithmetic::SaturatingAdd::apply(a: &T, b: &T) -> T
+
 impl<T: num_traits::ops::saturating::SaturatingMul> vortex_compute::arithmetic::Operator<T> for vortex_compute::arithmetic::SaturatingMul
+
 pub fn vortex_compute::arithmetic::SaturatingMul::apply(a: &T, b: &T) -> T
+
 impl<T: num_traits::ops::saturating::SaturatingSub> vortex_compute::arithmetic::Operator<T> for vortex_compute::arithmetic::SaturatingSub
+
 pub fn vortex_compute::arithmetic::SaturatingSub::apply(a: &T, b: &T) -> T
+
 impl<T: num_traits::ops::wrapping::WrappingAdd> vortex_compute::arithmetic::Operator<T> for vortex_compute::arithmetic::WrappingAdd
+
 pub fn vortex_compute::arithmetic::WrappingAdd::apply(a: &T, b: &T) -> T
+
 impl<T: num_traits::ops::wrapping::WrappingMul> vortex_compute::arithmetic::Operator<T> for vortex_compute::arithmetic::WrappingMul
+
 pub fn vortex_compute::arithmetic::WrappingMul::apply(a: &T, b: &T) -> T
+
 impl<T: num_traits::ops::wrapping::WrappingSub> vortex_compute::arithmetic::Operator<T> for vortex_compute::arithmetic::WrappingSub
+
 pub fn vortex_compute::arithmetic::WrappingSub::apply(a: &T, b: &T) -> T
+
 pub mod vortex_compute::arrow
+
 pub trait vortex_compute::arrow::IntoArrow
+
 pub type vortex_compute::arrow::IntoArrow::Output
+
 pub fn vortex_compute::arrow::IntoArrow::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::binaryview::vector::BinaryViewVector<vortex_vector::binaryview::types::BinaryType>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<vortex_vector::binaryview::types::BinaryType>::Output = arrow_array::array::byte_view_array::GenericByteViewArray<arrow_array::types::BinaryViewType>
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<vortex_vector::binaryview::types::BinaryType>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::binaryview::vector::BinaryViewVector<vortex_vector::binaryview::types::StringType>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<vortex_vector::binaryview::types::StringType>::Output = arrow_array::array::byte_view_array::GenericByteViewArray<arrow_array::types::StringViewType>
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<vortex_vector::binaryview::types::StringType>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::bool::vector::BoolVector
+
 pub type vortex_vector::bool::vector::BoolVector::Output = arrow_array::array::boolean_array::BooleanArray
+
 pub fn vortex_vector::bool::vector::BoolVector::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::datum::Datum
+
 pub type vortex_vector::datum::Datum::Output = alloc::boxed::Box<dyn arrow_array::scalar::Datum>
+
 pub fn vortex_vector::datum::Datum::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::decimal::generic::DVector<i128>
+
 pub type vortex_vector::decimal::generic::DVector<i128>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal128Type>
+
 pub fn vortex_vector::decimal::generic::DVector<i128>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::decimal::generic::DVector<i16>
+
 pub type vortex_vector::decimal::generic::DVector<i16>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal32Type>
+
 pub fn vortex_vector::decimal::generic::DVector<i16>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::decimal::generic::DVector<i32>
+
 pub type vortex_vector::decimal::generic::DVector<i32>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal32Type>
+
 pub fn vortex_vector::decimal::generic::DVector<i32>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::decimal::generic::DVector<i64>
+
 pub type vortex_vector::decimal::generic::DVector<i64>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal64Type>
+
 pub fn vortex_vector::decimal::generic::DVector<i64>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::decimal::generic::DVector<i8>
+
 pub type vortex_vector::decimal::generic::DVector<i8>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal32Type>
+
 pub fn vortex_vector::decimal::generic::DVector<i8>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::decimal::generic::DVector<vortex_dtype::bigint::i256>
+
 pub type vortex_vector::decimal::generic::DVector<vortex_dtype::bigint::i256>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal256Type>
+
 pub fn vortex_vector::decimal::generic::DVector<vortex_dtype::bigint::i256>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::decimal::vector::DecimalVector
+
 pub type vortex_vector::decimal::vector::DecimalVector::Output = alloc::sync::Arc<dyn arrow_array::array::Array>
+
 pub fn vortex_vector::decimal::vector::DecimalVector::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::fixed_size_list::vector::FixedSizeListVector
+
 pub type vortex_vector::fixed_size_list::vector::FixedSizeListVector::Output = arrow_array::array::fixed_size_list_array::FixedSizeListArray
+
 pub fn vortex_vector::fixed_size_list::vector::FixedSizeListVector::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::listview::vector::ListViewVector
+
 pub type vortex_vector::listview::vector::ListViewVector::Output = arrow_array::array::list_view_array::GenericListViewArray<i32>
+
 pub fn vortex_vector::listview::vector::ListViewVector::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::null::vector::NullVector
+
 pub type vortex_vector::null::vector::NullVector::Output = arrow_array::array::null_array::NullArray
+
 pub fn vortex_vector::null::vector::NullVector::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::primitive::generic::PVector<f32>
+
 pub type vortex_vector::primitive::generic::PVector<f32>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float32Type>
+
 pub fn vortex_vector::primitive::generic::PVector<f32>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::primitive::generic::PVector<f64>
+
 pub type vortex_vector::primitive::generic::PVector<f64>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float64Type>
+
 pub fn vortex_vector::primitive::generic::PVector<f64>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::primitive::generic::PVector<half::binary16::f16>
+
 pub type vortex_vector::primitive::generic::PVector<half::binary16::f16>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float16Type>
+
 pub fn vortex_vector::primitive::generic::PVector<half::binary16::f16>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::primitive::generic::PVector<i16>
+
 pub type vortex_vector::primitive::generic::PVector<i16>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int16Type>
+
 pub fn vortex_vector::primitive::generic::PVector<i16>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::primitive::generic::PVector<i32>
+
 pub type vortex_vector::primitive::generic::PVector<i32>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int32Type>
+
 pub fn vortex_vector::primitive::generic::PVector<i32>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::primitive::generic::PVector<i64>
+
 pub type vortex_vector::primitive::generic::PVector<i64>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int64Type>
+
 pub fn vortex_vector::primitive::generic::PVector<i64>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::primitive::generic::PVector<i8>
+
 pub type vortex_vector::primitive::generic::PVector<i8>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int8Type>
+
 pub fn vortex_vector::primitive::generic::PVector<i8>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::primitive::generic::PVector<u16>
+
 pub type vortex_vector::primitive::generic::PVector<u16>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt16Type>
+
 pub fn vortex_vector::primitive::generic::PVector<u16>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::primitive::generic::PVector<u32>
+
 pub type vortex_vector::primitive::generic::PVector<u32>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt32Type>
+
 pub fn vortex_vector::primitive::generic::PVector<u32>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::primitive::generic::PVector<u64>
+
 pub type vortex_vector::primitive::generic::PVector<u64>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt64Type>
+
 pub fn vortex_vector::primitive::generic::PVector<u64>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::primitive::generic::PVector<u8>
+
 pub type vortex_vector::primitive::generic::PVector<u8>::Output = arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt8Type>
+
 pub fn vortex_vector::primitive::generic::PVector<u8>::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::primitive::vector::PrimitiveVector
+
 pub type vortex_vector::primitive::vector::PrimitiveVector::Output = alloc::sync::Arc<dyn arrow_array::array::Array>
+
 pub fn vortex_vector::primitive::vector::PrimitiveVector::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::struct_::vector::StructVector
+
 pub type vortex_vector::struct_::vector::StructVector::Output = arrow_array::array::struct_array::StructArray
+
 pub fn vortex_vector::struct_::vector::StructVector::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoArrow for vortex_vector::vector::Vector
+
 pub type vortex_vector::vector::Vector::Output = alloc::sync::Arc<dyn arrow_array::array::Array>
+
 pub fn vortex_vector::vector::Vector::into_arrow(self) -> vortex_error::VortexResult<Self::Output>
+
 pub trait vortex_compute::arrow::IntoVector
+
 pub type vortex_compute::arrow::IntoVector::Output
+
 pub fn vortex_compute::arrow::IntoVector::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::boolean_array::BooleanArray
+
 pub type &arrow_array::array::boolean_array::BooleanArray::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &arrow_array::array::boolean_array::BooleanArray::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::byte_view_array::GenericByteViewArray<arrow_array::types::BinaryViewType>
+
 pub type &arrow_array::array::byte_view_array::GenericByteViewArray<arrow_array::types::BinaryViewType>::Output = vortex_vector::binaryview::vector::BinaryViewVector<vortex_vector::binaryview::types::BinaryType>
+
 pub fn &arrow_array::array::byte_view_array::GenericByteViewArray<arrow_array::types::BinaryViewType>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::byte_view_array::GenericByteViewArray<arrow_array::types::StringViewType>
+
 pub type &arrow_array::array::byte_view_array::GenericByteViewArray<arrow_array::types::StringViewType>::Output = vortex_vector::binaryview::vector::BinaryViewVector<vortex_vector::binaryview::types::StringType>
+
 pub fn &arrow_array::array::byte_view_array::GenericByteViewArray<arrow_array::types::StringViewType>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::fixed_size_list_array::FixedSizeListArray
+
 pub type &arrow_array::array::fixed_size_list_array::FixedSizeListArray::Output = vortex_vector::fixed_size_list::vector::FixedSizeListVector
+
 pub fn &arrow_array::array::fixed_size_list_array::FixedSizeListArray::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::null_array::NullArray
+
 pub type &arrow_array::array::null_array::NullArray::Output = vortex_vector::null::vector::NullVector
+
 pub fn &arrow_array::array::null_array::NullArray::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal128Type>
+
 pub type &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal128Type>::Output = vortex_vector::decimal::vector::DecimalVector
+
 pub fn &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal128Type>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal256Type>
+
 pub type &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal256Type>::Output = vortex_vector::decimal::vector::DecimalVector
+
 pub fn &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal256Type>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal32Type>
+
 pub type &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal32Type>::Output = vortex_vector::decimal::vector::DecimalVector
+
 pub fn &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal32Type>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal64Type>
+
 pub type &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal64Type>::Output = vortex_vector::decimal::vector::DecimalVector
+
 pub fn &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Decimal64Type>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float16Type>
+
 pub type &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float16Type>::Output = vortex_vector::primitive::generic::PVector<half::binary16::f16>
+
 pub fn &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float16Type>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float32Type>
+
 pub type &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float32Type>::Output = vortex_vector::primitive::generic::PVector<f32>
+
 pub fn &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float32Type>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float64Type>
+
 pub type &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float64Type>::Output = vortex_vector::primitive::generic::PVector<f64>
+
 pub fn &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Float64Type>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int16Type>
+
 pub type &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int16Type>::Output = vortex_vector::primitive::generic::PVector<i16>
+
 pub fn &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int16Type>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int32Type>
+
 pub type &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int32Type>::Output = vortex_vector::primitive::generic::PVector<i32>
+
 pub fn &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int32Type>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int64Type>
+
 pub type &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int64Type>::Output = vortex_vector::primitive::generic::PVector<i64>
+
 pub fn &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int64Type>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int8Type>
+
 pub type &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int8Type>::Output = vortex_vector::primitive::generic::PVector<i8>
+
 pub fn &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::Int8Type>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt16Type>
+
 pub type &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt16Type>::Output = vortex_vector::primitive::generic::PVector<u16>
+
 pub fn &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt16Type>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt32Type>
+
 pub type &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt32Type>::Output = vortex_vector::primitive::generic::PVector<u32>
+
 pub fn &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt32Type>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt64Type>
+
 pub type &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt64Type>::Output = vortex_vector::primitive::generic::PVector<u64>
+
 pub fn &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt64Type>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt8Type>
+
 pub type &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt8Type>::Output = vortex_vector::primitive::generic::PVector<u8>
+
 pub fn &arrow_array::array::primitive_array::PrimitiveArray<arrow_array::types::UInt8Type>::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &arrow_array::array::struct_array::StructArray
+
 pub type &arrow_array::array::struct_array::StructArray::Output = vortex_vector::struct_::vector::StructVector
+
 pub fn &arrow_array::array::struct_array::StructArray::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::arrow::IntoVector for &dyn arrow_array::array::Array
+
 pub type &dyn arrow_array::array::Array::Output = vortex_vector::vector::Vector
+
 pub fn &dyn arrow_array::array::Array::into_vector(self) -> vortex_error::VortexResult<Self::Output>
+
 pub mod vortex_compute::cast
+
 pub trait vortex_compute::cast::Cast
+
 pub type vortex_compute::cast::Cast::Output
+
 pub fn vortex_compute::cast::Cast::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<Self::Output>
+
 impl vortex_compute::cast::Cast for vortex_vector::bool::scalar::BoolScalar
+
 pub type vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::scalar::Scalar
+
 pub fn vortex_vector::bool::scalar::BoolScalar::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::scalar::Scalar>
+
 impl vortex_compute::cast::Cast for vortex_vector::bool::vector::BoolVector
+
 pub type vortex_vector::bool::vector::BoolVector::Output = vortex_vector::vector::Vector
+
 pub fn vortex_vector::bool::vector::BoolVector::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::vector::Vector>
+
 impl vortex_compute::cast::Cast for vortex_vector::datum::Datum
+
 pub type vortex_vector::datum::Datum::Output = vortex_vector::datum::Datum
+
 pub fn vortex_vector::datum::Datum::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::datum::Datum>
+
 impl vortex_compute::cast::Cast for vortex_vector::decimal::scalar::DecimalScalar
+
 pub type vortex_vector::decimal::scalar::DecimalScalar::Output = vortex_vector::scalar::Scalar
+
 pub fn vortex_vector::decimal::scalar::DecimalScalar::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::scalar::Scalar>
+
 impl vortex_compute::cast::Cast for vortex_vector::decimal::vector::DecimalVector
+
 pub type vortex_vector::decimal::vector::DecimalVector::Output = vortex_vector::vector::Vector
+
 pub fn vortex_vector::decimal::vector::DecimalVector::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::vector::Vector>
+
 impl vortex_compute::cast::Cast for vortex_vector::fixed_size_list::scalar::FixedSizeListScalar
+
 pub type vortex_vector::fixed_size_list::scalar::FixedSizeListScalar::Output = vortex_vector::scalar::Scalar
+
 pub fn vortex_vector::fixed_size_list::scalar::FixedSizeListScalar::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::scalar::Scalar>
+
 impl vortex_compute::cast::Cast for vortex_vector::fixed_size_list::vector::FixedSizeListVector
+
 pub type vortex_vector::fixed_size_list::vector::FixedSizeListVector::Output = vortex_vector::vector::Vector
+
 pub fn vortex_vector::fixed_size_list::vector::FixedSizeListVector::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::vector::Vector>
+
 impl vortex_compute::cast::Cast for vortex_vector::listview::scalar::ListViewScalar
+
 pub type vortex_vector::listview::scalar::ListViewScalar::Output = vortex_vector::scalar::Scalar
+
 pub fn vortex_vector::listview::scalar::ListViewScalar::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::scalar::Scalar>
+
 impl vortex_compute::cast::Cast for vortex_vector::listview::vector::ListViewVector
+
 pub type vortex_vector::listview::vector::ListViewVector::Output = vortex_vector::vector::Vector
+
 pub fn vortex_vector::listview::vector::ListViewVector::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::vector::Vector>
+
 impl vortex_compute::cast::Cast for vortex_vector::null::scalar::NullScalar
+
 pub type vortex_vector::null::scalar::NullScalar::Output = vortex_vector::scalar::Scalar
+
 pub fn vortex_vector::null::scalar::NullScalar::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::scalar::Scalar>
+
 impl vortex_compute::cast::Cast for vortex_vector::null::vector::NullVector
+
 pub type vortex_vector::null::vector::NullVector::Output = vortex_vector::vector::Vector
+
 pub fn vortex_vector::null::vector::NullVector::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::vector::Vector>
+
 impl vortex_compute::cast::Cast for vortex_vector::primitive::scalar::PrimitiveScalar
+
 pub type vortex_vector::primitive::scalar::PrimitiveScalar::Output = vortex_vector::scalar::Scalar
+
 pub fn vortex_vector::primitive::scalar::PrimitiveScalar::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::scalar::Scalar>
+
 impl vortex_compute::cast::Cast for vortex_vector::primitive::vector::PrimitiveVector
+
 pub type vortex_vector::primitive::vector::PrimitiveVector::Output = vortex_vector::vector::Vector
+
 pub fn vortex_vector::primitive::vector::PrimitiveVector::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::vector::Vector>
+
 impl vortex_compute::cast::Cast for vortex_vector::scalar::Scalar
+
 pub type vortex_vector::scalar::Scalar::Output = vortex_vector::scalar::Scalar
+
 pub fn vortex_vector::scalar::Scalar::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::scalar::Scalar>
+
 impl vortex_compute::cast::Cast for vortex_vector::struct_::scalar::StructScalar
+
 pub type vortex_vector::struct_::scalar::StructScalar::Output = vortex_vector::scalar::Scalar
+
 pub fn vortex_vector::struct_::scalar::StructScalar::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::scalar::Scalar>
+
 impl vortex_compute::cast::Cast for vortex_vector::struct_::vector::StructVector
+
 pub type vortex_vector::struct_::vector::StructVector::Output = vortex_vector::vector::Vector
+
 pub fn vortex_vector::struct_::vector::StructVector::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::vector::Vector>
+
 impl vortex_compute::cast::Cast for vortex_vector::vector::Vector
+
 pub type vortex_vector::vector::Vector::Output = vortex_vector::vector::Vector
+
 pub fn vortex_vector::vector::Vector::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::vector::Vector>
+
 impl<D: vortex_dtype::decimal::types::NativeDecimalType> vortex_compute::cast::Cast for vortex_vector::decimal::generic::DVector<D>
+
 pub type vortex_vector::decimal::generic::DVector<D>::Output = vortex_vector::vector::Vector
+
 pub fn vortex_vector::decimal::generic::DVector<D>::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::vector::Vector>
+
 impl<D: vortex_dtype::decimal::types::NativeDecimalType> vortex_compute::cast::Cast for vortex_vector::decimal::scalar::DScalar<D>
+
 pub type vortex_vector::decimal::scalar::DScalar<D>::Output = vortex_vector::scalar::Scalar
+
 pub fn vortex_vector::decimal::scalar::DScalar<D>::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::scalar::Scalar>
+
 impl<T: vortex_dtype::ptype::NativePType> vortex_compute::cast::Cast for vortex_vector::primitive::generic::PVector<T>
+
 pub type vortex_vector::primitive::generic::PVector<T>::Output = vortex_vector::vector::Vector
+
 pub fn vortex_vector::primitive::generic::PVector<T>::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::vector::Vector>
+
 impl<T: vortex_dtype::ptype::NativePType> vortex_compute::cast::Cast for vortex_vector::primitive::scalar::PScalar<T>
+
 pub type vortex_vector::primitive::scalar::PScalar<T>::Output = vortex_vector::scalar::Scalar
+
 pub fn vortex_vector::primitive::scalar::PScalar<T>::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::scalar::Scalar>
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::cast::Cast for vortex_vector::binaryview::scalar::BinaryViewScalar<T>
+
 pub type vortex_vector::binaryview::scalar::BinaryViewScalar<T>::Output = vortex_vector::scalar::Scalar
+
 pub fn vortex_vector::binaryview::scalar::BinaryViewScalar<T>::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::scalar::Scalar>
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::cast::Cast for vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::vector::Vector
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_vector::vector::Vector>
+
 pub mod vortex_compute::comparison
+
 pub struct vortex_compute::comparison::Equal
+
 impl vortex_compute::comparison::Compare<vortex_compute::comparison::Equal> for vortex_vector::bool::scalar::BoolScalar
+
 pub type vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::bool::scalar::BoolScalar::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_compute::comparison::ComparableItem> vortex_compute::comparison::ComparisonOperator<T> for vortex_compute::comparison::Equal
+
 pub fn vortex_compute::comparison::Equal::apply(a: &T, b: &T) -> bool
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::Equal> for &vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type &vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::Equal> for vortex_vector::binaryview::scalar::BinaryViewScalar<T>
+
 pub type vortex_vector::binaryview::scalar::BinaryViewScalar<T>::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::binaryview::scalar::BinaryViewScalar<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::Equal> for vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 pub struct vortex_compute::comparison::GreaterThan
+
 impl vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThan> for vortex_vector::bool::scalar::BoolScalar
+
 pub type vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::bool::scalar::BoolScalar::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_compute::comparison::ComparableItem> vortex_compute::comparison::ComparisonOperator<T> for vortex_compute::comparison::GreaterThan
+
 pub fn vortex_compute::comparison::GreaterThan::apply(a: &T, b: &T) -> bool
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThan> for &vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type &vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThan> for vortex_vector::binaryview::scalar::BinaryViewScalar<T>
+
 pub type vortex_vector::binaryview::scalar::BinaryViewScalar<T>::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::binaryview::scalar::BinaryViewScalar<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThan> for vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 pub struct vortex_compute::comparison::GreaterThanOrEqual
+
 impl vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThanOrEqual> for vortex_vector::bool::scalar::BoolScalar
+
 pub type vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::bool::scalar::BoolScalar::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_compute::comparison::ComparableItem> vortex_compute::comparison::ComparisonOperator<T> for vortex_compute::comparison::GreaterThanOrEqual
+
 pub fn vortex_compute::comparison::GreaterThanOrEqual::apply(a: &T, b: &T) -> bool
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThanOrEqual> for &vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type &vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThanOrEqual> for vortex_vector::binaryview::scalar::BinaryViewScalar<T>
+
 pub type vortex_vector::binaryview::scalar::BinaryViewScalar<T>::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::binaryview::scalar::BinaryViewScalar<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThanOrEqual> for vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 pub struct vortex_compute::comparison::LessThan
+
 impl vortex_compute::comparison::Compare<vortex_compute::comparison::LessThan> for vortex_vector::bool::scalar::BoolScalar
+
 pub type vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::bool::scalar::BoolScalar::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_compute::comparison::ComparableItem> vortex_compute::comparison::ComparisonOperator<T> for vortex_compute::comparison::LessThan
+
 pub fn vortex_compute::comparison::LessThan::apply(a: &T, b: &T) -> bool
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::LessThan> for &vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type &vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::LessThan> for vortex_vector::binaryview::scalar::BinaryViewScalar<T>
+
 pub type vortex_vector::binaryview::scalar::BinaryViewScalar<T>::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::binaryview::scalar::BinaryViewScalar<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::LessThan> for vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 pub struct vortex_compute::comparison::LessThanOrEqual
+
 impl vortex_compute::comparison::Compare<vortex_compute::comparison::LessThanOrEqual> for vortex_vector::bool::scalar::BoolScalar
+
 pub type vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::bool::scalar::BoolScalar::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_compute::comparison::ComparableItem> vortex_compute::comparison::ComparisonOperator<T> for vortex_compute::comparison::LessThanOrEqual
+
 pub fn vortex_compute::comparison::LessThanOrEqual::apply(a: &T, b: &T) -> bool
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::LessThanOrEqual> for &vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type &vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::LessThanOrEqual> for vortex_vector::binaryview::scalar::BinaryViewScalar<T>
+
 pub type vortex_vector::binaryview::scalar::BinaryViewScalar<T>::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::binaryview::scalar::BinaryViewScalar<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::LessThanOrEqual> for vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 pub struct vortex_compute::comparison::NotEqual
+
 impl vortex_compute::comparison::Compare<vortex_compute::comparison::NotEqual> for vortex_vector::bool::scalar::BoolScalar
+
 pub type vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::bool::scalar::BoolScalar::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_compute::comparison::ComparableItem> vortex_compute::comparison::ComparisonOperator<T> for vortex_compute::comparison::NotEqual
+
 pub fn vortex_compute::comparison::NotEqual::apply(a: &T, b: &T) -> bool
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::NotEqual> for &vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type &vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::NotEqual> for vortex_vector::binaryview::scalar::BinaryViewScalar<T>
+
 pub type vortex_vector::binaryview::scalar::BinaryViewScalar<T>::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::binaryview::scalar::BinaryViewScalar<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::NotEqual> for vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 pub trait vortex_compute::comparison::ComparableItem
+
 pub fn vortex_compute::comparison::ComparableItem::is_equal(lhs: &Self, rhs: &Self) -> bool
+
 pub fn vortex_compute::comparison::ComparableItem::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 impl vortex_compute::comparison::ComparableItem for f32
+
 pub fn f32::is_equal(lhs: &Self, rhs: &Self) -> bool
+
 pub fn f32::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 impl vortex_compute::comparison::ComparableItem for f64
+
 pub fn f64::is_equal(lhs: &Self, rhs: &Self) -> bool
+
 pub fn f64::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 impl vortex_compute::comparison::ComparableItem for half::binary16::f16
+
 pub fn half::binary16::f16::is_equal(lhs: &Self, rhs: &Self) -> bool
+
 pub fn half::binary16::f16::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 impl vortex_compute::comparison::ComparableItem for i128
+
 pub fn i128::is_equal(lhs: &Self, rhs: &Self) -> bool
+
 pub fn i128::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 impl vortex_compute::comparison::ComparableItem for i16
+
 pub fn i16::is_equal(lhs: &Self, rhs: &Self) -> bool
+
 pub fn i16::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 impl vortex_compute::comparison::ComparableItem for i32
+
 pub fn i32::is_equal(lhs: &Self, rhs: &Self) -> bool
+
 pub fn i32::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 impl vortex_compute::comparison::ComparableItem for i64
+
 pub fn i64::is_equal(lhs: &Self, rhs: &Self) -> bool
+
 pub fn i64::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 impl vortex_compute::comparison::ComparableItem for i8
+
 pub fn i8::is_equal(lhs: &Self, rhs: &Self) -> bool
+
 pub fn i8::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 impl vortex_compute::comparison::ComparableItem for u128
+
 pub fn u128::is_equal(lhs: &Self, rhs: &Self) -> bool
+
 pub fn u128::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 impl vortex_compute::comparison::ComparableItem for u16
+
 pub fn u16::is_equal(lhs: &Self, rhs: &Self) -> bool
+
 pub fn u16::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 impl vortex_compute::comparison::ComparableItem for u32
+
 pub fn u32::is_equal(lhs: &Self, rhs: &Self) -> bool
+
 pub fn u32::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 impl vortex_compute::comparison::ComparableItem for u64
+
 pub fn u64::is_equal(lhs: &Self, rhs: &Self) -> bool
+
 pub fn u64::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 impl vortex_compute::comparison::ComparableItem for u8
+
 pub fn u8::is_equal(lhs: &Self, rhs: &Self) -> bool
+
 pub fn u8::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 impl vortex_compute::comparison::ComparableItem for vortex_dtype::bigint::i256
+
 pub fn vortex_dtype::bigint::i256::is_equal(lhs: &Self, rhs: &Self) -> bool
+
 pub fn vortex_dtype::bigint::i256::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 pub trait vortex_compute::comparison::Compare<Op, Rhs>
+
 pub type vortex_compute::comparison::Compare::Output
+
 pub fn vortex_compute::comparison::Compare::compare(self, rhs: Rhs) -> Self::Output
+
 impl vortex_compute::comparison::Compare<vortex_compute::comparison::Equal> for vortex_vector::bool::scalar::BoolScalar
+
 pub type vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::bool::scalar::BoolScalar::compare(self, rhs: Self) -> Self::Output
+
 impl vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThan> for vortex_vector::bool::scalar::BoolScalar
+
 pub type vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::bool::scalar::BoolScalar::compare(self, rhs: Self) -> Self::Output
+
 impl vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThanOrEqual> for vortex_vector::bool::scalar::BoolScalar
+
 pub type vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::bool::scalar::BoolScalar::compare(self, rhs: Self) -> Self::Output
+
 impl vortex_compute::comparison::Compare<vortex_compute::comparison::LessThan> for vortex_vector::bool::scalar::BoolScalar
+
 pub type vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::bool::scalar::BoolScalar::compare(self, rhs: Self) -> Self::Output
+
 impl vortex_compute::comparison::Compare<vortex_compute::comparison::LessThanOrEqual> for vortex_vector::bool::scalar::BoolScalar
+
 pub type vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::bool::scalar::BoolScalar::compare(self, rhs: Self) -> Self::Output
+
 impl vortex_compute::comparison::Compare<vortex_compute::comparison::NotEqual> for vortex_vector::bool::scalar::BoolScalar
+
 pub type vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::bool::scalar::BoolScalar::compare(self, rhs: Self) -> Self::Output
+
 impl<Op, D> vortex_compute::comparison::Compare<Op> for &vortex_vector::decimal::generic::DVector<D> where D: vortex_dtype::decimal::types::NativeDecimalType, Op: vortex_compute::comparison::ComparisonOperator<D>
+
 pub type &vortex_vector::decimal::generic::DVector<D>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::decimal::generic::DVector<D>::compare(self, rhs: &vortex_vector::decimal::generic::DVector<D>) -> Self::Output
+
 impl<Op, D> vortex_compute::comparison::Compare<Op> for vortex_vector::decimal::scalar::DScalar<D> where D: vortex_dtype::decimal::types::NativeDecimalType, Op: vortex_compute::comparison::ComparisonOperator<D>
+
 pub type vortex_vector::decimal::scalar::DScalar<D>::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::decimal::scalar::DScalar<D>::compare(self, rhs: Self) -> Self::Output
+
 impl<Op, T> vortex_compute::comparison::Compare<Op> for &[T] where T: core::marker::Copy, Op: vortex_compute::comparison::ComparisonOperator<T>
+
 pub type &[T]::Output = vortex_buffer::bit::buf::BitBuffer
+
 pub fn &[T]::compare(self, rhs: Self) -> Self::Output
+
 impl<Op, T> vortex_compute::comparison::Compare<Op> for &vortex_vector::primitive::generic::PVector<T> where T: vortex_dtype::ptype::NativePType, Op: vortex_compute::comparison::ComparisonOperator<T>
+
 pub type &vortex_vector::primitive::generic::PVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::primitive::generic::PVector<T>::compare(self, rhs: &vortex_vector::primitive::generic::PVector<T>) -> Self::Output
+
 impl<Op, T> vortex_compute::comparison::Compare<Op> for vortex_vector::datum::BinaryViewDatum<T> where T: vortex_vector::binaryview::types::BinaryViewType, vortex_vector::binaryview::scalar::BinaryViewScalar<T>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::binaryview::vector::BinaryViewVector<T>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>
+
 pub type vortex_vector::datum::BinaryViewDatum<T>::Output = vortex_vector::datum::BoolDatum
+
 pub fn vortex_vector::datum::BinaryViewDatum<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<Op, T> vortex_compute::comparison::Compare<Op> for vortex_vector::primitive::scalar::PScalar<T> where T: vortex_dtype::ptype::NativePType, Op: vortex_compute::comparison::ComparisonOperator<T>
+
 pub type vortex_vector::primitive::scalar::PScalar<T>::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::primitive::scalar::PScalar<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<Op> vortex_compute::comparison::Compare<Op> for &vortex_vector::decimal::vector::DecimalVector where for<'a> &'a vortex_vector::decimal::generic::DVector<i8>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a vortex_vector::decimal::generic::DVector<i16>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a vortex_vector::decimal::generic::DVector<i32>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a vortex_vector::decimal::generic::DVector<i64>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a vortex_vector::decimal::generic::DVector<i128>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a vortex_vector::decimal::generic::DVector<vortex_dtype::bigint::i256>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>
+
 pub type &vortex_vector::decimal::vector::DecimalVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::decimal::vector::DecimalVector::compare(self, rhs: Self) -> Self::Output
+
 impl<Op> vortex_compute::comparison::Compare<Op> for &vortex_vector::primitive::vector::PrimitiveVector where for<'a> &'a vortex_vector::primitive::generic::PVector<i8>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a vortex_vector::primitive::generic::PVector<i16>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a vortex_vector::primitive::generic::PVector<i32>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a vortex_vector::primitive::generic::PVector<i64>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a vortex_vector::primitive::generic::PVector<u8>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a vortex_vector::primitive::generic::PVector<u16>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a vortex_vector::primitive::generic::PVector<u32>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a vortex_vector::primitive::generic::PVector<u64>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a vortex_vector::primitive::generic::PVector<half::binary16::f16>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a vortex_vector::primitive::generic::PVector<f32>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a vortex_vector::primitive::generic::PVector<f64>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>
+
 pub type &vortex_vector::primitive::vector::PrimitiveVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::primitive::vector::PrimitiveVector::compare(self, rhs: Self) -> Self::Output
+
 impl<Op> vortex_compute::comparison::Compare<Op> for vortex_vector::bool::vector::BoolVector where Op: vortex_compute::comparison::bool::BitComparisonOperator
+
 pub type vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::bool::vector::BoolVector::compare(self, rhs: Self) -> Self::Output
+
 impl<Op> vortex_compute::comparison::Compare<Op> for vortex_vector::datum::BoolDatum where vortex_vector::bool::vector::BoolVector: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>, vortex_vector::bool::scalar::BoolScalar: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>
+
 pub type vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn vortex_vector::datum::BoolDatum::compare(self, rhs: Self) -> Self::Output
+
 impl<Op> vortex_compute::comparison::Compare<Op> for vortex_vector::datum::Datum where vortex_vector::datum::BoolDatum: vortex_compute::comparison::Compare<Op, Output = vortex_vector::datum::BoolDatum>, vortex_vector::datum::PrimitiveDatum: vortex_compute::comparison::Compare<Op, Output = vortex_vector::datum::BoolDatum>, vortex_vector::datum::DecimalDatum: vortex_compute::comparison::Compare<Op, Output = vortex_vector::datum::BoolDatum>, vortex_vector::datum::BinaryViewDatum<vortex_vector::binaryview::types::StringType>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::datum::BoolDatum>, vortex_vector::datum::BinaryViewDatum<vortex_vector::binaryview::types::BinaryType>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::datum::BoolDatum>
+
 pub type vortex_vector::datum::Datum::Output = vortex_vector::datum::BoolDatum
+
 pub fn vortex_vector::datum::Datum::compare(self, rhs: Self) -> Self::Output
+
 impl<Op> vortex_compute::comparison::Compare<Op> for vortex_vector::datum::DecimalDatum where vortex_vector::decimal::scalar::DecimalScalar: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::decimal::vector::DecimalVector: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>
+
 pub type vortex_vector::datum::DecimalDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn vortex_vector::datum::DecimalDatum::compare(self, rhs: Self) -> Self::Output
+
 impl<Op> vortex_compute::comparison::Compare<Op> for vortex_vector::datum::PrimitiveDatum where vortex_vector::primitive::scalar::PrimitiveScalar: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::primitive::vector::PrimitiveVector: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>
+
 pub type vortex_vector::datum::PrimitiveDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn vortex_vector::datum::PrimitiveDatum::compare(self, rhs: Self) -> Self::Output
+
 impl<Op> vortex_compute::comparison::Compare<Op> for vortex_vector::decimal::scalar::DecimalScalar where vortex_vector::decimal::scalar::DScalar<i8>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::decimal::scalar::DScalar<i16>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::decimal::scalar::DScalar<i32>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::decimal::scalar::DScalar<i64>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::decimal::scalar::DScalar<i128>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::decimal::scalar::DScalar<vortex_dtype::bigint::i256>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>
+
 pub type vortex_vector::decimal::scalar::DecimalScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::decimal::scalar::DecimalScalar::compare(self, rhs: Self) -> Self::Output
+
 impl<Op> vortex_compute::comparison::Compare<Op> for vortex_vector::decimal::vector::DecimalVector where for<'a> &'a vortex_vector::decimal::vector::DecimalVector: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>
+
 pub type vortex_vector::decimal::vector::DecimalVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::decimal::vector::DecimalVector::compare(self, rhs: Self) -> Self::Output
+
 impl<Op> vortex_compute::comparison::Compare<Op> for vortex_vector::primitive::scalar::PrimitiveScalar where vortex_vector::primitive::scalar::PScalar<i8>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::primitive::scalar::PScalar<i16>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::primitive::scalar::PScalar<i32>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::primitive::scalar::PScalar<i64>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::primitive::scalar::PScalar<u8>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::primitive::scalar::PScalar<u16>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::primitive::scalar::PScalar<u32>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::primitive::scalar::PScalar<u64>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::primitive::scalar::PScalar<half::binary16::f16>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::primitive::scalar::PScalar<f32>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>, vortex_vector::primitive::scalar::PScalar<f64>: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::scalar::BoolScalar>
+
 pub type vortex_vector::primitive::scalar::PrimitiveScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::primitive::scalar::PrimitiveScalar::compare(self, rhs: Self) -> Self::Output
+
 impl<Op> vortex_compute::comparison::Compare<Op> for vortex_vector::primitive::vector::PrimitiveVector where for<'a> &'a vortex_vector::primitive::vector::PrimitiveVector: vortex_compute::comparison::Compare<Op, Output = vortex_vector::bool::vector::BoolVector>
+
 pub type vortex_vector::primitive::vector::PrimitiveVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::primitive::vector::PrimitiveVector::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::Equal> for &vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type &vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::Equal> for vortex_vector::binaryview::scalar::BinaryViewScalar<T>
+
 pub type vortex_vector::binaryview::scalar::BinaryViewScalar<T>::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::binaryview::scalar::BinaryViewScalar<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::Equal> for vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThan> for &vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type &vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThan> for vortex_vector::binaryview::scalar::BinaryViewScalar<T>
+
 pub type vortex_vector::binaryview::scalar::BinaryViewScalar<T>::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::binaryview::scalar::BinaryViewScalar<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThan> for vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThanOrEqual> for &vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type &vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThanOrEqual> for vortex_vector::binaryview::scalar::BinaryViewScalar<T>
+
 pub type vortex_vector::binaryview::scalar::BinaryViewScalar<T>::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::binaryview::scalar::BinaryViewScalar<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::GreaterThanOrEqual> for vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::LessThan> for &vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type &vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::LessThan> for vortex_vector::binaryview::scalar::BinaryViewScalar<T>
+
 pub type vortex_vector::binaryview::scalar::BinaryViewScalar<T>::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::binaryview::scalar::BinaryViewScalar<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::LessThan> for vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::LessThanOrEqual> for &vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type &vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::LessThanOrEqual> for vortex_vector::binaryview::scalar::BinaryViewScalar<T>
+
 pub type vortex_vector::binaryview::scalar::BinaryViewScalar<T>::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::binaryview::scalar::BinaryViewScalar<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::LessThanOrEqual> for vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::NotEqual> for &vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type &vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::NotEqual> for vortex_vector::binaryview::scalar::BinaryViewScalar<T>
+
 pub type vortex_vector::binaryview::scalar::BinaryViewScalar<T>::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn vortex_vector::binaryview::scalar::BinaryViewScalar<T>::compare(self, rhs: Self) -> Self::Output
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::comparison::Compare<vortex_compute::comparison::NotEqual> for vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::compare(self, rhs: Self) -> Self::Output
+
 pub trait vortex_compute::comparison::ComparisonOperator<T>
+
 pub fn vortex_compute::comparison::ComparisonOperator::apply(a: &T, b: &T) -> bool
+
 impl<T: vortex_compute::comparison::ComparableItem> vortex_compute::comparison::ComparisonOperator<T> for vortex_compute::comparison::Equal
+
 pub fn vortex_compute::comparison::Equal::apply(a: &T, b: &T) -> bool
+
 impl<T: vortex_compute::comparison::ComparableItem> vortex_compute::comparison::ComparisonOperator<T> for vortex_compute::comparison::GreaterThan
+
 pub fn vortex_compute::comparison::GreaterThan::apply(a: &T, b: &T) -> bool
+
 impl<T: vortex_compute::comparison::ComparableItem> vortex_compute::comparison::ComparisonOperator<T> for vortex_compute::comparison::GreaterThanOrEqual
+
 pub fn vortex_compute::comparison::GreaterThanOrEqual::apply(a: &T, b: &T) -> bool
+
 impl<T: vortex_compute::comparison::ComparableItem> vortex_compute::comparison::ComparisonOperator<T> for vortex_compute::comparison::LessThan
+
 pub fn vortex_compute::comparison::LessThan::apply(a: &T, b: &T) -> bool
+
 impl<T: vortex_compute::comparison::ComparableItem> vortex_compute::comparison::ComparisonOperator<T> for vortex_compute::comparison::LessThanOrEqual
+
 pub fn vortex_compute::comparison::LessThanOrEqual::apply(a: &T, b: &T) -> bool
+
 impl<T: vortex_compute::comparison::ComparableItem> vortex_compute::comparison::ComparisonOperator<T> for vortex_compute::comparison::NotEqual
+
 pub fn vortex_compute::comparison::NotEqual::apply(a: &T, b: &T) -> bool
+
 pub mod vortex_compute::expand
+
 pub trait vortex_compute::expand::Expand
+
 pub type vortex_compute::expand::Expand::Output: core::default::Default
+
 pub fn vortex_compute::expand::Expand::expand(self, mask: &vortex_mask::Mask) -> Self::Output
+
 impl<T: core::marker::Copy + core::default::Default> vortex_compute::expand::Expand for &vortex_buffer::buffer::Buffer<T>
+
 pub type &vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &vortex_buffer::buffer::Buffer<T>::expand(self, mask: &vortex_mask::Mask) -> Self::Output
+
 impl<T: core::marker::Copy + core::default::Default> vortex_compute::expand::Expand for vortex_buffer::buffer_mut::BufferMut<T>
+
 pub type vortex_buffer::buffer_mut::BufferMut<T>::Output = vortex_buffer::buffer_mut::BufferMut<T>
+
 pub fn vortex_buffer::buffer_mut::BufferMut<T>::expand(self, mask: &vortex_mask::Mask) -> Self::Output
+
 pub mod vortex_compute::filter
+
 pub trait vortex_compute::filter::Filter<Selection: ?core::marker::Sized>
+
 pub type vortex_compute::filter::Filter::Output
+
 pub fn vortex_compute::filter::Filter::filter(self, selection: &Selection) -> Self::Output
+
 impl vortex_compute::filter::Filter<[(usize, usize)]> for &mut vortex_buffer::bit::buf_mut::BitBufferMut
+
 pub type &mut vortex_buffer::bit::buf_mut::BitBufferMut::Output = ()
+
 pub fn &mut vortex_buffer::bit::buf_mut::BitBufferMut::filter(self, slices: &[(usize, usize)])
+
 impl vortex_compute::filter::Filter<[(usize, usize)]> for &mut vortex_mask::mask_mut::MaskMut
+
 pub type &mut vortex_mask::mask_mut::MaskMut::Output = ()
+
 pub fn &mut vortex_mask::mask_mut::MaskMut::filter(self, slices: &[(usize, usize)])
+
 impl vortex_compute::filter::Filter<[(usize, usize)]> for &vortex_buffer::bit::buf::BitBuffer
+
 pub type &vortex_buffer::bit::buf::BitBuffer::Output = vortex_buffer::bit::buf::BitBuffer
+
 pub fn &vortex_buffer::bit::buf::BitBuffer::filter(self, slices: &[(usize, usize)]) -> vortex_buffer::bit::buf::BitBuffer
+
 impl vortex_compute::filter::Filter<[(usize, usize)]> for &vortex_mask::Mask
+
 pub type &vortex_mask::Mask::Output = vortex_mask::Mask
+
 pub fn &vortex_mask::Mask::filter(self, slices: &[(usize, usize)]) -> vortex_mask::Mask
+
 impl vortex_compute::filter::Filter<[usize]> for &mut vortex_buffer::bit::buf_mut::BitBufferMut
+
 pub type &mut vortex_buffer::bit::buf_mut::BitBufferMut::Output = ()
+
 pub fn &mut vortex_buffer::bit::buf_mut::BitBufferMut::filter(self, indices: &[usize])
+
 impl vortex_compute::filter::Filter<[usize]> for &mut vortex_mask::mask_mut::MaskMut
+
 pub type &mut vortex_mask::mask_mut::MaskMut::Output = ()
+
 pub fn &mut vortex_mask::mask_mut::MaskMut::filter(self, indices: &[usize])
+
 impl vortex_compute::filter::Filter<[usize]> for &vortex_buffer::bit::buf::BitBuffer
+
 pub type &vortex_buffer::bit::buf::BitBuffer::Output = vortex_buffer::bit::buf::BitBuffer
+
 pub fn &vortex_buffer::bit::buf::BitBuffer::filter(self, indices: &[usize]) -> vortex_buffer::bit::buf::BitBuffer
+
 impl vortex_compute::filter::Filter<[usize]> for &vortex_mask::Mask
+
 pub type &vortex_mask::Mask::Output = vortex_mask::Mask
+
 pub fn &vortex_mask::Mask::filter(self, indices: &[usize]) -> vortex_mask::Mask
+
 impl vortex_compute::filter::Filter<vortex_mask::Mask> for &mut vortex_buffer::bit::buf_mut::BitBufferMut
+
 pub type &mut vortex_buffer::bit::buf_mut::BitBufferMut::Output = ()
+
 pub fn &mut vortex_buffer::bit::buf_mut::BitBufferMut::filter(self, selection_mask: &vortex_mask::Mask)
+
 impl vortex_compute::filter::Filter<vortex_mask::Mask> for &mut vortex_mask::mask_mut::MaskMut
+
 pub type &mut vortex_mask::mask_mut::MaskMut::Output = ()
+
 pub fn &mut vortex_mask::mask_mut::MaskMut::filter(self, selection_mask: &vortex_mask::Mask)
+
 impl vortex_compute::filter::Filter<vortex_mask::Mask> for &mut vortex_vector::null::vector_mut::NullVectorMut
+
 pub type &mut vortex_vector::null::vector_mut::NullVectorMut::Output = ()
+
 pub fn &mut vortex_vector::null::vector_mut::NullVectorMut::filter(self, selection: &vortex_mask::Mask) -> Self::Output
+
 impl vortex_compute::filter::Filter<vortex_mask::Mask> for &mut vortex_vector::vector_mut::VectorMut
+
 pub type &mut vortex_vector::vector_mut::VectorMut::Output = ()
+
 pub fn &mut vortex_vector::vector_mut::VectorMut::filter(self, selection: &vortex_mask::Mask) -> Self::Output
+
 impl vortex_compute::filter::Filter<vortex_mask::Mask> for &vortex_buffer::bit::buf::BitBuffer
+
 pub type &vortex_buffer::bit::buf::BitBuffer::Output = vortex_buffer::bit::buf::BitBuffer
+
 pub fn &vortex_buffer::bit::buf::BitBuffer::filter(self, selection_mask: &vortex_mask::Mask) -> vortex_buffer::bit::buf::BitBuffer
+
 impl vortex_compute::filter::Filter<vortex_mask::Mask> for &vortex_mask::Mask
+
 pub type &vortex_mask::Mask::Output = vortex_mask::Mask
+
 pub fn &vortex_mask::Mask::filter(self, selection_mask: &vortex_mask::Mask) -> vortex_mask::Mask
+
 impl vortex_compute::filter::Filter<vortex_mask::Mask> for &vortex_vector::null::vector::NullVector
+
 pub type &vortex_vector::null::vector::NullVector::Output = vortex_vector::null::vector::NullVector
+
 pub fn &vortex_vector::null::vector::NullVector::filter(self, selection: &vortex_mask::Mask) -> Self::Output
+
 impl vortex_compute::filter::Filter<vortex_mask::Mask> for &vortex_vector::vector::Vector
+
 pub type &vortex_vector::vector::Vector::Output = vortex_vector::vector::Vector
+
 pub fn &vortex_vector::vector::Vector::filter(self, selection: &vortex_mask::Mask) -> Self::Output
+
 impl vortex_compute::filter::Filter<vortex_mask::Mask> for vortex_vector::null::vector::NullVector
+
 pub type vortex_vector::null::vector::NullVector::Output = vortex_vector::null::vector::NullVector
+
 pub fn vortex_vector::null::vector::NullVector::filter(self, selection: &vortex_mask::Mask) -> Self
+
 impl vortex_compute::filter::Filter<vortex_mask::MaskValues> for &mut vortex_buffer::bit::buf_mut::BitBufferMut
+
 pub type &mut vortex_buffer::bit::buf_mut::BitBufferMut::Output = ()
+
 pub fn &mut vortex_buffer::bit::buf_mut::BitBufferMut::filter(self, mask_values: &vortex_mask::MaskValues)
+
 impl vortex_compute::filter::Filter<vortex_mask::MaskValues> for &mut vortex_mask::mask_mut::MaskMut
+
 pub type &mut vortex_mask::mask_mut::MaskMut::Output = ()
+
 pub fn &mut vortex_mask::mask_mut::MaskMut::filter(self, mask_values: &vortex_mask::MaskValues)
+
 impl vortex_compute::filter::Filter<vortex_mask::MaskValues> for &vortex_buffer::bit::buf::BitBuffer
+
 pub type &vortex_buffer::bit::buf::BitBuffer::Output = vortex_buffer::bit::buf::BitBuffer
+
 pub fn &vortex_buffer::bit::buf::BitBuffer::filter(self, mask_values: &vortex_mask::MaskValues) -> vortex_buffer::bit::buf::BitBuffer
+
 impl vortex_compute::filter::Filter<vortex_mask::MaskValues> for &vortex_mask::Mask
+
 pub type &vortex_mask::Mask::Output = vortex_mask::Mask
+
 pub fn &vortex_mask::Mask::filter(self, mask_values: &vortex_mask::MaskValues) -> vortex_mask::Mask
+
 impl<'a, const NB: usize, T: core::marker::Copy> vortex_compute::filter::Filter<vortex_buffer::bit::view::BitView<'a, NB>> for &mut [T]
+
 pub type &mut [T]::Output = &mut [T]
+
 pub fn &mut [T]::filter(self, mask: &vortex_buffer::bit::view::BitView<'a, NB>) -> Self::Output
+
 impl<M, D: vortex_dtype::decimal::types::NativeDecimalType> vortex_compute::filter::Filter<M> for &mut vortex_vector::decimal::generic_mut::DVectorMut<D> where for<'a> &'a mut vortex_buffer::buffer_mut::BufferMut<D>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_mask::mask_mut::MaskMut: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type &mut vortex_vector::decimal::generic_mut::DVectorMut<D>::Output = ()
+
 pub fn &mut vortex_vector::decimal::generic_mut::DVectorMut<D>::filter(self, selection: &M) -> Self::Output
+
 impl<M, D: vortex_dtype::decimal::types::NativeDecimalType> vortex_compute::filter::Filter<M> for &vortex_vector::decimal::generic::DVector<D> where for<'a> &'a vortex_buffer::buffer::Buffer<D>: vortex_compute::filter::Filter<M, Output = vortex_buffer::buffer::Buffer<D>>, for<'a> &'a vortex_mask::Mask: vortex_compute::filter::Filter<M, Output = vortex_mask::Mask>
+
 pub type &vortex_vector::decimal::generic::DVector<D>::Output = vortex_vector::decimal::generic::DVector<D>
+
 pub fn &vortex_vector::decimal::generic::DVector<D>::filter(self, selection: &M) -> Self::Output
+
 impl<M, D: vortex_dtype::decimal::types::NativeDecimalType> vortex_compute::filter::Filter<M> for vortex_vector::decimal::generic::DVector<D> where for<'a> &'a vortex_vector::decimal::generic::DVector<D>: vortex_compute::filter::Filter<M, Output = vortex_vector::decimal::generic::DVector<D>>, for<'a> &'a mut vortex_vector::decimal::generic_mut::DVectorMut<D>: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type vortex_vector::decimal::generic::DVector<D>::Output = vortex_vector::decimal::generic::DVector<D>
+
 pub fn vortex_vector::decimal::generic::DVector<D>::filter(self, selection: &M) -> Self
+
 impl<M, T: core::marker::Copy> vortex_compute::filter::Filter<M> for vortex_buffer::buffer::Buffer<T> where for<'a> &'a vortex_buffer::buffer::Buffer<T>: vortex_compute::filter::Filter<M, Output = vortex_buffer::buffer::Buffer<T>>, for<'a> &'a mut vortex_buffer::buffer_mut::BufferMut<T>: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn vortex_buffer::buffer::Buffer<T>::filter(self, selection_mask: &M) -> Self
+
 impl<M, T: vortex_dtype::ptype::NativePType> vortex_compute::filter::Filter<M> for &mut vortex_vector::primitive::generic_mut::PVectorMut<T> where for<'a> &'a mut vortex_buffer::buffer_mut::BufferMut<T>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_mask::mask_mut::MaskMut: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type &mut vortex_vector::primitive::generic_mut::PVectorMut<T>::Output = ()
+
 pub fn &mut vortex_vector::primitive::generic_mut::PVectorMut<T>::filter(self, selection_mask: &M)
+
 impl<M, T: vortex_dtype::ptype::NativePType> vortex_compute::filter::Filter<M> for &vortex_vector::primitive::generic::PVector<T> where for<'a> &'a vortex_buffer::buffer::Buffer<T>: vortex_compute::filter::Filter<M, Output = vortex_buffer::buffer::Buffer<T>>, for<'a> &'a vortex_mask::Mask: vortex_compute::filter::Filter<M, Output = vortex_mask::Mask>
+
 pub type &vortex_vector::primitive::generic::PVector<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn &vortex_vector::primitive::generic::PVector<T>::filter(self, selection_mask: &M) -> vortex_vector::primitive::generic::PVector<T>
+
 impl<M, T: vortex_dtype::ptype::NativePType> vortex_compute::filter::Filter<M> for vortex_vector::primitive::generic::PVector<T> where for<'a> &'a vortex_vector::primitive::generic::PVector<T>: vortex_compute::filter::Filter<M, Output = vortex_vector::primitive::generic::PVector<T>>, for<'a> &'a mut vortex_vector::primitive::generic_mut::PVectorMut<T>: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type vortex_vector::primitive::generic::PVector<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn vortex_vector::primitive::generic::PVector<T>::filter(self, selection_mask: &M) -> Self
+
 impl<M, T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::filter::Filter<M> for &mut vortex_vector::binaryview::vector_mut::BinaryViewVectorMut<T> where for<'a> &'a mut vortex_mask::mask_mut::MaskMut: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_buffer::buffer_mut::BufferMut<vortex_vector::binaryview::view::BinaryView>: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type &mut vortex_vector::binaryview::vector_mut::BinaryViewVectorMut<T>::Output = ()
+
 pub fn &mut vortex_vector::binaryview::vector_mut::BinaryViewVectorMut<T>::filter(self, selection: &M) -> Self::Output
+
 impl<M, T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::filter::Filter<M> for &vortex_vector::binaryview::vector::BinaryViewVector<T> where for<'a> &'a vortex_mask::Mask: vortex_compute::filter::Filter<M, Output = vortex_mask::Mask>, for<'a> &'a vortex_buffer::buffer::Buffer<vortex_vector::binaryview::view::BinaryView>: vortex_compute::filter::Filter<M, Output = vortex_buffer::buffer::Buffer<vortex_vector::binaryview::view::BinaryView>>
+
 pub type &vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub fn &vortex_vector::binaryview::vector::BinaryViewVector<T>::filter(self, selection: &M) -> Self::Output
+
 impl<M, T: vortex_vector::binaryview::types::BinaryViewType> vortex_compute::filter::Filter<M> for vortex_vector::binaryview::vector::BinaryViewVector<T> where for<'a> &'a vortex_vector::binaryview::vector::BinaryViewVector<T>: vortex_compute::filter::Filter<M, Output = vortex_vector::binaryview::vector::BinaryViewVector<T>>, for<'a> &'a mut vortex_vector::binaryview::vector_mut::BinaryViewVectorMut<T>: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::filter(self, selection: &M) -> Self
+
 impl<M, T> vortex_compute::filter::Filter<M> for &mut vortex_buffer::buffer_mut::BufferMut<T> where for<'a> &'a mut [T]: vortex_compute::filter::Filter<M, Output = &'a mut [T]>
+
 pub type &mut vortex_buffer::buffer_mut::BufferMut<T>::Output = ()
+
 pub fn &mut vortex_buffer::buffer_mut::BufferMut<T>::filter(self, selection_mask: &M) -> Self::Output
+
 impl<M> vortex_compute::filter::Filter<M> for &mut vortex_vector::bool::vector_mut::BoolVectorMut where for<'a> &'a mut vortex_buffer::bit::buf_mut::BitBufferMut: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_mask::mask_mut::MaskMut: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type &mut vortex_vector::bool::vector_mut::BoolVectorMut::Output = ()
+
 pub fn &mut vortex_vector::bool::vector_mut::BoolVectorMut::filter(self, selection: &M) -> Self::Output
+
 impl<M> vortex_compute::filter::Filter<M> for &mut vortex_vector::decimal::vector_mut::DecimalVectorMut where for<'a> &'a mut vortex_vector::decimal::generic_mut::DVectorMut<i8>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::decimal::generic_mut::DVectorMut<i16>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::decimal::generic_mut::DVectorMut<i32>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::decimal::generic_mut::DVectorMut<i64>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::decimal::generic_mut::DVectorMut<i128>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::decimal::generic_mut::DVectorMut<vortex_dtype::bigint::i256>: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type &mut vortex_vector::decimal::vector_mut::DecimalVectorMut::Output = ()
+
 pub fn &mut vortex_vector::decimal::vector_mut::DecimalVectorMut::filter(self, selection: &M) -> Self::Output
+
 impl<M> vortex_compute::filter::Filter<M> for &mut vortex_vector::fixed_size_list::vector_mut::FixedSizeListVectorMut where for<'a> &'a mut vortex_mask::mask_mut::MaskMut: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::vector_mut::VectorMut: vortex_compute::filter::Filter<vortex_mask::Mask, Output = ()>
+
 pub type &mut vortex_vector::fixed_size_list::vector_mut::FixedSizeListVectorMut::Output = ()
+
 pub fn &mut vortex_vector::fixed_size_list::vector_mut::FixedSizeListVectorMut::filter(self, selection: &M) -> Self::Output
+
 impl<M> vortex_compute::filter::Filter<M> for &mut vortex_vector::listview::vector_mut::ListViewVectorMut where for<'a> &'a mut vortex_vector::primitive::vector_mut::PrimitiveVectorMut: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_mask::mask_mut::MaskMut: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type &mut vortex_vector::listview::vector_mut::ListViewVectorMut::Output = ()
+
 pub fn &mut vortex_vector::listview::vector_mut::ListViewVectorMut::filter(self, selection: &M) -> Self::Output
+
 impl<M> vortex_compute::filter::Filter<M> for &mut vortex_vector::primitive::vector_mut::PrimitiveVectorMut where for<'a> &'a mut vortex_vector::primitive::generic_mut::PVectorMut<i8>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::primitive::generic_mut::PVectorMut<i16>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::primitive::generic_mut::PVectorMut<i32>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::primitive::generic_mut::PVectorMut<i64>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::primitive::generic_mut::PVectorMut<u8>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::primitive::generic_mut::PVectorMut<u16>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::primitive::generic_mut::PVectorMut<u32>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::primitive::generic_mut::PVectorMut<u64>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::primitive::generic_mut::PVectorMut<half::binary16::f16>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::primitive::generic_mut::PVectorMut<f32>: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::primitive::generic_mut::PVectorMut<f64>: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type &mut vortex_vector::primitive::vector_mut::PrimitiveVectorMut::Output = ()
+
 pub fn &mut vortex_vector::primitive::vector_mut::PrimitiveVectorMut::filter(self, selection: &M) -> Self::Output
+
 impl<M> vortex_compute::filter::Filter<M> for &mut vortex_vector::struct_::vector_mut::StructVectorMut where for<'a> &'a mut vortex_mask::mask_mut::MaskMut: vortex_compute::filter::Filter<M, Output = ()>, for<'a> &'a mut vortex_vector::vector_mut::VectorMut: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type &mut vortex_vector::struct_::vector_mut::StructVectorMut::Output = ()
+
 pub fn &mut vortex_vector::struct_::vector_mut::StructVectorMut::filter(self, selection: &M) -> Self::Output
+
 impl<M> vortex_compute::filter::Filter<M> for &vortex_vector::bool::vector::BoolVector where for<'a> &'a vortex_buffer::bit::buf::BitBuffer: vortex_compute::filter::Filter<M, Output = vortex_buffer::bit::buf::BitBuffer>, for<'a> &'a vortex_mask::Mask: vortex_compute::filter::Filter<M, Output = vortex_mask::Mask>
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::filter(self, selection: &M) -> Self::Output
+
 impl<M> vortex_compute::filter::Filter<M> for &vortex_vector::decimal::vector::DecimalVector where for<'a> &'a vortex_vector::decimal::generic::DVector<i8>: vortex_compute::filter::Filter<M, Output = vortex_vector::decimal::generic::DVector<i8>>, for<'a> &'a vortex_vector::decimal::generic::DVector<i16>: vortex_compute::filter::Filter<M, Output = vortex_vector::decimal::generic::DVector<i16>>, for<'a> &'a vortex_vector::decimal::generic::DVector<i32>: vortex_compute::filter::Filter<M, Output = vortex_vector::decimal::generic::DVector<i32>>, for<'a> &'a vortex_vector::decimal::generic::DVector<i64>: vortex_compute::filter::Filter<M, Output = vortex_vector::decimal::generic::DVector<i64>>, for<'a> &'a vortex_vector::decimal::generic::DVector<i128>: vortex_compute::filter::Filter<M, Output = vortex_vector::decimal::generic::DVector<i128>>, for<'a> &'a vortex_vector::decimal::generic::DVector<vortex_dtype::bigint::i256>: vortex_compute::filter::Filter<M, Output = vortex_vector::decimal::generic::DVector<vortex_dtype::bigint::i256>>
+
 pub type &vortex_vector::decimal::vector::DecimalVector::Output = vortex_vector::decimal::vector::DecimalVector
+
 pub fn &vortex_vector::decimal::vector::DecimalVector::filter(self, selection: &M) -> Self::Output
+
 impl<M> vortex_compute::filter::Filter<M> for &vortex_vector::fixed_size_list::vector::FixedSizeListVector where for<'a> &'a vortex_mask::Mask: vortex_compute::filter::Filter<M, Output = vortex_mask::Mask>, for<'a> &'a vortex_vector::vector::Vector: vortex_compute::filter::Filter<vortex_mask::Mask, Output = vortex_vector::vector::Vector>
+
 pub type &vortex_vector::fixed_size_list::vector::FixedSizeListVector::Output = vortex_vector::fixed_size_list::vector::FixedSizeListVector
+
 pub fn &vortex_vector::fixed_size_list::vector::FixedSizeListVector::filter(self, selection: &M) -> Self::Output
+
 impl<M> vortex_compute::filter::Filter<M> for &vortex_vector::listview::vector::ListViewVector where for<'a> &'a vortex_vector::primitive::vector::PrimitiveVector: vortex_compute::filter::Filter<M, Output = vortex_vector::primitive::vector::PrimitiveVector>, for<'a> &'a vortex_mask::Mask: vortex_compute::filter::Filter<M, Output = vortex_mask::Mask>
+
 pub type &vortex_vector::listview::vector::ListViewVector::Output = vortex_vector::listview::vector::ListViewVector
+
 pub fn &vortex_vector::listview::vector::ListViewVector::filter(self, selection: &M) -> Self::Output
+
 impl<M> vortex_compute::filter::Filter<M> for &vortex_vector::primitive::vector::PrimitiveVector where for<'a> &'a vortex_vector::primitive::generic::PVector<i8>: vortex_compute::filter::Filter<M, Output = vortex_vector::primitive::generic::PVector<i8>>, for<'a> &'a vortex_vector::primitive::generic::PVector<i16>: vortex_compute::filter::Filter<M, Output = vortex_vector::primitive::generic::PVector<i16>>, for<'a> &'a vortex_vector::primitive::generic::PVector<i32>: vortex_compute::filter::Filter<M, Output = vortex_vector::primitive::generic::PVector<i32>>, for<'a> &'a vortex_vector::primitive::generic::PVector<i64>: vortex_compute::filter::Filter<M, Output = vortex_vector::primitive::generic::PVector<i64>>, for<'a> &'a vortex_vector::primitive::generic::PVector<u8>: vortex_compute::filter::Filter<M, Output = vortex_vector::primitive::generic::PVector<u8>>, for<'a> &'a vortex_vector::primitive::generic::PVector<u16>: vortex_compute::filter::Filter<M, Output = vortex_vector::primitive::generic::PVector<u16>>, for<'a> &'a vortex_vector::primitive::generic::PVector<u32>: vortex_compute::filter::Filter<M, Output = vortex_vector::primitive::generic::PVector<u32>>, for<'a> &'a vortex_vector::primitive::generic::PVector<u64>: vortex_compute::filter::Filter<M, Output = vortex_vector::primitive::generic::PVector<u64>>, for<'a> &'a vortex_vector::primitive::generic::PVector<half::binary16::f16>: vortex_compute::filter::Filter<M, Output = vortex_vector::primitive::generic::PVector<half::binary16::f16>>, for<'a> &'a vortex_vector::primitive::generic::PVector<f32>: vortex_compute::filter::Filter<M, Output = vortex_vector::primitive::generic::PVector<f32>>, for<'a> &'a vortex_vector::primitive::generic::PVector<f64>: vortex_compute::filter::Filter<M, Output = vortex_vector::primitive::generic::PVector<f64>>
+
 pub type &vortex_vector::primitive::vector::PrimitiveVector::Output = vortex_vector::primitive::vector::PrimitiveVector
+
 pub fn &vortex_vector::primitive::vector::PrimitiveVector::filter(self, selection: &M) -> Self::Output
+
 impl<M> vortex_compute::filter::Filter<M> for &vortex_vector::struct_::vector::StructVector where for<'a> &'a vortex_mask::Mask: vortex_compute::filter::Filter<M, Output = vortex_mask::Mask>, for<'a> &'a vortex_vector::vector::Vector: vortex_compute::filter::Filter<M, Output = vortex_vector::vector::Vector>
+
 pub type &vortex_vector::struct_::vector::StructVector::Output = vortex_vector::struct_::vector::StructVector
+
 pub fn &vortex_vector::struct_::vector::StructVector::filter(self, selection: &M) -> Self::Output
+
 impl<M> vortex_compute::filter::Filter<M> for vortex_vector::bool::vector::BoolVector where for<'a> &'a vortex_vector::bool::vector::BoolVector: vortex_compute::filter::Filter<M, Output = vortex_vector::bool::vector::BoolVector>, for<'a> &'a mut vortex_vector::bool::vector_mut::BoolVectorMut: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::bool::vector::BoolVector::filter(self, selection: &M) -> Self
+
 impl<M> vortex_compute::filter::Filter<M> for vortex_vector::decimal::vector::DecimalVector where for<'a> &'a vortex_vector::decimal::vector::DecimalVector: vortex_compute::filter::Filter<M, Output = vortex_vector::decimal::vector::DecimalVector>, for<'a> &'a mut vortex_vector::decimal::vector_mut::DecimalVectorMut: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type vortex_vector::decimal::vector::DecimalVector::Output = vortex_vector::decimal::vector::DecimalVector
+
 pub fn vortex_vector::decimal::vector::DecimalVector::filter(self, selection: &M) -> Self
+
 impl<M> vortex_compute::filter::Filter<M> for vortex_vector::fixed_size_list::vector::FixedSizeListVector where for<'a> &'a vortex_vector::fixed_size_list::vector::FixedSizeListVector: vortex_compute::filter::Filter<M, Output = vortex_vector::fixed_size_list::vector::FixedSizeListVector>, for<'a> &'a mut vortex_vector::fixed_size_list::vector_mut::FixedSizeListVectorMut: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type vortex_vector::fixed_size_list::vector::FixedSizeListVector::Output = vortex_vector::fixed_size_list::vector::FixedSizeListVector
+
 pub fn vortex_vector::fixed_size_list::vector::FixedSizeListVector::filter(self, selection: &M) -> Self
+
 impl<M> vortex_compute::filter::Filter<M> for vortex_vector::listview::vector::ListViewVector where for<'a> &'a vortex_vector::listview::vector::ListViewVector: vortex_compute::filter::Filter<M, Output = vortex_vector::listview::vector::ListViewVector>, for<'a> &'a mut vortex_vector::listview::vector_mut::ListViewVectorMut: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type vortex_vector::listview::vector::ListViewVector::Output = vortex_vector::listview::vector::ListViewVector
+
 pub fn vortex_vector::listview::vector::ListViewVector::filter(self, selection: &M) -> Self
+
 impl<M> vortex_compute::filter::Filter<M> for vortex_vector::primitive::vector::PrimitiveVector where for<'a> &'a vortex_vector::primitive::vector::PrimitiveVector: vortex_compute::filter::Filter<M, Output = vortex_vector::primitive::vector::PrimitiveVector>, for<'a> &'a mut vortex_vector::primitive::vector_mut::PrimitiveVectorMut: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type vortex_vector::primitive::vector::PrimitiveVector::Output = vortex_vector::primitive::vector::PrimitiveVector
+
 pub fn vortex_vector::primitive::vector::PrimitiveVector::filter(self, selection: &M) -> Self
+
 impl<M> vortex_compute::filter::Filter<M> for vortex_vector::struct_::vector::StructVector where for<'a> &'a vortex_vector::struct_::vector::StructVector: vortex_compute::filter::Filter<M, Output = vortex_vector::struct_::vector::StructVector>, for<'a> &'a mut vortex_vector::struct_::vector_mut::StructVectorMut: vortex_compute::filter::Filter<M, Output = ()>
+
 pub type vortex_vector::struct_::vector::StructVector::Output = vortex_vector::struct_::vector::StructVector
+
 pub fn vortex_vector::struct_::vector::StructVector::filter(self, selection: &M) -> Self
+
 impl<T: core::marker::Copy> vortex_compute::filter::Filter<[(usize, usize)]> for &[T]
+
 pub type &[T]::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &[T]::filter(self, slices: &[(usize, usize)]) -> vortex_buffer::buffer::Buffer<T>
+
 impl<T: core::marker::Copy> vortex_compute::filter::Filter<[(usize, usize)]> for &mut [T]
+
 pub type &mut [T]::Output = &mut [T]
+
 pub fn &mut [T]::filter(self, slices: &[(usize, usize)]) -> Self::Output
+
 impl<T: core::marker::Copy> vortex_compute::filter::Filter<[(usize, usize)]> for &vortex_buffer::buffer::Buffer<T>
+
 pub type &vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &vortex_buffer::buffer::Buffer<T>::filter(self, slices: &[(usize, usize)]) -> vortex_buffer::buffer::Buffer<T>
+
 impl<T: core::marker::Copy> vortex_compute::filter::Filter<[usize]> for &[T]
+
 pub type &[T]::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &[T]::filter(self, indices: &[usize]) -> vortex_buffer::buffer::Buffer<T>
+
 impl<T: core::marker::Copy> vortex_compute::filter::Filter<[usize]> for &mut [T]
+
 pub type &mut [T]::Output = &mut [T]
+
 pub fn &mut [T]::filter(self, indices: &[usize]) -> Self::Output
+
 impl<T: core::marker::Copy> vortex_compute::filter::Filter<[usize]> for &vortex_buffer::buffer::Buffer<T>
+
 pub type &vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &vortex_buffer::buffer::Buffer<T>::filter(self, indices: &[usize]) -> vortex_buffer::buffer::Buffer<T>
+
 impl<T: core::marker::Copy> vortex_compute::filter::Filter<vortex_mask::Mask> for &[T]
+
 pub type &[T]::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &[T]::filter(self, selection_mask: &vortex_mask::Mask) -> vortex_buffer::buffer::Buffer<T>
+
 impl<T: core::marker::Copy> vortex_compute::filter::Filter<vortex_mask::Mask> for &mut [T]
+
 pub type &mut [T]::Output = &mut [T]
+
 pub fn &mut [T]::filter(self, selection: &vortex_mask::Mask) -> Self::Output
+
 impl<T: core::marker::Copy> vortex_compute::filter::Filter<vortex_mask::Mask> for &vortex_buffer::buffer::Buffer<T>
+
 pub type &vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &vortex_buffer::buffer::Buffer<T>::filter(self, selection_mask: &vortex_mask::Mask) -> vortex_buffer::buffer::Buffer<T>
+
 impl<T: core::marker::Copy> vortex_compute::filter::Filter<vortex_mask::MaskValues> for &[T]
+
 pub type &[T]::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &[T]::filter(self, mask_values: &vortex_mask::MaskValues) -> vortex_buffer::buffer::Buffer<T>
+
 impl<T: core::marker::Copy> vortex_compute::filter::Filter<vortex_mask::MaskValues> for &mut [T]
+
 pub type &mut [T]::Output = &mut [T]
+
 pub fn &mut [T]::filter(self, mask_values: &vortex_mask::MaskValues) -> Self::Output
+
 impl<T: core::marker::Copy> vortex_compute::filter::Filter<vortex_mask::MaskValues> for &vortex_buffer::buffer::Buffer<T>
+
 pub type &vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &vortex_buffer::buffer::Buffer<T>::filter(self, mask_values: &vortex_mask::MaskValues) -> vortex_buffer::buffer::Buffer<T>
+
 impl<const NB: usize, T: core::marker::Copy> vortex_compute::filter::Filter<vortex_buffer::bit::view::BitView<'_, NB>> for &[T]
+
 pub type &[T]::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &[T]::filter(self, mask: &vortex_buffer::bit::view::BitView<'_, NB>) -> Self::Output
+
 impl<const NB: usize, T: core::marker::Copy> vortex_compute::filter::Filter<vortex_buffer::bit::view::BitView<'_, NB>> for &vortex_buffer::buffer::Buffer<T>
+
 pub type &vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &vortex_buffer::buffer::Buffer<T>::filter(self, selection: &vortex_buffer::bit::view::BitView<'_, NB>) -> Self::Output
+
 impl<const NB: usize> vortex_compute::filter::Filter<vortex_buffer::bit::view::BitView<'_, NB>> for &mut vortex_buffer::bit::buf_mut::BitBufferMut
+
 pub type &mut vortex_buffer::bit::buf_mut::BitBufferMut::Output = ()
+
 pub fn &mut vortex_buffer::bit::buf_mut::BitBufferMut::filter(self, selection: &vortex_buffer::bit::view::BitView<'_, NB>)
+
 impl<const NB: usize> vortex_compute::filter::Filter<vortex_buffer::bit::view::BitView<'_, NB>> for &mut vortex_mask::mask_mut::MaskMut
+
 pub type &mut vortex_mask::mask_mut::MaskMut::Output = ()
+
 pub fn &mut vortex_mask::mask_mut::MaskMut::filter(self, selection: &vortex_buffer::bit::view::BitView<'_, NB>) -> Self::Output
+
 impl<const NB: usize> vortex_compute::filter::Filter<vortex_buffer::bit::view::BitView<'_, NB>> for &mut vortex_vector::null::vector_mut::NullVectorMut
+
 pub type &mut vortex_vector::null::vector_mut::NullVectorMut::Output = ()
+
 pub fn &mut vortex_vector::null::vector_mut::NullVectorMut::filter(self, selection: &vortex_buffer::bit::view::BitView<'_, NB>) -> Self::Output
+
 impl<const NB: usize> vortex_compute::filter::Filter<vortex_buffer::bit::view::BitView<'_, NB>> for &mut vortex_vector::vector_mut::VectorMut
+
 pub type &mut vortex_vector::vector_mut::VectorMut::Output = ()
+
 pub fn &mut vortex_vector::vector_mut::VectorMut::filter(self, selection: &vortex_buffer::bit::view::BitView<'_, NB>) -> Self::Output
+
 impl<const NB: usize> vortex_compute::filter::Filter<vortex_buffer::bit::view::BitView<'_, NB>> for &vortex_buffer::bit::buf::BitBuffer
+
 pub type &vortex_buffer::bit::buf::BitBuffer::Output = vortex_buffer::bit::buf::BitBuffer
+
 pub fn &vortex_buffer::bit::buf::BitBuffer::filter(self, selection: &vortex_buffer::bit::view::BitView<'_, NB>) -> vortex_buffer::bit::buf::BitBuffer
+
 impl<const NB: usize> vortex_compute::filter::Filter<vortex_buffer::bit::view::BitView<'_, NB>> for &vortex_mask::Mask
+
 pub type &vortex_mask::Mask::Output = vortex_mask::Mask
+
 pub fn &vortex_mask::Mask::filter(self, selection: &vortex_buffer::bit::view::BitView<'_, NB>) -> Self::Output
+
 impl<const NB: usize> vortex_compute::filter::Filter<vortex_buffer::bit::view::BitView<'_, NB>> for &vortex_vector::null::vector::NullVector
+
 pub type &vortex_vector::null::vector::NullVector::Output = vortex_vector::null::vector::NullVector
+
 pub fn &vortex_vector::null::vector::NullVector::filter(self, selection: &vortex_buffer::bit::view::BitView<'_, NB>) -> Self::Output
+
 impl<const NB: usize> vortex_compute::filter::Filter<vortex_buffer::bit::view::BitView<'_, NB>> for &vortex_vector::vector::Vector
+
 pub type &vortex_vector::vector::Vector::Output = vortex_vector::vector::Vector
+
 pub fn &vortex_vector::vector::Vector::filter(self, selection: &vortex_buffer::bit::view::BitView<'_, NB>) -> Self::Output
+
 impl<const NB: usize> vortex_compute::filter::Filter<vortex_buffer::bit::view::BitView<'_, NB>> for vortex_vector::null::vector::NullVector
+
 pub type vortex_vector::null::vector::NullVector::Output = vortex_vector::null::vector::NullVector
+
 pub fn vortex_vector::null::vector::NullVector::filter(self, selection: &vortex_buffer::bit::view::BitView<'_, NB>) -> Self
+
 pub mod vortex_compute::logical
+
 pub struct vortex_compute::logical::And
+
 impl vortex_compute::logical::LogicalBinaryOp for vortex_compute::logical::And
+
 pub fn vortex_compute::logical::And::bit_op(lhs: &vortex_buffer::bit::buf::BitBuffer, rhs: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::And::scalar_op(lhs: bool, rhs: bool) -> bool
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::And, &vortex_vector::datum::BoolDatum> for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::op(self, rhs: &vortex_vector::datum::BoolDatum) -> vortex_vector::datum::BoolDatum
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::And> for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::op(self, rhs: &vortex_vector::bool::scalar::BoolScalar) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::And> for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::op(self, rhs: &vortex_vector::bool::vector::BoolVector) -> vortex_vector::bool::vector::BoolVector
+
 pub struct vortex_compute::logical::AndNot
+
 impl vortex_compute::logical::LogicalBinaryOp for vortex_compute::logical::AndNot
+
 pub fn vortex_compute::logical::AndNot::bit_op(lhs: &vortex_buffer::bit::buf::BitBuffer, rhs: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::AndNot::scalar_op(lhs: bool, rhs: bool) -> bool
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::AndNot, &vortex_vector::datum::BoolDatum> for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::op(self, rhs: &vortex_vector::datum::BoolDatum) -> vortex_vector::datum::BoolDatum
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::AndNot> for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::op(self, rhs: &vortex_vector::bool::scalar::BoolScalar) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::AndNot> for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::op(self, rhs: &vortex_vector::bool::vector::BoolVector) -> vortex_vector::bool::vector::BoolVector
+
 pub struct vortex_compute::logical::KleeneAnd
+
 impl vortex_compute::logical::KleeneBinaryOp for vortex_compute::logical::KleeneAnd
+
 pub fn vortex_compute::logical::KleeneAnd::absorb_bits(bits: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::KleeneAnd::bit_op(lhs: &vortex_buffer::bit::buf::BitBuffer, rhs: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::KleeneAnd::scalar_op(lhs: core::option::Option<bool>, rhs: core::option::Option<bool>) -> core::option::Option<bool>
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::KleeneAnd, &vortex_vector::datum::BoolDatum> for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::op(self, rhs: &vortex_vector::datum::BoolDatum) -> vortex_vector::datum::BoolDatum
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::KleeneAnd> for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::op(self, rhs: &vortex_vector::bool::scalar::BoolScalar) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::KleeneAnd> for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::op(self, rhs: &vortex_vector::bool::vector::BoolVector) -> vortex_vector::bool::vector::BoolVector
+
 pub struct vortex_compute::logical::KleeneOr
+
 impl vortex_compute::logical::KleeneBinaryOp for vortex_compute::logical::KleeneOr
+
 pub fn vortex_compute::logical::KleeneOr::absorb_bits(bits: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::KleeneOr::bit_op(lhs: &vortex_buffer::bit::buf::BitBuffer, rhs: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::KleeneOr::scalar_op(lhs: core::option::Option<bool>, rhs: core::option::Option<bool>) -> core::option::Option<bool>
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::KleeneOr, &vortex_vector::datum::BoolDatum> for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::op(self, rhs: &vortex_vector::datum::BoolDatum) -> vortex_vector::datum::BoolDatum
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::KleeneOr> for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::op(self, rhs: &vortex_vector::bool::scalar::BoolScalar) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::KleeneOr> for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::op(self, rhs: &vortex_vector::bool::vector::BoolVector) -> vortex_vector::bool::vector::BoolVector
+
 pub struct vortex_compute::logical::Or
+
 impl vortex_compute::logical::LogicalBinaryOp for vortex_compute::logical::Or
+
 pub fn vortex_compute::logical::Or::bit_op(lhs: &vortex_buffer::bit::buf::BitBuffer, rhs: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::Or::scalar_op(lhs: bool, rhs: bool) -> bool
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::Or, &vortex_vector::datum::BoolDatum> for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::op(self, rhs: &vortex_vector::datum::BoolDatum) -> vortex_vector::datum::BoolDatum
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::Or> for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::op(self, rhs: &vortex_vector::bool::scalar::BoolScalar) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::Or> for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::op(self, rhs: &vortex_vector::bool::vector::BoolVector) -> vortex_vector::bool::vector::BoolVector
+
 pub trait vortex_compute::logical::KleeneBinaryOp
+
 pub fn vortex_compute::logical::KleeneBinaryOp::absorb_bits(bits: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::KleeneBinaryOp::bit_op(lhs: &vortex_buffer::bit::buf::BitBuffer, rhs: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::KleeneBinaryOp::scalar_op(lhs: core::option::Option<bool>, rhs: core::option::Option<bool>) -> core::option::Option<bool>
+
 impl vortex_compute::logical::KleeneBinaryOp for vortex_compute::logical::KleeneAnd
+
 pub fn vortex_compute::logical::KleeneAnd::absorb_bits(bits: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::KleeneAnd::bit_op(lhs: &vortex_buffer::bit::buf::BitBuffer, rhs: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::KleeneAnd::scalar_op(lhs: core::option::Option<bool>, rhs: core::option::Option<bool>) -> core::option::Option<bool>
+
 impl vortex_compute::logical::KleeneBinaryOp for vortex_compute::logical::KleeneOr
+
 pub fn vortex_compute::logical::KleeneOr::absorb_bits(bits: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::KleeneOr::bit_op(lhs: &vortex_buffer::bit::buf::BitBuffer, rhs: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::KleeneOr::scalar_op(lhs: core::option::Option<bool>, rhs: core::option::Option<bool>) -> core::option::Option<bool>
+
 pub trait vortex_compute::logical::LogicalAnd<Rhs>
+
 pub type vortex_compute::logical::LogicalAnd::Output
+
 pub fn vortex_compute::logical::LogicalAnd::and(self, other: Rhs) -> Self::Output
+
 impl vortex_compute::logical::LogicalAnd for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::and(self, other: &vortex_vector::bool::scalar::BoolScalar) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalAnd for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::and(self, other: &vortex_vector::bool::vector::BoolVector) -> vortex_vector::bool::vector::BoolVector
+
 impl vortex_compute::logical::LogicalAnd<&vortex_vector::datum::BoolDatum> for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::and(self, other: &vortex_vector::datum::BoolDatum) -> vortex_vector::datum::BoolDatum
+
 pub trait vortex_compute::logical::LogicalAndKleene<Rhs>
+
 pub type vortex_compute::logical::LogicalAndKleene::Output
+
 pub fn vortex_compute::logical::LogicalAndKleene::and_kleene(self, other: Rhs) -> Self::Output
+
 impl vortex_compute::logical::LogicalAndKleene for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::and_kleene(self, rhs: &vortex_vector::bool::scalar::BoolScalar) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalAndKleene for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::and_kleene(self, rhs: &vortex_vector::bool::vector::BoolVector) -> vortex_vector::bool::vector::BoolVector
+
 impl vortex_compute::logical::LogicalAndKleene<&vortex_vector::datum::BoolDatum> for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::and_kleene(self, rhs: &vortex_vector::datum::BoolDatum) -> vortex_vector::datum::BoolDatum
+
 pub trait vortex_compute::logical::LogicalAndNot<Rhs>
+
 pub type vortex_compute::logical::LogicalAndNot::Output
+
 pub fn vortex_compute::logical::LogicalAndNot::and_not(self, other: Rhs) -> Self::Output
+
 impl vortex_compute::logical::LogicalAndNot for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::and_not(self, other: &vortex_vector::bool::scalar::BoolScalar) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalAndNot for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::and_not(self, other: &vortex_vector::bool::vector::BoolVector) -> vortex_vector::bool::vector::BoolVector
+
 impl vortex_compute::logical::LogicalAndNot<&vortex_vector::datum::BoolDatum> for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::and_not(self, other: &vortex_vector::datum::BoolDatum) -> vortex_vector::datum::BoolDatum
+
 pub trait vortex_compute::logical::LogicalBinaryOp
+
 pub fn vortex_compute::logical::LogicalBinaryOp::bit_op(lhs: &vortex_buffer::bit::buf::BitBuffer, rhs: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::LogicalBinaryOp::scalar_op(lhs: bool, rhs: bool) -> bool
+
 impl vortex_compute::logical::LogicalBinaryOp for vortex_compute::logical::And
+
 pub fn vortex_compute::logical::And::bit_op(lhs: &vortex_buffer::bit::buf::BitBuffer, rhs: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::And::scalar_op(lhs: bool, rhs: bool) -> bool
+
 impl vortex_compute::logical::LogicalBinaryOp for vortex_compute::logical::AndNot
+
 pub fn vortex_compute::logical::AndNot::bit_op(lhs: &vortex_buffer::bit::buf::BitBuffer, rhs: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::AndNot::scalar_op(lhs: bool, rhs: bool) -> bool
+
 impl vortex_compute::logical::LogicalBinaryOp for vortex_compute::logical::Or
+
 pub fn vortex_compute::logical::Or::bit_op(lhs: &vortex_buffer::bit::buf::BitBuffer, rhs: &vortex_buffer::bit::buf::BitBuffer) -> vortex_buffer::bit::buf::BitBuffer
+
 pub fn vortex_compute::logical::Or::scalar_op(lhs: bool, rhs: bool) -> bool
+
 pub trait vortex_compute::logical::LogicalNot
+
 pub type vortex_compute::logical::LogicalNot::Output
+
 pub fn vortex_compute::logical::LogicalNot::not(self) -> Self::Output
+
 impl vortex_compute::logical::LogicalNot for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::not(self) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalNot for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::not(self) -> <Self as vortex_compute::logical::LogicalNot>::Output
+
 impl vortex_compute::logical::LogicalNot for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::not(self) -> vortex_vector::datum::BoolDatum
+
 impl vortex_compute::logical::LogicalNot for vortex_vector::bool::vector::BoolVector
+
 pub type vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_vector::bool::vector::BoolVector::not(self) -> <Self as vortex_compute::logical::LogicalNot>::Output
+
 impl vortex_compute::logical::LogicalNot for vortex_vector::bool::vector_mut::BoolVectorMut
+
 pub type vortex_vector::bool::vector_mut::BoolVectorMut::Output = vortex_vector::bool::vector_mut::BoolVectorMut
+
 pub fn vortex_vector::bool::vector_mut::BoolVectorMut::not(self) -> <Self as vortex_compute::logical::LogicalNot>::Output
+
 pub trait vortex_compute::logical::LogicalOp<Op, Rhs>
+
 pub type vortex_compute::logical::LogicalOp::Output
+
 pub fn vortex_compute::logical::LogicalOp::op(self, other: Rhs) -> Self::Output
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::And, &vortex_vector::datum::BoolDatum> for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::op(self, rhs: &vortex_vector::datum::BoolDatum) -> vortex_vector::datum::BoolDatum
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::And> for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::op(self, rhs: &vortex_vector::bool::scalar::BoolScalar) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::And> for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::op(self, rhs: &vortex_vector::bool::vector::BoolVector) -> vortex_vector::bool::vector::BoolVector
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::AndNot, &vortex_vector::datum::BoolDatum> for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::op(self, rhs: &vortex_vector::datum::BoolDatum) -> vortex_vector::datum::BoolDatum
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::AndNot> for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::op(self, rhs: &vortex_vector::bool::scalar::BoolScalar) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::AndNot> for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::op(self, rhs: &vortex_vector::bool::vector::BoolVector) -> vortex_vector::bool::vector::BoolVector
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::KleeneAnd, &vortex_vector::datum::BoolDatum> for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::op(self, rhs: &vortex_vector::datum::BoolDatum) -> vortex_vector::datum::BoolDatum
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::KleeneAnd> for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::op(self, rhs: &vortex_vector::bool::scalar::BoolScalar) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::KleeneAnd> for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::op(self, rhs: &vortex_vector::bool::vector::BoolVector) -> vortex_vector::bool::vector::BoolVector
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::KleeneOr, &vortex_vector::datum::BoolDatum> for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::op(self, rhs: &vortex_vector::datum::BoolDatum) -> vortex_vector::datum::BoolDatum
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::KleeneOr> for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::op(self, rhs: &vortex_vector::bool::scalar::BoolScalar) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::KleeneOr> for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::op(self, rhs: &vortex_vector::bool::vector::BoolVector) -> vortex_vector::bool::vector::BoolVector
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::Or, &vortex_vector::datum::BoolDatum> for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::op(self, rhs: &vortex_vector::datum::BoolDatum) -> vortex_vector::datum::BoolDatum
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::Or> for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::op(self, rhs: &vortex_vector::bool::scalar::BoolScalar) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalOp<vortex_compute::logical::Or> for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::op(self, rhs: &vortex_vector::bool::vector::BoolVector) -> vortex_vector::bool::vector::BoolVector
+
 pub trait vortex_compute::logical::LogicalOr<Rhs>
+
 pub type vortex_compute::logical::LogicalOr::Output
+
 pub fn vortex_compute::logical::LogicalOr::or(self, other: Rhs) -> Self::Output
+
 impl vortex_compute::logical::LogicalOr for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::or(self, other: &vortex_vector::bool::scalar::BoolScalar) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalOr for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::or(self, other: &vortex_vector::bool::vector::BoolVector) -> vortex_vector::bool::vector::BoolVector
+
 impl vortex_compute::logical::LogicalOr<&vortex_vector::datum::BoolDatum> for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::or(self, other: &vortex_vector::datum::BoolDatum) -> vortex_vector::datum::BoolDatum
+
 pub trait vortex_compute::logical::LogicalOrKleene<Rhs>
+
 pub type vortex_compute::logical::LogicalOrKleene::Output
+
 pub fn vortex_compute::logical::LogicalOrKleene::or_kleene(self, other: Rhs) -> Self::Output
+
 impl vortex_compute::logical::LogicalOrKleene for &vortex_vector::bool::scalar::BoolScalar
+
 pub type &vortex_vector::bool::scalar::BoolScalar::Output = vortex_vector::bool::scalar::BoolScalar
+
 pub fn &vortex_vector::bool::scalar::BoolScalar::or_kleene(self, rhs: &vortex_vector::bool::scalar::BoolScalar) -> vortex_vector::bool::scalar::BoolScalar
+
 impl vortex_compute::logical::LogicalOrKleene for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::or_kleene(self, rhs: &vortex_vector::bool::vector::BoolVector) -> vortex_vector::bool::vector::BoolVector
+
 impl vortex_compute::logical::LogicalOrKleene<&vortex_vector::datum::BoolDatum> for &vortex_vector::datum::BoolDatum
+
 pub type &vortex_vector::datum::BoolDatum::Output = vortex_vector::datum::BoolDatum
+
 pub fn &vortex_vector::datum::BoolDatum::or_kleene(self, rhs: &vortex_vector::datum::BoolDatum) -> vortex_vector::datum::BoolDatum
+
 pub mod vortex_compute::take
+
 pub mod vortex_compute::take::slice
+
 pub trait vortex_compute::take::Take<Indices: ?core::marker::Sized>
+
 pub type vortex_compute::take::Take::Output
+
 pub fn vortex_compute::take::Take::take(self, indices: &Indices) -> Self::Output
+
 impl vortex_compute::take::Take<vortex_vector::primitive::vector::PrimitiveVector> for vortex_vector::vector::Vector
+
 pub type vortex_vector::vector::Vector::Output = vortex_vector::vector::Vector
+
 pub fn vortex_vector::vector::Vector::take(self, indices: &vortex_vector::primitive::vector::PrimitiveVector) -> vortex_vector::vector::Vector
+
 impl<D: vortex_dtype::decimal::types::NativeDecimalType, I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_vector::decimal::generic::DVector<D>
+
 pub type &vortex_vector::decimal::generic::DVector<D>::Output = vortex_vector::decimal::generic::DVector<D>
+
 pub fn &vortex_vector::decimal::generic::DVector<D>::take(self, indices: &[I]) -> vortex_vector::decimal::generic::DVector<D>
+
 impl<D: vortex_dtype::decimal::types::NativeDecimalType, I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<I>> for &vortex_vector::decimal::generic::DVector<D>
+
 pub type &vortex_vector::decimal::generic::DVector<D>::Output = vortex_vector::decimal::generic::DVector<D>
+
 pub fn &vortex_vector::decimal::generic::DVector<D>::take(self, indices: &vortex_vector::primitive::generic::PVector<I>) -> vortex_vector::decimal::generic::DVector<D>
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_buffer::bit::buf::BitBuffer
+
 pub type &vortex_buffer::bit::buf::BitBuffer::Output = vortex_buffer::bit::buf::BitBuffer
+
 pub fn &vortex_buffer::bit::buf::BitBuffer::take(self, indices: &[I]) -> vortex_buffer::bit::buf::BitBuffer
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_mask::Mask
+
 pub type &vortex_mask::Mask::Output = vortex_mask::Mask
+
 pub fn &vortex_mask::Mask::take(self, indices: &[I]) -> vortex_mask::Mask
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::take(self, indices: &[I]) -> vortex_vector::bool::vector::BoolVector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_vector::decimal::vector::DecimalVector
+
 pub type &vortex_vector::decimal::vector::DecimalVector::Output = vortex_vector::decimal::vector::DecimalVector
+
 pub fn &vortex_vector::decimal::vector::DecimalVector::take(self, indices: &[I]) -> vortex_vector::decimal::vector::DecimalVector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_vector::fixed_size_list::vector::FixedSizeListVector
+
 pub type &vortex_vector::fixed_size_list::vector::FixedSizeListVector::Output = vortex_vector::fixed_size_list::vector::FixedSizeListVector
+
 pub fn &vortex_vector::fixed_size_list::vector::FixedSizeListVector::take(self, indices: &[I]) -> vortex_vector::fixed_size_list::vector::FixedSizeListVector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_vector::listview::vector::ListViewVector
+
 pub type &vortex_vector::listview::vector::ListViewVector::Output = vortex_vector::listview::vector::ListViewVector
+
 pub fn &vortex_vector::listview::vector::ListViewVector::take(self, indices: &[I]) -> vortex_vector::listview::vector::ListViewVector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_vector::null::vector::NullVector
+
 pub type &vortex_vector::null::vector::NullVector::Output = vortex_vector::null::vector::NullVector
+
 pub fn &vortex_vector::null::vector::NullVector::take(self, indices: &[I]) -> vortex_vector::null::vector::NullVector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_vector::primitive::vector::PrimitiveVector
+
 pub type &vortex_vector::primitive::vector::PrimitiveVector::Output = vortex_vector::primitive::vector::PrimitiveVector
+
 pub fn &vortex_vector::primitive::vector::PrimitiveVector::take(self, indices: &[I]) -> vortex_vector::primitive::vector::PrimitiveVector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_vector::struct_::vector::StructVector
+
 pub type &vortex_vector::struct_::vector::StructVector::Output = vortex_vector::struct_::vector::StructVector
+
 pub fn &vortex_vector::struct_::vector::StructVector::take(self, indices: &[I]) -> vortex_vector::struct_::vector::StructVector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_vector::vector::Vector
+
 pub type &vortex_vector::vector::Vector::Output = vortex_vector::vector::Vector
+
 pub fn &vortex_vector::vector::Vector::take(self, indices: &[I]) -> vortex_vector::vector::Vector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for vortex_vector::vector::Vector
+
 pub type vortex_vector::vector::Vector::Output = vortex_vector::vector::Vector
+
 pub fn vortex_vector::vector::Vector::take(self, indices: &[I]) -> vortex_vector::vector::Vector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<I>> for &vortex_mask::Mask
+
 pub type &vortex_mask::Mask::Output = vortex_mask::Mask
+
 pub fn &vortex_mask::Mask::take(self, indices: &vortex_vector::primitive::generic::PVector<I>) -> vortex_mask::Mask
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<I>> for &vortex_vector::bool::vector::BoolVector
+
 pub type &vortex_vector::bool::vector::BoolVector::Output = vortex_vector::bool::vector::BoolVector
+
 pub fn &vortex_vector::bool::vector::BoolVector::take(self, indices: &vortex_vector::primitive::generic::PVector<I>) -> vortex_vector::bool::vector::BoolVector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<I>> for &vortex_vector::decimal::vector::DecimalVector
+
 pub type &vortex_vector::decimal::vector::DecimalVector::Output = vortex_vector::decimal::vector::DecimalVector
+
 pub fn &vortex_vector::decimal::vector::DecimalVector::take(self, indices: &vortex_vector::primitive::generic::PVector<I>) -> vortex_vector::decimal::vector::DecimalVector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<I>> for &vortex_vector::fixed_size_list::vector::FixedSizeListVector
+
 pub type &vortex_vector::fixed_size_list::vector::FixedSizeListVector::Output = vortex_vector::fixed_size_list::vector::FixedSizeListVector
+
 pub fn &vortex_vector::fixed_size_list::vector::FixedSizeListVector::take(self, indices: &vortex_vector::primitive::generic::PVector<I>) -> vortex_vector::fixed_size_list::vector::FixedSizeListVector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<I>> for &vortex_vector::listview::vector::ListViewVector
+
 pub type &vortex_vector::listview::vector::ListViewVector::Output = vortex_vector::listview::vector::ListViewVector
+
 pub fn &vortex_vector::listview::vector::ListViewVector::take(self, indices: &vortex_vector::primitive::generic::PVector<I>) -> vortex_vector::listview::vector::ListViewVector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<I>> for &vortex_vector::null::vector::NullVector
+
 pub type &vortex_vector::null::vector::NullVector::Output = vortex_vector::null::vector::NullVector
+
 pub fn &vortex_vector::null::vector::NullVector::take(self, indices: &vortex_vector::primitive::generic::PVector<I>) -> vortex_vector::null::vector::NullVector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<I>> for &vortex_vector::primitive::vector::PrimitiveVector
+
 pub type &vortex_vector::primitive::vector::PrimitiveVector::Output = vortex_vector::primitive::vector::PrimitiveVector
+
 pub fn &vortex_vector::primitive::vector::PrimitiveVector::take(self, indices: &vortex_vector::primitive::generic::PVector<I>) -> vortex_vector::primitive::vector::PrimitiveVector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<I>> for &vortex_vector::struct_::vector::StructVector
+
 pub type &vortex_vector::struct_::vector::StructVector::Output = vortex_vector::struct_::vector::StructVector
+
 pub fn &vortex_vector::struct_::vector::StructVector::take(self, indices: &vortex_vector::primitive::generic::PVector<I>) -> vortex_vector::struct_::vector::StructVector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<I>> for &vortex_vector::vector::Vector
+
 pub type &vortex_vector::vector::Vector::Output = vortex_vector::vector::Vector
+
 pub fn &vortex_vector::vector::Vector::take(self, indices: &vortex_vector::primitive::generic::PVector<I>) -> vortex_vector::vector::Vector
+
 impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<I>> for vortex_vector::vector::Vector
+
 pub type vortex_vector::vector::Vector::Output = vortex_vector::vector::Vector
+
 pub fn vortex_vector::vector::Vector::take(self, indices: &vortex_vector::primitive::generic::PVector<I>) -> vortex_vector::vector::Vector
+
 impl<T: core::marker::Copy, I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &[T]
+
 pub type &[T]::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &[T]::take(self, indices: &[I]) -> vortex_buffer::buffer::Buffer<T>
+
 impl<T: core::marker::Copy, I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_buffer::buffer::Buffer<T>
+
 pub type &vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
+
 pub fn &vortex_buffer::buffer::Buffer<T>::take(self, indices: &[I]) -> vortex_buffer::buffer::Buffer<T>
+
 impl<T: vortex_dtype::ptype::NativePType, I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_vector::primitive::generic::PVector<T>
+
 pub type &vortex_vector::primitive::generic::PVector<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn &vortex_vector::primitive::generic::PVector<T>::take(self, indices: &[I]) -> vortex_vector::primitive::generic::PVector<T>
+
 impl<T: vortex_dtype::ptype::NativePType, I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<I>> for &vortex_vector::primitive::generic::PVector<T>
+
 pub type &vortex_vector::primitive::generic::PVector<T>::Output = vortex_vector::primitive::generic::PVector<T>
+
 pub fn &vortex_vector::primitive::generic::PVector<T>::take(self, indices: &vortex_vector::primitive::generic::PVector<I>) -> vortex_vector::primitive::generic::PVector<T>
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType, I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type &vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub fn &vortex_vector::binaryview::vector::BinaryViewVector<T>::take(self, indices: &[I]) -> vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 impl<T: vortex_vector::binaryview::types::BinaryViewType, I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<I>> for &vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub type &vortex_vector::binaryview::vector::BinaryViewVector<T>::Output = vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 pub fn &vortex_vector::binaryview::vector::BinaryViewVector<T>::take(self, indices: &vortex_vector::primitive::generic::PVector<I>) -> vortex_vector::binaryview::vector::BinaryViewVector<T>
+
 impl<T> vortex_compute::take::Take<vortex_vector::primitive::vector::PrimitiveVector> for &T where for<'a, 'a, 'a, 'a> &'a T: vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<u8>, Output = T> + vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<u16>, Output = T> + vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<u32>, Output = T> + vortex_compute::take::Take<vortex_vector::primitive::generic::PVector<u64>, Output = T>
+
 pub type &T::Output = T
+
 pub fn &T::take(self, indices: &vortex_vector::primitive::vector::PrimitiveVector) -> T
+
 pub fn vortex_compute::take::default_take<I: vortex_dtype::ptype::UnsignedPType>(values: &vortex_vector::bool::vector::BoolVector, indices: &[I]) -> vortex_vector::bool::vector::BoolVector
+
 pub fn vortex_compute::take::optimized_take<I: vortex_dtype::ptype::UnsignedPType>(values: &vortex_vector::bool::vector::BoolVector, indices: &[I], compute_validity: impl core::ops::function::FnOnce() -> vortex_mask::Mask) -> vortex_vector::bool::vector::BoolVector

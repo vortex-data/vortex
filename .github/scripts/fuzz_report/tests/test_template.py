@@ -197,12 +197,12 @@ class TestDownstreamGrepCompatibility:
         rendered = render_template(new_issue_template, vars_no_analysis, use_env=False)
         assert "Root Cause Analysis" not in rendered
 
-    def test_debug_output_in_details(self, new_issue_template):
-        """Debug output should be inside a <details> block."""
+    def test_stack_trace_in_details(self, new_issue_template):
+        """Stack trace should be inside a <details> block."""
         rendered = render_template(new_issue_template, self.SAMPLE_VARS, use_env=False)
         assert "<details>" in rendered
-        assert "Debug Output" in rendered
-        assert "Array { dtype: Int32, len: 10 }" in rendered
+        assert "Stack Trace" in rendered
+        assert "Debug Output" not in rendered
 
     def test_related_comment_target_pattern(self, related_comment_template):
         """Related comment template should also have compatible Target pattern."""

@@ -1,102 +1,203 @@
 pub mod vortex_datetime_parts
+
 pub struct vortex_datetime_parts::DateTimePartsArray
+
 impl vortex_datetime_parts::DateTimePartsArray
+
 pub fn vortex_datetime_parts::DateTimePartsArray::days(&self) -> &vortex_array::array::ArrayRef
+
 pub fn vortex_datetime_parts::DateTimePartsArray::seconds(&self) -> &vortex_array::array::ArrayRef
+
 pub fn vortex_datetime_parts::DateTimePartsArray::subseconds(&self) -> &vortex_array::array::ArrayRef
+
 pub fn vortex_datetime_parts::DateTimePartsArray::try_new(dtype: vortex_dtype::dtype::DType, days: vortex_array::array::ArrayRef, seconds: vortex_array::array::ArrayRef, subseconds: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<Self>
+
 impl core::clone::Clone for vortex_datetime_parts::DateTimePartsArray
+
 pub fn vortex_datetime_parts::DateTimePartsArray::clone(&self) -> vortex_datetime_parts::DateTimePartsArray
+
 impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_datetime_parts::DateTimePartsArray
+
 pub fn vortex_datetime_parts::DateTimePartsArray::as_ref(&self) -> &dyn vortex_array::array::Array
+
 impl core::convert::From<vortex_datetime_parts::DateTimePartsArray> for vortex_array::array::ArrayRef
+
 pub fn vortex_array::array::ArrayRef::from(value: vortex_datetime_parts::DateTimePartsArray) -> vortex_array::array::ArrayRef
+
 impl core::convert::TryFrom<vortex_array::arrays::datetime::TemporalArray> for vortex_datetime_parts::DateTimePartsArray
+
 pub type vortex_datetime_parts::DateTimePartsArray::Error = vortex_error::VortexError
+
 pub fn vortex_datetime_parts::DateTimePartsArray::try_from(array: vortex_array::arrays::datetime::TemporalArray) -> core::result::Result<Self, Self::Error>
+
 impl core::fmt::Debug for vortex_datetime_parts::DateTimePartsArray
+
 pub fn vortex_datetime_parts::DateTimePartsArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::ops::deref::Deref for vortex_datetime_parts::DateTimePartsArray
+
 pub type vortex_datetime_parts::DateTimePartsArray::Target = dyn vortex_array::array::Array
+
 pub fn vortex_datetime_parts::DateTimePartsArray::deref(&self) -> &Self::Target
+
 impl vortex_array::array::IntoArray for vortex_datetime_parts::DateTimePartsArray
+
 pub fn vortex_datetime_parts::DateTimePartsArray::into_array(self) -> vortex_array::array::ArrayRef
+
 #[repr(C)] pub struct vortex_datetime_parts::DateTimePartsMetadata
+
 pub vortex_datetime_parts::DateTimePartsMetadata::days_ptype: i32
+
 pub vortex_datetime_parts::DateTimePartsMetadata::seconds_ptype: i32
+
 pub vortex_datetime_parts::DateTimePartsMetadata::subseconds_ptype: i32
+
 impl vortex_datetime_parts::DateTimePartsMetadata
+
 pub fn vortex_datetime_parts::DateTimePartsMetadata::days_ptype(&self) -> vortex_dtype::ptype::PType
+
 pub fn vortex_datetime_parts::DateTimePartsMetadata::seconds_ptype(&self) -> vortex_dtype::ptype::PType
+
 pub fn vortex_datetime_parts::DateTimePartsMetadata::set_days_ptype(&mut self, value: vortex_dtype::ptype::PType)
+
 pub fn vortex_datetime_parts::DateTimePartsMetadata::set_seconds_ptype(&mut self, value: vortex_dtype::ptype::PType)
+
 pub fn vortex_datetime_parts::DateTimePartsMetadata::set_subseconds_ptype(&mut self, value: vortex_dtype::ptype::PType)
+
 pub fn vortex_datetime_parts::DateTimePartsMetadata::subseconds_ptype(&self) -> vortex_dtype::ptype::PType
+
 impl vortex_datetime_parts::DateTimePartsMetadata
+
 pub fn vortex_datetime_parts::DateTimePartsMetadata::get_days_ptype(&self) -> vortex_error::VortexResult<vortex_dtype::ptype::PType>
+
 pub fn vortex_datetime_parts::DateTimePartsMetadata::get_seconds_ptype(&self) -> vortex_error::VortexResult<vortex_dtype::ptype::PType>
+
 pub fn vortex_datetime_parts::DateTimePartsMetadata::get_subseconds_ptype(&self) -> vortex_error::VortexResult<vortex_dtype::ptype::PType>
+
 impl core::clone::Clone for vortex_datetime_parts::DateTimePartsMetadata
+
 pub fn vortex_datetime_parts::DateTimePartsMetadata::clone(&self) -> vortex_datetime_parts::DateTimePartsMetadata
+
 impl core::default::Default for vortex_datetime_parts::DateTimePartsMetadata
+
 pub fn vortex_datetime_parts::DateTimePartsMetadata::default() -> Self
+
 impl core::fmt::Debug for vortex_datetime_parts::DateTimePartsMetadata
+
 pub fn vortex_datetime_parts::DateTimePartsMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl prost::message::Message for vortex_datetime_parts::DateTimePartsMetadata
+
 pub fn vortex_datetime_parts::DateTimePartsMetadata::clear(&mut self)
+
 pub fn vortex_datetime_parts::DateTimePartsMetadata::encoded_len(&self) -> usize
+
 pub struct vortex_datetime_parts::DateTimePartsVTable
+
 impl vortex_datetime_parts::DateTimePartsVTable
+
 pub const vortex_datetime_parts::DateTimePartsVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
 impl core::fmt::Debug for vortex_datetime_parts::DateTimePartsVTable
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_datetime_parts::DateTimePartsVTable
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::take(array: &vortex_datetime_parts::DateTimePartsArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+
 impl vortex_array::arrays::filter::kernel::FilterReduce for vortex_datetime_parts::DateTimePartsVTable
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::filter(array: &vortex_datetime_parts::DateTimePartsArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+
 impl vortex_array::arrays::slice::SliceReduce for vortex_datetime_parts::DateTimePartsVTable
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-impl vortex_array::compute::cast::CastKernel for vortex_datetime_parts::DateTimePartsVTable
-pub fn vortex_datetime_parts::DateTimePartsVTable::cast(&self, array: &vortex_datetime_parts::DateTimePartsArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+
 impl vortex_array::compute::compare::CompareKernel for vortex_datetime_parts::DateTimePartsVTable
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::compare(&self, lhs: &vortex_datetime_parts::DateTimePartsArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::compute::compare::Operator) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+
 impl vortex_array::compute::is_constant::IsConstantKernel for vortex_datetime_parts::DateTimePartsVTable
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::is_constant(&self, array: &vortex_datetime_parts::DateTimePartsArray, opts: &vortex_array::compute::is_constant::IsConstantOpts) -> vortex_error::VortexResult<core::option::Option<bool>>
+
 impl vortex_array::compute::mask::MaskKernel for vortex_datetime_parts::DateTimePartsVTable
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::mask(&self, array: &vortex_datetime_parts::DateTimePartsArray, mask_array: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+
+impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_datetime_parts::DateTimePartsVTable
+
+pub fn vortex_datetime_parts::DateTimePartsVTable::cast(array: &vortex_datetime_parts::DateTimePartsArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+
 impl vortex_array::vtable::VTable for vortex_datetime_parts::DateTimePartsVTable
+
 pub type vortex_datetime_parts::DateTimePartsVTable::Array = vortex_datetime_parts::DateTimePartsArray
+
 pub type vortex_datetime_parts::DateTimePartsVTable::ArrayVTable = vortex_datetime_parts::DateTimePartsVTable
+
 pub type vortex_datetime_parts::DateTimePartsVTable::Metadata = vortex_array::metadata::ProstMetadata<vortex_datetime_parts::DateTimePartsMetadata>
+
 pub type vortex_datetime_parts::DateTimePartsVTable::OperationsVTable = vortex_datetime_parts::DateTimePartsVTable
+
 pub type vortex_datetime_parts::DateTimePartsVTable::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
+
 pub type vortex_datetime_parts::DateTimePartsVTable::VisitorVTable = vortex_datetime_parts::DateTimePartsVTable
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_datetime_parts::DateTimePartsArray>
-pub fn vortex_datetime_parts::DateTimePartsVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_datetime_parts::DateTimePartsVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::metadata(array: &vortex_datetime_parts::DateTimePartsArray) -> vortex_error::VortexResult<Self::Metadata>
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+
 impl vortex_array::vtable::array::BaseArrayVTable<vortex_datetime_parts::DateTimePartsVTable> for vortex_datetime_parts::DateTimePartsVTable
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::array_eq(array: &vortex_datetime_parts::DateTimePartsArray, other: &vortex_datetime_parts::DateTimePartsArray, precision: vortex_array::hash::Precision) -> bool
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::array_hash<H: core::hash::Hasher>(array: &vortex_datetime_parts::DateTimePartsArray, state: &mut H, precision: vortex_array::hash::Precision)
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::dtype(array: &vortex_datetime_parts::DateTimePartsArray) -> &vortex_dtype::dtype::DType
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::len(array: &vortex_datetime_parts::DateTimePartsArray) -> usize
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::stats(array: &vortex_datetime_parts::DateTimePartsArray) -> vortex_array::stats::array::StatsSetRef<'_>
+
 impl vortex_array::vtable::operations::OperationsVTable<vortex_datetime_parts::DateTimePartsVTable> for vortex_datetime_parts::DateTimePartsVTable
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::scalar_at(array: &vortex_datetime_parts::DateTimePartsArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
+
 impl vortex_array::vtable::validity::ValidityChild<vortex_datetime_parts::DateTimePartsVTable> for vortex_datetime_parts::DateTimePartsVTable
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::validity_child(array: &vortex_datetime_parts::DateTimePartsArray) -> &vortex_array::array::ArrayRef
+
 impl vortex_array::vtable::visitor::VisitorVTable<vortex_datetime_parts::DateTimePartsVTable> for vortex_datetime_parts::DateTimePartsVTable
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::nbuffers(_array: &vortex_datetime_parts::DateTimePartsArray) -> usize
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::nchildren(_array: &vortex_datetime_parts::DateTimePartsArray) -> usize
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::visit_buffers(_array: &vortex_datetime_parts::DateTimePartsArray, _visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
+
 pub fn vortex_datetime_parts::DateTimePartsVTable::visit_children(array: &vortex_datetime_parts::DateTimePartsArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
+
 pub struct vortex_datetime_parts::TemporalParts
+
 pub vortex_datetime_parts::TemporalParts::days: vortex_array::array::ArrayRef
+
 pub vortex_datetime_parts::TemporalParts::seconds: vortex_array::array::ArrayRef
+
 pub vortex_datetime_parts::TemporalParts::subseconds: vortex_array::array::ArrayRef
+
 pub fn vortex_datetime_parts::split_temporal(array: vortex_array::arrays::datetime::TemporalArray) -> vortex_error::VortexResult<vortex_datetime_parts::TemporalParts>

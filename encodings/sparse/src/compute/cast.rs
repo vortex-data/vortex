@@ -3,32 +3,28 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
-use vortex_array::compute::cast;
-use vortex_array::register_kernel;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::CastReduce;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::SparseArray;
 use crate::SparseVTable;
 
-impl CastKernel for SparseVTable {
-    fn cast(&self, array: &SparseArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for SparseVTable {
+    fn cast(array: &SparseArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Cast both the patches values and the fill value
         let casted_fill = array.fill_scalar().cast(dtype)?;
         let casted_patches = array
             .patches()
             .clone()
-            .map_values(|values| cast(&values, dtype))?;
+            .map_values(|values| values.cast(dtype.clone()))?;
 
         Ok(Some(
             SparseArray::try_new_from_patches(casted_patches, casted_fill)?.into_array(),
         ))
     }
 }
-
-register_kernel!(CastKernelAdapter(SparseVTable).lift());
 
 #[cfg(test)]
 mod tests {
@@ -37,7 +33,7 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
@@ -57,11 +53,10 @@ mod tests {
         )
         .unwrap();
 
-        let casted = cast(
-            sparse.as_ref(),
-            &DType::Primitive(PType::I64, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = sparse
+            .to_array()
+            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
@@ -81,11 +76,10 @@ mod tests {
         )
         .unwrap();
 
-        let casted = cast(
-            sparse.as_ref(),
-            &DType::Primitive(PType::I64, Nullability::Nullable),
-        )
-        .unwrap();
+        let casted = sparse
+            .to_array()
+            .cast(DType::Primitive(PType::I64, Nullability::Nullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)

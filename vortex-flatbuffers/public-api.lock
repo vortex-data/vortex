@@ -1,15 +1,29 @@
 pub mod vortex_flatbuffers
+
 pub trait vortex_flatbuffers::FlatBufferRoot
+
 pub trait vortex_flatbuffers::ReadFlatBuffer: core::marker::Sized
+
 pub type vortex_flatbuffers::ReadFlatBuffer::Error: core::convert::From<flatbuffers::verifier::InvalidFlatbuffer>
+
 pub type vortex_flatbuffers::ReadFlatBuffer::Source<'a>: flatbuffers::verifier::Verifiable + flatbuffers::follow::Follow<'a>
+
 pub fn vortex_flatbuffers::ReadFlatBuffer::read_flatbuffer<'buf>(fb: &<Self::Source as flatbuffers::follow::Follow<'buf>>::Inner) -> core::result::Result<Self, Self::Error>
+
 pub fn vortex_flatbuffers::ReadFlatBuffer::read_flatbuffer_bytes<'buf>(bytes: &'buf [u8]) -> core::result::Result<Self, Self::Error> where <Self as vortex_flatbuffers::ReadFlatBuffer>::Source: 'buf
+
 pub trait vortex_flatbuffers::WriteFlatBuffer
+
 pub type vortex_flatbuffers::WriteFlatBuffer::Target<'a>
+
 pub fn vortex_flatbuffers::WriteFlatBuffer::write_flatbuffer<'fb>(&self, fbb: &mut flatbuffers::builder::FlatBufferBuilder<'fb>) -> vortex_error::VortexResult<flatbuffers::primitives::WIPOffset<Self::Target>>
+
 pub trait vortex_flatbuffers::WriteFlatBufferExt: vortex_flatbuffers::WriteFlatBuffer + vortex_flatbuffers::FlatBufferRoot
+
 pub fn vortex_flatbuffers::WriteFlatBufferExt::write_flatbuffer_bytes(&self) -> vortex_error::VortexResult<vortex_flatbuffers::FlatBuffer>
+
 impl<F: vortex_flatbuffers::WriteFlatBuffer + vortex_flatbuffers::FlatBufferRoot> vortex_flatbuffers::WriteFlatBufferExt for F
+
 pub fn F::write_flatbuffer_bytes(&self) -> vortex_error::VortexResult<vortex_flatbuffers::FlatBuffer>
+
 pub type vortex_flatbuffers::FlatBuffer = vortex_buffer::ConstByteBuffer<8>

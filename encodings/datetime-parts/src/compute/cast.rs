@@ -4,18 +4,16 @@
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
-use vortex_array::compute::cast;
-use vortex_array::register_kernel;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::CastReduce;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::DateTimePartsArray;
 use crate::DateTimePartsVTable;
 
-impl CastKernel for DateTimePartsVTable {
-    fn cast(&self, array: &DateTimePartsArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for DateTimePartsVTable {
+    fn cast(array: &DateTimePartsArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         };
@@ -23,10 +21,9 @@ impl CastKernel for DateTimePartsVTable {
         Ok(Some(
             DateTimePartsArray::try_new(
                 dtype.clone(),
-                cast(
-                    array.days().as_ref(),
-                    &array.days().dtype().with_nullability(dtype.nullability()),
-                )?,
+                array
+                    .days()
+                    .cast(array.days().dtype().with_nullability(dtype.nullability()))?,
                 array.seconds().clone(),
                 array.subseconds().clone(),
             )?
@@ -34,8 +31,6 @@ impl CastKernel for DateTimePartsVTable {
         ))
     }
 }
-
-register_kernel!(CastKernelAdapter(DateTimePartsVTable).lift());
 
 #[cfg(test)]
 mod tests {
@@ -45,7 +40,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
@@ -86,7 +81,7 @@ mod tests {
     ) {
         let array = date_time_array(validity);
         let new_dtype = array.dtype().with_nullability(cast_to_nullability);
-        let result = cast(&array, &new_dtype);
+        let result = array.cast(new_dtype.clone());
         assert!(result.is_ok(), "{result:?}");
         assert_eq!(result.unwrap().dtype(), &new_dtype);
     }
@@ -96,24 +91,17 @@ mod tests {
     #[case(Validity::from_iter([true, false, true]))]
     fn test_bad_cast_fails(#[case] validity: Validity) {
         let array = date_time_array(validity);
-        let result = cast(&array, &DType::Bool(Nullability::NonNullable));
-        assert!(
-            result.as_ref().is_err_and(|err| err.to_string().contains(
-                "No compute kernel to cast array vortex.ext with dtype vortex.timestamp[ms, tz=UTC](i64?) to bool"
-            )),
-            "Got error: {result:?}"
-        );
+        // Cast to incompatible type - force evaluation via to_canonical
+        let result = array
+            .cast(DType::Bool(Nullability::NonNullable))
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+        assert!(result.is_err(), "Expected error, got: {result:?}");
 
-        let result = cast(
-            &array,
-            &array.dtype().with_nullability(Nullability::NonNullable),
-        );
-        assert!(
-            result.as_ref().is_err_and(|err| err
-                .to_string()
-                .contains("invalid values to non-nullable type")),
-            "Got error: {result:?}"
-        );
+        // Cast nullable with nulls to non-nullable - force evaluation via to_canonical
+        let result = array
+            .cast(array.dtype().with_nullability(Nullability::NonNullable))
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+        assert!(result.is_err(), "Expected error, got: {result:?}");
     }
 
     #[rstest]

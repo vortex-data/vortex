@@ -8,6 +8,7 @@ use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterReduceAdaptor;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::SliceReduceAdaptor;
+use vortex_array::compute::CastReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_error::VortexResult;
@@ -19,6 +20,7 @@ pub(super) const PARENT_RULES: ParentRuleSet<FoRVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FoRFilterPushDownRule),
     ParentRuleSet::lift(&FilterReduceAdaptor(FoRVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(FoRVTable)),
+    ParentRuleSet::lift(&CastReduceAdaptor(FoRVTable)),
 ]);
 
 #[derive(Debug)]

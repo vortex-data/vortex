@@ -1,462 +1,923 @@
 pub mod vortex_buffer
+
 pub use vortex_buffer::BitChunkIterator
+
 pub use vortex_buffer::BitChunks
+
 pub use vortex_buffer::BitIndexIterator
+
 pub use vortex_buffer::BitIterator
+
 pub use vortex_buffer::BitSliceIterator
+
 pub use vortex_buffer::UnalignedBitChunk
+
 pub use vortex_buffer::UnalignedBitChunkIterator
+
 pub macro vortex_buffer::bitbuffer!
+
 pub macro vortex_buffer::bitbuffer_mut!
+
 pub macro vortex_buffer::buffer!
+
 pub macro vortex_buffer::buffer_mut!
+
 pub struct vortex_buffer::Alignment(_)
+
 impl vortex_buffer::Alignment
+
 pub fn vortex_buffer::Alignment::exponent(&self) -> u8
+
 pub const fn vortex_buffer::Alignment::from_exponent(exponent: u8) -> Self
+
 pub fn vortex_buffer::Alignment::is_aligned_to(&self, other: vortex_buffer::Alignment) -> bool
+
 pub const fn vortex_buffer::Alignment::new(align: usize) -> Self
+
 pub const fn vortex_buffer::Alignment::none() -> Self
+
 pub const fn vortex_buffer::Alignment::of<T>() -> Self
+
 impl core::clone::Clone for vortex_buffer::Alignment
+
 pub fn vortex_buffer::Alignment::clone(&self) -> vortex_buffer::Alignment
+
 impl core::cmp::Eq for vortex_buffer::Alignment
+
 impl core::cmp::Ord for vortex_buffer::Alignment
+
 pub fn vortex_buffer::Alignment::cmp(&self, other: &vortex_buffer::Alignment) -> core::cmp::Ordering
+
 impl core::cmp::PartialEq for vortex_buffer::Alignment
+
 pub fn vortex_buffer::Alignment::eq(&self, other: &vortex_buffer::Alignment) -> bool
+
 impl core::cmp::PartialOrd for vortex_buffer::Alignment
+
 pub fn vortex_buffer::Alignment::partial_cmp(&self, other: &vortex_buffer::Alignment) -> core::option::Option<core::cmp::Ordering>
+
 impl core::convert::From<u16> for vortex_buffer::Alignment
+
 pub fn vortex_buffer::Alignment::from(value: u16) -> Self
+
 impl core::convert::From<usize> for vortex_buffer::Alignment
+
 pub fn vortex_buffer::Alignment::from(value: usize) -> Self
+
 impl core::convert::From<vortex_buffer::Alignment> for u16
+
 pub fn u16::from(value: vortex_buffer::Alignment) -> Self
+
 impl core::convert::From<vortex_buffer::Alignment> for u32
+
 pub fn u32::from(value: vortex_buffer::Alignment) -> Self
+
 impl core::convert::From<vortex_buffer::Alignment> for usize
+
 pub fn usize::from(value: vortex_buffer::Alignment) -> Self
+
 impl core::convert::TryFrom<u32> for vortex_buffer::Alignment
+
 pub type vortex_buffer::Alignment::Error = vortex_error::VortexError
+
 pub fn vortex_buffer::Alignment::try_from(value: u32) -> core::result::Result<Self, Self::Error>
+
 impl core::fmt::Debug for vortex_buffer::Alignment
+
 pub fn vortex_buffer::Alignment::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::fmt::Display for vortex_buffer::Alignment
+
 pub fn vortex_buffer::Alignment::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::hash::Hash for vortex_buffer::Alignment
+
 pub fn vortex_buffer::Alignment::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
 impl core::marker::Copy for vortex_buffer::Alignment
+
 impl core::marker::StructuralPartialEq for vortex_buffer::Alignment
+
 impl core::ops::deref::Deref for vortex_buffer::Alignment
+
 pub type vortex_buffer::Alignment::Target = usize
+
 pub fn vortex_buffer::Alignment::deref(&self) -> &Self::Target
+
 pub struct vortex_buffer::BitBuffer
+
 impl vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::bitand_not(&self, rhs: &vortex_buffer::BitBuffer) -> vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::iter_bits<F>(&self, f: F) where F: core::ops::function::FnMut(usize, bool)
+
 impl vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::chunks(&self) -> arrow_buffer::util::bit_chunk_iterator::BitChunks<'_>
+
 pub fn vortex_buffer::BitBuffer::clear(&mut self)
+
 pub fn vortex_buffer::BitBuffer::collect_bool<F: core::ops::function::FnMut(usize) -> bool>(len: usize, f: F) -> Self
+
 pub fn vortex_buffer::BitBuffer::empty() -> Self
+
 pub fn vortex_buffer::BitBuffer::false_count(&self) -> usize
+
 pub fn vortex_buffer::BitBuffer::from_indices(len: usize, indices: &[usize]) -> vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::full(value: bool, len: usize) -> Self
+
 pub fn vortex_buffer::BitBuffer::inner(&self) -> &vortex_buffer::ByteBuffer
+
 pub fn vortex_buffer::BitBuffer::is_empty(&self) -> bool
+
 pub fn vortex_buffer::BitBuffer::iter(&self) -> arrow_buffer::util::bit_iterator::BitIterator<'_>
+
 pub fn vortex_buffer::BitBuffer::len(&self) -> usize
+
 pub fn vortex_buffer::BitBuffer::map_cmp<F>(&self, f: F) -> Self where F: core::ops::function::FnMut(usize, bool) -> bool
+
 pub fn vortex_buffer::BitBuffer::new(buffer: vortex_buffer::ByteBuffer, len: usize) -> Self
+
 pub fn vortex_buffer::BitBuffer::new_set(len: usize) -> Self
+
 pub fn vortex_buffer::BitBuffer::new_unset(len: usize) -> Self
+
 pub fn vortex_buffer::BitBuffer::new_with_offset(buffer: vortex_buffer::ByteBuffer, len: usize, offset: usize) -> Self
+
 pub fn vortex_buffer::BitBuffer::offset(&self) -> usize
+
 pub fn vortex_buffer::BitBuffer::set_indices(&self) -> arrow_buffer::util::bit_iterator::BitIndexIterator<'_>
+
 pub fn vortex_buffer::BitBuffer::set_slices(&self) -> arrow_buffer::util::bit_iterator::BitSliceIterator<'_>
+
 pub fn vortex_buffer::BitBuffer::shrink_offset(self) -> Self
+
 pub fn vortex_buffer::BitBuffer::slice(&self, range: impl core::ops::range::RangeBounds<usize>) -> Self
+
 pub fn vortex_buffer::BitBuffer::sliced(&self) -> Self
+
 pub fn vortex_buffer::BitBuffer::true_count(&self) -> usize
+
 pub fn vortex_buffer::BitBuffer::unaligned_chunks(&self) -> arrow_buffer::util::bit_chunk_iterator::UnalignedBitChunk<'_>
+
 pub fn vortex_buffer::BitBuffer::value(&self, index: usize) -> bool
+
 pub unsafe fn vortex_buffer::BitBuffer::value_unchecked(&self, index: usize) -> bool
+
 impl vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::into_inner(self) -> (usize, usize, vortex_buffer::ByteBuffer)
+
 pub fn vortex_buffer::BitBuffer::into_mut(self) -> vortex_buffer::BitBufferMut
+
 pub fn vortex_buffer::BitBuffer::try_into_mut(self) -> core::result::Result<vortex_buffer::BitBufferMut, Self>
+
 impl vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::iter_bit_views<const NB: usize>(&self) -> impl core::iter::traits::iterator::Iterator<Item = vortex_buffer::BitView<'_, NB>> + '_
+
 impl core::clone::Clone for vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::clone(&self) -> vortex_buffer::BitBuffer
+
 impl core::cmp::Eq for vortex_buffer::BitBuffer
+
 impl core::cmp::PartialEq for vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::eq(&self, other: &Self) -> bool
+
 impl core::convert::From<&[bool]> for vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::from(value: &[bool]) -> Self
+
 impl core::convert::From<alloc::vec::Vec<bool>> for vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::from(value: alloc::vec::Vec<bool>) -> Self
+
 impl core::fmt::Debug for vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::iter::traits::collect::FromIterator<bool> for vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::from_iter<T: core::iter::traits::collect::IntoIterator<Item = bool>>(iter: T) -> Self
+
 impl core::ops::bit::BitAnd for &vortex_buffer::BitBuffer
+
 pub type &vortex_buffer::BitBuffer::Output = vortex_buffer::BitBuffer
+
 pub fn &vortex_buffer::BitBuffer::bitand(self, rhs: Self) -> Self::Output
+
 impl core::ops::bit::BitAnd for vortex_buffer::BitBuffer
+
 pub type vortex_buffer::BitBuffer::Output = vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::bitand(self, rhs: vortex_buffer::BitBuffer) -> Self::Output
+
 impl core::ops::bit::BitAnd<&vortex_buffer::BitBuffer> for vortex_buffer::BitBuffer
+
 pub type vortex_buffer::BitBuffer::Output = vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::bitand(self, rhs: &vortex_buffer::BitBuffer) -> Self::Output
+
 impl core::ops::bit::BitAnd<vortex_buffer::BitBuffer> for &vortex_buffer::BitBuffer
+
 pub type &vortex_buffer::BitBuffer::Output = vortex_buffer::BitBuffer
+
 pub fn &vortex_buffer::BitBuffer::bitand(self, rhs: vortex_buffer::BitBuffer) -> Self::Output
+
 impl core::ops::bit::BitOr for &vortex_buffer::BitBuffer
+
 pub type &vortex_buffer::BitBuffer::Output = vortex_buffer::BitBuffer
+
 pub fn &vortex_buffer::BitBuffer::bitor(self, rhs: Self) -> Self::Output
+
 impl core::ops::bit::BitOr for vortex_buffer::BitBuffer
+
 pub type vortex_buffer::BitBuffer::Output = vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::bitor(self, rhs: Self) -> Self::Output
+
 impl core::ops::bit::BitOr<&vortex_buffer::BitBuffer> for vortex_buffer::BitBuffer
+
 pub type vortex_buffer::BitBuffer::Output = vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::bitor(self, rhs: &vortex_buffer::BitBuffer) -> Self::Output
+
 impl core::ops::bit::BitXor for &vortex_buffer::BitBuffer
+
 pub type &vortex_buffer::BitBuffer::Output = vortex_buffer::BitBuffer
+
 pub fn &vortex_buffer::BitBuffer::bitxor(self, rhs: Self) -> Self::Output
+
 impl core::ops::bit::BitXor<&vortex_buffer::BitBuffer> for vortex_buffer::BitBuffer
+
 pub type vortex_buffer::BitBuffer::Output = vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::bitxor(self, rhs: &vortex_buffer::BitBuffer) -> Self::Output
+
 impl core::ops::bit::Not for &vortex_buffer::BitBuffer
+
 pub type &vortex_buffer::BitBuffer::Output = vortex_buffer::BitBuffer
+
 pub fn &vortex_buffer::BitBuffer::not(self) -> Self::Output
+
 impl core::ops::bit::Not for vortex_buffer::BitBuffer
+
 pub type vortex_buffer::BitBuffer::Output = vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBuffer::not(self) -> Self::Output
+
 impl<'a> core::iter::traits::collect::IntoIterator for &'a vortex_buffer::BitBuffer
+
 pub type &'a vortex_buffer::BitBuffer::IntoIter = arrow_buffer::util::bit_iterator::BitIterator<'a>
+
 pub type &'a vortex_buffer::BitBuffer::Item = bool
+
 pub fn &'a vortex_buffer::BitBuffer::into_iter(self) -> Self::IntoIter
+
 pub struct vortex_buffer::BitBufferMut
+
 impl vortex_buffer::BitBufferMut
+
 pub fn vortex_buffer::BitBufferMut::append(&mut self, value: bool)
+
 pub fn vortex_buffer::BitBufferMut::append_buffer(&mut self, buffer: &vortex_buffer::BitBuffer)
+
 pub fn vortex_buffer::BitBufferMut::append_false(&mut self)
+
 pub fn vortex_buffer::BitBufferMut::append_n(&mut self, value: bool, n: usize)
+
 pub fn vortex_buffer::BitBufferMut::append_true(&mut self)
+
 pub fn vortex_buffer::BitBufferMut::as_mut_ptr(&mut self) -> *mut u8
+
 pub fn vortex_buffer::BitBufferMut::as_mut_slice(&mut self) -> &mut [u8]
+
 pub fn vortex_buffer::BitBufferMut::as_slice(&self) -> &[u8]
+
 pub fn vortex_buffer::BitBufferMut::capacity(&self) -> usize
+
 pub fn vortex_buffer::BitBufferMut::chunks(&self) -> arrow_buffer::util::bit_chunk_iterator::BitChunks<'_>
+
 pub fn vortex_buffer::BitBufferMut::clear(&mut self)
+
 pub fn vortex_buffer::BitBufferMut::collect_bool<F: core::ops::function::FnMut(usize) -> bool>(len: usize, f: F) -> Self
+
 pub fn vortex_buffer::BitBufferMut::copy_from(bit_buffer: &vortex_buffer::BitBuffer) -> Self
+
 pub fn vortex_buffer::BitBufferMut::empty() -> Self
+
 pub fn vortex_buffer::BitBufferMut::false_count(&self) -> usize
+
 pub fn vortex_buffer::BitBufferMut::freeze(self) -> vortex_buffer::BitBuffer
+
 pub fn vortex_buffer::BitBufferMut::from_buffer(buffer: vortex_buffer::ByteBufferMut, offset: usize, len: usize) -> Self
+
 pub fn vortex_buffer::BitBufferMut::from_indices(len: usize, indices: &[usize]) -> vortex_buffer::BitBufferMut
+
 pub fn vortex_buffer::BitBufferMut::full(value: bool, len: usize) -> Self
+
 pub fn vortex_buffer::BitBufferMut::inner(&self) -> &vortex_buffer::ByteBufferMut
+
 pub fn vortex_buffer::BitBufferMut::into_inner(self) -> vortex_buffer::ByteBufferMut
+
 pub fn vortex_buffer::BitBufferMut::is_empty(&self) -> bool
+
 pub fn vortex_buffer::BitBufferMut::len(&self) -> usize
+
 pub fn vortex_buffer::BitBufferMut::new_set(len: usize) -> Self
+
 pub fn vortex_buffer::BitBufferMut::new_unset(len: usize) -> Self
+
 pub fn vortex_buffer::BitBufferMut::offset(&self) -> usize
+
 pub fn vortex_buffer::BitBufferMut::reserve(&mut self, additional: usize)
+
 pub fn vortex_buffer::BitBufferMut::set(&mut self, index: usize)
+
 pub unsafe fn vortex_buffer::BitBufferMut::set_len(&mut self, new_len: usize)
+
 pub fn vortex_buffer::BitBufferMut::set_to(&mut self, index: usize, value: bool)
+
 pub unsafe fn vortex_buffer::BitBufferMut::set_to_unchecked(&mut self, index: usize, value: bool)
+
 pub fn vortex_buffer::BitBufferMut::split_off(&mut self, at: usize) -> Self
+
 pub fn vortex_buffer::BitBufferMut::true_count(&self) -> usize
+
 pub fn vortex_buffer::BitBufferMut::truncate(&mut self, len: usize)
+
 pub fn vortex_buffer::BitBufferMut::unaligned_chunks(&self) -> arrow_buffer::util::bit_chunk_iterator::UnalignedBitChunk<'_>
+
 pub fn vortex_buffer::BitBufferMut::unset(&mut self, index: usize)
+
 pub unsafe fn vortex_buffer::BitBufferMut::unset_unchecked(&mut self, index: usize)
+
 pub fn vortex_buffer::BitBufferMut::unsplit(&mut self, other: Self)
+
 pub fn vortex_buffer::BitBufferMut::value(&self, index: usize) -> bool
+
 pub unsafe fn vortex_buffer::BitBufferMut::value_unchecked(&self, index: usize) -> bool
+
 pub fn vortex_buffer::BitBufferMut::with_capacity(capacity: usize) -> Self
+
 impl vortex_buffer::BitBufferMut
+
 pub fn vortex_buffer::BitBufferMut::iter_bit_views<const NB: usize>(&self) -> impl core::iter::traits::iterator::Iterator<Item = vortex_buffer::BitView<'_, NB>> + '_
+
 impl core::clone::Clone for vortex_buffer::BitBufferMut
+
 pub fn vortex_buffer::BitBufferMut::clone(&self) -> vortex_buffer::BitBufferMut
+
 impl core::cmp::Eq for vortex_buffer::BitBufferMut
+
 impl core::cmp::PartialEq for vortex_buffer::BitBufferMut
+
 pub fn vortex_buffer::BitBufferMut::eq(&self, other: &Self) -> bool
+
 impl core::convert::From<&[bool]> for vortex_buffer::BitBufferMut
+
 pub fn vortex_buffer::BitBufferMut::from(value: &[bool]) -> Self
+
 impl core::convert::From<alloc::vec::Vec<bool>> for vortex_buffer::BitBufferMut
+
 pub fn vortex_buffer::BitBufferMut::from(value: alloc::vec::Vec<bool>) -> Self
+
 impl core::default::Default for vortex_buffer::BitBufferMut
+
 pub fn vortex_buffer::BitBufferMut::default() -> Self
+
 impl core::fmt::Debug for vortex_buffer::BitBufferMut
+
 pub fn vortex_buffer::BitBufferMut::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::iter::traits::collect::FromIterator<bool> for vortex_buffer::BitBufferMut
+
 pub fn vortex_buffer::BitBufferMut::from_iter<T: core::iter::traits::collect::IntoIterator<Item = bool>>(iter: T) -> Self
+
 impl core::ops::bit::Not for vortex_buffer::BitBufferMut
+
 pub type vortex_buffer::BitBufferMut::Output = vortex_buffer::BitBufferMut
+
 pub fn vortex_buffer::BitBufferMut::not(self) -> Self::Output
+
 pub struct vortex_buffer::BitSlice
+
 pub vortex_buffer::BitSlice::len: usize
+
 pub vortex_buffer::BitSlice::start: usize
+
 pub struct vortex_buffer::BitView<'a, const NB: usize>
+
 impl<'a, const NB: usize> vortex_buffer::BitView<'a, NB>
+
 pub const vortex_buffer::BitView<'a, NB>::N: usize
+
 pub const vortex_buffer::BitView<'a, NB>::N_WORDS: usize
+
 pub fn vortex_buffer::BitView<'a, NB>::as_raw(&self) -> &[u8; NB]
+
 pub fn vortex_buffer::BitView<'a, NB>::from_slice(bits: &'a [u8]) -> Self
+
 pub fn vortex_buffer::BitView<'a, NB>::iter_ones<F>(&self, f: F) where F: core::ops::function::FnMut(usize)
+
 pub fn vortex_buffer::BitView<'a, NB>::iter_slices<F>(&self, f: F) where F: core::ops::function::FnMut(vortex_buffer::BitSlice)
+
 pub fn vortex_buffer::BitView<'a, NB>::iter_words(&self) -> impl core::iter::traits::iterator::Iterator<Item = usize> + '_
+
 pub fn vortex_buffer::BitView<'a, NB>::iter_zeros<F>(&self, f: F) where F: core::ops::function::FnMut(usize)
+
 pub fn vortex_buffer::BitView<'a, NB>::new(bits: &'a [u8; NB]) -> Self
+
 pub fn vortex_buffer::BitView<'a, NB>::new_owned(bits: [u8; NB]) -> Self
+
 pub fn vortex_buffer::BitView<'a, NB>::true_count(&self) -> usize
+
 pub fn vortex_buffer::BitView<'a, NB>::try_iter_ones<F>(&self, f: F) -> vortex_error::VortexResult<()> where F: core::ops::function::FnMut(usize) -> vortex_error::VortexResult<()>
+
 pub fn vortex_buffer::BitView<'a, NB>::with_prefix(n_true: usize) -> Self
+
 impl<const NB: usize> vortex_buffer::BitView<'static, NB>
+
 pub const fn vortex_buffer::BitView<'static, NB>::all_false() -> Self
+
 pub const fn vortex_buffer::BitView<'static, NB>::all_true() -> Self
+
 impl<const NB: usize> core::fmt::Debug for vortex_buffer::BitView<'_, NB>
+
 pub fn vortex_buffer::BitView<'_, NB>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 pub struct vortex_buffer::Buffer<T>
+
 impl<T> vortex_buffer::Buffer<T>
+
 pub fn vortex_buffer::Buffer<T>::aligned(self, alignment: vortex_buffer::Alignment) -> Self
+
 pub fn vortex_buffer::Buffer<T>::alignment(&self) -> vortex_buffer::Alignment
+
 pub fn vortex_buffer::Buffer<T>::as_bytes(&self) -> &[u8]
+
 pub fn vortex_buffer::Buffer<T>::as_slice(&self) -> &[T]
+
 pub fn vortex_buffer::Buffer<T>::clear(&mut self)
+
 pub fn vortex_buffer::Buffer<T>::copy_from(values: impl core::convert::AsRef<[T]>) -> Self
+
 pub fn vortex_buffer::Buffer<T>::copy_from_aligned(values: impl core::convert::AsRef<[T]>, alignment: vortex_buffer::Alignment) -> Self
+
 pub fn vortex_buffer::Buffer<T>::empty() -> Self
+
 pub fn vortex_buffer::Buffer<T>::empty_aligned(alignment: vortex_buffer::Alignment) -> Self
+
 pub fn vortex_buffer::Buffer<T>::ensure_aligned(self, alignment: vortex_buffer::Alignment) -> Self
+
 pub fn vortex_buffer::Buffer<T>::from_byte_buffer(buffer: vortex_buffer::ByteBuffer) -> Self
+
 pub fn vortex_buffer::Buffer<T>::from_byte_buffer_aligned(buffer: vortex_buffer::ByteBuffer, alignment: vortex_buffer::Alignment) -> Self
+
 pub fn vortex_buffer::Buffer<T>::from_bytes_aligned(bytes: bytes::bytes::Bytes, alignment: vortex_buffer::Alignment) -> Self
+
 pub fn vortex_buffer::Buffer<T>::from_trusted_len_iter<I: vortex_buffer::trusted_len::TrustedLen<Item = T>>(iter: I) -> Self
+
 pub fn vortex_buffer::Buffer<T>::full(item: T, len: usize) -> Self where T: core::marker::Copy
+
 pub fn vortex_buffer::Buffer<T>::inner(&self) -> &bytes::bytes::Bytes
+
 pub fn vortex_buffer::Buffer<T>::into_byte_buffer(self) -> vortex_buffer::ByteBuffer
+
 pub fn vortex_buffer::Buffer<T>::into_inner(self) -> bytes::bytes::Bytes
+
 pub fn vortex_buffer::Buffer<T>::into_mut(self) -> vortex_buffer::BufferMut<T>
+
 pub fn vortex_buffer::Buffer<T>::is_aligned(&self, alignment: vortex_buffer::Alignment) -> bool
+
 pub fn vortex_buffer::Buffer<T>::is_empty(&self) -> bool
+
 pub fn vortex_buffer::Buffer<T>::iter(&self) -> vortex_buffer::Iter<'_, T>
+
 pub fn vortex_buffer::Buffer<T>::len(&self) -> usize
+
 pub fn vortex_buffer::Buffer<T>::slice(&self, range: impl core::ops::range::RangeBounds<usize>) -> Self
+
 pub fn vortex_buffer::Buffer<T>::slice_ref(&self, subset: &[T]) -> Self
+
 pub fn vortex_buffer::Buffer<T>::slice_ref_with_alignment(&self, subset: &[T], alignment: vortex_buffer::Alignment) -> Self
+
 pub fn vortex_buffer::Buffer<T>::slice_unaligned(&self, range: impl core::ops::range::RangeBounds<usize>) -> Self
+
 pub fn vortex_buffer::Buffer<T>::slice_with_alignment(&self, range: impl core::ops::range::RangeBounds<usize>, alignment: vortex_buffer::Alignment) -> Self
+
 pub fn vortex_buffer::Buffer<T>::try_into_mut(self) -> core::result::Result<vortex_buffer::BufferMut<T>, Self>
+
 pub fn vortex_buffer::Buffer<T>::zeroed(len: usize) -> Self
+
 pub fn vortex_buffer::Buffer<T>::zeroed_aligned(len: usize, alignment: vortex_buffer::Alignment) -> Self
+
 impl<T> vortex_buffer::Buffer<T>
+
 pub unsafe fn vortex_buffer::Buffer<T>::transmute<U>(self) -> vortex_buffer::Buffer<U>
+
 impl core::convert::TryFrom<vortex_buffer::Buffer<u8>> for vortex_buffer::BufferString
+
 pub type vortex_buffer::BufferString::Error = vortex_error::VortexError
+
 pub fn vortex_buffer::BufferString::try_from(value: vortex_buffer::ByteBuffer) -> core::result::Result<Self, Self::Error>
+
 impl<T, const A: usize> core::convert::AsRef<vortex_buffer::Buffer<T>> for vortex_buffer::ConstBuffer<T, A>
+
 pub fn vortex_buffer::ConstBuffer<T, A>::as_ref(&self) -> &vortex_buffer::Buffer<T>
+
 impl<T, const A: usize> core::convert::TryFrom<vortex_buffer::Buffer<T>> for vortex_buffer::ConstBuffer<T, A>
+
 pub type vortex_buffer::ConstBuffer<T, A>::Error = vortex_error::VortexError
+
 pub fn vortex_buffer::ConstBuffer<T, A>::try_from(value: vortex_buffer::Buffer<T>) -> core::result::Result<Self, Self::Error>
+
 impl<T: core::cmp::PartialEq> core::cmp::PartialEq<alloc::vec::Vec<T>> for vortex_buffer::Buffer<T>
+
 pub fn vortex_buffer::Buffer<T>::eq(&self, other: &alloc::vec::Vec<T>) -> bool
+
 impl<T: core::cmp::PartialEq> core::cmp::PartialEq<vortex_buffer::Buffer<T>> for alloc::vec::Vec<T>
+
 pub fn alloc::vec::Vec<T>::eq(&self, other: &vortex_buffer::Buffer<T>) -> bool
+
 impl<T: core::fmt::Debug> core::fmt::Debug for vortex_buffer::Buffer<T>
+
 pub fn vortex_buffer::Buffer<T>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl<T: core::marker::Copy> core::iter::traits::collect::IntoIterator for vortex_buffer::Buffer<T>
+
 pub type vortex_buffer::Buffer<T>::IntoIter = vortex_buffer::BufferIterator<T>
+
 pub type vortex_buffer::Buffer<T>::Item = T
+
 pub fn vortex_buffer::Buffer<T>::into_iter(self) -> Self::IntoIter
+
 impl<T> core::clone::Clone for vortex_buffer::Buffer<T>
+
 pub fn vortex_buffer::Buffer<T>::clone(&self) -> Self
+
 impl<T> core::cmp::Eq for vortex_buffer::Buffer<T>
+
 impl<T> core::cmp::Ord for vortex_buffer::Buffer<T>
+
 pub fn vortex_buffer::Buffer<T>::cmp(&self, other: &Self) -> core::cmp::Ordering
+
 impl<T> core::cmp::PartialEq for vortex_buffer::Buffer<T>
+
 pub fn vortex_buffer::Buffer<T>::eq(&self, other: &Self) -> bool
+
 impl<T> core::cmp::PartialOrd for vortex_buffer::Buffer<T>
+
 pub fn vortex_buffer::Buffer<T>::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
+
 impl<T> core::convert::AsRef<[T]> for vortex_buffer::Buffer<T>
+
 pub fn vortex_buffer::Buffer<T>::as_ref(&self) -> &[T]
+
 impl<T> core::convert::From<alloc::vec::Vec<T>> for vortex_buffer::Buffer<T> where T: core::marker::Send + 'static
+
 pub fn vortex_buffer::Buffer<T>::from(value: alloc::vec::Vec<T>) -> Self
+
 impl<T> core::convert::From<vortex_buffer::BufferMut<T>> for vortex_buffer::Buffer<T>
+
 pub fn vortex_buffer::Buffer<T>::from(value: vortex_buffer::BufferMut<T>) -> Self
+
 impl<T> core::default::Default for vortex_buffer::Buffer<T>
+
 pub fn vortex_buffer::Buffer<T>::default() -> Self
+
 impl<T> core::hash::Hash for vortex_buffer::Buffer<T>
+
 pub fn vortex_buffer::Buffer<T>::hash<H: core::hash::Hasher>(&self, state: &mut H)
+
 impl<T> core::iter::traits::collect::FromIterator<T> for vortex_buffer::Buffer<T>
+
 pub fn vortex_buffer::Buffer<T>::from_iter<I: core::iter::traits::collect::IntoIterator<Item = T>>(iter: I) -> Self
+
 impl<T> core::ops::deref::Deref for vortex_buffer::Buffer<T>
+
 pub type vortex_buffer::Buffer<T>::Target = [T]
+
 pub fn vortex_buffer::Buffer<T>::deref(&self) -> &Self::Target
+
 pub struct vortex_buffer::BufferIterator<T>
+
 impl<T: core::marker::Copy> core::iter::traits::iterator::Iterator for vortex_buffer::BufferIterator<T>
+
 pub type vortex_buffer::BufferIterator<T>::Item = T
+
 pub fn vortex_buffer::BufferIterator<T>::next(&mut self) -> core::option::Option<Self::Item>
+
 pub fn vortex_buffer::BufferIterator<T>::size_hint(&self) -> (usize, core::option::Option<usize>)
+
 pub struct vortex_buffer::BufferMut<T>
+
 impl<T> vortex_buffer::BufferMut<T>
+
 pub fn vortex_buffer::BufferMut<T>::aligned(self, alignment: vortex_buffer::Alignment) -> Self
+
 pub fn vortex_buffer::BufferMut<T>::alignment(&self) -> vortex_buffer::Alignment
+
 pub fn vortex_buffer::BufferMut<T>::as_mut_slice(&mut self) -> &mut [T]
+
 pub fn vortex_buffer::BufferMut<T>::as_slice(&self) -> &[T]
+
 pub fn vortex_buffer::BufferMut<T>::capacity(&self) -> usize
+
 pub fn vortex_buffer::BufferMut<T>::clear(&mut self)
+
 pub fn vortex_buffer::BufferMut<T>::copy_from(other: impl core::convert::AsRef<[T]>) -> Self
+
 pub fn vortex_buffer::BufferMut<T>::copy_from_aligned(other: impl core::convert::AsRef<[T]>, alignment: vortex_buffer::Alignment) -> Self
+
 pub fn vortex_buffer::BufferMut<T>::empty() -> Self
+
 pub fn vortex_buffer::BufferMut<T>::empty_aligned(alignment: vortex_buffer::Alignment) -> Self
+
 pub fn vortex_buffer::BufferMut<T>::extend_from_slice(&mut self, slice: &[T])
+
 pub fn vortex_buffer::BufferMut<T>::freeze(self) -> vortex_buffer::Buffer<T>
+
 pub fn vortex_buffer::BufferMut<T>::full(item: T, len: usize) -> Self where T: core::marker::Copy
+
 pub fn vortex_buffer::BufferMut<T>::into_byte_buffer(self) -> vortex_buffer::ByteBufferMut
+
 pub fn vortex_buffer::BufferMut<T>::is_empty(&self) -> bool
+
 pub fn vortex_buffer::BufferMut<T>::len(&self) -> usize
+
 pub fn vortex_buffer::BufferMut<T>::map_each_in_place<R, F>(self, f: F) -> vortex_buffer::BufferMut<R> where T: core::marker::Copy, F: core::ops::function::FnMut(T) -> R
+
 pub fn vortex_buffer::BufferMut<T>::push(&mut self, value: T)
+
 pub fn vortex_buffer::BufferMut<T>::push_n(&mut self, item: T, n: usize) where T: core::marker::Copy
+
 pub unsafe fn vortex_buffer::BufferMut<T>::push_n_unchecked(&mut self, item: T, n: usize) where T: core::marker::Copy
+
 pub unsafe fn vortex_buffer::BufferMut<T>::push_unchecked(&mut self, item: T)
+
 pub fn vortex_buffer::BufferMut<T>::reserve(&mut self, additional: usize)
+
 pub unsafe fn vortex_buffer::BufferMut<T>::set_len(&mut self, len: usize)
+
 pub fn vortex_buffer::BufferMut<T>::spare_capacity_mut(&mut self) -> &mut [core::mem::maybe_uninit::MaybeUninit<T>]
+
 pub fn vortex_buffer::BufferMut<T>::split_off(&mut self, at: usize) -> Self
+
 pub unsafe fn vortex_buffer::BufferMut<T>::transmute<U>(self) -> vortex_buffer::BufferMut<U>
+
 pub fn vortex_buffer::BufferMut<T>::truncate(&mut self, len: usize)
+
 pub fn vortex_buffer::BufferMut<T>::unsplit(&mut self, other: Self)
+
 pub fn vortex_buffer::BufferMut<T>::with_capacity(capacity: usize) -> Self
+
 pub fn vortex_buffer::BufferMut<T>::with_capacity_aligned(capacity: usize, alignment: vortex_buffer::Alignment) -> Self
+
 pub fn vortex_buffer::BufferMut<T>::zeroed(len: usize) -> Self
+
 pub fn vortex_buffer::BufferMut<T>::zeroed_aligned(len: usize, alignment: vortex_buffer::Alignment) -> Self
+
 impl<T> vortex_buffer::BufferMut<T>
+
 pub fn vortex_buffer::BufferMut<T>::extend_trusted<I: vortex_buffer::trusted_len::TrustedLen<Item = T>>(&mut self, iter: I)
+
 pub fn vortex_buffer::BufferMut<T>::from_trusted_len_iter<I>(iter: I) -> Self where I: vortex_buffer::trusted_len::TrustedLen<Item = T>
+
 impl<'a, T> core::iter::traits::collect::Extend<&'a T> for vortex_buffer::BufferMut<T> where T: core::marker::Copy + 'a
+
 pub fn vortex_buffer::BufferMut<T>::extend<I: core::iter::traits::collect::IntoIterator<Item = &'a T>>(&mut self, iter: I)
+
 impl<T: core::cmp::Eq> core::cmp::Eq for vortex_buffer::BufferMut<T>
+
 impl<T: core::cmp::PartialEq> core::cmp::PartialEq for vortex_buffer::BufferMut<T>
+
 pub fn vortex_buffer::BufferMut<T>::eq(&self, other: &vortex_buffer::BufferMut<T>) -> bool
+
 impl<T: core::fmt::Debug> core::fmt::Debug for vortex_buffer::BufferMut<T>
+
 pub fn vortex_buffer::BufferMut<T>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl<T> core::clone::Clone for vortex_buffer::BufferMut<T>
+
 pub fn vortex_buffer::BufferMut<T>::clone(&self) -> Self
+
 impl<T> core::convert::AsMut<[T]> for vortex_buffer::BufferMut<T>
+
 pub fn vortex_buffer::BufferMut<T>::as_mut(&mut self) -> &mut [T]
+
 impl<T> core::convert::AsRef<[T]> for vortex_buffer::BufferMut<T>
+
 pub fn vortex_buffer::BufferMut<T>::as_ref(&self) -> &[T]
+
 impl<T> core::convert::From<vortex_buffer::BufferMut<T>> for vortex_buffer::Buffer<T>
+
 pub fn vortex_buffer::Buffer<T>::from(value: vortex_buffer::BufferMut<T>) -> Self
+
 impl<T> core::default::Default for vortex_buffer::BufferMut<T>
+
 pub fn vortex_buffer::BufferMut<T>::default() -> Self
+
 impl<T> core::iter::traits::collect::Extend<T> for vortex_buffer::BufferMut<T>
+
 pub fn vortex_buffer::BufferMut<T>::extend<I: core::iter::traits::collect::IntoIterator<Item = T>>(&mut self, iter: I)
+
 impl<T> core::iter::traits::collect::FromIterator<T> for vortex_buffer::BufferMut<T>
+
 pub fn vortex_buffer::BufferMut<T>::from_iter<I: core::iter::traits::collect::IntoIterator<Item = T>>(iter: I) -> Self
+
 impl<T> core::marker::StructuralPartialEq for vortex_buffer::BufferMut<T>
+
 impl<T> core::ops::deref::Deref for vortex_buffer::BufferMut<T>
+
 pub type vortex_buffer::BufferMut<T>::Target = [T]
+
 pub fn vortex_buffer::BufferMut<T>::deref(&self) -> &Self::Target
+
 impl<T> core::ops::deref::DerefMut for vortex_buffer::BufferMut<T>
+
 pub fn vortex_buffer::BufferMut<T>::deref_mut(&mut self) -> &mut Self::Target
+
 pub struct vortex_buffer::BufferString(_)
+
 impl vortex_buffer::BufferString
+
 pub fn vortex_buffer::BufferString::as_str(&self) -> &str
+
 pub fn vortex_buffer::BufferString::empty() -> Self
+
 pub fn vortex_buffer::BufferString::inner(&self) -> &vortex_buffer::ByteBuffer
+
 pub fn vortex_buffer::BufferString::into_inner(self) -> vortex_buffer::ByteBuffer
+
 pub unsafe const fn vortex_buffer::BufferString::new_unchecked(buffer: vortex_buffer::ByteBuffer) -> Self
+
 impl core::clone::Clone for vortex_buffer::BufferString
+
 pub fn vortex_buffer::BufferString::clone(&self) -> vortex_buffer::BufferString
+
 impl core::cmp::Eq for vortex_buffer::BufferString
+
 impl core::cmp::Ord for vortex_buffer::BufferString
+
 pub fn vortex_buffer::BufferString::cmp(&self, other: &vortex_buffer::BufferString) -> core::cmp::Ordering
+
 impl core::cmp::PartialEq for vortex_buffer::BufferString
+
 pub fn vortex_buffer::BufferString::eq(&self, other: &vortex_buffer::BufferString) -> bool
+
 impl core::cmp::PartialOrd for vortex_buffer::BufferString
+
 pub fn vortex_buffer::BufferString::partial_cmp(&self, other: &vortex_buffer::BufferString) -> core::option::Option<core::cmp::Ordering>
+
 impl core::convert::AsRef<[u8]> for vortex_buffer::BufferString
+
 pub fn vortex_buffer::BufferString::as_ref(&self) -> &[u8]
+
 impl core::convert::AsRef<str> for vortex_buffer::BufferString
+
 pub fn vortex_buffer::BufferString::as_ref(&self) -> &str
+
 impl core::convert::From<&str> for vortex_buffer::BufferString
+
 pub fn vortex_buffer::BufferString::from(value: &str) -> Self
+
 impl core::convert::From<alloc::string::String> for vortex_buffer::BufferString
+
 pub fn vortex_buffer::BufferString::from(value: alloc::string::String) -> Self
+
 impl core::convert::From<vortex_buffer::BufferString> for vortex_buffer::ByteBuffer
+
 pub fn vortex_buffer::ByteBuffer::from(value: vortex_buffer::BufferString) -> Self
+
 impl core::convert::TryFrom<&[u8]> for vortex_buffer::BufferString
+
 pub type vortex_buffer::BufferString::Error = vortex_error::VortexError
+
 pub fn vortex_buffer::BufferString::try_from(value: &[u8]) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_buffer::Buffer<u8>> for vortex_buffer::BufferString
+
 pub type vortex_buffer::BufferString::Error = vortex_error::VortexError
+
 pub fn vortex_buffer::BufferString::try_from(value: vortex_buffer::ByteBuffer) -> core::result::Result<Self, Self::Error>
+
 impl core::fmt::Debug for vortex_buffer::BufferString
+
 pub fn vortex_buffer::BufferString::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::hash::Hash for vortex_buffer::BufferString
+
 pub fn vortex_buffer::BufferString::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
 impl core::marker::StructuralPartialEq for vortex_buffer::BufferString
+
 impl core::ops::deref::Deref for vortex_buffer::BufferString
+
 pub type vortex_buffer::BufferString::Target = str
+
 pub fn vortex_buffer::BufferString::deref(&self) -> &Self::Target
+
 pub struct vortex_buffer::ConstBuffer<T, const A: usize>(_)
+
 impl<T, const A: usize> vortex_buffer::ConstBuffer<T, A>
+
 pub fn vortex_buffer::ConstBuffer<T, A>::align_from<B: core::convert::Into<vortex_buffer::Buffer<T>>>(buf: B) -> Self
+
 pub const fn vortex_buffer::ConstBuffer<T, A>::alignment() -> vortex_buffer::Alignment
+
 pub fn vortex_buffer::ConstBuffer<T, A>::as_slice(&self) -> &[T]
+
 pub fn vortex_buffer::ConstBuffer<T, A>::copy_from<B: core::convert::AsRef<[T]>>(buf: B) -> Self
+
 pub fn vortex_buffer::ConstBuffer<T, A>::inner(&self) -> &vortex_buffer::Buffer<T>
+
 pub fn vortex_buffer::ConstBuffer<T, A>::into_inner(self) -> vortex_buffer::Buffer<T>
+
 impl<T, const A: usize> core::convert::AsRef<vortex_buffer::Buffer<T>> for vortex_buffer::ConstBuffer<T, A>
+
 pub fn vortex_buffer::ConstBuffer<T, A>::as_ref(&self) -> &vortex_buffer::Buffer<T>
+
 impl<T, const A: usize> core::convert::TryFrom<vortex_buffer::Buffer<T>> for vortex_buffer::ConstBuffer<T, A>
+
 pub type vortex_buffer::ConstBuffer<T, A>::Error = vortex_error::VortexError
+
 pub fn vortex_buffer::ConstBuffer<T, A>::try_from(value: vortex_buffer::Buffer<T>) -> core::result::Result<Self, Self::Error>
+
 impl<T, const A: usize> core::marker::StructuralPartialEq for vortex_buffer::ConstBuffer<T, A>
+
 impl<T, const A: usize> core::ops::deref::Deref for vortex_buffer::ConstBuffer<T, A>
+
 pub type vortex_buffer::ConstBuffer<T, A>::Target = [T]
+
 pub fn vortex_buffer::ConstBuffer<T, A>::deref(&self) -> &Self::Target
+
 impl<T: core::clone::Clone, const A: usize> core::clone::Clone for vortex_buffer::ConstBuffer<T, A>
+
 pub fn vortex_buffer::ConstBuffer<T, A>::clone(&self) -> vortex_buffer::ConstBuffer<T, A>
+
 impl<T: core::cmp::Eq, const A: usize> core::cmp::Eq for vortex_buffer::ConstBuffer<T, A>
+
 impl<T: core::cmp::PartialEq, const A: usize> core::cmp::PartialEq for vortex_buffer::ConstBuffer<T, A>
+
 pub fn vortex_buffer::ConstBuffer<T, A>::eq(&self, other: &vortex_buffer::ConstBuffer<T, A>) -> bool
+
 impl<T: core::cmp::PartialOrd, const A: usize> core::cmp::PartialOrd for vortex_buffer::ConstBuffer<T, A>
+
 pub fn vortex_buffer::ConstBuffer<T, A>::partial_cmp(&self, other: &vortex_buffer::ConstBuffer<T, A>) -> core::option::Option<core::cmp::Ordering>
+
 impl<T: core::fmt::Debug, const A: usize> core::fmt::Debug for vortex_buffer::ConstBuffer<T, A>
+
 pub fn vortex_buffer::ConstBuffer<T, A>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl<T: core::hash::Hash, const A: usize> core::hash::Hash for vortex_buffer::ConstBuffer<T, A>
+
 pub fn vortex_buffer::ConstBuffer<T, A>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
 pub struct vortex_buffer::Iter<'a, T>
+
 impl<'a, T> core::iter::traits::iterator::Iterator for vortex_buffer::Iter<'a, T>
+
 pub type vortex_buffer::Iter<'a, T>::Item = &'a T
+
 pub fn vortex_buffer::Iter<'a, T>::count(self) -> usize
+
 pub fn vortex_buffer::Iter<'a, T>::last(self) -> core::option::Option<Self::Item>
+
 pub fn vortex_buffer::Iter<'a, T>::next(&mut self) -> core::option::Option<Self::Item>
+
 pub fn vortex_buffer::Iter<'a, T>::nth(&mut self, n: usize) -> core::option::Option<Self::Item>
+
 pub fn vortex_buffer::Iter<'a, T>::size_hint(&self) -> (usize, core::option::Option<usize>)
+
 impl<T> core::iter::traits::exact_size::ExactSizeIterator for vortex_buffer::Iter<'_, T>
+
 pub fn vortex_buffer::Iter<'_, T>::len(&self) -> usize
+
 pub const vortex_buffer::ALIGNMENT_TO_HOST_COPY: vortex_buffer::Alignment
+
 pub trait vortex_buffer::AlignedBuf: bytes::buf::buf_impl::Buf
+
 pub fn vortex_buffer::AlignedBuf::copy_to_aligned(&mut self, len: usize, alignment: vortex_buffer::Alignment) -> vortex_buffer::ByteBuffer
+
 pub fn vortex_buffer::AlignedBuf::copy_to_const_aligned<const A: usize>(&mut self, len: usize) -> vortex_buffer::ConstByteBuffer<A>
+
 impl<B: bytes::buf::buf_impl::Buf> vortex_buffer::AlignedBuf for B
+
 pub fn vortex_buffer::get_bit(buf: &[u8], index: usize) -> bool
+
 pub unsafe fn vortex_buffer::get_bit_unchecked(buf: *const u8, index: usize) -> bool
+
 pub unsafe fn vortex_buffer::set_bit_unchecked(buf: *mut u8, index: usize)
+
 pub unsafe fn vortex_buffer::unset_bit_unchecked(buf: *mut u8, index: usize)
+
 pub type vortex_buffer::ByteBuffer = vortex_buffer::Buffer<u8>
+
 pub type vortex_buffer::ByteBufferMut = vortex_buffer::BufferMut<u8>
+
 pub type vortex_buffer::ConstByteBuffer<const A: usize> = vortex_buffer::ConstBuffer<u8, A>

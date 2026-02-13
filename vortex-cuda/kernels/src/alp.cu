@@ -12,7 +12,7 @@ struct AlpOp {
     FloatT f;  // F10[exponents.f] - power of 10
     FloatT e;  // IF10[exponents.e] - inverse power of 10
 
-    __device__ __forceinline__ FloatT operator()(EncodedT value) const {
+    __device__ inline FloatT operator()(EncodedT value) const {
         return static_cast<FloatT>(value) * f * e;
     }
 };

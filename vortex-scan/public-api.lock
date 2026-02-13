@@ -1,123 +1,245 @@
 pub mod vortex_scan
+
 pub mod vortex_scan::api
+
 pub enum vortex_scan::api::Estimate<T>
+
 pub vortex_scan::api::Estimate::Exact(T)
+
 pub vortex_scan::api::Estimate::Unknown
+
 pub vortex_scan::api::Estimate::UpperBound(T)
+
 impl<T> core::default::Default for vortex_scan::api::Estimate<T>
+
 pub fn vortex_scan::api::Estimate<T>::default() -> vortex_scan::api::Estimate<T>
+
 pub struct vortex_scan::api::ScanRequest
+
 pub vortex_scan::api::ScanRequest::filter: core::option::Option<vortex_array::expr::expression::Expression>
+
 pub vortex_scan::api::ScanRequest::limit: core::option::Option<u64>
+
 pub vortex_scan::api::ScanRequest::projection: core::option::Option<vortex_array::expr::expression::Expression>
+
 impl core::clone::Clone for vortex_scan::api::ScanRequest
+
 pub fn vortex_scan::api::ScanRequest::clone(&self) -> vortex_scan::api::ScanRequest
+
 impl core::default::Default for vortex_scan::api::ScanRequest
+
 pub fn vortex_scan::api::ScanRequest::default() -> vortex_scan::api::ScanRequest
+
 impl core::fmt::Debug for vortex_scan::api::ScanRequest
+
 pub fn vortex_scan::api::ScanRequest::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 pub trait vortex_scan::api::DataSource: 'static + core::marker::Send + core::marker::Sync
+
 pub fn vortex_scan::api::DataSource::deserialize_split(&self, data: &[u8]) -> vortex_error::VortexResult<vortex_scan::api::SplitRef>
+
 pub fn vortex_scan::api::DataSource::dtype(&self) -> &vortex_dtype::dtype::DType
+
 pub fn vortex_scan::api::DataSource::row_count_estimate(&self) -> vortex_scan::api::Estimate<u64>
+
 pub fn vortex_scan::api::DataSource::scan<'life0, 'async_trait>(&'life0 self, scan_request: vortex_scan::api::ScanRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_scan::api::DataSourceScanRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+
 pub fn vortex_scan::api::DataSource::serialize_split(&self, split: &dyn vortex_scan::api::Split) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
 impl vortex_scan::api::DataSource for vortex_scan::layout::LayoutReaderDataSource
+
 pub fn vortex_scan::layout::LayoutReaderDataSource::deserialize_split(&self, _split: &[u8]) -> vortex_error::VortexResult<vortex_scan::api::SplitRef>
+
 pub fn vortex_scan::layout::LayoutReaderDataSource::dtype(&self) -> &vortex_dtype::dtype::DType
+
 pub fn vortex_scan::layout::LayoutReaderDataSource::row_count_estimate(&self) -> vortex_scan::api::Estimate<u64>
+
 pub fn vortex_scan::layout::LayoutReaderDataSource::scan<'life0, 'async_trait>(&'life0 self, scan_request: vortex_scan::api::ScanRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_scan::api::DataSourceScanRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+
 pub fn vortex_scan::layout::LayoutReaderDataSource::serialize_split(&self, _split: &dyn vortex_scan::api::Split) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
 pub trait vortex_scan::api::DataSourceProvider: 'static
+
 pub fn vortex_scan::api::DataSourceProvider::initialize<'life0, 'life1, 'async_trait>(&'life0 self, uri: alloc::string::String, session: &'life1 vortex_session::VortexSession) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<core::option::Option<vortex_scan::api::DataSourceRef>>> + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
 pub trait vortex_scan::api::DataSourceScan: 'static + core::marker::Send
+
 pub fn vortex_scan::api::DataSourceScan::dtype(&self) -> &vortex_dtype::dtype::DType
+
 pub fn vortex_scan::api::DataSourceScan::next_splits<'life0, 'async_trait>(&'life0 mut self, max_splits: usize) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::vec::Vec<vortex_scan::api::SplitRef>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+
 pub fn vortex_scan::api::DataSourceScan::remaining_splits_estimate(&self) -> vortex_scan::api::Estimate<usize>
+
 pub trait vortex_scan::api::Split: 'static + core::marker::Send
+
 pub fn vortex_scan::api::Split::as_any(&self) -> &dyn core::any::Any
+
 pub fn vortex_scan::api::Split::byte_size_estimate(&self) -> vortex_scan::api::Estimate<u64>
+
 pub fn vortex_scan::api::Split::execute(self: alloc::boxed::Box<Self>) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
 pub fn vortex_scan::api::Split::row_count_estimate(&self) -> vortex_scan::api::Estimate<u64>
+
 pub type vortex_scan::api::DataSourceRef = alloc::sync::Arc<dyn vortex_scan::api::DataSource>
+
 pub type vortex_scan::api::DataSourceScanRef = alloc::boxed::Box<dyn vortex_scan::api::DataSourceScan>
+
 pub type vortex_scan::api::SplitRef = alloc::boxed::Box<dyn vortex_scan::api::Split>
+
 pub type vortex_scan::api::SplitStream = futures_core::stream::BoxStream<'static, vortex_error::VortexResult<vortex_scan::api::SplitRef>>
+
 pub mod vortex_scan::arrow
+
 pub struct vortex_scan::arrow::RecordBatchIteratorAdapter<I>
+
 impl<I> vortex_scan::arrow::RecordBatchIteratorAdapter<I>
+
 pub fn vortex_scan::arrow::RecordBatchIteratorAdapter<I>::new(iter: I, schema: arrow_schema::schema::SchemaRef) -> Self
+
 impl<I: core::clone::Clone> core::clone::Clone for vortex_scan::arrow::RecordBatchIteratorAdapter<I>
+
 pub fn vortex_scan::arrow::RecordBatchIteratorAdapter<I>::clone(&self) -> vortex_scan::arrow::RecordBatchIteratorAdapter<I>
+
 impl<I> arrow_array::record_batch::RecordBatchReader for vortex_scan::arrow::RecordBatchIteratorAdapter<I> where I: core::iter::traits::iterator::Iterator<Item = core::result::Result<arrow_array::record_batch::RecordBatch, arrow_schema::error::ArrowError>>
+
 pub fn vortex_scan::arrow::RecordBatchIteratorAdapter<I>::schema(&self) -> arrow_schema::schema::SchemaRef
+
 impl<I> core::iter::traits::iterator::Iterator for vortex_scan::arrow::RecordBatchIteratorAdapter<I> where I: core::iter::traits::iterator::Iterator<Item = core::result::Result<arrow_array::record_batch::RecordBatch, arrow_schema::error::ArrowError>>
+
 pub type vortex_scan::arrow::RecordBatchIteratorAdapter<I>::Item = core::result::Result<arrow_array::record_batch::RecordBatch, arrow_schema::error::ArrowError>
+
 pub fn vortex_scan::arrow::RecordBatchIteratorAdapter<I>::next(&mut self) -> core::option::Option<Self::Item>
+
 pub mod vortex_scan::layout
+
 pub struct vortex_scan::layout::LayoutReaderDataSource
+
 impl vortex_scan::layout::LayoutReaderDataSource
+
 pub fn vortex_scan::layout::LayoutReaderDataSource::new(reader: vortex_layout::reader::LayoutReaderRef, session: vortex_session::VortexSession) -> Self
+
 impl vortex_scan::api::DataSource for vortex_scan::layout::LayoutReaderDataSource
+
 pub fn vortex_scan::layout::LayoutReaderDataSource::deserialize_split(&self, _split: &[u8]) -> vortex_error::VortexResult<vortex_scan::api::SplitRef>
+
 pub fn vortex_scan::layout::LayoutReaderDataSource::dtype(&self) -> &vortex_dtype::dtype::DType
+
 pub fn vortex_scan::layout::LayoutReaderDataSource::row_count_estimate(&self) -> vortex_scan::api::Estimate<u64>
+
 pub fn vortex_scan::layout::LayoutReaderDataSource::scan<'life0, 'async_trait>(&'life0 self, scan_request: vortex_scan::api::ScanRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_scan::api::DataSourceScanRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+
 pub fn vortex_scan::layout::LayoutReaderDataSource::serialize_split(&self, _split: &dyn vortex_scan::api::Split) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
 pub mod vortex_scan::row_mask
+
 pub enum vortex_scan::Selection
+
 pub vortex_scan::Selection::All
+
 pub vortex_scan::Selection::ExcludeByIndex(vortex_buffer::buffer::Buffer<u64>)
+
 pub vortex_scan::Selection::IncludeByIndex(vortex_buffer::buffer::Buffer<u64>)
+
 impl core::clone::Clone for vortex_scan::Selection
+
 pub fn vortex_scan::Selection::clone(&self) -> vortex_scan::Selection
+
 impl core::default::Default for vortex_scan::Selection
+
 pub fn vortex_scan::Selection::default() -> vortex_scan::Selection
+
 pub enum vortex_scan::SplitBy
+
 pub vortex_scan::SplitBy::Layout
+
 pub vortex_scan::SplitBy::RowCount(usize)
+
 impl vortex_scan::SplitBy
+
 pub fn vortex_scan::SplitBy::splits(&self, layout_reader: &dyn vortex_layout::reader::LayoutReader, row_range: &core::ops::range::Range<u64>, field_mask: &[vortex_dtype::field_mask::FieldMask]) -> vortex_error::VortexResult<alloc::collections::btree::set::BTreeSet<u64>>
+
 impl core::clone::Clone for vortex_scan::SplitBy
+
 pub fn vortex_scan::SplitBy::clone(&self) -> vortex_scan::SplitBy
+
 impl core::default::Default for vortex_scan::SplitBy
+
 pub fn vortex_scan::SplitBy::default() -> vortex_scan::SplitBy
+
 impl core::fmt::Debug for vortex_scan::SplitBy
+
 pub fn vortex_scan::SplitBy::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::marker::Copy for vortex_scan::SplitBy
+
 pub struct vortex_scan::RepeatedScan<A: 'static + core::marker::Send>
+
 impl vortex_scan::RepeatedScan<vortex_array::array::ArrayRef>
+
 pub fn vortex_scan::RepeatedScan<vortex_array::array::ArrayRef>::dtype(&self) -> &vortex_dtype::dtype::DType
+
 pub fn vortex_scan::RepeatedScan<vortex_array::array::ArrayRef>::execute_array_iter<B: vortex_io::runtime::blocking::BlockingRuntime>(&self, row_range: core::option::Option<core::ops::range::Range<u64>>, runtime: &B) -> vortex_error::VortexResult<impl vortex_array::iter::ArrayIterator + 'static>
+
 pub fn vortex_scan::RepeatedScan<vortex_array::array::ArrayRef>::execute_array_stream(&self, row_range: core::option::Option<core::ops::range::Range<u64>>) -> vortex_error::VortexResult<impl vortex_array::stream::ArrayStream + core::marker::Send + 'static>
+
 impl<A: 'static + core::marker::Send> vortex_scan::RepeatedScan<A>
+
 pub fn vortex_scan::RepeatedScan<A>::execute(&self, row_range: core::option::Option<core::ops::range::Range<u64>>) -> vortex_error::VortexResult<alloc::vec::Vec<futures_core::future::BoxFuture<'static, vortex_error::VortexResult<core::option::Option<A>>>>>
+
 pub fn vortex_scan::RepeatedScan<A>::execute_stream(&self, row_range: core::option::Option<core::ops::range::Range<u64>>) -> vortex_error::VortexResult<impl futures_core::stream::Stream<Item = vortex_error::VortexResult<A>> + core::marker::Send + 'static + use<A>>
+
 pub struct vortex_scan::ScanBuilder<A>
+
 impl vortex_scan::ScanBuilder<vortex_array::array::ArrayRef>
+
 pub fn vortex_scan::ScanBuilder<vortex_array::array::ArrayRef>::into_array_iter<B: vortex_io::runtime::blocking::BlockingRuntime>(self, runtime: &B) -> vortex_error::VortexResult<impl vortex_array::iter::ArrayIterator + 'static>
+
 pub fn vortex_scan::ScanBuilder<vortex_array::array::ArrayRef>::into_array_stream(self) -> vortex_error::VortexResult<impl vortex_array::stream::ArrayStream + core::marker::Send + 'static>
+
 pub fn vortex_scan::ScanBuilder<vortex_array::array::ArrayRef>::new(session: vortex_session::VortexSession, layout_reader: alloc::sync::Arc<dyn vortex_layout::reader::LayoutReader>) -> Self
+
 impl vortex_scan::ScanBuilder<vortex_array::array::ArrayRef>
+
 pub fn vortex_scan::ScanBuilder<vortex_array::array::ArrayRef>::into_record_batch_reader<B: vortex_io::runtime::blocking::BlockingRuntime>(self, schema: arrow_schema::schema::SchemaRef, runtime: &B) -> vortex_error::VortexResult<impl arrow_array::record_batch::RecordBatchReader + 'static>
+
 pub fn vortex_scan::ScanBuilder<vortex_array::array::ArrayRef>::into_record_batch_stream(self, schema: arrow_schema::schema::SchemaRef) -> vortex_error::VortexResult<impl futures_core::stream::Stream<Item = core::result::Result<arrow_array::record_batch::RecordBatch, arrow_schema::error::ArrowError>> + core::marker::Send + 'static>
+
 impl<A: 'static + core::marker::Send> vortex_scan::ScanBuilder<A>
+
 pub fn vortex_scan::ScanBuilder<A>::build(self) -> vortex_error::VortexResult<alloc::vec::Vec<futures_core::future::BoxFuture<'static, vortex_error::VortexResult<core::option::Option<A>>>>>
+
 pub fn vortex_scan::ScanBuilder<A>::dtype(&self) -> vortex_error::VortexResult<vortex_dtype::dtype::DType>
+
 pub fn vortex_scan::ScanBuilder<A>::into_iter<B: vortex_io::runtime::blocking::BlockingRuntime>(self, runtime: &B) -> vortex_error::VortexResult<impl core::iter::traits::iterator::Iterator<Item = vortex_error::VortexResult<A>> + 'static>
+
 pub fn vortex_scan::ScanBuilder<A>::into_stream(self) -> vortex_error::VortexResult<impl futures_core::stream::Stream<Item = vortex_error::VortexResult<A>> + core::marker::Send + 'static + use<A>>
+
 pub fn vortex_scan::ScanBuilder<A>::map<B: 'static>(self, map_fn: impl core::ops::function::Fn(A) -> vortex_error::VortexResult<B> + 'static + core::marker::Send + core::marker::Sync) -> vortex_scan::ScanBuilder<B>
+
 pub fn vortex_scan::ScanBuilder<A>::prepare(self) -> vortex_error::VortexResult<vortex_scan::RepeatedScan<A>>
+
 pub fn vortex_scan::ScanBuilder<A>::session(&self) -> &vortex_session::VortexSession
+
 pub fn vortex_scan::ScanBuilder<A>::with_concurrency(self, concurrency: usize) -> Self
+
 pub fn vortex_scan::ScanBuilder<A>::with_filter(self, filter: vortex_array::expr::expression::Expression) -> Self
+
 pub fn vortex_scan::ScanBuilder<A>::with_limit(self, limit: u64) -> Self
+
 pub fn vortex_scan::ScanBuilder<A>::with_metrics_registry(self, metrics: alloc::sync::Arc<dyn vortex_metrics::MetricsRegistry>) -> Self
+
 pub fn vortex_scan::ScanBuilder<A>::with_ordered(self, ordered: bool) -> Self
+
 pub fn vortex_scan::ScanBuilder<A>::with_projection(self, projection: vortex_array::expr::expression::Expression) -> Self
+
 pub fn vortex_scan::ScanBuilder<A>::with_row_indices(self, row_indices: vortex_buffer::buffer::Buffer<u64>) -> Self
+
 pub fn vortex_scan::ScanBuilder<A>::with_row_offset(self, row_offset: u64) -> Self
+
 pub fn vortex_scan::ScanBuilder<A>::with_row_range(self, row_range: core::ops::range::Range<u64>) -> Self
+
 pub fn vortex_scan::ScanBuilder<A>::with_selection(self, selection: vortex_scan::Selection) -> Self
+
 pub fn vortex_scan::ScanBuilder<A>::with_some_filter(self, filter: core::option::Option<vortex_array::expr::expression::Expression>) -> Self
+
 pub fn vortex_scan::ScanBuilder<A>::with_split_by(self, split_by: vortex_scan::SplitBy) -> Self

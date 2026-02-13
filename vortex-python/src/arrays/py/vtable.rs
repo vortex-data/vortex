@@ -86,6 +86,7 @@ impl VTable for PythonVTable {
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         Ok(RawMetadata(bytes.to_vec()))

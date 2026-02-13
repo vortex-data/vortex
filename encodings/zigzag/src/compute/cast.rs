@@ -3,30 +3,26 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
-use vortex_array::compute::cast;
-use vortex_array::register_kernel;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::CastReduce;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ZigZagArray;
 use crate::ZigZagVTable;
 
-impl CastKernel for ZigZagVTable {
-    fn cast(&self, array: &ZigZagArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for ZigZagVTable {
+    fn cast(array: &ZigZagArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !dtype.is_signed_int() {
             return Ok(None);
         }
 
         let new_encoded_dtype =
             DType::Primitive(dtype.as_ptype().to_unsigned(), dtype.nullability());
-        let new_encoded = cast(array.encoded(), &new_encoded_dtype)?;
+        let new_encoded = array.encoded().cast(new_encoded_dtype)?;
         Ok(Some(ZigZagArray::try_new(new_encoded)?.into_array()))
     }
 }
-
-register_kernel!(CastKernelAdapter(ZigZagVTable).lift());
 
 #[cfg(test)]
 mod tests {
@@ -34,7 +30,7 @@ mod tests {
     use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
@@ -48,11 +44,10 @@ mod tests {
         let values = PrimitiveArray::from_iter([-100i32, -1, 0, 1, 100]);
         let zigzag = zigzag_encode(values).unwrap();
 
-        let casted = cast(
-            zigzag.as_ref(),
-            &DType::Primitive(PType::I64, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = zigzag
+            .to_array()
+            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
@@ -75,11 +70,10 @@ mod tests {
         let values = PrimitiveArray::from_iter([100i32, -50, 0, 25, -100]);
         let zigzag = zigzag_encode(values).unwrap();
 
-        let casted = cast(
-            zigzag.as_ref(),
-            &DType::Primitive(PType::I16, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = zigzag
+            .to_array()
+            .cast(DType::Primitive(PType::I16, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.encoding_id().as_ref(),
             "vortex.zigzag",
@@ -95,11 +89,10 @@ mod tests {
         let values16 = PrimitiveArray::from_iter([1000i16, -500, 0, 250, -1000]);
         let zigzag16 = zigzag_encode(values16).unwrap();
 
-        let casted64 = cast(
-            zigzag16.as_ref(),
-            &DType::Primitive(PType::I64, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted64 = zigzag16
+            .to_array()
+            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted64.encoding_id().as_ref(),
             "vortex.zigzag",
@@ -118,11 +111,10 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(-10i32), None, Some(0), Some(10), None]);
         let zigzag = zigzag_encode(values).unwrap();
 
-        let casted = cast(
-            zigzag.as_ref(),
-            &DType::Primitive(PType::I64, Nullability::Nullable),
-        )
-        .unwrap();
+        let casted = zigzag
+            .to_array()
+            .cast(DType::Primitive(PType::I64, Nullability::Nullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
