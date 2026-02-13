@@ -160,7 +160,7 @@ mod tests {
         plan: &DynamicDispatchPlan,
     ) -> VortexResult<Vec<u32>> {
         let output_slice = cuda_ctx
-            .device_alloc::<u32>(output_len.next_multiple_of(1024))
+            .device_alloc::<u32>(output_len)
             .vortex_expect("alloc output");
         let output_buf = CudaDeviceBuffer::new(output_slice);
         let output_ptr = output_buf.as_view::<u32>().device_ptr(cuda_ctx.stream()).0;
@@ -200,7 +200,7 @@ mod tests {
             .clone_dtoh(&output_buf.as_view::<u32>())
             .expect("copy back");
 
-        Ok(host_output[..output_len].to_vec())
+        Ok(host_output)
     }
 
     fn run_dynamic_dispatch_f32(
