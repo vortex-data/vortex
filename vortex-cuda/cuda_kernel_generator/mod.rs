@@ -81,12 +81,8 @@ fn generate_lane_decoder<T: FastLanes, W: Write>(
     writeln!(output, "}}")
 }
 
-/// Generate a self-contained `.cu` file containing all lane decoders, a runtime
-/// lane dispatch function, and device/global kernel wrappers for all bit widths.
-///
-/// The generated file can be compiled standalone *and* `#include`d by other
-/// kernels (e.g. `dynamic_dispatch.cu`) that need access to the lane decoders
-/// and dispatch function.
+/// Generate a runtime dispatch function that routes
+/// to the appropriate bit-width-specific lane decoder.
 fn generate_lane_dispatch<T: FastLanes, W: Write>(
     output: &mut IndentedWriter<W>,
 ) -> io::Result<()> {
@@ -186,16 +182,7 @@ fn generate_global_kernel_for_width<T: FastLanes, W: Write>(
     writeln!(output, "}}")
 }
 
-/// Generate a self-contained `.cu` file containing all lane decoders, a runtime
-/// lane dispatch function, and device/global kernel wrappers for all bit widths.
-///
-/// The generated file can be compiled standalone *and* `#include`d by other
-/// kernels (e.g. `dynamic_dispatch.cu`) that need access to the lane decoders
-/// and dispatch function.
-///
-/// # Errors
-///
-/// Will return Err if writing to the underlying writer fails.
+/// Generate CUDA lane decoders, dispatch function, and kernel wrappers for all bit widths.
 pub fn generate_cuda_unpack_for_width<T: FastLanes, W: Write>(
     output: &mut IndentedWriter<W>,
     thread_count: usize,

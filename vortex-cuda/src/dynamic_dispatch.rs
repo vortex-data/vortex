@@ -27,14 +27,14 @@ use vortex_cuda_macros::cuda_tests;
 
 // Bindgen-generated types from `dynamic_dispatch.h`
 //
-// The `DynamicDispatchPlan` struct and related types are shared between CUDA
-// kernels and Rust host code.
+// The `DynamicDispatchPlan` struct and related types are
+// shared between CUDA kernels and Rust host code.
 include!(concat!(env!("OUT_DIR"), "/dynamic_dispatch.rs"));
 
 // SAFETY: DynamicDispatchPlan is a C ABI struct with contiguous memory.
 unsafe impl cudarc::driver::DeviceRepr for DynamicDispatchPlan {}
 
-/// Aliases to make bindgen-generated names ergonomic.
+/// Aliases for bindgen-generated names.
 
 /// Enumeration of source operation types.
 pub type SourceOpCode = SourceOp_SourceOpCode;
