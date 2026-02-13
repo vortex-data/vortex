@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::max;
 use std::fmt::Debug;
+use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -57,8 +59,9 @@ impl CudaExecute for BitPackedExecutor {
         let array =
             Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected BitPackedArray"))?;
 
+        let len = array.len();
         match_each_integer_ptype!(array.ptype(), |A| {
-            decode_bitpacked::<A>(array, 0, ctx).await
+            decode_bitpacked::<A>(array, 0, (0..len), ctx).await
         })
     }
 }
@@ -92,6 +95,7 @@ pub fn bitpacked_cuda_launch_config(output_width: usize, len: usize) -> VortexRe
 pub(crate) async fn decode_bitpacked<A>(
     array: BitPackedArray,
     reference: A,
+    range: Range<usize>,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical>
 where
@@ -110,7 +114,18 @@ where
     vortex_ensure!(len > 0, "Non empty array");
     let offset = offset as usize;
 
-    let device_input: BufferHandle = if packed.is_on_device() {
+    let offset_start = range.start + offset;
+    let offset_stop = range.end + offset;
+    let offset = offset_start % 1024;
+    let block_start = max(0, offset_start - offset);
+    let block_stop = offset_stop.div_ceil(1024) * 1024;
+
+    let encoded_start = (block_start / 8) * bit_width as usize;
+    let encoded_stop = (block_stop / 8) * bit_width as usize;
+
+    let sliced_packed = packed.slice(encoded_start..encoded_stop);
+
+    let device_input: BufferHandle = if sliced_packed.is_on_device() {
         packed
     } else {
         ctx.move_to_device(packed)?.await?
