@@ -4,6 +4,27 @@
 
 set -Eeu -o pipefail
 
+if ! rustup run nightly rustc --version &>/dev/null; then
+    echo "Error: nightly toolchain is not installed."
+    echo "`cargo-public-api` requires nightly to build rustdoc JSON."
+    echo ""
+    echo "Install it with:"
+    echo "  rustup install nightly --profile minimal"
+    echo ""
+    echo "See https://crates.io/crates/cargo-public-api"
+    exit 1
+fi
+
+if ! cargo +nightly public-api --version &>/dev/null; then
+    echo "Error: `cargo-public-api` is not installed."
+    echo ""
+    echo "Install it with:"
+    echo "  cargo +stable install cargo-public-api --locked"
+    echo ""
+    echo "See https://crates.io/crates/cargo-public-api"
+    exit 1
+fi
+
 # Regenerate public-api.lock files for all published crates.
 # Uses cargo-public-api to dump the public API surface of each crate.
 #

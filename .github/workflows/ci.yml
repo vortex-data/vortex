@@ -348,8 +348,19 @@ jobs:
         run: bash scripts/public-api.sh
       - name: Verify lock files are up to date
         run: |
-          git diff --name-only
-          git diff --exit-code '**/public-api.lock'
+          if ! git diff --quiet '**/public-api.lock'; then
+            git diff -U0 '**/public-api.lock'
+            echo ""
+            echo ""
+            echo "Changed files:"
+            git diff --name-only '**/public-api.lock'
+            echo ""
+            echo ""
+            echo "Public API lock files are out of date."
+            echo "Run './scripts/public-api.sh' locally to"
+            echo "regenerate them, then commit the changes."
+            exit 1
+          fi
 
   rust-coverage:
     name: "Rust tests (coverage) (${{ matrix.suite }})"
