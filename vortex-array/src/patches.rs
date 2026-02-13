@@ -40,7 +40,7 @@ use crate::ArrayVisitor;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
-use crate::compute::cast;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::filter;
 use crate::compute::is_sorted;
 use crate::search_sorted::SearchResult;
@@ -357,7 +357,7 @@ impl Patches {
                 self.array_len,
                 self.offset,
                 self.indices,
-                cast(&self.values, values_dtype)?,
+                self.values.cast(values_dtype.clone())?,
                 self.chunk_offsets,
                 self.offset_within_chunk,
             ))

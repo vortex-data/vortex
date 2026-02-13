@@ -38,7 +38,7 @@ use crate::builders::PrimitiveBuilder;
 use crate::builders::UninitRange;
 use crate::builders::builder_with_capacity;
 use crate::builders::lazy_null_builder::LazyBitBufferBuilder;
-use crate::compute;
+use crate::builtins::ArrayBuiltins;
 
 /// A builder for creating [`ListViewArray`] instances, parameterized by the [`IntegerPType`] of
 /// the `offsets` and the `sizes` builders.
@@ -337,9 +337,13 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         self.offsets_builder.reserve_exact(extend_length);
 
         // The incoming sizes might have a different type than the builder, so we need to cast.
-        let cast_sizes = compute::cast(listview.sizes(), self.sizes_builder.dtype()).vortex_expect(
-            "was somehow unable to cast the new sizes to the type of the builder sizes",
-        );
+        let cast_sizes = listview
+            .sizes()
+            .to_array()
+            .cast(self.sizes_builder.dtype().clone())
+            .vortex_expect(
+                "was somehow unable to cast the new sizes to the type of the builder sizes",
+            );
         self.sizes_builder.extend_from_array(cast_sizes.as_ref());
 
         // Now we need to adjust all of the offsets by adding the current number of elements in the

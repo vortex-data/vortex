@@ -3,20 +3,18 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
-use vortex_array::compute::cast;
-use vortex_array::register_kernel;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::CastReduce;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;
 use crate::RunEndVTable;
 
-impl CastKernel for RunEndVTable {
-    fn cast(&self, array: &RunEndArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for RunEndVTable {
+    fn cast(array: &RunEndArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Cast the values array to the target type
-        let casted_values = cast(array.values(), dtype)?;
+        let casted_values = array.values().cast(dtype.clone())?;
 
         // SAFETY: casting does not affect the ends being valid
         unsafe {
@@ -33,8 +31,6 @@ impl CastKernel for RunEndVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(RunEndVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -44,7 +40,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
@@ -61,11 +57,10 @@ mod tests {
         )
         .unwrap();
 
-        let casted = cast(
-            runend.as_ref(),
-            &DType::Primitive(PType::I64, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = runend
+            .into_array()
+            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
@@ -101,11 +96,10 @@ mod tests {
         )
         .unwrap();
 
-        let casted = cast(
-            runend.as_ref(),
-            &DType::Primitive(PType::I64, Nullability::Nullable),
-        )
-        .unwrap();
+        let casted = runend
+            .into_array()
+            .cast(DType::Primitive(PType::I64, Nullability::Nullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
@@ -128,11 +122,9 @@ mod tests {
         assert_arrays_eq!(sliced, PrimitiveArray::from_iter([200, 200, 300, 300, 300]));
 
         // Cast the sliced array
-        let casted = cast(
-            sliced.as_ref(),
-            &DType::Primitive(PType::I64, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = sliced
+            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
+            .unwrap();
 
         // Verify the cast preserved the offset
         assert_arrays_eq!(

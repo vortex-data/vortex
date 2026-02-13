@@ -34,7 +34,7 @@ mod tests {
     use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
-    use crate::compute::cast;
+    use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
@@ -157,12 +157,12 @@ mod tests {
             StructFields::new(FieldNames::default(), vec![]),
             NonNullable,
         );
-        let casted = cast(&array, &non_nullable_dtype).unwrap();
+        let casted = array.cast(non_nullable_dtype.clone()).unwrap();
         assert_eq!(casted.dtype(), &non_nullable_dtype);
 
         let nullable_dtype =
             DType::Struct(StructFields::new(FieldNames::default(), vec![]), Nullable);
-        let casted = cast(&array, &nullable_dtype).unwrap();
+        let casted = array.cast(nullable_dtype.clone()).unwrap();
         assert_eq!(casted.dtype(), &nullable_dtype);
     }
 
@@ -195,7 +195,9 @@ mod tests {
         .into_array();
 
         let top_level_non_nullable = fully_nullable_array.dtype().as_nonnullable();
-        let casted = cast(&fully_nullable_array, &top_level_non_nullable).unwrap();
+        let casted = fully_nullable_array
+            .cast(top_level_non_nullable.clone())
+            .unwrap();
         assert_eq!(casted.dtype(), &top_level_non_nullable);
 
         let non_null_xs_right = DType::Struct(
@@ -218,7 +220,9 @@ mod tests {
             ),
             Nullable,
         );
-        let casted = cast(&fully_nullable_array, &non_null_xs_right).unwrap();
+        let casted = fully_nullable_array
+            .cast(non_null_xs_right.clone())
+            .unwrap();
         assert_eq!(casted.dtype(), &non_null_xs_right);
 
         let non_null_xs = DType::Struct(
@@ -241,7 +245,7 @@ mod tests {
             ),
             Nullable,
         );
-        let casted = cast(&fully_nullable_array, &non_null_xs).unwrap();
+        let casted = fully_nullable_array.cast(non_null_xs.clone()).unwrap();
         assert_eq!(casted.dtype(), &non_null_xs);
     }
 

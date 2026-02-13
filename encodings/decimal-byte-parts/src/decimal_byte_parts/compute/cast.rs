@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
-use vortex_array::compute::cast;
-use vortex_array::register_kernel;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::CastReduce;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::DecimalBytePartsArray;
 use crate::DecimalBytePartsVTable;
 
-impl CastKernel for DecimalBytePartsVTable {
-    fn cast(&self, array: &DecimalBytePartsArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for DecimalBytePartsVTable {
+    fn cast(array: &DecimalBytePartsArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // DecimalBytePartsArray can only have Decimal dtype, so we only handle decimal-to-decimal casts
         let DType::Decimal(target_decimal, target_nullability) = dtype else {
             // Cannot cast decimal to non-decimal types - delegate to canonical form
@@ -26,10 +25,9 @@ impl CastKernel for DecimalBytePartsVTable {
             && array.dtype().nullability() != *target_nullability
         {
             // Cast the msp array to handle nullability change
-            let new_msp = cast(
-                array.msp(),
-                &array.msp().dtype().with_nullability(*target_nullability),
-            )?;
+            let new_msp = array
+                .msp()
+                .cast(array.msp().dtype().with_nullability(*target_nullability))?;
 
             return Ok(Some(
                 DecimalBytePartsArray::try_new(new_msp, *target_decimal)?.into_array(),
@@ -41,15 +39,13 @@ impl CastKernel for DecimalBytePartsVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(DecimalBytePartsVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
@@ -68,11 +64,10 @@ mod tests {
         .unwrap();
 
         // Cast to nullable decimal
-        let casted = cast(
-            array.as_ref(),
-            &DType::Decimal(decimal_dtype, Nullability::Nullable),
-        )
-        .unwrap();
+        let casted = array
+            .to_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::Nullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Decimal(decimal_dtype, Nullability::Nullable)
@@ -92,11 +87,11 @@ mod tests {
         )
         .unwrap();
 
-        // Cast to non-nullable should fail due to nulls
-        let result = cast(
-            array.as_ref(),
-            &DType::Decimal(decimal_dtype, Nullability::NonNullable),
-        );
+        // Cast to non-nullable should fail due to nulls - force evaluation via to_canonical
+        let result = array
+            .to_array()
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
         assert!(result.is_err());
     }
 

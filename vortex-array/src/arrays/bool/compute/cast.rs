@@ -7,13 +7,11 @@ use vortex_error::VortexResult;
 use crate::array::ArrayRef;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
-use crate::compute::CastKernel;
-use crate::compute::CastKernelAdapter;
-use crate::register_kernel;
+use crate::compute::CastReduce;
 use crate::vtable::ValidityHelper;
 
-impl CastKernel for BoolVTable {
-    fn cast(&self, array: &BoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for BoolVTable {
+    fn cast(array: &BoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !matches!(dtype, DType::Bool(_)) {
             return Ok(None);
         }
@@ -29,8 +27,6 @@ impl CastKernel for BoolVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(BoolVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -38,14 +34,14 @@ mod tests {
     use vortex_dtype::Nullability;
 
     use crate::arrays::BoolArray;
-    use crate::compute::cast;
+    use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
 
     #[test]
     fn try_cast_bool_success() {
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), Some(true)]);
 
-        let res = cast(bool.as_ref(), &DType::Bool(Nullability::NonNullable));
+        let res = bool.to_array().cast(DType::Bool(Nullability::NonNullable));
         assert!(res.is_ok());
         assert_eq!(res.unwrap().dtype(), &DType::Bool(Nullability::NonNullable));
     }
@@ -54,7 +50,9 @@ mod tests {
     #[should_panic]
     fn try_cast_bool_fail() {
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), None]);
-        cast(bool.as_ref(), &DType::Bool(Nullability::NonNullable)).unwrap();
+        bool.to_array()
+            .cast(DType::Bool(Nullability::NonNullable))
+            .unwrap();
     }
 
     #[rstest]

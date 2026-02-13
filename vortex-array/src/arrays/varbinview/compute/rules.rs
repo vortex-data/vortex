@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::VarBinViewVTable;
+use crate::compute::CastReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
 
-pub(crate) const PARENT_RULES: ParentRuleSet<VarBinViewVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&SliceReduceAdaptor(VarBinViewVTable))]);
+pub(crate) const PARENT_RULES: ParentRuleSet<VarBinViewVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&CastReduceAdaptor(VarBinViewVTable)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(VarBinViewVTable)),
+]);
