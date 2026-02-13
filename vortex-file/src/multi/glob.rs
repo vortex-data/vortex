@@ -1,106 +1,74 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! URL glob expansion for discovering Vortex files in object stores.
+//! Glob expansion for discovering Vortex files via a [`FileSystem`].
 //!
-//! Uses [`object_store::ObjectStore::list()`] with a computed prefix and client-side glob
+//! Uses [`FileSystem::list()`] with a computed prefix and client-side glob
 //! filtering to discover files matching a pattern.
 
-use std::sync::Arc;
-
-use futures::StreamExt;
-use futures::TryStreamExt;
 use glob::Pattern;
-use object_store::ObjectStore;
-use object_store::path::Path;
 use tracing::debug;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use super::source::DiscoveredFile;
+use crate::filesystem::FileListing;
+use crate::filesystem::FileSystemRef;
 
-/// List all files under `prefix` in the object store, returning sorted
-/// [`DiscoveredFile`]s with path and size.
-#[tracing::instrument(name = "list_all", skip(object_store))]
-pub(super) async fn list_all(
-    object_store: &Arc<dyn ObjectStore>,
-    prefix: &Path,
-) -> VortexResult<Vec<DiscoveredFile>> {
+/// List all files in the filesystem, returning sorted [`FileListing`]s.
+#[tracing::instrument(name = "list_all", skip(fs))]
+pub(super) async fn list_all(fs: &FileSystemRef) -> VortexResult<Vec<FileListing>> {
+    use futures::TryStreamExt;
+
     debug!("listing all files");
 
-    let mut files: Vec<DiscoveredFile> = object_store
-        .list(Some(prefix))
-        .map_ok(|meta| DiscoveredFile {
-            path: meta.location.to_string(),
-            size: Some(meta.size),
-        })
-        .try_collect()
-        .await?;
+    let mut files: Vec<FileListing> = fs.list(None).try_collect().await?;
 
     files.sort();
     debug!(file_count = files.len(), "listed all files");
     Ok(files)
 }
 
-/// Expand a glob pattern against an [`ObjectStore`], returning matching
-/// [`DiscoveredFile`]s with path and size.
+/// Expand a glob pattern against a [`FileSystem`], returning matching
+/// [`FileListing`]s with path and size.
 ///
-/// The `glob_pattern` should be a path pattern (not a full URL) relative to the store root,
-/// e.g. `"data/year=2024/**/*.vortex"`.
+/// The `pattern` is matched against file paths relative to the filesystem root
+/// (e.g. `"**/*.vortex"`).
 ///
 /// # Algorithm
 ///
 /// 1. Find the first glob character (`*`, `?`, `[`) in the pattern.
 /// 2. Use everything before it (up to the last `/`) as the list prefix.
-/// 3. List objects with that prefix.
+/// 3. List files with that prefix.
 /// 4. Filter using [`glob::Pattern`] matching.
 /// 5. Return sorted file paths.
-#[tracing::instrument(name = "expand_glob", skip(object_store))]
+#[tracing::instrument(name = "expand_glob", skip(fs))]
 pub(super) async fn expand_glob(
-    object_store: &Arc<dyn ObjectStore>,
-    base_url_path: &Path,
+    fs: &FileSystemRef,
     pattern: &Pattern,
-) -> VortexResult<Vec<DiscoveredFile>> {
+) -> VortexResult<Vec<FileListing>> {
+    use futures::TryStreamExt;
+
     let glob_str = pattern.as_str();
 
     validate_glob(glob_str)?;
 
     // Extract the static prefix from the glob pattern to narrow the listing.
     let prefix = list_prefix(glob_str);
-    let listing_path = if prefix.is_empty() {
-        base_url_path.clone()
+    let listing_prefix = if prefix.is_empty() {
+        None
     } else {
-        Path::from(format!(
-            "{}/{}",
-            base_url_path.as_ref().trim_end_matches('/'),
-            prefix.trim_end_matches('/')
-        ))
+        Some(prefix.trim_end_matches('/'))
     };
-    let base_prefix = base_url_path.as_ref();
 
-    debug!(%base_url_path, %listing_path, "expanding glob");
+    debug!(?listing_prefix, "expanding glob");
 
-    let mut files: Vec<DiscoveredFile> = object_store
-        .list(Some(&listing_path))
-        .filter_map(|result| async {
-            match result {
-                Ok(meta) => {
-                    let path_str = meta.location.to_string();
-                    let relative = path_str
-                        .strip_prefix(base_prefix)
-                        .map(|s| s.trim_start_matches('/'))
-                        .unwrap_or(&path_str);
-                    pattern.matches(relative).then_some(DiscoveredFile {
-                        path: path_str,
-                        size: Some(meta.size),
-                    })
-                }
-                // FIXME(ngates): do not ignore errors
-                Err(_) => None,
-            }
+    let mut files: Vec<FileListing> = fs
+        .list(listing_prefix)
+        .try_filter_map(|listing| async move {
+            Ok(pattern.matches(&listing.path).then_some(listing))
         })
-        .collect()
-        .await;
+        .try_collect()
+        .await?;
 
     files.sort();
     debug!(file_count = files.len(), "expanded glob");
@@ -110,7 +78,7 @@ pub(super) async fn expand_glob(
 /// Returns the list prefix for a path pattern containing glob characters.
 ///
 /// The prefix is the directory path up to the first glob character, which is used to narrow
-/// the `list()` call on the object store.
+/// the `list()` call on the filesystem.
 ///
 /// # Examples
 ///

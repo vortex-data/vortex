@@ -7,8 +7,8 @@
 //! discovers and opens multiple Vortex files, presenting them as a single [`DataSource`]
 //! for scanning. It is analogous to DataFusion's `ListingTable`.
 //!
-//! Use [`MultiFileDataSourceBuilder`] to construct a `MultiFileDataSource` from an object store
-//! and a set of file paths or a glob pattern.
+//! Use [`MultiFileDataSourceBuilder`] to construct a `MultiFileDataSource` from a
+//! [`FileSystem`](crate::filesystem::FileSystem) and a set of file paths or a glob pattern.
 //!
 //! [`DataSource`]: vortex_scan::api::DataSource
 

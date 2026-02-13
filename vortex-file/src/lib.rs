@@ -92,8 +92,8 @@
 
 mod counting;
 mod file;
+pub mod filesystem;
 mod footer;
-#[cfg(feature = "object_store")]
 pub mod multi;
 mod open;
 mod pruning;

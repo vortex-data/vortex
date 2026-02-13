@@ -285,6 +285,8 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
     benchmark: &B,
     format: Format,
 ) -> anyhow::Result<()> {
+    use vortex::file::filesystem::object_store::ObjectStoreFileSystem;
+    use vortex::io::session::RuntimeSessionExt;
     use vortex_datafusion::v2::VortexTable;
 
     let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
@@ -297,6 +299,11 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             .runtime_env()
             .object_store(table_url.object_store())?;
 
+        let fs: Arc<dyn vortex::file::filesystem::FileSystem> =
+            Arc::new(ObjectStoreFileSystem::new(store.clone(), SESSION.handle()));
+        let base_prefix = benchmark_base.path().trim_start_matches('/').to_string();
+        let fs = fs.prefix(base_prefix);
+
         let discovery = match pattern {
             Some(p) => FileDiscovery::Glob(p),
             None => FileDiscovery::Glob(
@@ -304,11 +311,10 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
                     .map_err(|e| vortex_err!("invalid pattern for table {}: {}", table.name, e))?,
             ),
         };
-        let multi_ds =
-            MultiFileDataSource::builder(SESSION.clone(), store.clone(), benchmark_base.clone())
-                .with_discovery(discovery)
-                .build()
-                .await?;
+        let multi_ds = MultiFileDataSource::builder(SESSION.clone(), fs)
+            .with_discovery(discovery)
+            .build()
+            .await?;
 
         let arrow_schema = Arc::new(multi_ds.dtype().to_arrow_schema()?);
         let data_source: DataSourceRef = Arc::new(multi_ds);

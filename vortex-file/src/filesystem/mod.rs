@@ -3,9 +3,13 @@
 
 //! A filesystem abstraction for discovering and opening Vortex files.
 //!
-//! [`VortexFileSystem`] provides a storage-agnostic interface for listing files under a prefix
+//! [`FileSystem`] provides a storage-agnostic interface for listing files under a prefix
 //! and opening them for reading. Implementations can target local filesystems, object stores,
 //! or any other storage backend.
+
+#[cfg(feature = "object_store")]
+pub mod object_store;
+mod prefix;
 
 use std::sync::Arc;
 
@@ -23,6 +27,9 @@ pub struct FileListing {
     pub size: Option<u64>,
 }
 
+/// A reference-counted handle to a file system.
+pub type FileSystemRef = Arc<dyn FileSystem>;
+
 /// A storage-agnostic filesystem interface for discovering and reading Vortex files.
 ///
 /// Implementations handle the details of a particular storage backend (local disk, S3, GCS, etc.)
@@ -33,12 +40,12 @@ pub struct FileListing {
 /// An `open_write` method will be added once [`VortexWrite`](vortex_io::VortexWrite) is
 /// object-safe (it currently uses `impl Future` return types which prevent trait-object usage).
 #[async_trait]
-pub trait VortexFileSystem: Send + Sync + 'static {
+pub trait FileSystem: Send + Sync + 'static {
     /// List files whose paths start with `prefix`.
     ///
     /// Returns a stream of [`FileListing`] entries. The stream may yield entries in any order;
     /// callers should sort if deterministic ordering is required.
-    fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>>;
+    fn list(&self, prefix: Option<&str>) -> BoxStream<'_, VortexResult<FileListing>>;
 
     /// Open a file for reading at the given path.
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>>;

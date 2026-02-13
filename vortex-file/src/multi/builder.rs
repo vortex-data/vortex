@@ -6,27 +6,23 @@
 use std::sync::Arc;
 
 use glob::Pattern;
-use object_store::ObjectStore;
-use object_store::path::Path;
 use tracing::debug;
-use url::Url;
-use vortex_array::expr::Expression;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_scan::multi::DataSourceFactory;
 use vortex_scan::multi::MultiDataSource;
 use vortex_session::VortexSession;
 
 use super::glob::expand_glob;
 use super::glob::list_all;
-use super::source::DiscoveredFile;
 use super::source::MultiFileDataSource;
 use super::source::VortexFileFactory;
 use super::source::data_source_from_file;
 use crate::OpenOptionsSessionExt;
 use crate::VortexOpenOptions;
+use crate::filesystem::FileListing;
+use crate::filesystem::FileSystemRef;
 
 /// How to handle schema differences across files in a [`MultiFileDataSource`].
 #[derive(Debug, Clone, Default)]
@@ -43,72 +39,72 @@ pub enum SchemaResolution {
 /// How files are discovered for a [`MultiFileDataSource`].
 #[derive(Debug)]
 pub enum FileDiscovery {
-    /// Explicit list of file paths (relative to the object store root).
+    /// Explicit list of file paths.
     Paths(Vec<String>),
-    /// A glob pattern to expand against the object store (relative to the object store root).
+    /// A glob pattern to expand against the filesystem.
     Glob(Pattern),
-    /// List all files under the prefix that match the configured file extension.
+    /// List all files in the filesystem.
     ListAll,
 }
 
 /// Builder for constructing a [`MultiFileDataSource`].
 ///
-/// By default, all files in the object store are discovered (equivalent to a `*` glob).
+/// By default, all files are discovered by listing the filesystem (equivalent to `ListAll`).
 /// Use [`with_paths`](Self::with_paths) or [`with_glob`](Self::with_glob) to restrict
 /// which files are included.
+///
+/// To scope the data source to a subdirectory, wrap the filesystem with
+/// [`FileSystem::prefix`](crate::filesystem::FileSystem::prefix) before passing it to the builder.
 ///
 /// # Examples
 ///
 /// ```ignore
-/// // Discover all files:
-/// let ds = MultiFileDataSourceBuilder::new(session, object_store, "s3://bucket/data/")
+/// // Discover all files under a prefix:
+/// let fs = fs.prefix("data/".into());
+/// let ds = MultiFileDataSource::builder(session, fs)
 ///     .build()
 ///     .await?;
 ///
 /// // From a glob pattern:
-/// let ds = MultiFileDataSourceBuilder::new(session, object_store, "s3://bucket/data/")
+/// let fs = fs.prefix("data/".into());
+/// let ds = MultiFileDataSource::builder(session, fs)
 ///     .with_glob(glob::Pattern::new("**/*.vortex")?)
 ///     .with_prefetch(16)
 ///     .build()
 ///     .await?;
 ///
 /// // From explicit paths:
-/// let ds = MultiFileDataSourceBuilder::new(session, object_store, "s3://bucket/data/")
+/// let ds = MultiFileDataSource::builder(session, fs)
 ///     .with_paths(vec!["a.vortex".into(), "b.vortex".into()])
 ///     .build()
 ///     .await?;
 /// ```
 pub struct MultiFileDataSourceBuilder {
     session: VortexSession,
-    object_store: Arc<dyn ObjectStore>,
-    base_url: Url,
+    fs: FileSystemRef,
     discovery: FileDiscovery,
     schema_resolution: SchemaResolution,
     open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
     prefetch: Option<usize>,
-    filter: Option<Expression>,
     dtype: Option<DType>,
 }
 
 impl MultiFileDataSource {
-    /// Create a new builder from an object store and base URL prefix.
+    /// Create a new builder from a filesystem.
     ///
-    /// The `base_url` is used for display/debug purposes. It should typically match the
-    /// location of the files (e.g. `"s3://bucket/data/"`).
+    /// To scope the data source to a subdirectory, wrap the filesystem with
+    /// [`FileSystem::prefix`](crate::filesystem::FileSystem::prefix).
     pub fn builder(
         session: VortexSession,
-        object_store: Arc<dyn ObjectStore>,
-        base_url: Url,
+        fs: FileSystemRef,
     ) -> MultiFileDataSourceBuilder {
         MultiFileDataSourceBuilder {
             session,
-            object_store,
-            base_url,
+            fs,
             discovery: FileDiscovery::ListAll,
             schema_resolution: SchemaResolution::default(),
             open_options_fn: Arc::new(|opts| opts),
             prefetch: None,
-            filter: None,
             dtype: None,
         }
     }
@@ -121,15 +117,15 @@ impl MultiFileDataSourceBuilder {
         self
     }
 
-    /// Set explicit file paths (relative to the object store root).
+    /// Set explicit file paths.
     pub fn with_paths(self, paths: Vec<String>) -> Self {
         self.with_discovery(FileDiscovery::Paths(paths))
     }
 
-    /// Discover files by expanding a glob pattern against the object store.
+    /// Discover files by expanding a glob pattern against the filesystem.
     ///
-    /// The pattern is relative to the object store root
-    /// (e.g. `"data/**/*.vortex"`). Expansion happens eagerly during [`build`](Self::build).
+    /// The pattern is relative to the filesystem root
+    /// (e.g. `"**/*.vortex"`). Expansion happens eagerly during [`build`](Self::build).
     pub fn with_glob(self, pattern: Pattern) -> Self {
         self.with_discovery(FileDiscovery::Glob(pattern))
     }
@@ -175,20 +171,10 @@ impl MultiFileDataSourceBuilder {
         self
     }
 
-    /// Set a filter expression for file-level pruning.
-    ///
-    /// Files whose statistics indicate they cannot match the filter will be skipped entirely.
-    /// When no explicit dtype is provided, the first file is always opened (to determine the
-    /// schema); deferred files may be skipped if their statistics prove the filter cannot match.
-    pub fn with_filter(mut self, filter: Expression) -> Self {
-        self.filter = Some(filter);
-        self
-    }
-
     /// Build the [`MultiFileDataSource`].
     ///
     /// If a glob pattern was provided via [`with_glob`](Self::with_glob), it is expanded
-    /// eagerly against the object store. If a [`DType`] was provided via
+    /// eagerly against the filesystem. If a [`DType`] was provided via
     /// [`with_dtype`](Self::with_dtype), all files are opened lazily during scanning.
     /// Otherwise, the first file is opened eagerly to determine the schema.
     #[tracing::instrument(name = "MultiFileDataSourceBuilder::build", skip(self))]
@@ -203,46 +189,30 @@ impl MultiFileDataSourceBuilder {
             FileDiscovery::ListAll => "list_all".to_string(),
         };
         debug!(
-            base_url = %self.base_url,
             discovery = %discovery_kind,
             "building MultiFileDataSource"
         );
 
-        debug!(
-            "Discovering files in {}: {:?}",
-            self.base_url, self.discovery
-        );
-        let base_url_path = Path::from_url_path(self.base_url.path())
-            .map_err(|e| vortex_err!("Invalid base_url '{}': {}", self.base_url, e))?;
         let files = match self.discovery {
             FileDiscovery::Paths(ref paths) => paths
                 .iter()
-                .map(|path| {
-                    // FIXME(ngates): join path to the base_url_path.
-                    DiscoveredFile {
-                        path: path.clone(),
-                        size: None,
-                    }
+                .map(|path| FileListing {
+                    path: path.clone(),
+                    size: None,
                 })
                 .collect(),
-            FileDiscovery::Glob(ref pattern) => {
-                expand_glob(&self.object_store, &base_url_path, pattern).await?
-            }
-            FileDiscovery::ListAll => list_all(&self.object_store, &base_url_path).await?,
+            FileDiscovery::Glob(ref pattern) => expand_glob(&self.fs, pattern).await?,
+            FileDiscovery::ListAll => list_all(&self.fs).await?,
         };
 
         debug!(
-            base_url = %self.base_url,
             file_count = files.len(),
             files = ?files,
             "discovered files"
         );
 
         if files.is_empty() {
-            vortex_bail!(
-                "MultiFileDataSource requires at least one file (base_url: {})",
-                self.base_url
-            );
+            vortex_bail!("MultiFileDataSource requires at least one file");
         }
 
         let file_count = files.len();
@@ -259,9 +229,8 @@ impl MultiFileDataSourceBuilder {
             if let Some(size) = first.size {
                 first_options = first_options.with_file_size(size);
             }
-            let first_file = first_options
-                .open_object_store(&self.object_store, &first.path)
-                .await?;
+            let source = self.fs.open_read(&first.path).await?;
+            let first_file = first_options.open(source).await?;
 
             let dtype = first_file.dtype().clone();
             debug!(dtype = %dtype, "determined dtype from first file");
@@ -278,28 +247,21 @@ impl MultiFileDataSourceBuilder {
         };
 
         debug!(
-            base_url = %self.base_url,
             file_count,
             dtype = %dtype,
             "built MultiFileDataSource"
         );
 
-        Ok(MultiFileDataSource::new(
-            dtype,
-            inner,
-            self.base_url.to_string(),
-            file_count,
-        ))
+        Ok(MultiFileDataSource::new(dtype, inner, file_count))
     }
 
-    fn make_factories(&self, files: &[DiscoveredFile]) -> Vec<Arc<dyn DataSourceFactory>> {
+    fn make_factories(&self, files: &[FileListing]) -> Vec<Arc<dyn DataSourceFactory>> {
         files
             .iter()
             .map(|file| {
                 Arc::new(VortexFileFactory {
-                    object_store: self.object_store.clone(),
+                    fs: self.fs.clone(),
                     file: file.clone(),
-                    filter: self.filter.clone(),
                     session: self.session.clone(),
                     open_options_fn: self.open_options_fn.clone(),
                 }) as Arc<dyn DataSourceFactory>
