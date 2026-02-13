@@ -222,6 +222,8 @@ impl vortex_btrblocks::BtrBlocksCompressorBuilder
 
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::build(self) -> vortex_btrblocks::BtrBlocksCompressor
 
+pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::empty() -> Self
+
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::exclude_float(self, codes: impl core::iter::traits::collect::IntoIterator<Item = vortex_btrblocks::FloatCode>) -> Self
 
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::exclude_int(self, codes: impl core::iter::traits::collect::IntoIterator<Item = vortex_btrblocks::IntCode>) -> Self
