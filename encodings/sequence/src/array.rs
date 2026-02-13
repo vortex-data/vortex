@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::cast::FromPrimitive;
 use std::hash::Hash;
+
+use num_traits::cast::FromPrimitive;
 use vortex_array::ArrayBufferVisitor;
 use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayRef;
@@ -17,8 +18,9 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::expr::stats::Precision as StatPrecision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::stats::ArrayStats;
+use vortex_array::stats::StatsSet;
 use vortex_array::stats::StatsSetRef;
-use vortex_array::stats::{ArrayStats, StatsSet};
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
