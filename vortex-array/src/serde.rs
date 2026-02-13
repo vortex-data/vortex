@@ -584,40 +584,10 @@ impl TryFrom<ByteBuffer> for ArrayParts {
         }
 
         let fb_offset = value.len() - 4 - fb_length;
-        let fb_buffer = value.slice(fb_offset..fb_offset + fb_length);
-        let fb_buffer = FlatBuffer::align_from(fb_buffer);
+        let array_tree = value.slice(fb_offset..fb_offset + fb_length);
+        let segment = BufferHandle::new_host(value.slice(0..fb_offset));
 
-        let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
-        let fb_root = fb_array.root().vortex_expect("Array must have a root node");
-
-        let mut offset = 0;
-        let buffers: Arc<[_]> = fb_array
-            .buffers()
-            .unwrap_or_default()
-            .iter()
-            .map(|fb_buffer| {
-                // Skip padding
-                offset += fb_buffer.padding() as usize;
-
-                let buffer_len = fb_buffer.length() as usize;
-
-                // Extract a buffer and ensure it's aligned, copying if necessary
-                let buffer = value
-                    .slice(offset..(offset + buffer_len))
-                    .aligned(Alignment::from_exponent(fb_buffer.alignment_exponent()));
-
-                offset += buffer_len;
-                BufferHandle::new_host(buffer)
-            })
-            .collect();
-
-        let flatbuffer_loc = fb_root._tab.loc();
-
-        Ok(ArrayParts {
-            flatbuffer: fb_buffer,
-            flatbuffer_loc,
-            buffers,
-        })
+        Self::from_flatbuffer_and_segment(array_tree, segment)
     }
 }
 
