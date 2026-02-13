@@ -33,8 +33,8 @@ impl vortex_array::arrays::dict::take::TakeExecute for vortex_bytebool::ByteBool
 pub fn vortex_bytebool::ByteBoolVTable::take(array: &vortex_bytebool::ByteBoolArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::arrays::slice::SliceReduce for vortex_bytebool::ByteBoolVTable
 pub fn vortex_bytebool::ByteBoolVTable::slice(array: &vortex_bytebool::ByteBoolArray, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-impl vortex_array::compute::cast::CastKernel for vortex_bytebool::ByteBoolVTable
-pub fn vortex_bytebool::ByteBoolVTable::cast(&self, array: &vortex_bytebool::ByteBoolArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+impl vortex_array::compute::cast::CastReduce for vortex_bytebool::ByteBoolVTable
+pub fn vortex_bytebool::ByteBoolVTable::cast(array: &vortex_bytebool::ByteBoolArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::compute::mask::MaskKernel for vortex_bytebool::ByteBoolVTable
 pub fn vortex_bytebool::ByteBoolVTable::mask(&self, array: &vortex_bytebool::ByteBoolArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 impl vortex_array::vtable::VTable for vortex_bytebool::ByteBoolVTable
