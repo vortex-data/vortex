@@ -10,7 +10,6 @@ use vortex::expr::stats::Precision;
 
 mod convert;
 mod persistent;
-/// V2 DataFusion integration using direct `TableProvider` + `ExecutionPlan` implementation.
 pub mod v2;
 
 #[cfg(test)]

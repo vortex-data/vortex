@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use async_trait::async_trait;
 use clap::Parser;
 use clap::value_parser;
 use custom_labels::asynchronous::Label;
@@ -25,17 +24,12 @@ use datafusion_bench::tracer::set_labels;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::collect;
 use futures::StreamExt;
-use object_store::ObjectStore;
 use parking_lot::Mutex;
 use tokio::fs::File;
-use vortex::error::VortexExpect;
-use vortex::error::vortex_err;
-use vortex::file::OpenOptionsSessionExt;
-use vortex::file::v2::FileStatsLayoutReader;
+use vortex::file::multi::FileDiscovery;
+use vortex::file::multi::MultiFileDataSourceBuilder;
+use vortex::scan::api::DataSource as _;
 use vortex::scan::api::DataSourceRef;
-use vortex::scan::layout::LayoutReaderDataSource;
-use vortex::scan::multi::DataSourceFactory;
-use vortex::scan::multi::MultiDataSource;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
 use vortex_bench::CompactionStrategy;
@@ -231,8 +225,8 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn use_v2() -> bool {
-    std::env::var("VORTEX_DATAFUSION_V2").is_ok_and(|v| v == "1")
+fn use_scan_api() -> bool {
+    std::env::var("VORTEX_USE_SCAN_API").is_ok_and(|v| v == "1")
 }
 
 async fn register_benchmark_tables<B: Benchmark + ?Sized>(
@@ -242,7 +236,7 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
 ) -> anyhow::Result<()> {
     match format {
         Format::Arrow => register_arrow_tables(session, benchmark).await,
-        _ if use_v2() && matches!(format, Format::OnDiskVortex | Format::VortexCompact) => {
+        _ if use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact) => {
             register_v2_tables(session, benchmark, format).await
         }
         _ => {
@@ -283,102 +277,39 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     }
 }
 
-/// A [`DataSourceFactory`] that lazily opens a single Vortex file.
-struct VortexFileFactory {
-    object_store: Arc<dyn ObjectStore>,
-    path: PathBuf,
-}
-
-#[async_trait]
-impl DataSourceFactory for VortexFileFactory {
-    async fn open(&self) -> vortex::error::VortexResult<Option<DataSourceRef>> {
-        let file = SESSION
-            .open_options()
-            .open_object_store(
-                &self.object_store,
-                self.path
-                    .as_os_str()
-                    .to_str()
-                    .ok_or_else(|| vortex_err!("Invalid path"))?,
-            )
-            .await?;
-
-        let mut reader = file.layout_reader()?;
-        if let Some(stats) = file.file_stats().cloned() {
-            reader = Arc::new(FileStatsLayoutReader::new(reader, stats, SESSION.clone()));
-        }
-        Ok(Some(Arc::new(LayoutReaderDataSource::new(
-            reader,
-            SESSION.clone(),
-        ))))
-    }
-}
-
-/// Register tables using the V2 `VortexTable` + `MultiDataSource` path.
+/// Register tables using the V2 `VortexTable` + `MultiFileDataSource` path.
 async fn register_v2_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,
     format: Format,
 ) -> anyhow::Result<()> {
-    use futures::TryStreamExt;
     use vortex_datafusion::v2::VortexTable;
 
     let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
 
     for table in benchmark.table_specs().iter() {
         let pattern = benchmark.pattern(table.name, format);
-        let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern)?;
+        let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern.clone())?;
+        let store = session
+            .state()
+            .runtime_env()
+            .object_store(table_url.object_store())?;
 
-        // Use the same ListingTableUrl file discovery as v1.
-        let state = session.state();
-        let store = state.runtime_env().object_store(table_url.object_store())?;
-        let mut file_metas: Vec<_> = table_url
-            .list_all_files(&state, store.as_ref(), format.ext())
-            .await?
-            .try_collect()
-            .await?;
-        file_metas.sort_by(|a, b| a.location.cmp(&b.location));
+        let discovery = pattern
+            .map(FileDiscovery::Glob)
+            .unwrap_or(FileDiscovery::ListAll);
+        let multi_ds = MultiFileDataSourceBuilder::new(
+            SESSION.clone(),
+            store.clone(),
+            benchmark_base.as_str(),
+        )
+        .with_prefix(table_url.prefix().clone())
+        .with_discovery(discovery)
+        .build()
+        .await?;
 
-        anyhow::ensure!(
-            !file_metas.is_empty(),
-            "no files found for table {}",
-            table.name
-        );
-
-        // Convert object store paths to absolute local file paths.
-        // Object store locations are relative (e.g. "path/to/file.vortex"), so prepend "/".
-        let matching_paths: Vec<PathBuf> = file_metas
-            .iter()
-            .map(|meta| PathBuf::from(format!("/{}", meta.location)))
-            .collect();
-
-        // Open the first file eagerly to get the dtype/schema.
-        let first_source = VortexFileFactory {
-            object_store: store.clone(),
-            path: matching_paths[0].clone(),
-        }
-        .open()
-        .await?
-        .vortex_expect("Missing first file");
-
-        let arrow_schema = Arc::new(first_source.dtype().to_arrow_schema()?);
-
-        // Create lazy factories for remaining files.
-        let remaining: Vec<Arc<dyn DataSourceFactory>> = matching_paths[1..]
-            .iter()
-            .map(|path| {
-                Arc::new(VortexFileFactory {
-                    object_store: store.clone(),
-                    path: path.clone(),
-                }) as _
-            })
-            .collect();
-
-        let data_source: DataSourceRef = if remaining.is_empty() {
-            first_source
-        } else {
-            Arc::new(MultiDataSource::lazy(first_source, remaining, &SESSION))
-        };
+        let arrow_schema = Arc::new(multi_ds.dtype().to_arrow_schema()?);
+        let data_source: DataSourceRef = Arc::new(multi_ds);
 
         let table_provider = Arc::new(VortexTable::new(data_source, SESSION.clone(), arrow_schema));
         session.register_table(table.name, table_provider)?;

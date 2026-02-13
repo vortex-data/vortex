@@ -129,6 +129,26 @@ impl MultiDataSource {
         }
     }
 
+    /// Creates a multi-source where all children are deferred.
+    ///
+    /// The dtype must be provided externally since there is no pre-opened source to infer it
+    /// from. This avoids eagerly opening any file when the schema is already known (e.g. from
+    /// a catalog or a prior scan).
+    pub fn all_deferred(
+        dtype: DType,
+        factories: Vec<Arc<dyn DataSourceFactory>>,
+        session: &VortexSession,
+    ) -> Self {
+        let children = factories.into_iter().map(MultiChild::Deferred).collect();
+
+        Self {
+            dtype,
+            children: Arc::new(Mutex::new(children)),
+            handle: session.handle(),
+            prefetch: DEFAULT_PREFETCH,
+        }
+    }
+
     /// Sets the number of deferred sources to open concurrently during scanning.
     ///
     /// Higher values overlap more file-opening I/O with split execution but use more memory
@@ -212,6 +232,7 @@ impl DataSource for MultiDataSource {
     }
 }
 
+#[allow(clippy::type_complexity)]
 struct MultiDataSourceScan {
     dtype: DType,
     request: ScanRequest,
