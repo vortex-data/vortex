@@ -75,7 +75,16 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
         ));
     }
 
-    // int
+    // decimal
+    if let Some(dtype) = dtype.and_then(|d| d.as_decimal_opt()) {
+        return Ok(Scalar::decimal(
+            vortex::scalar::DecimalValue::I128(value.extract::<i128>()?),
+            *dtype,
+            Nullability::NonNullable,
+        ));
+    }
+
+    // int and decimal
     if let Ok(integer) = value.cast::<PyInt>() {
         return Ok(Scalar::primitive(
             integer.extract::<i64>()?,

@@ -37,6 +37,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(not_, &m)?)?;
     m.add_function(wrap_pyfunction!(and_, &m)?)?;
     m.add_function(wrap_pyfunction!(cast, &m)?)?;
+    m.add_function(wrap_pyfunction!(is_null, &m)?)?;
     m.add_class::<PyExpr>()?;
 
     Ok(())
@@ -171,6 +172,34 @@ impl PyExpr {
         right: &Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyExpr>> {
         py_binary_operator(self_, Operator::Or, coerce_expr(right)?)
+    }
+
+    fn __add__<'py>(
+        self_: PyRef<'py, Self>,
+        right: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyExpr>> {
+        py_binary_operator(self_, Operator::Add, coerce_expr(right)?)
+    }
+
+    fn __sub__<'py>(
+        self_: PyRef<'py, Self>,
+        right: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyExpr>> {
+        py_binary_operator(self_, Operator::Sub, coerce_expr(right)?)
+    }
+
+    fn __mul__<'py>(
+        self_: PyRef<'py, Self>,
+        right: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyExpr>> {
+        py_binary_operator(self_, Operator::Mul, coerce_expr(right)?)
+    }
+
+    fn __truediv__<'py>(
+        self_: PyRef<'py, Self>,
+        right: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyExpr>> {
+        py_binary_operator(self_, Operator::Div, coerce_expr(right)?)
     }
 
     // Special methods docstrings cannot be defined in Rust. Write a docstring in the corresponding
@@ -415,5 +444,23 @@ pub fn and_(left: PyExpr, right: PyExpr) -> PyResult<PyExpr> {
 pub fn cast(child: PyExpr, dtype: PyDType) -> PyResult<PyExpr> {
     Ok(PyExpr {
         inner: expr::cast(child.into_inner(), dtype.into_inner()),
+    })
+}
+
+/// Checks which elements of its child are null.
+///
+/// Parameters
+/// ----------
+/// child : :class:`Expr`
+///     Any expression.
+///
+/// Returns
+/// -------
+/// :class:`vortex.Expr`
+/// ```
+#[pyfunction]
+pub fn is_null(child: PyExpr) -> PyResult<PyExpr> {
+    Ok(PyExpr {
+        inner: expr::is_null(child.into_inner()),
     })
 }

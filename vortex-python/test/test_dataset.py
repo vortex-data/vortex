@@ -108,14 +108,35 @@ def test_to_record_batch_reader_with_polars(ds: pd.Dataset):
     assert pldf.schema["float"] == polars.Float64
 
 
+def test_filter(ds: vx.dataset.VortexDataset):
+
+    tbl = ds.to_table(filter=(pc.field("string") >= "950000") & (pc.field("float") < 975.0))
+    assert len(tbl) == 6176
+
+    tbl = ds.to_table(filter=(pc.field("index") < 10))
+    assert len(tbl) == 10
+
+    tbl = ds.to_table(filter=((pc.field("index") + 1) < 10))
+    assert len(tbl) == 9
+
+    tbl = ds.to_table(filter=((pc.field("index") - 1) < 10))
+    assert len(tbl) == 11
+
+    tbl = ds.to_table(filter=((pc.field("index") * 2) < 10))
+    assert len(tbl) == 5
+
+    tbl = ds.to_table(filter=((pc.field("index") / 2) < 10))
+    assert len(tbl) == 20
+
+
 def test_duckdb(ds: vx.dataset.VortexDataset):
     assert ds  # pyright cannot determine that ds is used by duckdb.execute
-    # This would be a nice test but we do not support IsNotNull which duckdb uses
-    # tbl = duckdb.execute("select * from ds where string >= '950000' and float < 975.0").arrow().read_all()
-    # assert len(tbl) == 10_000
-    # assert tbl.schema == pa.schema(
-    #     [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.utf8())]
-    # )
+
+    tbl = duckdb.execute("select * from ds where string >= '950000' and float < 975.0").arrow().read_all()
+    assert len(tbl) == 6176
+    assert tbl.schema == pa.schema(
+        [("bool", pa.bool_()), ("float", pa.float64()), ("index", pa.int64()), ("string", pa.utf8())]
+    )
 
     tbl = duckdb.execute("select * from ds").arrow().read_all()
     assert len(tbl) == 1_000_000
