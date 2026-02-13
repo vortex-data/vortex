@@ -9,6 +9,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -69,7 +70,7 @@ fn bench_dict_mask(bencher: Bencher, (fraction_valid, fraction_masked): (f64, f6
             array
                 .mask(filter_mask)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<RecursiveCanonical>(&mut ctx)
                 .unwrap()
         });
 }
