@@ -38,21 +38,24 @@ __device__ inline void dynamic_source_op(const T *__restrict input, T *__restric
 
     switch (source_op.op_code) {
     case SourceOp::BITUNPACK: {
-        constexpr uint32_t ELEMENTS_PER_FL_BLOCK = 1024;
-        constexpr uint32_t LANES_PER_FL_BLOCK = ELEMENTS_PER_FL_BLOCK / T_BITS;
+        constexpr uint32_t FL_CHUNK_SIZE = 1024;
+        constexpr uint32_t LANES_PER_FL_BLOCK = FL_CHUNK_SIZE / T_BITS;
         const uint32_t bit_width = source_op.params.bitunpack.bit_width;
         const uint32_t packed_words_per_fl_block = LANES_PER_FL_BLOCK * bit_width;
-        const uint64_t first_fl_block = chunk_start / ELEMENTS_PER_FL_BLOCK;
+        const uint64_t first_fl_block = chunk_start / FL_CHUNK_SIZE;
 
-        static_assert((ELEMENTS_PER_BLOCK % ELEMENTS_PER_FL_BLOCK) == 0);
+        // FL blocks must divide evenly. Otherwise, the last unpack would overflow `smem`.
+        static_assert((ELEMENTS_PER_BLOCK % FL_CHUNK_SIZE) == 0);
 
-        #pragma unroll
-        for (uint32_t blk = 0; blk < ELEMENTS_PER_BLOCK / ELEMENTS_PER_FL_BLOCK; ++blk) {
-            const T *packed_fl = input + (first_fl_block + blk) * packed_words_per_fl_block;
-            T *smem_fl = smem + blk * ELEMENTS_PER_FL_BLOCK;
+        const auto div_ceil = [](auto a, auto b) { return (a + b - 1) / b; };
+        const uint32_t num_fl_chunks = div_ceil(chunk_len, FL_CHUNK_SIZE);
+
+        for (uint32_t chunk_idx = 0; chunk_idx < num_fl_chunks; ++chunk_idx) {
+            const T *packed_chunk = input + (first_fl_block + chunk_idx) * packed_words_per_fl_block;
+            T *smem_lane = smem + chunk_idx * FL_CHUNK_SIZE;
             // Distribute unpacking across threads via lane-wise decomposition.
             for (uint32_t lane = threadIdx.x; lane < LANES_PER_FL_BLOCK; lane += blockDim.x) {
-                bit_unpack_lane<T>(packed_fl, smem_fl, lane, bit_width);
+                bit_unpack_lane<T>(packed_chunk, smem_lane, lane, bit_width);
             }
         }
         break;
