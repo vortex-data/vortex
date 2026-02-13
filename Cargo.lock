@@ -11214,6 +11214,7 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tracing",
+ "url",
  "uuid",
  "vortex-alp",
  "vortex-array",
