@@ -13,12 +13,11 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::compute;
+use crate::compute::BooleanOperator;
 use crate::compute::add;
-use crate::compute::and_kleene;
 use crate::compute::compare;
 use crate::compute::div;
 use crate::compute::mul;
-use crate::compute::or_kleene;
 use crate::compute::sub;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -31,6 +30,9 @@ use crate::expr::expression::Expression;
 use crate::expr::exprs::literal::lit;
 use crate::expr::exprs::operators::Operator;
 use crate::expr::stats::Stat;
+
+mod boolean;
+pub(crate) use boolean::*;
 
 pub struct Binary;
 
@@ -114,8 +116,8 @@ impl VTable for Binary {
             Operator::Lte => compare(lhs, rhs, compute::Operator::Lte),
             Operator::Gt => compare(lhs, rhs, compute::Operator::Gt),
             Operator::Gte => compare(lhs, rhs, compute::Operator::Gte),
-            Operator::And => and_kleene(lhs, rhs),
-            Operator::Or => or_kleene(lhs, rhs),
+            Operator::And => execute_boolean(lhs, rhs, BooleanOperator::AndKleene),
+            Operator::Or => execute_boolean(lhs, rhs, BooleanOperator::OrKleene),
             Operator::Add => add(lhs, rhs),
             Operator::Sub => sub(lhs, rhs),
             Operator::Mul => mul(lhs, rhs),

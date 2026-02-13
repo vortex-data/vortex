@@ -19,7 +19,7 @@ flatbuffers = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
 pin-project-lite = { workspace = true }
-vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
@@ -28,6 +28,7 @@ vortex-session = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [lints]
 workspace = true

@@ -136,16 +136,14 @@ jobs:
 
       - name: Alert incident.io on validation failure
         if: failure() && steps.report.outputs.validation_failed == 'true'
-        uses: incident-io/github-action@v1
+        uses: ./.github/actions/alert-incident-io
         with:
           api-key: ${{ secrets.incident_io_alert_token }}
-          alert-source-id: 01KH4EYTH3HA4PDZPRAPEV1Q10
           alert-title: "Fuzzer crash report failed: missing required variables"
           alert-description: |
             The fuzz_report pipeline failed because required variables were missing: ${{ steps.report.outputs.missing_variables }}.
             The fuzzer found a crash but could not file a GitHub issue.
           deduplication-key: fuzz-report-validation-${{ inputs.fuzz_target }}
-          source-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           custom-fields: |
             {
               "fuzz_target": "${{ inputs.fuzz_target }}",
