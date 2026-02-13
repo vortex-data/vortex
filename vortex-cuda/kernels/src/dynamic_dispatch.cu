@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-// Dynamic dispatch kernel: decodes an array by applying a sequence of operations
-// in a single kernel launch. The source op fills shared memory (e.g. bitunpack),
-// then scalar ops are applied element-wise in registers (e.g. FoR, zigzag, ALP).
+/// Dynamic dispatch kernel: decodes an array by applying a sequence of operations
+/// in a single kernel launch. The source op fills shared memory (e.g. bitunpack),
+/// then scalar ops are applied element-wise in registers (e.g. FoR, zigzag, ALP).
 
 #include <assert.h>
 #include <cuda.h>
@@ -19,10 +19,22 @@
 
 constexpr uint32_t ELEMENTS_PER_BLOCK = 2048;
 
+/// Decodes a single lane of bitpacked data into shared memory.
+///
+/// # Parameters
+///
+/// * `packed_chunk` - Pointer to the start of the packed data chunk in global memory
+/// * `smem` - Pointer to the shared memory output buffer where unpacked data is written
+/// * `lane` - Lane index within the block
+/// * `bit_width` - Number of bits with which each value is encoded
 template <typename T>
 __device__ inline void bitunpack_lane_to_smem(const T *__restrict packed_chunk, T *__restrict smem,
                                                        unsigned int lane, uint32_t bit_width);
 
+
+/// Template specializations for `bitunpack_lane_to_smem` for different integer types.
+///
+/// Generates template specializations for each supported integer size (8, 16, 32, 64 bits).
 #define BITUNPACK_LANE(bits)                                                                                 \
     template <>                                                                                              \
     __device__ inline void bitunpack_lane_to_smem<uint##bits##_t>(const uint##bits##_t *in,                  \
@@ -36,6 +48,19 @@ BITUNPACK_LANE(16)
 BITUNPACK_LANE(32)
 BITUNPACK_LANE(64)
 
+/// Executes the source operation (e.g., bitunpack) to fill shared memory with unpacked data.
+///
+/// This function handles the first phase of the dynamic dispatch pipeline. It reads compressed
+/// data from global memory and decompresses it into shared memory, preparing it for subsequent
+/// scalar operations.
+///
+/// # Parameters
+///
+/// * `input` - Pointer to the compressed input data in global memory
+/// * `smem` - Pointer to shared memory buffer where unpacked data is written (size: ELEMENTS_PER_BLOCK)
+/// * `chunk_start` - Starting index of the data chunk to process in the input array
+/// * `chunk_len` - Number of elements in this chunk (may be less than ELEMENTS_PER_BLOCK for tail blocks)
+/// * `source_op` - The source operation descriptor containing the operation type and parameters
 template <typename T>
 __device__ inline void dynamic_source_op(const T *__restrict input, T *__restrict smem,
                                                uint64_t chunk_start, uint32_t chunk_len,
@@ -57,6 +82,7 @@ __device__ inline void dynamic_source_op(const T *__restrict input, T *__restric
         for (uint32_t blk = 0; blk < ELEMENTS_PER_BLOCK / ELEMENTS_PER_FL_BLOCK; ++blk) {
             const T *packed_fl = input + (first_fl_block + blk) * packed_words_per_fl_block;
             T *smem_fl = smem + blk * ELEMENTS_PER_FL_BLOCK;
+            // Distribute unpacking across threads via lane-wise decomposition.
             for (uint32_t lane = threadIdx.x; lane < LANES_PER_FL_BLOCK; lane += blockDim.x) {
                 bitunpack_lane_to_smem<T>(packed_fl, smem_fl, lane, bit_width);
             }
@@ -67,6 +93,19 @@ __device__ inline void dynamic_source_op(const T *__restrict input, T *__restric
     }
 }
 
+/// Applies a single scalar operation to a value.
+///
+/// Scalar operations are applied element-wise after unpacking, operating on
+/// values in registers.
+///
+/// # Parameters
+///
+/// * `value` - The input value to be transformed
+/// * `op` - The scalar operation descriptor containing the operation and parameters
+///
+/// # Returns
+///
+/// The transformed value after applying the scalar operation.
 template <typename T>
 __device__ inline T dynamic_scalar_op(T value, const struct ScalarOp &op) {
     switch (op.op_code) {
@@ -84,6 +123,18 @@ __device__ inline T dynamic_scalar_op(T value, const struct ScalarOp &op) {
     }
 }
 
+/// Entry point of the dynamic dispatch kernel.
+///
+/// Unpacks compressed data from global memory into shared memory, applies a
+/// sequence of scalar operations (e.g., FoR, zigzag, ALP) to each element while
+/// holding values in registers, and writes decoded results back to global memory.
+///
+/// # Parameters
+///
+/// * `input` - Compressed input data
+/// * `output` - Output buffer
+/// * `array_len` - Total number of elements
+/// * `plan` - Operation sequence to apply
 template <typename T>
 __device__ void dynamic_dispatch_impl(const T *__restrict input, T *__restrict output, uint64_t array_len,
                                       const struct DynamicDispatchPlan *__restrict plan) {
@@ -145,6 +196,9 @@ __device__ void dynamic_dispatch_impl(const T *__restrict input, T *__restrict o
     }
 }
 
+/// Generates a kernel instance for a specific type.
+///
+/// Creates a CUDA kernel entry point by instantiating `dynamic_dispatch_impl` for the given type.
 #define GENERATE_DYNAMIC_DISPATCH_KERNEL(suffix, Type)                                                       \
     extern "C" __global__ void dynamic_dispatch_##suffix(const Type *__restrict input,                       \
                                                          Type *__restrict output, uint64_t array_len,        \
