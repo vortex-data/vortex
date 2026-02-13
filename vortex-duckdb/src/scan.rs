@@ -216,19 +216,8 @@ async fn open_file(
     url: Url,
     options: VortexOpenOptions,
 ) -> VortexResult<VortexFile> {
-    match url.scheme() {
-        "http" | "https" | "s3" => {
-            let reader = Arc::new(open_duckdb_reader(client_ctx, &url)?);
-            options.open(reader).await
-        }
-        _ => {
-            let path = url
-                .to_file_path()
-                .map_err(|_| vortex_err!("Invalid file URL: {url}"))?;
-
-            options.open_path(path).await
-        }
-    }
+    let reader = Arc::new(open_duckdb_reader(client_ctx, &url)?);
+    options.open(reader).await
 }
 
 // taken from duckdb/common/constants.h COLUMN_IDENTIFIER_EMPTY
