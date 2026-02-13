@@ -9,6 +9,7 @@ use std::env;
 use std::fs::File;
 use std::io;
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
 use fastlanes::FastLanes;
@@ -53,6 +54,9 @@ fn main() {
     generate_unpack::<u32>(&kernels_src, 32).expect("Failed to generate unpack for u32");
     generate_unpack::<u64>(&kernels_src, 16).expect("Failed to generate unpack for u64");
 
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
+    generate_dynamic_dispatch_bindings(&kernels_src, &out_dir);
+
     if !is_cuda_available() {
         return;
     }
@@ -66,7 +70,9 @@ fn main() {
                 .is_some_and(|n| n.starts_with("bit_unpack_"));
 
             match path.extension().and_then(|e| e.to_str()) {
-                Some("cuh") => println!("cargo:rerun-if-changed={}", path.display()),
+                Some("cuh") | Some("h") => {
+                    println!("cargo:rerun-if-changed={}", path.display())
+                }
                 Some("cu") => {
                     // Only watch hand-written .cu files, not generated ones
                     // (generated files are rebuilt when cuda_kernel_generator changes)
@@ -172,6 +178,26 @@ fn nvcc_compile_ptx(
         )));
     }
     Ok(())
+}
+
+/// Generate bindings for the dynamic dispatch shared header.
+///
+/// `DynamicDispatchPlan` and related types are shared between CUDA kernels
+/// and Rust host code.
+fn generate_dynamic_dispatch_bindings(kernels_src: &Path, out_dir: &Path) {
+    let header = kernels_src.join("dynamic_dispatch.h");
+    println!("cargo:rerun-if-changed={}", header.display());
+
+    let bindings = bindgen::Builder::default()
+        .header(header.to_string_lossy())
+        .derive_copy(true)
+        .derive_debug(true)
+        .generate()
+        .expect("Failed to generate dynamic_dispatch bindings");
+
+    bindings
+        .write_to_file(out_dir.join("dynamic_dispatch.rs"))
+        .expect("Failed to write dynamic_dispatch.rs");
 }
 
 /// Check if CUDA is available based on nvcc.

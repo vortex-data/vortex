@@ -14,16 +14,15 @@ use crate::arrays::ChunkedVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::TakeExecute;
 use crate::arrays::chunked::ChunkedArray;
-use crate::compute::cast;
+use crate::builtins::ArrayBuiltins;
 use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 
 fn take_chunked(array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let indices = cast(
-        indices,
-        &DType::Primitive(PType::U64, indices.dtype().nullability()),
-    )?
-    .to_primitive();
+    let indices = indices
+        .to_array()
+        .cast(DType::Primitive(PType::U64, indices.dtype().nullability()))?
+        .to_primitive();
 
     // TODO(joe): Should we split this implementation based on indices nullability?
     let nullability = indices.dtype().nullability();

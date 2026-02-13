@@ -20,7 +20,7 @@ use crate::arrays::ListViewRebuildMode;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::builders::builder_with_capacity;
-use crate::compute::cast;
+use crate::builtins::ArrayBuiltins;
 use crate::validity::Validity;
 
 pub(super) fn _canonicalize(
@@ -139,19 +139,19 @@ fn swizzle_list_chunks(
         list_elements_chunks.push(chunk_array.elements().clone());
 
         // Cast offsets and sizes to `u64`.
-        let offsets_arr = cast(
-            chunk_array.offsets(),
-            &DType::Primitive(PType::U64, Nullability::NonNullable),
-        )
-        .vortex_expect("Must be able to fit array offsets in u64")
-        .execute::<PrimitiveArray>(ctx)?;
+        let offsets_arr = chunk_array
+            .offsets()
+            .to_array()
+            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
+            .vortex_expect("Must be able to fit array offsets in u64")
+            .execute::<PrimitiveArray>(ctx)?;
 
-        let sizes_arr = cast(
-            chunk_array.sizes(),
-            &DType::Primitive(PType::U64, Nullability::NonNullable),
-        )
-        .vortex_expect("Must be able to fit array offsets in u64")
-        .execute::<PrimitiveArray>(ctx)?;
+        let sizes_arr = chunk_array
+            .sizes()
+            .to_array()
+            .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
+            .vortex_expect("Must be able to fit array offsets in u64")
+            .execute::<PrimitiveArray>(ctx)?;
 
         let offsets_slice = offsets_arr.as_slice::<u64>();
         let sizes_slice = sizes_arr.as_slice::<u64>();

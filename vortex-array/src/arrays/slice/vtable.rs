@@ -73,6 +73,7 @@ impl VTable for SliceVTable {
         _bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         vortex_bail!("Slice array is not serializable")

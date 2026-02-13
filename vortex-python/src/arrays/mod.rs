@@ -5,7 +5,6 @@ pub(crate) mod builtins;
 pub(crate) mod compressed;
 pub(crate) mod fastlanes;
 pub(crate) mod from_arrow;
-pub mod into_array;
 mod native;
 pub(crate) mod py;
 mod range_to_sequence;
@@ -44,6 +43,7 @@ use crate::arrow::ToPyArrow;
 use crate::dtype::PyDType;
 use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
+use crate::expr::PyExpr;
 use crate::install_module;
 use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
@@ -419,6 +419,36 @@ impl PyArray {
                 .dtype()
                 .clone(),
         )
+    }
+
+    /// Apply an expression on this array
+    ///
+    /// Examples
+    /// --------
+    ///
+    /// Extract one column from a Vortex array:
+    ///
+    /// ```python
+    /// >>> import vortex.expr as ve
+    /// >>> import vortex as vx
+    /// >>> array = vx.array([{"a": 0, "b": "hello"}, {"a": 1, "b": "goodbye"}])
+    /// >>> expr = ve.column("a")
+    /// >>> array = array.apply(expr)
+    /// >>> array.to_arrow_array().to_pylist()
+    /// [0, 1]
+    /// ```
+    ///
+    /// See also
+    /// --------
+    /// vortex.open : Open an on-disk Vortex array for scanning with an expression.
+    /// vortex.VortexFile : An on-disk Vortex array ready to scan with an expression.
+    /// vortex.VortexFile.scan : Scan an on-disk Vortex array with an expression.
+    pub fn apply(slf: Bound<Self>, expr: PyExpr) -> PyVortexResult<PyArrayRef> {
+        let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+
+        let inner = slf.apply(&expr)?;
+
+        Ok(PyArrayRef::from(inner))
     }
 
     ///Rust docs are *not* copied into Python for __lt__: https://github.com/PyO3/pyo3/issues/4326

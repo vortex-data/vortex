@@ -1,892 +1,1783 @@
 pub mod vortex_scalar
+
 pub enum vortex_scalar::DecimalValue
+
 pub vortex_scalar::DecimalValue::I128(i128)
+
 pub vortex_scalar::DecimalValue::I16(i16)
+
 pub vortex_scalar::DecimalValue::I256(vortex_dtype::bigint::i256)
+
 pub vortex_scalar::DecimalValue::I32(i32)
+
 pub vortex_scalar::DecimalValue::I64(i64)
+
 pub vortex_scalar::DecimalValue::I8(i8)
+
 impl vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::cast<T: vortex_dtype::decimal::types::NativeDecimalType>(&self) -> core::option::Option<T>
+
 pub fn vortex_scalar::DecimalValue::checked_add(&self, other: &Self) -> core::option::Option<Self>
+
 pub fn vortex_scalar::DecimalValue::checked_div(&self, other: &Self) -> core::option::Option<Self>
+
 pub fn vortex_scalar::DecimalValue::checked_mul(&self, other: &Self) -> core::option::Option<Self>
+
 pub fn vortex_scalar::DecimalValue::checked_sub(&self, other: &Self) -> core::option::Option<Self>
+
 pub fn vortex_scalar::DecimalValue::decimal_dtype(&self) -> vortex_dtype::decimal::DecimalDType
+
 pub fn vortex_scalar::DecimalValue::decimal_type(&self) -> vortex_dtype::decimal::types::DecimalType
+
 pub fn vortex_scalar::DecimalValue::fits_in_precision(&self, decimal_type: vortex_dtype::decimal::DecimalDType) -> bool
+
 pub fn vortex_scalar::DecimalValue::is_zero(&self) -> bool
+
 pub fn vortex_scalar::DecimalValue::zero(decimal_type: &vortex_dtype::decimal::DecimalDType) -> Self
+
 impl core::clone::Clone for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::clone(&self) -> vortex_scalar::DecimalValue
+
 impl core::cmp::Eq for vortex_scalar::DecimalValue
+
 impl core::cmp::PartialEq for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::eq(&self, other: &Self) -> bool
+
 impl core::cmp::PartialOrd for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
+
 impl core::convert::From<i128> for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::from(value: i128) -> Self
+
 impl core::convert::From<i16> for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::from(value: i16) -> Self
+
 impl core::convert::From<i32> for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::from(value: i32) -> Self
+
 impl core::convert::From<i64> for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::from(value: i64) -> Self
+
 impl core::convert::From<i8> for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::from(value: i8) -> Self
+
 impl core::convert::From<u16> for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::from(value: u16) -> Self
+
 impl core::convert::From<u32> for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::from(value: u32) -> Self
+
 impl core::convert::From<u64> for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::from(value: u64) -> Self
+
 impl core::convert::From<u8> for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::from(value: u8) -> Self
+
 impl core::convert::From<vortex_dtype::bigint::i256> for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::from(value: vortex_dtype::bigint::i256) -> Self
+
 impl core::convert::From<vortex_scalar::DecimalValue> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: vortex_scalar::DecimalValue) -> Self
+
 impl core::convert::From<vortex_scalar::DecimalValue> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: vortex_scalar::DecimalValue) -> Self
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for vortex_scalar::DecimalValue
+
 pub type vortex_scalar::DecimalValue::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::DecimalValue::try_from(scalar: &vortex_scalar::Scalar) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::Scalar> for vortex_scalar::DecimalValue
+
 pub type vortex_scalar::DecimalValue::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::DecimalValue::try_from(scalar: vortex_scalar::Scalar) -> core::result::Result<Self, Self::Error>
+
 impl core::fmt::Debug for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::fmt::Display for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::hash::Hash for vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::DecimalValue::hash<H: core::hash::Hasher>(&self, state: &mut H)
+
 impl core::marker::Copy for vortex_scalar::DecimalValue
+
 pub enum vortex_scalar::NumericOperator
+
 pub vortex_scalar::NumericOperator::Add
+
 pub vortex_scalar::NumericOperator::Div
+
 pub vortex_scalar::NumericOperator::Mul
+
 pub vortex_scalar::NumericOperator::RDiv
+
 pub vortex_scalar::NumericOperator::RSub
+
 pub vortex_scalar::NumericOperator::Sub
+
 impl vortex_scalar::NumericOperator
+
 pub fn vortex_scalar::NumericOperator::swap(self) -> Self
+
 impl core::clone::Clone for vortex_scalar::NumericOperator
+
 pub fn vortex_scalar::NumericOperator::clone(&self) -> vortex_scalar::NumericOperator
+
 impl core::cmp::Eq for vortex_scalar::NumericOperator
+
 impl core::cmp::PartialEq for vortex_scalar::NumericOperator
+
 pub fn vortex_scalar::NumericOperator::eq(&self, other: &vortex_scalar::NumericOperator) -> bool
+
 impl core::fmt::Debug for vortex_scalar::NumericOperator
+
 pub fn vortex_scalar::NumericOperator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::fmt::Display for vortex_scalar::NumericOperator
+
 pub fn vortex_scalar::NumericOperator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::marker::Copy for vortex_scalar::NumericOperator
+
 impl core::marker::StructuralPartialEq for vortex_scalar::NumericOperator
+
 pub enum vortex_scalar::PValue
+
 pub vortex_scalar::PValue::F16(half::binary16::f16)
+
 pub vortex_scalar::PValue::F32(f32)
+
 pub vortex_scalar::PValue::F64(f64)
+
 pub vortex_scalar::PValue::I16(i16)
+
 pub vortex_scalar::PValue::I32(i32)
+
 pub vortex_scalar::PValue::I64(i64)
+
 pub vortex_scalar::PValue::I8(i8)
+
 pub vortex_scalar::PValue::U16(u16)
+
 pub vortex_scalar::PValue::U32(u32)
+
 pub vortex_scalar::PValue::U64(u64)
+
 pub vortex_scalar::PValue::U8(u8)
+
 impl vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::as_f16(self) -> core::option::Option<half::binary16::f16>
+
 pub fn vortex_scalar::PValue::as_f32(self) -> core::option::Option<f32>
+
 pub fn vortex_scalar::PValue::as_f64(self) -> core::option::Option<f64>
+
 pub fn vortex_scalar::PValue::as_i16(self) -> core::option::Option<i16>
+
 pub fn vortex_scalar::PValue::as_i32(self) -> core::option::Option<i32>
+
 pub fn vortex_scalar::PValue::as_i64(self) -> core::option::Option<i64>
+
 pub fn vortex_scalar::PValue::as_i8(self) -> core::option::Option<i8>
+
 pub fn vortex_scalar::PValue::as_u16(self) -> core::option::Option<u16>
+
 pub fn vortex_scalar::PValue::as_u32(self) -> core::option::Option<u32>
+
 pub fn vortex_scalar::PValue::as_u64(self) -> core::option::Option<u64>
+
 pub fn vortex_scalar::PValue::as_u8(self) -> core::option::Option<u8>
+
 pub fn vortex_scalar::PValue::cast<T: vortex_dtype::ptype::NativePType>(&self) -> T
+
 pub fn vortex_scalar::PValue::cast_opt<T: vortex_dtype::ptype::NativePType>(&self) -> core::option::Option<T>
+
 pub fn vortex_scalar::PValue::is_instance_of(&self, ptype: &vortex_dtype::ptype::PType) -> bool
+
 pub fn vortex_scalar::PValue::is_nan(&self) -> bool
+
 pub fn vortex_scalar::PValue::is_zero(&self) -> bool
+
 pub fn vortex_scalar::PValue::ptype(&self) -> vortex_dtype::ptype::PType
+
 pub fn vortex_scalar::PValue::reinterpret_cast(&self, ptype: vortex_dtype::ptype::PType) -> Self
+
 pub fn vortex_scalar::PValue::zero(ptype: &vortex_dtype::ptype::PType) -> vortex_scalar::PValue
+
 impl core::clone::Clone for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::clone(&self) -> vortex_scalar::PValue
+
 impl core::cmp::Eq for vortex_scalar::PValue
+
 impl core::cmp::PartialEq for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::eq(&self, other: &Self) -> bool
+
 impl core::cmp::PartialOrd for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
+
 impl core::convert::From<&vortex_scalar::PValue> for vortex_proto::scalar::ScalarValue
+
 pub fn vortex_proto::scalar::ScalarValue::from(value: &vortex_scalar::PValue) -> Self
+
 impl core::convert::From<f32> for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::from(value: f32) -> Self
+
 impl core::convert::From<f64> for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::from(value: f64) -> Self
+
 impl core::convert::From<half::binary16::f16> for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::from(value: half::binary16::f16) -> Self
+
 impl core::convert::From<i16> for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::from(value: i16) -> Self
+
 impl core::convert::From<i32> for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::from(value: i32) -> Self
+
 impl core::convert::From<i64> for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::from(value: i64) -> Self
+
 impl core::convert::From<i8> for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::from(value: i8) -> Self
+
 impl core::convert::From<u16> for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::from(value: u16) -> Self
+
 impl core::convert::From<u32> for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::from(value: u32) -> Self
+
 impl core::convert::From<u64> for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::from(value: u64) -> Self
+
 impl core::convert::From<u8> for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::from(value: u8) -> Self
+
 impl core::convert::From<usize> for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::from(value: usize) -> vortex_scalar::PValue
+
 impl core::convert::From<vortex_scalar::PValue> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: vortex_scalar::PValue) -> Self
+
 impl core::convert::TryFrom<vortex_scalar::PValue> for f32
+
 pub type f32::Error = vortex_error::VortexError
+
 pub fn f32::try_from(value: vortex_scalar::PValue) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::PValue> for f64
+
 pub type f64::Error = vortex_error::VortexError
+
 pub fn f64::try_from(value: vortex_scalar::PValue) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::PValue> for half::binary16::f16
+
 pub type half::binary16::f16::Error = vortex_error::VortexError
+
 pub fn half::binary16::f16::try_from(value: vortex_scalar::PValue) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::PValue> for i16
+
 pub type i16::Error = vortex_error::VortexError
+
 pub fn i16::try_from(value: vortex_scalar::PValue) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::PValue> for i32
+
 pub type i32::Error = vortex_error::VortexError
+
 pub fn i32::try_from(value: vortex_scalar::PValue) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::PValue> for i64
+
 pub type i64::Error = vortex_error::VortexError
+
 pub fn i64::try_from(value: vortex_scalar::PValue) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::PValue> for i8
+
 pub type i8::Error = vortex_error::VortexError
+
 pub fn i8::try_from(value: vortex_scalar::PValue) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::PValue> for u16
+
 pub type u16::Error = vortex_error::VortexError
+
 pub fn u16::try_from(value: vortex_scalar::PValue) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::PValue> for u32
+
 pub type u32::Error = vortex_error::VortexError
+
 pub fn u32::try_from(value: vortex_scalar::PValue) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::PValue> for u64
+
 pub type u64::Error = vortex_error::VortexError
+
 pub fn u64::try_from(value: vortex_scalar::PValue) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::PValue> for u8
+
 pub type u8::Error = vortex_error::VortexError
+
 pub fn u8::try_from(value: vortex_scalar::PValue) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::PValue> for usize
+
 pub type usize::Error = vortex_error::VortexError
+
 pub fn usize::try_from(value: vortex_scalar::PValue) -> core::result::Result<Self, Self::Error>
+
 impl core::fmt::Debug for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::fmt::Display for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::hash::Hash for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::hash<H: core::hash::Hasher>(&self, state: &mut H)
+
 impl core::marker::Copy for vortex_scalar::PValue
+
 impl vortex_dtype::ptype::ToBytes for vortex_scalar::PValue
+
 pub fn vortex_scalar::PValue::to_le_bytes(&self) -> &[u8]
+
 pub enum vortex_scalar::ScalarValue
+
 pub vortex_scalar::ScalarValue::Binary(vortex_buffer::ByteBuffer)
+
 pub vortex_scalar::ScalarValue::Bool(bool)
+
 pub vortex_scalar::ScalarValue::Decimal(vortex_scalar::DecimalValue)
+
 pub vortex_scalar::ScalarValue::List(alloc::vec::Vec<core::option::Option<vortex_scalar::ScalarValue>>)
+
 pub vortex_scalar::ScalarValue::Primitive(vortex_scalar::PValue)
+
 pub vortex_scalar::ScalarValue::Utf8(vortex_buffer::string::BufferString)
+
 impl vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::as_binary(&self) -> &vortex_buffer::ByteBuffer
+
 pub fn vortex_scalar::ScalarValue::as_bool(&self) -> bool
+
 pub fn vortex_scalar::ScalarValue::as_decimal(&self) -> &vortex_scalar::DecimalValue
+
 pub fn vortex_scalar::ScalarValue::as_list(&self) -> &[core::option::Option<vortex_scalar::ScalarValue>]
+
 pub fn vortex_scalar::ScalarValue::as_primitive(&self) -> &vortex_scalar::PValue
+
 pub fn vortex_scalar::ScalarValue::as_utf8(&self) -> &vortex_buffer::string::BufferString
+
 impl vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::default_value(dtype: &vortex_dtype::dtype::DType) -> core::option::Option<Self>
+
 pub fn vortex_scalar::ScalarValue::zero_value(dtype: &vortex_dtype::dtype::DType) -> Self
+
 impl vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from_proto(value: &vortex_proto::scalar::ScalarValue, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<Self>>
+
 pub fn vortex_scalar::ScalarValue::from_proto_bytes(bytes: &[u8], dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<Self>>
+
 impl vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::to_proto(this: core::option::Option<&Self>) -> vortex_proto::scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::to_proto_bytes<B: core::default::Default + bytes::buf::buf_mut::BufMut>(value: core::option::Option<&vortex_scalar::ScalarValue>) -> B
+
 impl core::clone::Clone for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::clone(&self) -> vortex_scalar::ScalarValue
+
 impl core::cmp::Eq for vortex_scalar::ScalarValue
+
 impl core::cmp::PartialEq for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::eq(&self, other: &vortex_scalar::ScalarValue) -> bool
+
 impl core::cmp::PartialOrd for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
+
 impl core::convert::From<&[u8]> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: &[u8]) -> Self
+
 impl core::convert::From<&str> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: &str) -> Self
+
 impl core::convert::From<&vortex_scalar::ScalarValue> for vortex_proto::scalar::ScalarValue
+
 pub fn vortex_proto::scalar::ScalarValue::from(value: &vortex_scalar::ScalarValue) -> Self
+
 impl core::convert::From<alloc::string::String> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: alloc::string::String) -> Self
+
 impl core::convert::From<bool> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: bool) -> Self
+
 impl core::convert::From<f32> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: f32) -> Self
+
 impl core::convert::From<f64> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: f64) -> Self
+
 impl core::convert::From<half::binary16::f16> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: half::binary16::f16) -> Self
+
 impl core::convert::From<i16> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: i16) -> Self
+
 impl core::convert::From<i32> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: i32) -> Self
+
 impl core::convert::From<i64> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: i64) -> Self
+
 impl core::convert::From<i8> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: i8) -> Self
+
 impl core::convert::From<u16> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: u16) -> Self
+
 impl core::convert::From<u32> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: u32) -> Self
+
 impl core::convert::From<u64> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: u64) -> Self
+
 impl core::convert::From<u8> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: u8) -> Self
+
 impl core::convert::From<usize> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: usize) -> Self
+
 impl core::convert::From<vortex_buffer::buffer::Buffer<u8>> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: vortex_buffer::ByteBuffer) -> Self
+
 impl core::convert::From<vortex_buffer::string::BufferString> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: vortex_buffer::string::BufferString) -> Self
+
 impl core::convert::From<vortex_scalar::DecimalValue> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: vortex_scalar::DecimalValue) -> Self
+
 impl core::convert::From<vortex_scalar::PValue> for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::from(value: vortex_scalar::PValue) -> Self
+
 impl core::convert::TryFrom<&vortex_scalar::ScalarValue> for f32
+
 pub type f32::Error = vortex_error::VortexError
+
 pub fn f32::try_from(value: &vortex_scalar::ScalarValue) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::ScalarValue> for f64
+
 pub type f64::Error = vortex_error::VortexError
+
 pub fn f64::try_from(value: &vortex_scalar::ScalarValue) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::ScalarValue> for half::binary16::f16
+
 pub type half::binary16::f16::Error = vortex_error::VortexError
+
 pub fn half::binary16::f16::try_from(value: &vortex_scalar::ScalarValue) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::ScalarValue> for i16
+
 pub type i16::Error = vortex_error::VortexError
+
 pub fn i16::try_from(value: &vortex_scalar::ScalarValue) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::ScalarValue> for i32
+
 pub type i32::Error = vortex_error::VortexError
+
 pub fn i32::try_from(value: &vortex_scalar::ScalarValue) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::ScalarValue> for i64
+
 pub type i64::Error = vortex_error::VortexError
+
 pub fn i64::try_from(value: &vortex_scalar::ScalarValue) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::ScalarValue> for i8
+
 pub type i8::Error = vortex_error::VortexError
+
 pub fn i8::try_from(value: &vortex_scalar::ScalarValue) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::ScalarValue> for u16
+
 pub type u16::Error = vortex_error::VortexError
+
 pub fn u16::try_from(value: &vortex_scalar::ScalarValue) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::ScalarValue> for u32
+
 pub type u32::Error = vortex_error::VortexError
+
 pub fn u32::try_from(value: &vortex_scalar::ScalarValue) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::ScalarValue> for u64
+
 pub type u64::Error = vortex_error::VortexError
+
 pub fn u64::try_from(value: &vortex_scalar::ScalarValue) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::ScalarValue> for u8
+
 pub type u8::Error = vortex_error::VortexError
+
 pub fn u8::try_from(value: &vortex_scalar::ScalarValue) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::ScalarValue> for usize
+
 pub type usize::Error = vortex_error::VortexError
+
 pub fn usize::try_from(value: &vortex_scalar::ScalarValue) -> vortex_error::VortexResult<Self>
+
 impl core::fmt::Debug for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::fmt::Display for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::hash::Hash for vortex_scalar::ScalarValue
+
 pub fn vortex_scalar::ScalarValue::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
 impl core::marker::StructuralPartialEq for vortex_scalar::ScalarValue
+
 impl<T> core::convert::From<alloc::vec::Vec<T>> for vortex_scalar::ScalarValue where T: vortex_dtype::dtype::NativeDType, vortex_scalar::Scalar: core::convert::From<T>
+
 pub fn vortex_scalar::ScalarValue::from(vec: alloc::vec::Vec<T>) -> Self
+
 pub struct vortex_scalar::BinaryScalar<'a>
+
 impl<'a> vortex_scalar::BinaryScalar<'a>
+
 pub fn vortex_scalar::BinaryScalar<'a>::dtype(&self) -> &'a vortex_dtype::dtype::DType
+
 pub fn vortex_scalar::BinaryScalar<'a>::is_empty(&self) -> core::option::Option<bool>
+
 pub fn vortex_scalar::BinaryScalar<'a>::len(&self) -> core::option::Option<usize>
+
 pub fn vortex_scalar::BinaryScalar<'a>::lower_bound(&self, max_length: usize) -> vortex_scalar::Scalar
+
 pub fn vortex_scalar::BinaryScalar<'a>::try_new(dtype: &'a vortex_dtype::dtype::DType, value: core::option::Option<&'a vortex_scalar::ScalarValue>) -> vortex_error::VortexResult<Self>
+
 pub fn vortex_scalar::BinaryScalar<'a>::upper_bound(&self, max_length: usize) -> core::option::Option<vortex_scalar::Scalar>
+
 pub fn vortex_scalar::BinaryScalar<'a>::value(&self) -> core::option::Option<&'a vortex_buffer::ByteBuffer>
+
 impl core::cmp::Eq for vortex_scalar::BinaryScalar<'_>
+
 impl core::cmp::Ord for vortex_scalar::BinaryScalar<'_>
+
 pub fn vortex_scalar::BinaryScalar<'_>::cmp(&self, other: &Self) -> core::cmp::Ordering
+
 impl core::cmp::PartialEq for vortex_scalar::BinaryScalar<'_>
+
 pub fn vortex_scalar::BinaryScalar<'_>::eq(&self, other: &Self) -> bool
+
 impl core::cmp::PartialOrd for vortex_scalar::BinaryScalar<'_>
+
 pub fn vortex_scalar::BinaryScalar<'_>::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
+
 impl core::fmt::Display for vortex_scalar::BinaryScalar<'_>
+
 pub fn vortex_scalar::BinaryScalar<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl<'a> core::clone::Clone for vortex_scalar::BinaryScalar<'a>
+
 pub fn vortex_scalar::BinaryScalar<'a>::clone(&self) -> vortex_scalar::BinaryScalar<'a>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::BinaryScalar<'a>
+
 pub type vortex_scalar::BinaryScalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::BinaryScalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::fmt::Debug for vortex_scalar::BinaryScalar<'a>
+
 pub fn vortex_scalar::BinaryScalar<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl<'a> core::hash::Hash for vortex_scalar::BinaryScalar<'a>
+
 pub fn vortex_scalar::BinaryScalar<'a>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
 pub struct vortex_scalar::BoolScalar<'a>
+
 impl<'a> vortex_scalar::BoolScalar<'a>
+
 pub fn vortex_scalar::BoolScalar<'a>::dtype(&self) -> &'a vortex_dtype::dtype::DType
+
 pub fn vortex_scalar::BoolScalar<'a>::into_scalar(self) -> vortex_scalar::Scalar
+
 pub fn vortex_scalar::BoolScalar<'a>::invert(self) -> vortex_scalar::BoolScalar<'a>
+
 pub fn vortex_scalar::BoolScalar<'a>::try_new(dtype: &'a vortex_dtype::dtype::DType, value: core::option::Option<&vortex_scalar::ScalarValue>) -> vortex_error::VortexResult<Self>
+
 pub fn vortex_scalar::BoolScalar<'a>::value(&self) -> core::option::Option<bool>
+
 impl core::cmp::Ord for vortex_scalar::BoolScalar<'_>
+
 pub fn vortex_scalar::BoolScalar<'_>::cmp(&self, other: &Self) -> core::cmp::Ordering
+
 impl core::cmp::PartialEq for vortex_scalar::BoolScalar<'_>
+
 pub fn vortex_scalar::BoolScalar<'_>::eq(&self, other: &Self) -> bool
+
 impl core::cmp::PartialOrd for vortex_scalar::BoolScalar<'_>
+
 pub fn vortex_scalar::BoolScalar<'_>::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
+
 impl core::fmt::Display for vortex_scalar::BoolScalar<'_>
+
 pub fn vortex_scalar::BoolScalar<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl<'a> core::clone::Clone for vortex_scalar::BoolScalar<'a>
+
 pub fn vortex_scalar::BoolScalar<'a>::clone(&self) -> vortex_scalar::BoolScalar<'a>
+
 impl<'a> core::cmp::Eq for vortex_scalar::BoolScalar<'a>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::BoolScalar<'a>
+
 pub type vortex_scalar::BoolScalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::BoolScalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::fmt::Debug for vortex_scalar::BoolScalar<'a>
+
 pub fn vortex_scalar::BoolScalar<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl<'a> core::hash::Hash for vortex_scalar::BoolScalar<'a>
+
 pub fn vortex_scalar::BoolScalar<'a>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
 pub struct vortex_scalar::DecimalScalar<'a>
+
 impl<'a> vortex_scalar::DecimalScalar<'a>
+
 pub fn vortex_scalar::DecimalScalar<'a>::checked_binary_numeric(&self, other: &vortex_scalar::DecimalScalar<'a>, op: vortex_scalar::NumericOperator) -> core::option::Option<vortex_scalar::DecimalScalar<'a>>
+
 pub fn vortex_scalar::DecimalScalar<'a>::decimal_value(&self) -> core::option::Option<vortex_scalar::DecimalValue>
+
 pub fn vortex_scalar::DecimalScalar<'a>::dtype(&self) -> &'a vortex_dtype::dtype::DType
+
 pub fn vortex_scalar::DecimalScalar<'a>::is_zero(&self) -> core::option::Option<bool>
+
 pub fn vortex_scalar::DecimalScalar<'a>::try_new(dtype: &'a vortex_dtype::dtype::DType, value: core::option::Option<&vortex_scalar::ScalarValue>) -> vortex_error::VortexResult<Self>
+
 impl core::cmp::Eq for vortex_scalar::DecimalScalar<'_>
+
 impl core::cmp::PartialEq for vortex_scalar::DecimalScalar<'_>
+
 pub fn vortex_scalar::DecimalScalar<'_>::eq(&self, other: &Self) -> bool
+
 impl core::cmp::PartialOrd for vortex_scalar::DecimalScalar<'_>
+
 pub fn vortex_scalar::DecimalScalar<'_>::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
+
 impl core::convert::From<vortex_scalar::DecimalScalar<'_>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(ds: vortex_scalar::DecimalScalar<'_>) -> Self
+
 impl core::convert::TryFrom<vortex_scalar::DecimalScalar<'_>> for core::option::Option<i128>
+
 pub type core::option::Option<i128>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<i128>::try_from(value: vortex_scalar::DecimalScalar<'_>) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::DecimalScalar<'_>> for core::option::Option<i16>
+
 pub type core::option::Option<i16>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<i16>::try_from(value: vortex_scalar::DecimalScalar<'_>) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::DecimalScalar<'_>> for core::option::Option<i32>
+
 pub type core::option::Option<i32>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<i32>::try_from(value: vortex_scalar::DecimalScalar<'_>) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::DecimalScalar<'_>> for core::option::Option<i64>
+
 pub type core::option::Option<i64>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<i64>::try_from(value: vortex_scalar::DecimalScalar<'_>) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::DecimalScalar<'_>> for core::option::Option<i8>
+
 pub type core::option::Option<i8>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<i8>::try_from(value: vortex_scalar::DecimalScalar<'_>) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::DecimalScalar<'_>> for core::option::Option<vortex_dtype::bigint::i256>
+
 pub type core::option::Option<vortex_dtype::bigint::i256>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<vortex_dtype::bigint::i256>::try_from(value: vortex_scalar::DecimalScalar<'_>) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::DecimalScalar<'_>> for i128
+
 pub type i128::Error = vortex_error::VortexError
+
 pub fn i128::try_from(value: vortex_scalar::DecimalScalar<'_>) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::DecimalScalar<'_>> for i16
+
 pub type i16::Error = vortex_error::VortexError
+
 pub fn i16::try_from(value: vortex_scalar::DecimalScalar<'_>) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::DecimalScalar<'_>> for i32
+
 pub type i32::Error = vortex_error::VortexError
+
 pub fn i32::try_from(value: vortex_scalar::DecimalScalar<'_>) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::DecimalScalar<'_>> for i64
+
 pub type i64::Error = vortex_error::VortexError
+
 pub fn i64::try_from(value: vortex_scalar::DecimalScalar<'_>) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::DecimalScalar<'_>> for i8
+
 pub type i8::Error = vortex_error::VortexError
+
 pub fn i8::try_from(value: vortex_scalar::DecimalScalar<'_>) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::DecimalScalar<'_>> for vortex_dtype::bigint::i256
+
 pub type vortex_dtype::bigint::i256::Error = vortex_error::VortexError
+
 pub fn vortex_dtype::bigint::i256::try_from(value: vortex_scalar::DecimalScalar<'_>) -> core::result::Result<Self, Self::Error>
+
 impl core::fmt::Display for vortex_scalar::DecimalScalar<'_>
+
 pub fn vortex_scalar::DecimalScalar<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl<'a> core::clone::Clone for vortex_scalar::DecimalScalar<'a>
+
 pub fn vortex_scalar::DecimalScalar<'a>::clone(&self) -> vortex_scalar::DecimalScalar<'a>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::DecimalScalar<'a>
+
 pub type vortex_scalar::DecimalScalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::DecimalScalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::fmt::Debug for vortex_scalar::DecimalScalar<'a>
+
 pub fn vortex_scalar::DecimalScalar<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl<'a> core::hash::Hash for vortex_scalar::DecimalScalar<'a>
+
 pub fn vortex_scalar::DecimalScalar<'a>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
 impl<'a> core::marker::Copy for vortex_scalar::DecimalScalar<'a>
+
 pub struct vortex_scalar::ExtScalar<'a>
+
 impl<'a> vortex_scalar::ExtScalar<'a>
+
 pub fn vortex_scalar::ExtScalar<'a>::dtype(&self) -> &vortex_dtype::dtype::DType
+
 pub fn vortex_scalar::ExtScalar<'a>::ext_dtype(&self) -> &'a vortex_dtype::extension::ExtDTypeRef
+
 pub fn vortex_scalar::ExtScalar<'a>::to_storage_scalar(&self) -> vortex_scalar::Scalar
+
 pub fn vortex_scalar::ExtScalar<'a>::try_new(dtype: &'a vortex_dtype::dtype::DType, value: core::option::Option<&'a vortex_scalar::ScalarValue>) -> vortex_error::VortexResult<Self>
+
 impl core::cmp::Eq for vortex_scalar::ExtScalar<'_>
+
 impl core::cmp::PartialEq for vortex_scalar::ExtScalar<'_>
+
 pub fn vortex_scalar::ExtScalar<'_>::eq(&self, other: &Self) -> bool
+
 impl core::cmp::PartialOrd for vortex_scalar::ExtScalar<'_>
+
 pub fn vortex_scalar::ExtScalar<'_>::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
+
 impl core::fmt::Display for vortex_scalar::ExtScalar<'_>
+
 pub fn vortex_scalar::ExtScalar<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::hash::Hash for vortex_scalar::ExtScalar<'_>
+
 pub fn vortex_scalar::ExtScalar<'_>::hash<H: core::hash::Hasher>(&self, state: &mut H)
+
 impl<'a> core::clone::Clone for vortex_scalar::ExtScalar<'a>
+
 pub fn vortex_scalar::ExtScalar<'a>::clone(&self) -> vortex_scalar::ExtScalar<'a>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::ExtScalar<'a>
+
 pub type vortex_scalar::ExtScalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::ExtScalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::fmt::Debug for vortex_scalar::ExtScalar<'a>
+
 pub fn vortex_scalar::ExtScalar<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 pub struct vortex_scalar::ListScalar<'a>
+
 impl<'a> vortex_scalar::ListScalar<'a>
+
 pub fn vortex_scalar::ListScalar<'a>::dtype(&self) -> &'a vortex_dtype::dtype::DType
+
 pub fn vortex_scalar::ListScalar<'a>::element(&self, idx: usize) -> core::option::Option<vortex_scalar::Scalar>
+
 pub fn vortex_scalar::ListScalar<'a>::element_dtype(&self) -> &vortex_dtype::dtype::DType
+
 pub fn vortex_scalar::ListScalar<'a>::elements(&self) -> core::option::Option<alloc::vec::Vec<vortex_scalar::Scalar>>
+
 pub fn vortex_scalar::ListScalar<'a>::is_empty(&self) -> bool
+
 pub fn vortex_scalar::ListScalar<'a>::is_null(&self) -> bool
+
 pub fn vortex_scalar::ListScalar<'a>::len(&self) -> usize
+
 pub fn vortex_scalar::ListScalar<'a>::try_new(dtype: &'a vortex_dtype::dtype::DType, value: core::option::Option<&'a vortex_scalar::ScalarValue>) -> vortex_error::VortexResult<Self>
+
 impl core::cmp::Eq for vortex_scalar::ListScalar<'_>
+
 impl core::cmp::PartialEq for vortex_scalar::ListScalar<'_>
+
 pub fn vortex_scalar::ListScalar<'_>::eq(&self, other: &Self) -> bool
+
 impl core::cmp::PartialOrd for vortex_scalar::ListScalar<'_>
+
 pub fn vortex_scalar::ListScalar<'_>::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
+
 impl core::fmt::Display for vortex_scalar::ListScalar<'_>
+
 pub fn vortex_scalar::ListScalar<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::hash::Hash for vortex_scalar::ListScalar<'_>
+
 pub fn vortex_scalar::ListScalar<'_>::hash<H: core::hash::Hasher>(&self, state: &mut H)
+
 impl<'a> core::clone::Clone for vortex_scalar::ListScalar<'a>
+
 pub fn vortex_scalar::ListScalar<'a>::clone(&self) -> vortex_scalar::ListScalar<'a>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::ListScalar<'a>
+
 pub type vortex_scalar::ListScalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::ListScalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::fmt::Debug for vortex_scalar::ListScalar<'a>
+
 pub fn vortex_scalar::ListScalar<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 pub struct vortex_scalar::PrimitiveScalar<'a>
+
 impl<'a> vortex_scalar::PrimitiveScalar<'a>
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::as_<T: vortex_dtype::f16::FromPrimitiveOrF16>(&self) -> core::option::Option<T>
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::as_opt<T: vortex_dtype::f16::FromPrimitiveOrF16>(&self) -> core::option::Option<core::option::Option<T>>
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::dtype(&self) -> &'a vortex_dtype::dtype::DType
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::is_nan(&self) -> bool
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::is_zero(&self) -> core::option::Option<bool>
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::ptype(&self) -> vortex_dtype::ptype::PType
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::pvalue(&self) -> core::option::Option<vortex_scalar::PValue>
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::try_new(dtype: &'a vortex_dtype::dtype::DType, value: core::option::Option<&vortex_scalar::ScalarValue>) -> vortex_error::VortexResult<Self>
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::try_typed_value<T: vortex_dtype::ptype::NativePType>(&self) -> vortex_error::VortexResult<core::option::Option<T>>
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::typed_value<T: vortex_dtype::ptype::NativePType>(&self) -> core::option::Option<T>
+
 impl<'a> vortex_scalar::PrimitiveScalar<'a>
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::checked_binary_numeric(&self, other: &vortex_scalar::PrimitiveScalar<'a>, op: vortex_scalar::NumericOperator) -> core::option::Option<vortex_scalar::PrimitiveScalar<'a>>
+
 impl core::cmp::Eq for vortex_scalar::PrimitiveScalar<'_>
+
 impl core::cmp::PartialEq for vortex_scalar::PrimitiveScalar<'_>
+
 pub fn vortex_scalar::PrimitiveScalar<'_>::eq(&self, other: &Self) -> bool
+
 impl core::cmp::PartialOrd for vortex_scalar::PrimitiveScalar<'_>
+
 pub fn vortex_scalar::PrimitiveScalar<'_>::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
+
 impl core::convert::From<vortex_scalar::PrimitiveScalar<'_>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(ps: vortex_scalar::PrimitiveScalar<'_>) -> Self
+
 impl core::fmt::Display for vortex_scalar::PrimitiveScalar<'_>
+
 pub fn vortex_scalar::PrimitiveScalar<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::ops::arith::Add for vortex_scalar::PrimitiveScalar<'_>
+
 pub type vortex_scalar::PrimitiveScalar<'_>::Output = vortex_scalar::PrimitiveScalar<'_>
+
 pub fn vortex_scalar::PrimitiveScalar<'_>::add(self, rhs: Self) -> Self::Output
+
 impl core::ops::arith::Sub for vortex_scalar::PrimitiveScalar<'_>
+
 pub type vortex_scalar::PrimitiveScalar<'_>::Output = vortex_scalar::PrimitiveScalar<'_>
+
 pub fn vortex_scalar::PrimitiveScalar<'_>::sub(self, rhs: Self) -> Self::Output
+
 impl num_traits::ops::checked::CheckedAdd for vortex_scalar::PrimitiveScalar<'_>
+
 pub fn vortex_scalar::PrimitiveScalar<'_>::checked_add(&self, rhs: &Self) -> core::option::Option<Self>
+
 impl num_traits::ops::checked::CheckedSub for vortex_scalar::PrimitiveScalar<'_>
+
 pub fn vortex_scalar::PrimitiveScalar<'_>::checked_sub(&self, rhs: &Self) -> core::option::Option<Self>
+
 impl<'a> core::clone::Clone for vortex_scalar::PrimitiveScalar<'a>
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::clone(&self) -> vortex_scalar::PrimitiveScalar<'a>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::PrimitiveScalar<'a>
+
 pub type vortex_scalar::PrimitiveScalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::fmt::Debug for vortex_scalar::PrimitiveScalar<'a>
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl<'a> core::hash::Hash for vortex_scalar::PrimitiveScalar<'a>
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
 impl<'a> core::marker::Copy for vortex_scalar::PrimitiveScalar<'a>
+
 pub struct vortex_scalar::Scalar
+
 impl vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::as_binary(&self) -> vortex_scalar::BinaryScalar<'_>
+
 pub fn vortex_scalar::Scalar::as_binary_opt(&self) -> core::option::Option<vortex_scalar::BinaryScalar<'_>>
+
 pub fn vortex_scalar::Scalar::as_bool(&self) -> vortex_scalar::BoolScalar<'_>
+
 pub fn vortex_scalar::Scalar::as_bool_opt(&self) -> core::option::Option<vortex_scalar::BoolScalar<'_>>
+
 pub fn vortex_scalar::Scalar::as_decimal(&self) -> vortex_scalar::DecimalScalar<'_>
+
 pub fn vortex_scalar::Scalar::as_decimal_opt(&self) -> core::option::Option<vortex_scalar::DecimalScalar<'_>>
+
 pub fn vortex_scalar::Scalar::as_extension(&self) -> vortex_scalar::ExtScalar<'_>
+
 pub fn vortex_scalar::Scalar::as_extension_opt(&self) -> core::option::Option<vortex_scalar::ExtScalar<'_>>
+
 pub fn vortex_scalar::Scalar::as_list(&self) -> vortex_scalar::ListScalar<'_>
+
 pub fn vortex_scalar::Scalar::as_list_opt(&self) -> core::option::Option<vortex_scalar::ListScalar<'_>>
+
 pub fn vortex_scalar::Scalar::as_primitive(&self) -> vortex_scalar::PrimitiveScalar<'_>
+
 pub fn vortex_scalar::Scalar::as_primitive_opt(&self) -> core::option::Option<vortex_scalar::PrimitiveScalar<'_>>
+
 pub fn vortex_scalar::Scalar::as_struct(&self) -> vortex_scalar::StructScalar<'_>
+
 pub fn vortex_scalar::Scalar::as_struct_opt(&self) -> core::option::Option<vortex_scalar::StructScalar<'_>>
+
 pub fn vortex_scalar::Scalar::as_utf8(&self) -> vortex_scalar::Utf8Scalar<'_>
+
 pub fn vortex_scalar::Scalar::as_utf8_opt(&self) -> core::option::Option<vortex_scalar::Utf8Scalar<'_>>
+
 impl vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::binary(buffer: impl core::convert::Into<vortex_buffer::ByteBuffer>, nullability: vortex_dtype::nullability::Nullability) -> Self
+
 pub fn vortex_scalar::Scalar::bool(value: bool, nullability: vortex_dtype::nullability::Nullability) -> Self
+
 pub fn vortex_scalar::Scalar::decimal(value: vortex_scalar::DecimalValue, decimal_type: vortex_dtype::decimal::DecimalDType, nullability: vortex_dtype::nullability::Nullability) -> Self
+
 pub fn vortex_scalar::Scalar::extension<V: vortex_dtype::extension::vtable::ExtDTypeVTable + core::default::Default>(options: <V as vortex_dtype::extension::vtable::ExtDTypeVTable>::Metadata, value: vortex_scalar::Scalar) -> Self
+
 pub fn vortex_scalar::Scalar::extension_ref(ext_dtype: vortex_dtype::extension::ExtDTypeRef, value: vortex_scalar::Scalar) -> Self
+
 pub fn vortex_scalar::Scalar::fixed_size_list(element_dtype: impl core::convert::Into<alloc::sync::Arc<vortex_dtype::dtype::DType>>, children: alloc::vec::Vec<vortex_scalar::Scalar>, nullability: vortex_dtype::nullability::Nullability) -> Self
+
 pub fn vortex_scalar::Scalar::list(element_dtype: impl core::convert::Into<alloc::sync::Arc<vortex_dtype::dtype::DType>>, children: alloc::vec::Vec<vortex_scalar::Scalar>, nullability: vortex_dtype::nullability::Nullability) -> Self
+
 pub fn vortex_scalar::Scalar::list_empty(element_dtype: alloc::sync::Arc<vortex_dtype::dtype::DType>, nullability: vortex_dtype::nullability::Nullability) -> Self
+
 pub fn vortex_scalar::Scalar::primitive<T: vortex_dtype::ptype::NativePType + core::convert::Into<vortex_scalar::PValue>>(value: T, nullability: vortex_dtype::nullability::Nullability) -> Self
+
 pub fn vortex_scalar::Scalar::primitive_value(value: vortex_scalar::PValue, ptype: vortex_dtype::ptype::PType, nullability: vortex_dtype::nullability::Nullability) -> Self
+
 pub fn vortex_scalar::Scalar::try_utf8<B>(str: B, nullability: vortex_dtype::nullability::Nullability) -> core::result::Result<Self, <B as core::convert::TryInto<vortex_buffer::string::BufferString>>::Error> where B: core::convert::TryInto<vortex_buffer::string::BufferString>
+
 pub fn vortex_scalar::Scalar::utf8<B>(str: B, nullability: vortex_dtype::nullability::Nullability) -> Self where B: core::convert::Into<vortex_buffer::string::BufferString>
+
 impl vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::cast(&self, target_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_scalar::Scalar>
+
 pub fn vortex_scalar::Scalar::into_nullable(self) -> vortex_scalar::Scalar
+
 impl vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::default_value(dtype: &vortex_dtype::dtype::DType) -> Self
+
 pub fn vortex_scalar::Scalar::dtype(&self) -> &vortex_dtype::dtype::DType
+
 pub fn vortex_scalar::Scalar::eq_ignore_nullability(&self, other: &Self) -> bool
+
 pub fn vortex_scalar::Scalar::into_parts(self) -> (vortex_dtype::dtype::DType, core::option::Option<vortex_scalar::ScalarValue>)
+
 pub fn vortex_scalar::Scalar::into_value(self) -> core::option::Option<vortex_scalar::ScalarValue>
+
 pub fn vortex_scalar::Scalar::is_compatible(dtype: &vortex_dtype::dtype::DType, value: core::option::Option<&vortex_scalar::ScalarValue>) -> bool
+
 pub fn vortex_scalar::Scalar::is_null(&self) -> bool
+
 pub fn vortex_scalar::Scalar::is_valid(&self) -> bool
+
 pub fn vortex_scalar::Scalar::is_zero(&self) -> core::option::Option<bool>
+
 pub fn vortex_scalar::Scalar::nbytes(&self) -> usize
+
 pub unsafe fn vortex_scalar::Scalar::new_unchecked(dtype: vortex_dtype::dtype::DType, value: core::option::Option<vortex_scalar::ScalarValue>) -> Self
+
 pub fn vortex_scalar::Scalar::null(dtype: vortex_dtype::dtype::DType) -> Self
+
 pub fn vortex_scalar::Scalar::null_native<T: vortex_dtype::dtype::NativeDType>() -> Self
+
 pub fn vortex_scalar::Scalar::primitive_reinterpret_cast(&self, ptype: vortex_dtype::ptype::PType) -> vortex_error::VortexResult<Self>
+
 pub fn vortex_scalar::Scalar::try_new(dtype: vortex_dtype::dtype::DType, value: core::option::Option<vortex_scalar::ScalarValue>) -> vortex_error::VortexResult<Self>
+
 pub fn vortex_scalar::Scalar::value(&self) -> core::option::Option<&vortex_scalar::ScalarValue>
+
 pub fn vortex_scalar::Scalar::zero_value(dtype: &vortex_dtype::dtype::DType) -> Self
+
 impl vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from_proto(value: &vortex_proto::scalar::Scalar, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
 pub fn vortex_scalar::Scalar::from_proto_value(value: &vortex_proto::scalar::ScalarValue, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<Self>
+
 impl vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::struct_(dtype: vortex_dtype::dtype::DType, children: alloc::vec::Vec<vortex_scalar::Scalar>) -> Self
+
 impl core::clone::Clone for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::clone(&self) -> vortex_scalar::Scalar
+
 impl core::cmp::Eq for vortex_scalar::Scalar
+
 impl core::cmp::PartialEq for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::eq(&self, other: &Self) -> bool
+
 impl core::cmp::PartialOrd for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
+
 impl core::convert::From<&[u8]> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: &[u8]) -> Self
+
 impl core::convert::From<&str> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: &str) -> Self
+
 impl core::convert::From<&vortex_scalar::Scalar> for vortex_proto::scalar::Scalar
+
 pub fn vortex_proto::scalar::Scalar::from(value: &vortex_scalar::Scalar) -> Self
+
 impl core::convert::From<alloc::string::String> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: alloc::string::String) -> Self
+
 impl core::convert::From<bool> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: bool) -> Self
+
 impl core::convert::From<core::option::Option<&[u8]>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<&[u8]>) -> Self
+
 impl core::convert::From<core::option::Option<&str>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<&str>) -> Self
+
 impl core::convert::From<core::option::Option<alloc::string::String>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<alloc::string::String>) -> Self
+
 impl core::convert::From<core::option::Option<bool>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<bool>) -> Self
+
 impl core::convert::From<core::option::Option<f32>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<f32>) -> Self
+
 impl core::convert::From<core::option::Option<f64>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<f64>) -> Self
+
 impl core::convert::From<core::option::Option<half::binary16::f16>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<half::binary16::f16>) -> Self
+
 impl core::convert::From<core::option::Option<i16>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<i16>) -> Self
+
 impl core::convert::From<core::option::Option<i32>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<i32>) -> Self
+
 impl core::convert::From<core::option::Option<i64>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<i64>) -> Self
+
 impl core::convert::From<core::option::Option<i8>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<i8>) -> Self
+
 impl core::convert::From<core::option::Option<u16>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<u16>) -> Self
+
 impl core::convert::From<core::option::Option<u32>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<u32>) -> Self
+
 impl core::convert::From<core::option::Option<u64>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<u64>) -> Self
+
 impl core::convert::From<core::option::Option<u8>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<u8>) -> Self
+
 impl core::convert::From<core::option::Option<usize>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<usize>) -> Self
+
 impl core::convert::From<core::option::Option<vortex_buffer::buffer::Buffer<u8>>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<vortex_buffer::ByteBuffer>) -> Self
+
 impl core::convert::From<core::option::Option<vortex_buffer::string::BufferString>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<vortex_buffer::string::BufferString>) -> Self
+
 impl core::convert::From<core::option::Option<vortex_scalar::DecimalValue>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: core::option::Option<vortex_scalar::DecimalValue>) -> Self
+
 impl core::convert::From<f32> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: f32) -> Self
+
 impl core::convert::From<f64> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: f64) -> Self
+
 impl core::convert::From<half::binary16::f16> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: half::binary16::f16) -> Self
+
 impl core::convert::From<i16> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: i16) -> Self
+
 impl core::convert::From<i32> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: i32) -> Self
+
 impl core::convert::From<i64> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: i64) -> Self
+
 impl core::convert::From<i8> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: i8) -> Self
+
 impl core::convert::From<u16> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: u16) -> Self
+
 impl core::convert::From<u32> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: u32) -> Self
+
 impl core::convert::From<u64> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: u64) -> Self
+
 impl core::convert::From<u8> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: u8) -> Self
+
 impl core::convert::From<usize> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: usize) -> Self
+
 impl core::convert::From<vortex_buffer::buffer::Buffer<u8>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: vortex_buffer::ByteBuffer) -> Self
+
 impl core::convert::From<vortex_buffer::string::BufferString> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: vortex_buffer::string::BufferString) -> Self
+
 impl core::convert::From<vortex_scalar::DecimalScalar<'_>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(ds: vortex_scalar::DecimalScalar<'_>) -> Self
+
 impl core::convert::From<vortex_scalar::DecimalValue> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(value: vortex_scalar::DecimalValue) -> Self
+
 impl core::convert::From<vortex_scalar::PrimitiveScalar<'_>> for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::from(ps: vortex_scalar::PrimitiveScalar<'_>) -> Self
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for alloc::sync::Arc<dyn arrow_array::scalar::Datum>
+
 pub type alloc::sync::Arc<dyn arrow_array::scalar::Datum>::Error = vortex_error::VortexError
+
 pub fn alloc::sync::Arc<dyn arrow_array::scalar::Datum>::try_from(value: &vortex_scalar::Scalar) -> core::result::Result<alloc::sync::Arc<dyn arrow_array::scalar::Datum>, Self::Error>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for bool
+
 pub type bool::Error = vortex_error::VortexError
+
 pub fn bool::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for core::option::Option<bool>
+
 pub type core::option::Option<bool>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<bool>::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for core::option::Option<f32>
+
 pub type core::option::Option<f32>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<f32>::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for core::option::Option<f64>
+
 pub type core::option::Option<f64>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<f64>::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for core::option::Option<half::binary16::f16>
+
 pub type core::option::Option<half::binary16::f16>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<half::binary16::f16>::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for core::option::Option<i16>
+
 pub type core::option::Option<i16>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<i16>::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for core::option::Option<i32>
+
 pub type core::option::Option<i32>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<i32>::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for core::option::Option<i64>
+
 pub type core::option::Option<i64>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<i64>::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for core::option::Option<i8>
+
 pub type core::option::Option<i8>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<i8>::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for core::option::Option<u16>
+
 pub type core::option::Option<u16>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<u16>::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for core::option::Option<u32>
+
 pub type core::option::Option<u32>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<u32>::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for core::option::Option<u64>
+
 pub type core::option::Option<u64>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<u64>::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for core::option::Option<u8>
+
 pub type core::option::Option<u8>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<u8>::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for core::option::Option<usize>
+
 pub type core::option::Option<usize>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<usize>::try_from(value: &vortex_scalar::Scalar) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for core::option::Option<vortex_scalar::DecimalValue>
+
 pub type core::option::Option<vortex_scalar::DecimalValue>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<vortex_scalar::DecimalValue>::try_from(scalar: &vortex_scalar::Scalar) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for f32
+
 pub type f32::Error = vortex_error::VortexError
+
 pub fn f32::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for f64
+
 pub type f64::Error = vortex_error::VortexError
+
 pub fn f64::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for half::binary16::f16
+
 pub type half::binary16::f16::Error = vortex_error::VortexError
+
 pub fn half::binary16::f16::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for i16
+
 pub type i16::Error = vortex_error::VortexError
+
 pub fn i16::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for i32
+
 pub type i32::Error = vortex_error::VortexError
+
 pub fn i32::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for i64
+
 pub type i64::Error = vortex_error::VortexError
+
 pub fn i64::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for i8
+
 pub type i8::Error = vortex_error::VortexError
+
 pub fn i8::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for u16
+
 pub type u16::Error = vortex_error::VortexError
+
 pub fn u16::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for u32
+
 pub type u32::Error = vortex_error::VortexError
+
 pub fn u32::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for u64
+
 pub type u64::Error = vortex_error::VortexError
+
 pub fn u64::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for u8
+
 pub type u8::Error = vortex_error::VortexError
+
 pub fn u8::try_from(value: &vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for usize
+
 pub type usize::Error = vortex_error::VortexError
+
 pub fn usize::try_from(value: &vortex_scalar::Scalar) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<&vortex_scalar::Scalar> for vortex_scalar::DecimalValue
+
 pub type vortex_scalar::DecimalValue::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::DecimalValue::try_from(scalar: &vortex_scalar::Scalar) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::Scalar> for alloc::string::String
+
 pub type alloc::string::String::Error = vortex_error::VortexError
+
 pub fn alloc::string::String::try_from(value: vortex_scalar::Scalar) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::Scalar> for bool
+
 pub type bool::Error = vortex_error::VortexError
+
 pub fn bool::try_from(value: vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<vortex_scalar::Scalar> for core::option::Option<bool>
+
 pub type core::option::Option<bool>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<bool>::try_from(value: vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<vortex_scalar::Scalar> for core::option::Option<vortex_buffer::ByteBuffer>
+
 pub type core::option::Option<vortex_buffer::ByteBuffer>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<vortex_buffer::ByteBuffer>::try_from(scalar: vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<vortex_scalar::Scalar> for core::option::Option<vortex_buffer::string::BufferString>
+
 pub type core::option::Option<vortex_buffer::string::BufferString>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<vortex_buffer::string::BufferString>::try_from(scalar: vortex_scalar::Scalar) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::Scalar> for core::option::Option<vortex_scalar::DecimalValue>
+
 pub type core::option::Option<vortex_scalar::DecimalValue>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<vortex_scalar::DecimalValue>::try_from(scalar: vortex_scalar::Scalar) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::Scalar> for vortex_buffer::ByteBuffer
+
 pub type vortex_buffer::ByteBuffer::Error = vortex_error::VortexError
+
 pub fn vortex_buffer::ByteBuffer::try_from(scalar: vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl core::convert::TryFrom<vortex_scalar::Scalar> for vortex_buffer::string::BufferString
+
 pub type vortex_buffer::string::BufferString::Error = vortex_error::VortexError
+
 pub fn vortex_buffer::string::BufferString::try_from(scalar: vortex_scalar::Scalar) -> core::result::Result<Self, Self::Error>
+
 impl core::convert::TryFrom<vortex_scalar::Scalar> for vortex_scalar::DecimalValue
+
 pub type vortex_scalar::DecimalValue::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::DecimalValue::try_from(scalar: vortex_scalar::Scalar) -> core::result::Result<Self, Self::Error>
+
 impl core::fmt::Debug for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::fmt::Display for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::hash::Hash for vortex_scalar::Scalar
+
 pub fn vortex_scalar::Scalar::hash<H: core::hash::Hasher>(&self, state: &mut H)
+
 impl<'a, T> core::convert::TryFrom<&'a vortex_scalar::Scalar> for alloc::vec::Vec<T> where T: for<'b> core::convert::TryFrom<&'b vortex_scalar::Scalar, Error = vortex_error::VortexError>
+
 pub type alloc::vec::Vec<T>::Error = vortex_error::VortexError
+
 pub fn alloc::vec::Vec<T>::try_from(value: &'a vortex_scalar::Scalar) -> core::result::Result<Self, Self::Error>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for alloc::string::String
+
 pub type alloc::string::String::Error = vortex_error::VortexError
+
 pub fn alloc::string::String::try_from(value: &'a vortex_scalar::Scalar) -> core::result::Result<Self, Self::Error>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for core::option::Option<vortex_buffer::ByteBuffer>
+
 pub type core::option::Option<vortex_buffer::ByteBuffer>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<vortex_buffer::ByteBuffer>::try_from(scalar: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for core::option::Option<vortex_buffer::string::BufferString>
+
 pub type core::option::Option<vortex_buffer::string::BufferString>::Error = vortex_error::VortexError
+
 pub fn core::option::Option<vortex_buffer::string::BufferString>::try_from(scalar: &'a vortex_scalar::Scalar) -> core::result::Result<Self, Self::Error>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_buffer::ByteBuffer
+
 pub type vortex_buffer::ByteBuffer::Error = vortex_error::VortexError
+
 pub fn vortex_buffer::ByteBuffer::try_from(scalar: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_buffer::string::BufferString
+
 pub type vortex_buffer::string::BufferString::Error = vortex_error::VortexError
+
 pub fn vortex_buffer::string::BufferString::try_from(scalar: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::BinaryScalar<'a>
+
 pub type vortex_scalar::BinaryScalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::BinaryScalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::BoolScalar<'a>
+
 pub type vortex_scalar::BoolScalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::BoolScalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::DecimalScalar<'a>
+
 pub type vortex_scalar::DecimalScalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::DecimalScalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::ExtScalar<'a>
+
 pub type vortex_scalar::ExtScalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::ExtScalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::ListScalar<'a>
+
 pub type vortex_scalar::ListScalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::ListScalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::PrimitiveScalar<'a>
+
 pub type vortex_scalar::PrimitiveScalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::PrimitiveScalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::StructScalar<'a>
+
 pub type vortex_scalar::StructScalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::StructScalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::Utf8Scalar<'a>
+
 pub type vortex_scalar::Utf8Scalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::Utf8Scalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<T> core::convert::From<alloc::vec::Vec<T>> for vortex_scalar::Scalar where T: vortex_dtype::dtype::NativeDType, vortex_scalar::Scalar: core::convert::From<T>
+
 pub fn vortex_scalar::Scalar::from(vec: alloc::vec::Vec<T>) -> Self
+
 impl<T> core::convert::From<core::option::Option<alloc::vec::Vec<T>>> for vortex_scalar::Scalar where T: vortex_dtype::dtype::NativeDType, vortex_scalar::Scalar: core::convert::From<T>
+
 pub fn vortex_scalar::Scalar::from(vec: core::option::Option<alloc::vec::Vec<T>>) -> Self
+
 impl<T> core::convert::TryFrom<vortex_scalar::Scalar> for alloc::vec::Vec<T> where T: for<'b> core::convert::TryFrom<&'b vortex_scalar::Scalar, Error = vortex_error::VortexError>
+
 pub type alloc::vec::Vec<T>::Error = vortex_error::VortexError
+
 pub fn alloc::vec::Vec<T>::try_from(value: vortex_scalar::Scalar) -> core::result::Result<Self, Self::Error>
+
 pub struct vortex_scalar::StructScalar<'a>
+
 impl<'a> vortex_scalar::StructScalar<'a>
+
 pub fn vortex_scalar::StructScalar<'a>::cast(&self, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<vortex_scalar::Scalar>
+
 pub fn vortex_scalar::StructScalar<'a>::dtype(&self) -> &'a vortex_dtype::dtype::DType
+
 pub fn vortex_scalar::StructScalar<'a>::field(&self, name: impl core::convert::AsRef<str>) -> core::option::Option<vortex_scalar::Scalar>
+
 pub fn vortex_scalar::StructScalar<'a>::field_by_idx(&self, idx: usize) -> core::option::Option<vortex_scalar::Scalar>
+
 pub fn vortex_scalar::StructScalar<'a>::fields_iter(&self) -> core::option::Option<impl core::iter::traits::exact_size::ExactSizeIterator<Item = vortex_scalar::Scalar>>
+
 pub fn vortex_scalar::StructScalar<'a>::is_null(&self) -> bool
+
 pub fn vortex_scalar::StructScalar<'a>::names(&self) -> &vortex_dtype::field_names::FieldNames
+
 pub fn vortex_scalar::StructScalar<'a>::project(&self, projection: &[vortex_dtype::field_names::FieldName]) -> vortex_error::VortexResult<vortex_scalar::Scalar>
+
 pub fn vortex_scalar::StructScalar<'a>::struct_fields(&self) -> &vortex_dtype::struct_::StructFields
+
 impl core::cmp::Eq for vortex_scalar::StructScalar<'_>
+
 impl core::cmp::PartialEq for vortex_scalar::StructScalar<'_>
+
 pub fn vortex_scalar::StructScalar<'_>::eq(&self, other: &Self) -> bool
+
 impl core::cmp::PartialOrd for vortex_scalar::StructScalar<'_>
+
 pub fn vortex_scalar::StructScalar<'_>::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
+
 impl core::fmt::Display for vortex_scalar::StructScalar<'_>
+
 pub fn vortex_scalar::StructScalar<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl core::hash::Hash for vortex_scalar::StructScalar<'_>
+
 pub fn vortex_scalar::StructScalar<'_>::hash<H: core::hash::Hasher>(&self, state: &mut H)
+
 impl<'a> core::clone::Clone for vortex_scalar::StructScalar<'a>
+
 pub fn vortex_scalar::StructScalar<'a>::clone(&self) -> vortex_scalar::StructScalar<'a>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::StructScalar<'a>
+
 pub type vortex_scalar::StructScalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::StructScalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::fmt::Debug for vortex_scalar::StructScalar<'a>
+
 pub fn vortex_scalar::StructScalar<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 pub struct vortex_scalar::Utf8Scalar<'a>
+
 impl<'a> vortex_scalar::Utf8Scalar<'a>
+
 pub fn vortex_scalar::Utf8Scalar<'a>::dtype(&self) -> &'a vortex_dtype::dtype::DType
+
 pub fn vortex_scalar::Utf8Scalar<'a>::is_empty(&self) -> core::option::Option<bool>
+
 pub fn vortex_scalar::Utf8Scalar<'a>::len(&self) -> core::option::Option<usize>
+
 pub fn vortex_scalar::Utf8Scalar<'a>::lower_bound(&self, max_length: usize) -> vortex_scalar::Scalar
+
 pub fn vortex_scalar::Utf8Scalar<'a>::try_new(dtype: &'a vortex_dtype::dtype::DType, value: core::option::Option<&'a vortex_scalar::ScalarValue>) -> vortex_error::VortexResult<Self>
+
 pub fn vortex_scalar::Utf8Scalar<'a>::upper_bound(&self, max_length: usize) -> core::option::Option<vortex_scalar::Scalar>
+
 pub fn vortex_scalar::Utf8Scalar<'a>::value(&self) -> core::option::Option<&'a vortex_buffer::string::BufferString>
+
 impl core::cmp::Ord for vortex_scalar::Utf8Scalar<'_>
+
 pub fn vortex_scalar::Utf8Scalar<'_>::cmp(&self, other: &Self) -> core::cmp::Ordering
+
 impl core::cmp::PartialEq for vortex_scalar::Utf8Scalar<'_>
+
 pub fn vortex_scalar::Utf8Scalar<'_>::eq(&self, other: &Self) -> bool
+
 impl core::cmp::PartialOrd for vortex_scalar::Utf8Scalar<'_>
+
 pub fn vortex_scalar::Utf8Scalar<'_>::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
+
 impl core::fmt::Display for vortex_scalar::Utf8Scalar<'_>
+
 pub fn vortex_scalar::Utf8Scalar<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl<'a> core::clone::Clone for vortex_scalar::Utf8Scalar<'a>
+
 pub fn vortex_scalar::Utf8Scalar<'a>::clone(&self) -> vortex_scalar::Utf8Scalar<'a>
+
 impl<'a> core::cmp::Eq for vortex_scalar::Utf8Scalar<'a>
+
 impl<'a> core::convert::TryFrom<&'a vortex_scalar::Scalar> for vortex_scalar::Utf8Scalar<'a>
+
 pub type vortex_scalar::Utf8Scalar<'a>::Error = vortex_error::VortexError
+
 pub fn vortex_scalar::Utf8Scalar<'a>::try_from(value: &'a vortex_scalar::Scalar) -> vortex_error::VortexResult<Self>
+
 impl<'a> core::fmt::Debug for vortex_scalar::Utf8Scalar<'a>
+
 pub fn vortex_scalar::Utf8Scalar<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl<'a> core::hash::Hash for vortex_scalar::Utf8Scalar<'a>
+
 pub fn vortex_scalar::Utf8Scalar<'a>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
 pub trait vortex_scalar::StringLike: vortex_scalar::typed_view::utf8::private::Sealed + core::marker::Sized
+
 pub fn vortex_scalar::StringLike::increment(self) -> core::result::Result<Self, Self>
+
 impl vortex_scalar::StringLike for alloc::string::String
+
 pub fn alloc::string::String::increment(self) -> core::result::Result<alloc::string::String, alloc::string::String>
+
 impl vortex_scalar::StringLike for vortex_buffer::string::BufferString
+
 pub fn vortex_buffer::string::BufferString::increment(self) -> core::result::Result<vortex_buffer::string::BufferString, vortex_buffer::string::BufferString>

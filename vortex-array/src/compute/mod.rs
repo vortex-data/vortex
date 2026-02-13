@@ -17,7 +17,8 @@ use std::fmt::Formatter;
 use arcref::ArcRef;
 pub use between::*;
 pub use boolean::*;
-pub use cast::*;
+#[expect(deprecated)]
+pub use cast::cast;
 pub use compare::*;
 pub use fill_null::*;
 pub use filter::*;
@@ -46,6 +47,10 @@ pub use zip::*;
 use crate::Array;
 use crate::ArrayRef;
 use crate::builders::ArrayBuilder;
+pub use crate::expr::CastExecuteAdaptor;
+pub use crate::expr::CastKernel;
+pub use crate::expr::CastReduce;
+pub use crate::expr::CastReduceAdaptor;
 pub use crate::expr::FillNullExecuteAdaptor;
 pub use crate::expr::FillNullKernel;
 pub use crate::expr::FillNullReduce;
@@ -91,7 +96,6 @@ pub struct ComputeFn {
 pub fn warm_up_vtables() {
     #[allow(unused_qualifications)]
     between::warm_up_vtable();
-    cast::warm_up_vtable();
     compare::warm_up_vtable();
     is_constant::warm_up_vtable();
     is_sorted::warm_up_vtable();
@@ -100,9 +104,7 @@ pub fn warm_up_vtables() {
     mask::warm_up_vtable();
     min_max::warm_up_vtable();
     nan_count::warm_up_vtable();
-    numeric::warm_up_vtable();
     sum::warm_up_vtable();
-    zip::warm_up_vtable();
 }
 
 impl ComputeFn {

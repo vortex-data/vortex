@@ -11,7 +11,7 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
-use crate::compute::FillNullKernel;
+use crate::expr::FillNullKernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

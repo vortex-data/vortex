@@ -18,6 +18,7 @@ use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability;
 use vortex::dtype::StructFields;
+use vortex::scalar::DecimalValue;
 use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
@@ -75,7 +76,30 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
         ));
     }
 
-    // int
+    // decimal
+    if let Some(decimal_dtype) = dtype.and_then(|d| d.as_decimal_opt()) {
+        let value = if let Ok(v) = value.extract::<i8>() {
+            DecimalValue::I8(v)
+        } else if let Ok(v) = value.extract::<i16>() {
+            DecimalValue::I16(v)
+        } else if let Ok(v) = value.extract::<i32>() {
+            DecimalValue::I32(v)
+        } else if let Ok(v) = value.extract::<i64>() {
+            DecimalValue::I64(v)
+        } else if let Ok(v) = value.extract::<i128>() {
+            DecimalValue::I128(v)
+        } else {
+            return Err(PyValueError::new_err(
+                "Value can't be represented as decimal",
+            ));
+        };
+        return Ok(Scalar::decimal(
+            value,
+            *decimal_dtype,
+            Nullability::NonNullable,
+        ));
+    }
+
     if let Ok(integer) = value.cast::<PyInt>() {
         return Ok(Scalar::primitive(
             integer.extract::<i64>()?,

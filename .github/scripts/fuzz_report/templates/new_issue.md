@@ -9,25 +9,18 @@
 {{PANIC_MESSAGE}}
 ```
 
-**Stack Trace**:
+<details>
+<summary>Stack Trace</summary>
+
 ```
 {{STACK_TRACE_RAW}}
 ```
+</details>
 {% if CLAUDE_ANALYSIS %}
 
 ### Root Cause Analysis
 
 {{CLAUDE_ANALYSIS}}
-{% endif %}
-{% if DEBUG_OUTPUT %}
-
-<details>
-<summary>Debug Output</summary>
-
-```
-{{DEBUG_OUTPUT}}
-```
-</details>
 {% endif %}
 
 ### Summary

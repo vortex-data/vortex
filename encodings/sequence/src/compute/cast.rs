@@ -3,9 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_array::compute::CastReduce;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
@@ -16,8 +14,8 @@ use vortex_scalar::ScalarValue;
 use crate::SequenceArray;
 use crate::SequenceVTable;
 
-impl CastKernel for SequenceVTable {
-    fn cast(&self, array: &SequenceArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for SequenceVTable {
+    fn cast(array: &SequenceArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // SequenceArray represents arithmetic sequences (base + i * multiplier) which
         // only makes sense for integer types. Floating-point sequences would accumulate
         // rounding errors, and other types don't support arithmetic operations.
@@ -88,15 +86,13 @@ impl CastKernel for SequenceVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(SequenceVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
@@ -109,11 +105,10 @@ mod tests {
         let sequence = SequenceArray::typed_new(0u32, 1u32, Nullability::NonNullable, 4).unwrap();
 
         // Cast to nullable
-        let casted = cast(
-            sequence.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::Nullable),
-        )
-        .unwrap();
+        let casted = sequence
+            .to_array()
+            .cast(DType::Primitive(PType::U32, Nullability::Nullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::Nullable)
@@ -125,11 +120,10 @@ mod tests {
         let sequence =
             SequenceArray::typed_new(100u32, 10u32, Nullability::NonNullable, 4).unwrap();
 
-        let casted = cast(
-            sequence.as_ref(),
-            &DType::Primitive(PType::I64, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = sequence
+            .to_array()
+            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
@@ -145,11 +139,10 @@ mod tests {
         // Test ptype change AND nullability change in one cast
         let sequence = SequenceArray::typed_new(5i16, 3i16, Nullability::NonNullable, 3).unwrap();
 
-        let casted = cast(
-            sequence.as_ref(),
-            &DType::Primitive(PType::I32, Nullability::Nullable),
-        )
-        .unwrap();
+        let casted = sequence
+            .to_array()
+            .cast(DType::Primitive(PType::I32, Nullability::Nullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I32, Nullability::Nullable)
@@ -168,11 +161,10 @@ mod tests {
         let sequence = SequenceArray::typed_new(0i32, 1i32, Nullability::NonNullable, 5).unwrap();
 
         // Cast to float should delegate to canonical (SequenceArray doesn't support float)
-        let casted = cast(
-            sequence.as_ref(),
-            &DType::Primitive(PType::F32, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = sequence
+            .to_array()
+            .cast(DType::Primitive(PType::F32, Nullability::NonNullable))
+            .unwrap();
         // Should still succeed by decoding to canonical first
         assert_eq!(
             casted.dtype(),

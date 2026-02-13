@@ -370,19 +370,21 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let mask = (0..current_array.len())
                         .map(|_| bool::arbitrary(u))
                         .collect::<arbitrary::Result<Vec<_>>>()?;
-                    let mask = Mask::from_iter(mask);
 
                     // Compute expected result on canonical form
                     let expected_result = mask_canonical_array(
                         current_array
                             .to_canonical()
                             .vortex_expect("to_canonical should succeed in fuzz test"),
-                        &mask,
+                        &Mask::from_iter(mask.clone()),
                     )
                     .vortex_expect("mask_canonical_array should succeed in fuzz test");
                     // Update current_array to the result for chaining
                     current_array = expected_result.clone();
-                    (Action::Mask(mask), ExpectedValue::Array(expected_result))
+                    (
+                        Action::Mask(Mask::from_iter(mask)),
+                        ExpectedValue::Array(expected_result),
+                    )
                 }
                 ActionType::ScalarAt => {
                     if current_array.is_empty() {
@@ -552,7 +554,6 @@ pub fn compress_array(array: &dyn Array, _strategy: CompressorStrategy) -> Array
 pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzzResult<bool> {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::cast;
     use vortex_array::compute::compare;
     use vortex_array::compute::mask;
     use vortex_array::compute::min_max;
@@ -615,7 +616,8 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 current_array = compare_result;
             }
             Action::Cast(to) => {
-                let cast_result = cast(&current_array, &to)
+                let cast_result = current_array
+                    .cast(to.clone())
                     .vortex_expect("cast operation should succeed in fuzz test");
                 if let Err(e) = assert_array_eq(&expected.array(), &cast_result, i) {
                     vortex_panic!(

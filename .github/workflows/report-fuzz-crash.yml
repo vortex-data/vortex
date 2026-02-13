@@ -64,12 +64,31 @@ jobs:
         run: pip install -e .github/scripts
 
       - name: Extract crash info
+        id: extract
         run: |
           python3 -m fuzz_report extract \
             logs/fuzz_output.log \
             --crash-dir crash_artifacts \
             --crash-name "${{ inputs.crash_file }}" \
             -o crash_info.json
+
+          # Validate that extraction found a real crash.
+          error_variant=$(jq -r '.error_variant' crash_info.json)
+          panic_message=$(jq -r '.panic_message' crash_info.json)
+          echo "error_variant=$error_variant"
+          echo "panic_message=$panic_message"
+          if [ "$error_variant" = "unknown" ] && [ "$panic_message" = "unknown" ]; then
+            echo "::notice::No crash info found in fuzzer output — nothing to report."
+            echo "crash_found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "crash_found=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip if no crash found
+        if: steps.extract.outputs.crash_found != 'true'
+        run: |
+          echo "No parseable crash in fuzzer output — skipping remaining steps."
+          exit 1
 
       - name: Fetch existing fuzzer issues
         env:
@@ -116,7 +135,7 @@ jobs:
           claude_args: |
             --model claude-opus-4-6
             --max-turns 5
-            --allowedTools "Read,Write,Bash(cat:*),Bash(jq:*)"
+            --allowedTools "Read,Write,Grep,Glob,Bash(cat:*),Bash(jq:*),Bash(head:*),Bash(xxd:*)"
 
       - name: Create or comment on issue
         id: report

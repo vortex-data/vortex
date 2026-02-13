@@ -119,7 +119,7 @@ Available types: {func}`~vortex.null`, {func}`~vortex.bool_`,
 
 The `vortex.expr` module provides expressions for filtering and projecting. These
 are primarily used with {meth}`.VortexFile.scan` and {meth}`.VortexFile.to_arrow` but can also be
-evaluated directly:
+applied directly:
 
 ```{doctest} pycon
 >>> import vortex.expr as ve
@@ -129,7 +129,7 @@ evaluated directly:
 ...     {'name': 'Carol', 'age': 35},
 ... ])
 >>> expr = ve.column('age') > 28
->>> expr.evaluate(arr).to_arrow_array().to_pylist()
+>>> arr.apply(expr).to_arrow_array().to_pylist()
 [True, False, True]
 ```
 

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod binary_numeric;
 mod cast;
 mod filter;
 mod take;
@@ -14,7 +13,7 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::validity::Validity;
@@ -100,11 +99,10 @@ mod test {
         test_mask_conformance(
             SparseArray::try_new(
                 buffer![1u64, 2, 4].into_array(),
-                cast(
-                    &buffer![100i32, 200, 300].into_array(),
-                    null_fill_value.dtype(),
-                )
-                .unwrap(),
+                buffer![100i32, 200, 300]
+                    .into_array()
+                    .cast(null_fill_value.dtype().clone())
+                    .unwrap(),
                 5,
                 null_fill_value,
             )
@@ -131,7 +129,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_buffer::buffer;
@@ -194,10 +192,10 @@ mod tests {
         let null_fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
         SparseArray::try_new(
             buffer![1u64, 4, 7].into_array(),
-            cast(
-                &PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
-                null_fill_value.dtype()
-            ).unwrap(),
+            PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)])
+                .into_array()
+                .cast(null_fill_value.dtype().clone())
+                .unwrap(),
             10,
             null_fill_value
         ).unwrap()

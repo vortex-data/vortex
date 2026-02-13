@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_mask::Mask;
+
+use crate::Array;
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::arrays::ExactScalarFn;
+use crate::arrays::ScalarFnArrayView;
+use crate::arrays::ScalarFnVTable;
+use crate::expr::Zip as ZipExpr;
+use crate::kernel::ExecuteParentKernel;
+use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::vtable::VTable;
+
+/// Zip two arrays using a mask without reading buffers.
+///
+/// This trait is for zip implementations that can operate purely on array metadata
+/// and structure without needing to read or execute on the underlying buffers.
+/// Implementations should return `None` if the operation requires buffer access.
+///
+/// Dispatch is on child 0 (if_true). The `if_false` and `mask` are extracted from
+/// the parent `ScalarFnArray`.
+pub trait ZipReduce: VTable {
+    fn zip(
+        array: &Self::Array,
+        if_false: &dyn Array,
+        mask: &Mask,
+    ) -> VortexResult<Option<ArrayRef>>;
+}
+
+/// Zip two arrays using a mask, potentially reading buffers.
+///
+/// Unlike [`ZipReduce`], this trait is for zip implementations that may need
+/// to read and execute on the underlying buffers to produce the result.
+///
+/// Dispatch is on child 0 (if_true). The `if_false` and `mask` are extracted from
+/// the parent `ScalarFnArray`.
+pub trait ZipKernel: VTable {
+    fn zip(
+        array: &Self::Array,
+        if_false: &dyn Array,
+        mask: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>>;
+}
+
+/// Adaptor that wraps a [`ZipReduce`] impl as an [`ArrayParentReduceRule`].
+#[derive(Default, Debug)]
+pub struct ZipReduceAdaptor<V>(pub V);
+
+impl<V> ArrayParentReduceRule<V> for ZipReduceAdaptor<V>
+where
+    V: ZipReduce,
+{
+    type Parent = ExactScalarFn<ZipExpr>;
+
+    fn reduce_parent(
+        &self,
+        array: &V::Array,
+        parent: ScalarFnArrayView<'_, ZipExpr>,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if child_idx != 0 {
+            return Ok(None);
+        }
+        let scalar_fn_array = parent
+            .as_opt::<ScalarFnVTable>()
+            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
+        let children = scalar_fn_array.children();
+        let if_false = &*children[1];
+        let mask_array = &*children[2];
+        let mask = mask_array.try_to_mask_fill_null_false()?;
+        <V as ZipReduce>::zip(array, if_false, &mask)
+    }
+}
+
+/// Adaptor that wraps a [`ZipKernel`] impl as an [`ExecuteParentKernel`].
+#[derive(Default, Debug)]
+pub struct ZipExecuteAdaptor<V>(pub V);
+
+impl<V> ExecuteParentKernel<V> for ZipExecuteAdaptor<V>
+where
+    V: ZipKernel,
+{
+    type Parent = ExactScalarFn<ZipExpr>;
+
+    fn execute_parent(
+        &self,
+        array: &V::Array,
+        parent: ScalarFnArrayView<'_, ZipExpr>,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if child_idx != 0 {
+            return Ok(None);
+        }
+        let scalar_fn_array = parent
+            .as_opt::<ScalarFnVTable>()
+            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
+        let children = scalar_fn_array.children();
+        let if_false = &*children[1];
+        let mask_array = &*children[2];
+        let mask = mask_array.try_to_mask_fill_null_false()?;
+        <V as ZipKernel>::zip(array, if_false, &mask, ctx)
+    }
+}

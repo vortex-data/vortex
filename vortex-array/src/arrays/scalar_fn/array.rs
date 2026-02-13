@@ -46,7 +46,6 @@ impl ScalarFnArray {
     }
 
     /// Get the children arrays of this scalar function array.
-    #[allow(clippy::same_name_method)]
     pub fn children(&self) -> &[ArrayRef] {
         &self.children
     }

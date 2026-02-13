@@ -4,12 +4,14 @@
 mod generate_fbs;
 mod generate_proto;
 mod java_test_files;
+mod public_api;
 
 use clap::Parser;
 
 use crate::generate_fbs::generate_fbs;
 use crate::generate_proto::generate_proto;
 use crate::java_test_files::java_test_files;
+use crate::public_api::public_api;
 
 #[derive(clap::Parser)]
 struct Xtask {
@@ -28,6 +30,9 @@ enum Commands {
     /// Subcommand to generate files for Java integration tests.
     #[command(name = "java-test-files")]
     JavaTestFiles,
+    /// Regenerate public-api.lock files for all published crates.
+    #[command(name = "public-api")]
+    PublicApi,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -36,6 +41,7 @@ fn main() -> anyhow::Result<()> {
         Commands::GenerateFlatbuffers => generate_fbs()?,
         Commands::GenerateProto => generate_proto()?,
         Commands::JavaTestFiles => java_test_files()?,
+        Commands::PublicApi => public_api()?,
     }
     Ok(())
 }

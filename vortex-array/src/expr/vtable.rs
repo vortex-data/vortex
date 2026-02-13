@@ -241,12 +241,6 @@ pub trait ReduceNode {
 
     /// Returns the number of children of this node.
     fn child_count(&self) -> usize;
-
-    /// Returns the children of this node.
-    #[allow(clippy::same_name_method)]
-    fn children(&self) -> Vec<ReduceNodeRef> {
-        (0..self.child_count()).map(|i| self.child(i)).collect()
-    }
 }
 
 /// The arity (number of arguments) of a function.

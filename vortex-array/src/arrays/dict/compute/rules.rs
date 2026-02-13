@@ -17,6 +17,8 @@ use crate::arrays::FilterReduceAdaptor;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
+use crate::compute::CastReduceAdaptor;
+use crate::expr::Cast;
 use crate::expr::Pack;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -24,6 +26,7 @@ use crate::optimizer::rules::ParentRuleSet;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<DictVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FilterReduceAdaptor(DictVTable)),
+    ParentRuleSet::lift(&CastReduceAdaptor(DictVTable)),
     ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
     ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
     ParentRuleSet::lift(&SliceReduceAdaptor(DictVTable)),
@@ -48,6 +51,13 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnValuesPushDownRule 
         // Don't push down pack expressions since we might want to unpack them in exporters
         // later.
         if parent.scalar_fn().is::<Pack>() {
+            return Ok(None);
+        }
+
+        // Don't push down cast operations — CastReduceAdaptor handles these eagerly.
+        // If it declined (returned None), we must fall through to the canonical path
+        // rather than creating a lazy cast inside the dictionary values.
+        if parent.scalar_fn().is::<Cast>() {
             return Ok(None);
         }
 

@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Float operations tests - derived from vortex-duckdb vortex_scan_test.rs
+
+include ./setup.slt
+
+# Create a file with float data
+query I
+COPY (SELECT * FROM (VALUES (1.5), (-2.5), (0.0), (42.42)) AS t(val)) TO '$__TEST_DIR__/floats.vortex';
+----
+4
+
+# Test COUNT with filter on floats
+query I
+SELECT COUNT(*) FROM '$__TEST_DIR__/floats.vortex' WHERE val > 0;
+----
+2
