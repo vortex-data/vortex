@@ -14,12 +14,14 @@ use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::SliceReduce;
 use crate::arrays::SliceReduceAdaptor;
+use crate::expr::MaskReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
 
 pub(crate) static RULES: ParentRuleSet<DecimalVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DecimalMaskedValidityRule),
+    ParentRuleSet::lift(&MaskReduceAdaptor(DecimalVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(DecimalVTable)),
 ]);
 
