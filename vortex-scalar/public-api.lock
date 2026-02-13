@@ -416,6 +416,18 @@ pub fn vortex_scalar::ScalarValue::as_primitive(&self) -> &vortex_scalar::PValue
 
 pub fn vortex_scalar::ScalarValue::as_utf8(&self) -> &vortex_buffer::string::BufferString
 
+pub fn vortex_scalar::ScalarValue::into_binary(self) -> vortex_buffer::ByteBuffer
+
+pub fn vortex_scalar::ScalarValue::into_bool(self) -> bool
+
+pub fn vortex_scalar::ScalarValue::into_decimal(self) -> vortex_scalar::DecimalValue
+
+pub fn vortex_scalar::ScalarValue::into_list(self) -> alloc::vec::Vec<core::option::Option<vortex_scalar::ScalarValue>>
+
+pub fn vortex_scalar::ScalarValue::into_primitive(self) -> vortex_scalar::PValue
+
+pub fn vortex_scalar::ScalarValue::into_utf8(self) -> vortex_buffer::string::BufferString
+
 impl vortex_scalar::ScalarValue
 
 pub fn vortex_scalar::ScalarValue::default_value(dtype: &vortex_dtype::dtype::DType) -> core::option::Option<Self>
@@ -632,11 +644,7 @@ pub fn vortex_scalar::BinaryScalar<'a>::is_empty(&self) -> core::option::Option<
 
 pub fn vortex_scalar::BinaryScalar<'a>::len(&self) -> core::option::Option<usize>
 
-pub fn vortex_scalar::BinaryScalar<'a>::lower_bound(&self, max_length: usize) -> vortex_scalar::Scalar
-
 pub fn vortex_scalar::BinaryScalar<'a>::try_new(dtype: &'a vortex_dtype::dtype::DType, value: core::option::Option<&'a vortex_scalar::ScalarValue>) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_scalar::BinaryScalar<'a>::upper_bound(&self, max_length: usize) -> core::option::Option<vortex_scalar::Scalar>
 
 pub fn vortex_scalar::BinaryScalar<'a>::value(&self) -> core::option::Option<&'a vortex_buffer::ByteBuffer>
 
@@ -1726,11 +1734,7 @@ pub fn vortex_scalar::Utf8Scalar<'a>::is_empty(&self) -> core::option::Option<bo
 
 pub fn vortex_scalar::Utf8Scalar<'a>::len(&self) -> core::option::Option<usize>
 
-pub fn vortex_scalar::Utf8Scalar<'a>::lower_bound(&self, max_length: usize) -> vortex_scalar::Scalar
-
 pub fn vortex_scalar::Utf8Scalar<'a>::try_new(dtype: &'a vortex_dtype::dtype::DType, value: core::option::Option<&'a vortex_scalar::ScalarValue>) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_scalar::Utf8Scalar<'a>::upper_bound(&self, max_length: usize) -> core::option::Option<vortex_scalar::Scalar>
 
 pub fn vortex_scalar::Utf8Scalar<'a>::value(&self) -> core::option::Option<&'a vortex_buffer::string::BufferString>
 
