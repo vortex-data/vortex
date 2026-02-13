@@ -60,6 +60,7 @@ impl VTable for StructVTable {
         _bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)

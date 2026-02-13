@@ -72,6 +72,7 @@ impl VTable for DecimalVTable {
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         let metadata = ProstMetadata::<DecimalMetadata>::deserialize(bytes)?;

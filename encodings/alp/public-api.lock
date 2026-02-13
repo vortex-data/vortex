@@ -91,7 +91,7 @@ pub type vortex_alp::ALPRDVTable::OperationsVTable = vortex_alp::ALPRDVTable
 pub type vortex_alp::ALPRDVTable::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
 pub type vortex_alp::ALPRDVTable::VisitorVTable = vortex_alp::ALPRDVTable
 pub fn vortex_alp::ALPRDVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_alp::ALPRDArray>
-pub fn vortex_alp::ALPRDVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_alp::ALPRDVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_alp::ALPRDVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 pub fn vortex_alp::ALPRDVTable::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 pub fn vortex_alp::ALPRDVTable::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
@@ -143,7 +143,7 @@ pub type vortex_alp::ALPVTable::OperationsVTable = vortex_alp::ALPVTable
 pub type vortex_alp::ALPVTable::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
 pub type vortex_alp::ALPVTable::VisitorVTable = vortex_alp::ALPVTable
 pub fn vortex_alp::ALPVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_alp::ALPArray>
-pub fn vortex_alp::ALPVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_alp::ALPVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_alp::ALPVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 pub fn vortex_alp::ALPVTable::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 pub fn vortex_alp::ALPVTable::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId

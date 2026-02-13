@@ -64,7 +64,7 @@ pub type vortex_fsst::FSSTVTable::ValidityVTable = vortex_array::vtable::validit
 pub type vortex_fsst::FSSTVTable::VisitorVTable = vortex_fsst::FSSTVTable
 pub fn vortex_fsst::FSSTVTable::append_to_builder(array: &vortex_fsst::FSSTArray, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 pub fn vortex_fsst::FSSTVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fsst::FSSTArray>
-pub fn vortex_fsst::FSSTVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_fsst::FSSTVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_fsst::FSSTVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 pub fn vortex_fsst::FSSTVTable::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 pub fn vortex_fsst::FSSTVTable::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId

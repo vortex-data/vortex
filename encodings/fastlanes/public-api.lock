@@ -114,7 +114,7 @@ pub type vortex_fastlanes::BitPackedVTable::ValidityVTable = vortex_array::vtabl
 pub type vortex_fastlanes::BitPackedVTable::VisitorVTable = vortex_fastlanes::BitPackedVTable
 pub fn vortex_fastlanes::BitPackedVTable::append_to_builder(array: &vortex_fastlanes::BitPackedArray, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 pub fn vortex_fastlanes::BitPackedVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
-pub fn vortex_fastlanes::BitPackedVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_fastlanes::BitPackedVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_fastlanes::BitPackedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 pub fn vortex_fastlanes::BitPackedVTable::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 pub fn vortex_fastlanes::BitPackedVTable::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
@@ -179,7 +179,7 @@ pub type vortex_fastlanes::DeltaVTable::OperationsVTable = vortex_fastlanes::Del
 pub type vortex_fastlanes::DeltaVTable::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChildSliceHelper
 pub type vortex_fastlanes::DeltaVTable::VisitorVTable = vortex_fastlanes::DeltaVTable
 pub fn vortex_fastlanes::DeltaVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fastlanes::DeltaArray>
-pub fn vortex_fastlanes::DeltaVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_fastlanes::DeltaVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_fastlanes::DeltaVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 pub fn vortex_fastlanes::DeltaVTable::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
 pub fn vortex_fastlanes::DeltaVTable::metadata(array: &vortex_fastlanes::DeltaArray) -> vortex_error::VortexResult<Self::Metadata>
@@ -248,7 +248,7 @@ pub type vortex_fastlanes::FoRVTable::OperationsVTable = vortex_fastlanes::FoRVT
 pub type vortex_fastlanes::FoRVTable::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
 pub type vortex_fastlanes::FoRVTable::VisitorVTable = vortex_fastlanes::FoRVTable
 pub fn vortex_fastlanes::FoRVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fastlanes::FoRArray>
-pub fn vortex_fastlanes::FoRVTable::deserialize(bytes: &[u8], dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_fastlanes::FoRVTable::deserialize(bytes: &[u8], dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_fastlanes::FoRVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 pub fn vortex_fastlanes::FoRVTable::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 pub fn vortex_fastlanes::FoRVTable::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
@@ -316,7 +316,7 @@ pub type vortex_fastlanes::RLEVTable::OperationsVTable = vortex_fastlanes::RLEVT
 pub type vortex_fastlanes::RLEVTable::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChildSliceHelper
 pub type vortex_fastlanes::RLEVTable::VisitorVTable = vortex_fastlanes::RLEVTable
 pub fn vortex_fastlanes::RLEVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fastlanes::RLEArray>
-pub fn vortex_fastlanes::RLEVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_fastlanes::RLEVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_fastlanes::RLEVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 pub fn vortex_fastlanes::RLEVTable::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 pub fn vortex_fastlanes::RLEVTable::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId

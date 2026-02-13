@@ -67,6 +67,7 @@ impl VTable for VarBinViewVTable {
         _bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)

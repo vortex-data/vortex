@@ -86,7 +86,7 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let metadata = V::deserialize(metadata, dtype, len, session)?;
+        let metadata = V::deserialize(metadata, dtype, len, buffers, session)?;
         let array = V::build(dtype, len, &metadata, buffers, children)?;
         assert_eq!(array.len(), len, "Array length mismatch after building");
         assert_eq!(array.dtype(), dtype, "Array dtype mismatch after building");
