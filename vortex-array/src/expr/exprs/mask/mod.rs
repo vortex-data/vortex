@@ -144,12 +144,10 @@ impl VTable for Mask {
     }
 }
 
-/// Handle masking when at least one of the input or mask is a constant array.
-fn execute_constant(
-    input: ArrayRef,
-    mask_array: ArrayRef,
-    ctx: &mut crate::executor::ExecutionCtx,
-) -> VortexResult<ArrayRef> {
+/// Try to handle masking when at least one of the input or mask is a constant array.
+///
+/// Returns `Ok(Some(result))` if the constant case was handled, `Ok(None)` if not.
+fn execute_constant(input: &ArrayRef, mask_array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
     let len = input.len();
 
     // Constant mask: avoid materializing the bool array entirely.
@@ -157,24 +155,25 @@ fn execute_constant(
         let mask_value = constant_mask.scalar().as_bool().value().unwrap_or(false);
         return if mask_value {
             // Mask is all true (keep everything), just cast input to nullable.
-            input.cast(input.dtype().as_nullable())
+            input.cast(input.dtype().as_nullable()).map(Some)
         } else {
             // Mask is all false (mask everything out), return all nulls.
-            Ok(ConstantArray::new(Scalar::null(input.dtype().as_nullable()), len).into_array())
+            Ok(Some(
+                ConstantArray::new(Scalar::null(input.dtype().as_nullable()), len).into_array(),
+            ))
         };
     }
 
-    // Constant input: avoid executing to canonical when input is all-null.
+    // Constant null input: masking changes nothing, result is still all-null.
     if let Some(constant_input) = input.as_opt::<ConstantVTable>()
         && constant_input.scalar().is_null()
     {
-        return Ok(
+        return Ok(Some(
             ConstantArray::new(Scalar::null(input.dtype().as_nullable()), len).into_array(),
-        );
+        ));
     }
 
-    // Non-null constant input with variable mask: fall through to canonical path.
-    execute_canonical(input, mask_array, ctx)
+    Ok(None)
 }
 
 /// Execute the mask by materializing both inputs to their canonical forms.

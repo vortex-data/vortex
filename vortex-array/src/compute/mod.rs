@@ -54,14 +54,14 @@ pub use crate::expr::FillNullExecuteAdaptor;
 pub use crate::expr::FillNullKernel;
 pub use crate::expr::FillNullReduce;
 pub use crate::expr::FillNullReduceAdaptor;
-pub use crate::expr::NotExecuteAdaptor;
-pub use crate::expr::NotKernel;
-pub use crate::expr::NotReduce;
-pub use crate::expr::NotReduceAdaptor;
 pub use crate::expr::MaskExecuteAdaptor;
 pub use crate::expr::MaskKernel;
 pub use crate::expr::MaskReduce;
 pub use crate::expr::MaskReduceAdaptor;
+pub use crate::expr::NotExecuteAdaptor;
+pub use crate::expr::NotKernel;
+pub use crate::expr::NotReduce;
+pub use crate::expr::NotReduceAdaptor;
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
