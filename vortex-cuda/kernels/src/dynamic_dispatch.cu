@@ -10,43 +10,11 @@
 #include <cuda_runtime.h>
 #include <stdint.h>
 
-#include "bit_unpack_8.cu"
-#include "bit_unpack_16.cu"
-#include "bit_unpack_32.cu"
-#include "bit_unpack_64.cu"
+#include "bit_unpack.cuh"
 #include "dynamic_dispatch.h"
 #include "types.cuh"
 
 constexpr uint32_t ELEMENTS_PER_BLOCK = 2048;
-
-/// Decodes a single lane of bitpacked data into shared memory.
-///
-/// # Parameters
-///
-/// * `packed_chunk` - Pointer to the start of the packed data chunk in global memory
-/// * `smem` - Pointer to the shared memory output buffer where unpacked data is written
-/// * `lane` - Lane index within the block
-/// * `bit_width` - Number of bits with which each value is encoded
-template <typename T>
-__device__ inline void bitunpack_lane_to_smem(const T *__restrict packed_chunk, T *__restrict smem,
-                                                       unsigned int lane, uint32_t bit_width);
-
-
-/// Template specializations for `bitunpack_lane_to_smem` for different integer types.
-///
-/// Generates template specializations for each supported integer size (8, 16, 32, 64 bits).
-#define BITUNPACK_LANE(bits)                                                                                 \
-    template <>                                                                                              \
-    __device__ inline void bitunpack_lane_to_smem<uint##bits##_t>(const uint##bits##_t *in,                  \
-                                                                  uint##bits##_t *out,                       \
-                                                                  unsigned int lane, uint32_t bw) {          \
-        bit_unpack_##bits##_lane(in, out, lane, bw);                                                         \
-    }
-
-BITUNPACK_LANE(8)
-BITUNPACK_LANE(16)
-BITUNPACK_LANE(32)
-BITUNPACK_LANE(64)
 
 /// Executes the source operation (e.g., bitunpack) to fill shared memory with unpacked data.
 ///
@@ -84,7 +52,7 @@ __device__ inline void dynamic_source_op(const T *__restrict input, T *__restric
             T *smem_fl = smem + blk * ELEMENTS_PER_FL_BLOCK;
             // Distribute unpacking across threads via lane-wise decomposition.
             for (uint32_t lane = threadIdx.x; lane < LANES_PER_FL_BLOCK; lane += blockDim.x) {
-                bitunpack_lane_to_smem<T>(packed_fl, smem_fl, lane, bit_width);
+                bit_unpack_lane<T>(packed_fl, smem_fl, lane, bit_width);
             }
         }
         break;
@@ -196,7 +164,7 @@ __device__ void dynamic_dispatch_impl(const T *__restrict input, T *__restrict o
     }
 }
 
-/// Generates a kernel instance for a specific type.
+/// Generates a dynamic dispatch kernel for the specific type.
 ///
 /// Creates a CUDA kernel entry point by instantiating `dynamic_dispatch_impl` for the given type.
 #define GENERATE_DYNAMIC_DISPATCH_KERNEL(suffix, Type)                                                       \
