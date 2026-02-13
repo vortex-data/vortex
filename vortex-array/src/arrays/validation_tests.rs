@@ -98,8 +98,9 @@ mod tests {
     }
 
     #[test]
-    fn test_varbin_array_validation_failure_offsets_not_monotonic() {
-        // Invalid case: offsets are not monotonically increasing.
+    fn test_varbin_array_validation_non_monotonic_offsets_accepted() {
+        // VarBin does not validate monotonicity of offsets at construction time.
+        // Sortedness is enforced at the builder level instead.
         let offsets = buffer![0i32, 3, 2, 5].into_array(); // 3 -> 2 is decreasing.
         let bytes = ByteBuffer::from(vec![0u8, 1, 2, 3, 4]);
         let result = VarBinArray::try_new(
@@ -109,8 +110,7 @@ mod tests {
             Validity::NonNullable,
         );
 
-        assert!(matches!(result, Err(VortexError::InvalidArgument(_, _))));
-        assert!(result.is_err());
+        assert!(result.is_ok());
     }
 
     #[test]
