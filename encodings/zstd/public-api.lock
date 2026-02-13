@@ -164,7 +164,7 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_zstd::ZstdVTable
 
 pub fn vortex_zstd::ZstdVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::compute::cast::CastReduce for vortex_zstd::ZstdVTable
+impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_zstd::ZstdVTable
 
 pub fn vortex_zstd::ZstdVTable::cast(array: &vortex_zstd::ZstdArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 

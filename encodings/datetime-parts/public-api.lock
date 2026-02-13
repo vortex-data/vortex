@@ -114,10 +114,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_datetime_parts::DateTim
 
 pub fn vortex_datetime_parts::DateTimePartsVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::compute::cast::CastReduce for vortex_datetime_parts::DateTimePartsVTable
-
-pub fn vortex_datetime_parts::DateTimePartsVTable::cast(array: &vortex_datetime_parts::DateTimePartsArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
 impl vortex_array::compute::compare::CompareKernel for vortex_datetime_parts::DateTimePartsVTable
 
 pub fn vortex_datetime_parts::DateTimePartsVTable::compare(&self, lhs: &vortex_datetime_parts::DateTimePartsArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::compute::compare::Operator) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
@@ -129,6 +125,10 @@ pub fn vortex_datetime_parts::DateTimePartsVTable::is_constant(&self, array: &vo
 impl vortex_array::compute::mask::MaskKernel for vortex_datetime_parts::DateTimePartsVTable
 
 pub fn vortex_datetime_parts::DateTimePartsVTable::mask(&self, array: &vortex_datetime_parts::DateTimePartsArray, mask_array: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+
+impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_datetime_parts::DateTimePartsVTable
+
+pub fn vortex_datetime_parts::DateTimePartsVTable::cast(array: &vortex_datetime_parts::DateTimePartsArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_datetime_parts::DateTimePartsVTable
 
