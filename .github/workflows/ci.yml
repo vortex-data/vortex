@@ -345,7 +345,7 @@ jobs:
       - name: Install cargo-public-api
         run: cargo install cargo-public-api --locked
       - name: Regenerate public API lock files
-        run: bash scripts/public-api.sh
+        run: cargo run -p lockfiles
       - name: Verify lock files are up to date
         run: |
           git diff --name-only

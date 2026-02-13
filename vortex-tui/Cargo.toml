@@ -3,7 +3,6 @@ name = "vortex-tui"
 authors = { workspace = true }
 categories = { workspace = true }
 description = "a small but mighty tool for working with Vortex files"
-metadata = { skip_public_api = true }
 edition = { workspace = true }
 homepage = { workspace = true }
 include = { workspace = true }
