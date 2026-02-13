@@ -147,7 +147,7 @@ fn compute_fsl_elements_mask(selection_mask: &Mask, list_size: usize) -> Vec<(us
         Mask::Values(values) => values,
     };
 
-    let expanded_slices = if values.density() >= MASK_EXPANSION_DENSITY_THRESHOLD {
+    if values.density() >= MASK_EXPANSION_DENSITY_THRESHOLD {
         values
             .bit_buffer()
             .set_slices()
@@ -163,7 +163,5 @@ fn compute_fsl_elements_mask(selection_mask: &Mask, list_size: usize) -> Vec<(us
                 (start, end)
             })
             .collect()
-    };
-
-    expanded_slices
+    }
 }

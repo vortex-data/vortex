@@ -583,21 +583,20 @@ impl Patches {
             );
         }
 
-        if mask.all_true() {
-            return Ok(Some(self.clone()));
-        } else if mask.all_false() {
-            Ok(None)
-        } else {
-            let mask_values = mask.values().vortex_expect("trust me");
-            let flat_indices = self.indices().to_primitive();
-            match_each_unsigned_integer_ptype!(flat_indices.ptype(), |I| {
-                filter_patches_with_mask(
-                    flat_indices.as_slice::<I>(),
-                    self.offset(),
-                    self.values(),
-                    &mask_values.bit_buffer().set_indices().collect::<Vec<_>>(),
-                )
-            })
+        match mask.bit_buffer() {
+            AllOr::All => Ok(Some(self.clone())),
+            AllOr::None => Ok(None),
+            AllOr::Some(mask_bits) => {
+                let flat_indices = self.indices().to_primitive();
+                match_each_unsigned_integer_ptype!(flat_indices.ptype(), |I| {
+                    filter_patches_with_mask(
+                        flat_indices.as_slice::<I>(),
+                        self.offset(),
+                        self.values(),
+                        &mask_bits.set_indices().collect::<Vec<_>>(),
+                    )
+                })
+            }
         }
     }
 
