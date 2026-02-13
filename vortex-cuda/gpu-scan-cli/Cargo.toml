@@ -1,5 +1,5 @@
 [package]
-name = "vortex-test-e2e-cuda-scan"
+name = "gpu-scan-cli"
 authors = { workspace = true }
 description = "CUDA scan testing"
 edition = { workspace = true }
