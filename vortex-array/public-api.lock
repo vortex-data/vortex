@@ -9172,8 +9172,6 @@ pub fn vortex_array::expr::ReduceNode::child(&self, idx: usize) -> vortex_array:
 
 pub fn vortex_array::expr::ReduceNode::child_count(&self) -> usize
 
-pub fn vortex_array::expr::ReduceNode::children(&self) -> alloc::vec::Vec<vortex_array::expr::ReduceNodeRef>
-
 pub fn vortex_array::expr::ReduceNode::node_dtype(&self) -> vortex_error::VortexResult<vortex_dtype::dtype::DType>
 
 pub fn vortex_array::expr::ReduceNode::scalar_fn(&self) -> core::option::Option<&vortex_array::expr::ScalarFn>
@@ -9201,6 +9199,18 @@ pub fn vortex_array::arrays::ScalarFnArray::child_count(&self) -> usize
 pub fn vortex_array::arrays::ScalarFnArray::node_dtype(&self) -> vortex_error::VortexResult<vortex_dtype::dtype::DType>
 
 pub fn vortex_array::arrays::ScalarFnArray::scalar_fn(&self) -> core::option::Option<&vortex_array::expr::ScalarFn>
+
+impl<V: vortex_array::vtable::VTable> vortex_array::expr::ReduceNode for vortex_array::ArrayAdapter<V>
+
+pub fn vortex_array::ArrayAdapter<V>::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::ArrayAdapter<V>::child(&self, idx: usize) -> vortex_array::expr::ReduceNodeRef
+
+pub fn vortex_array::ArrayAdapter<V>::child_count(&self) -> usize
+
+pub fn vortex_array::ArrayAdapter<V>::node_dtype(&self) -> vortex_error::VortexResult<vortex_dtype::dtype::DType>
+
+pub fn vortex_array::ArrayAdapter<V>::scalar_fn(&self) -> core::option::Option<&vortex_array::expr::ScalarFn>
 
 pub trait vortex_array::expr::SimplifyCtx
 
@@ -12768,6 +12778,18 @@ pub fn vortex_array::ArrayAdapter<V>::nchildren(&self) -> usize
 
 pub fn vortex_array::ArrayAdapter<V>::nth_child(&self, idx: usize) -> core::option::Option<vortex_array::ArrayRef>
 
+impl<V: vortex_array::vtable::VTable> vortex_array::expr::ReduceNode for vortex_array::ArrayAdapter<V>
+
+pub fn vortex_array::ArrayAdapter<V>::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::ArrayAdapter<V>::child(&self, idx: usize) -> vortex_array::expr::ReduceNodeRef
+
+pub fn vortex_array::ArrayAdapter<V>::child_count(&self) -> usize
+
+pub fn vortex_array::ArrayAdapter<V>::node_dtype(&self) -> vortex_error::VortexResult<vortex_dtype::dtype::DType>
+
+pub fn vortex_array::ArrayAdapter<V>::scalar_fn(&self) -> core::option::Option<&vortex_array::expr::ScalarFn>
+
 pub struct vortex_array::CanonicalValidity(pub vortex_array::Canonical)
 
 impl vortex_array::Executable for vortex_array::CanonicalValidity
@@ -12882,7 +12904,7 @@ pub fn vortex_array::RecursiveCanonical::execute(array: vortex_array::ArrayRef, 
 
 pub static vortex_array::LEGACY_SESSION: std::sync::lazy_lock::LazyLock<vortex_session::VortexSession>
 
-pub trait vortex_array::Array: 'static + vortex_array::array::private::Sealed + core::marker::Send + core::marker::Sync + core::fmt::Debug + vortex_array::DynArrayEq + vortex_array::DynArrayHash + vortex_array::ArrayVisitor
+pub trait vortex_array::Array: 'static + vortex_array::array::private::Sealed + core::marker::Send + core::marker::Sync + core::fmt::Debug + vortex_array::DynArrayEq + vortex_array::DynArrayHash + vortex_array::ArrayVisitor + vortex_array::expr::ReduceNode
 
 pub fn vortex_array::Array::all_invalid(&self) -> vortex_error::VortexResult<bool>
 
