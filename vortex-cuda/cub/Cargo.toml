@@ -5,6 +5,7 @@
 name = "vortex-cub"
 authors.workspace = true
 description = "Rust bindings to NVIDIA CUB library for Vortex GPU operations"
+publish = false
 edition = { workspace = true }
 homepage = { workspace = true }
 categories = { workspace = true }

@@ -56,7 +56,7 @@ members = [
     "benchmarks/datafusion-bench",
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
-    "vortex-sqllogictest",
+    "vortex-sqllogictest", "lockfiles",
 ]
 exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"

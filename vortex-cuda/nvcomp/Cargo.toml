@@ -2,6 +2,7 @@
 name = "vortex-nvcomp"
 authors.workspace = true
 description = "Rust bindings to NVIDIA nvCOMP compression library"
+publish = false
 edition = { workspace = true }
 homepage = { workspace = true }
 categories = { workspace = true }

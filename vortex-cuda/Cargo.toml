@@ -2,6 +2,7 @@
 name = "vortex-cuda"
 authors.workspace = true
 description = "CUDA compute for Vortex"
+publish = false
 edition = { workspace = true }
 homepage = { workspace = true }
 categories = { workspace = true }
