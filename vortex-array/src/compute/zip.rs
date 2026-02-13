@@ -15,11 +15,11 @@ use vortex_mask::Mask;
 use super::ComputeFnVTable;
 use super::InvocationArgs;
 use super::Output;
-use super::cast;
 use crate::Array;
 use crate::ArrayRef;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::ComputeFn;
 use crate::compute::Kernel;
 use crate::vtable::VTable;
@@ -64,11 +64,17 @@ impl ComputeFnVTable for Zip {
         } = ZipArgs::try_from(args)?;
 
         if mask.all_true() {
-            return Ok(cast(if_true, &zip_return_dtype(if_true, if_false))?.into());
+            return Ok(if_true
+                .to_array()
+                .cast(zip_return_dtype(if_true, if_false))?
+                .into());
         }
 
         if mask.all_false() {
-            return Ok(cast(if_false, &zip_return_dtype(if_true, if_false))?.into());
+            return Ok(if_false
+                .to_array()
+                .cast(zip_return_dtype(if_true, if_false))?
+                .into());
         }
 
         // check if if_true supports zip directly

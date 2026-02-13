@@ -5,25 +5,28 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
-use crate::compute::CastKernel;
-use crate::compute::CastKernelAdapter;
-use crate::compute::cast;
-use crate::register_kernel;
+use crate::builtins::ArrayBuiltins;
+use crate::compute::CastReduce;
 use crate::vtable::ValidityHelper;
 
 /// Cast implementation for [`FixedSizeListArray`].
 ///
 /// Recursively casts the inner elements array to the target element type while preserving the list
 /// structure.
-impl CastKernel for FixedSizeListVTable {
-    fn cast(&self, array: &FixedSizeListArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for FixedSizeListVTable {
+    fn cast(array: &FixedSizeListArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let Some(target_element_type) = dtype.as_fixed_size_list_element_opt() else {
             return Ok(None);
         };
 
-        let elements = cast(array.elements(), target_element_type)?;
+        let elements = array
+            .elements()
+            .cast((**target_element_type).clone())?
+            .to_canonical()?
+            .into_array();
         let validity = array
             .validity()
             .clone()
@@ -44,5 +47,3 @@ impl CastKernel for FixedSizeListVTable {
         ))
     }
 }
-
-register_kernel!(CastKernelAdapter(FixedSizeListVTable).lift());

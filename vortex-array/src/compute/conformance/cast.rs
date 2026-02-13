@@ -5,13 +5,21 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
 use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::MinMaxResult;
-use crate::compute::cast;
 use crate::compute::min_max;
+
+/// Cast and force execution via `to_canonical`, returning the canonical array.
+fn cast_and_execute(array: &ArrayRef, dtype: DType) -> VortexResult<ArrayRef> {
+    array.cast(dtype)?.to_canonical().map(|c| c.into_array())
+}
 
 /// Test conformance of the cast compute function for an array.
 ///
@@ -51,8 +59,8 @@ pub fn test_cast_conformance(array: &dyn Array) {
 
 fn test_cast_identity(array: &dyn Array) {
     // Casting to the same type should be a no-op
-    let result =
-        cast(array, array.dtype()).vortex_expect("cast should succeed in conformance test");
+    let result = cast_and_execute(&array.to_array(), array.dtype().clone())
+        .vortex_expect("cast should succeed in conformance test");
     assert_eq!(result.len(), array.len());
     assert_eq!(result.dtype(), array.dtype());
 
@@ -71,7 +79,8 @@ fn test_cast_identity(array: &dyn Array) {
 
 fn test_cast_from_null(array: &dyn Array) {
     // Null can be cast to itself
-    let result = cast(array, &DType::Null).vortex_expect("cast should succeed in conformance test");
+    let result = cast_and_execute(&array.to_array(), DType::Null)
+        .vortex_expect("cast should succeed in conformance test");
     assert_eq!(result.len(), array.len());
     assert_eq!(result.dtype(), &DType::Null);
 
@@ -85,7 +94,8 @@ fn test_cast_from_null(array: &dyn Array) {
     ];
 
     for dtype in nullable_types {
-        let result = cast(array, &dtype).vortex_expect("cast should succeed in conformance test");
+        let result = cast_and_execute(&array.to_array(), dtype.clone())
+            .vortex_expect("cast should succeed in conformance test");
         assert_eq!(result.len(), array.len());
         assert_eq!(result.dtype(), &dtype);
 
@@ -107,7 +117,7 @@ fn test_cast_from_null(array: &dyn Array) {
     ];
 
     for dtype in non_nullable_types {
-        assert!(cast(array, &dtype).is_err());
+        assert!(cast_and_execute(&array.to_array(), dtype.clone()).is_err());
     }
 }
 
@@ -117,7 +127,7 @@ fn test_cast_to_non_nullable(array: &dyn Array) {
         .vortex_expect("invalid_count should succeed in conformance test")
         == 0
     {
-        let non_nullable = cast(array, &array.dtype().as_nonnullable())
+        let non_nullable = cast_and_execute(&array.to_array(), array.dtype().as_nonnullable())
             .vortex_expect("arrays without nulls can cast to non-nullable");
         assert_eq!(non_nullable.dtype(), &array.dtype().as_nonnullable());
         assert_eq!(non_nullable.len(), array.len());
@@ -133,7 +143,7 @@ fn test_cast_to_non_nullable(array: &dyn Array) {
             );
         }
 
-        let back_to_nullable = cast(&non_nullable, array.dtype())
+        let back_to_nullable = cast_and_execute(&non_nullable, array.dtype().clone())
             .vortex_expect("non-nullable arrays can cast to nullable");
         assert_eq!(back_to_nullable.dtype(), array.dtype());
         assert_eq!(back_to_nullable.len(), array.len());
@@ -154,7 +164,7 @@ fn test_cast_to_non_nullable(array: &dyn Array) {
             // array can be casted to DType::Null.
             return;
         }
-        cast(array, &array.dtype().as_nonnullable())
+        cast_and_execute(&array.to_array(), array.dtype().as_nonnullable())
             .err()
             .unwrap_or_else(|| {
                 vortex_panic!(
@@ -166,7 +176,7 @@ fn test_cast_to_non_nullable(array: &dyn Array) {
 }
 
 fn test_cast_to_nullable(array: &dyn Array) {
-    let nullable = cast(array, &array.dtype().as_nullable())
+    let nullable = cast_and_execute(&array.to_array(), array.dtype().as_nullable())
         .vortex_expect("arrays without nulls can cast to nullable");
     assert_eq!(nullable.dtype(), &array.dtype().as_nullable());
     assert_eq!(nullable.len(), array.len());
@@ -182,7 +192,7 @@ fn test_cast_to_nullable(array: &dyn Array) {
         );
     }
 
-    let back = cast(&nullable, array.dtype())
+    let back = cast_and_execute(&nullable, array.dtype().clone())
         .vortex_expect("casting to nullable and back should be a no-op");
     assert_eq!(back.dtype(), array.dtype());
     assert_eq!(back.len(), array.len());
@@ -236,9 +246,9 @@ fn test_cast_to_primitive(array: &dyn Array, target_ptype: PType, test_round_tri
     if let Some(MinMaxResult { min, max }) = maybe_min_max
         && (!fits(&min, target_ptype) || !fits(&max, target_ptype))
     {
-        cast(
-            array,
-            &DType::Primitive(target_ptype, array.dtype().nullability()),
+        cast_and_execute(
+            &array.to_array(),
+            DType::Primitive(target_ptype, array.dtype().nullability()),
         )
         .err()
         .unwrap_or_else(|| {
@@ -255,9 +265,9 @@ fn test_cast_to_primitive(array: &dyn Array, target_ptype: PType, test_round_tri
     }
 
     // Otherwise, all values must fit.
-    let casted = cast(
-        array,
-        &DType::Primitive(target_ptype, array.dtype().nullability()),
+    let casted = cast_and_execute(
+        &array.to_array(),
+        DType::Primitive(target_ptype, array.dtype().nullability()),
     )
     .unwrap_or_else(|e| {
         vortex_panic!(

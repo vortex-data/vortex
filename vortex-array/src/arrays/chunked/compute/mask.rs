@@ -24,7 +24,6 @@ use crate::arrays::chunked::compute::filter::FILTER_SLICES_SELECTIVITY_THRESHOLD
 use crate::builtins::ArrayBuiltins;
 use crate::compute::MaskKernel;
 use crate::compute::MaskKernelAdapter;
-use crate::compute::cast;
 use crate::compute::mask;
 use crate::register_kernel;
 use crate::validity::Validity;
@@ -109,7 +108,7 @@ fn mask_indices(
 
     while current_chunk_id < array.nchunks() {
         let chunk = array.chunk(current_chunk_id);
-        new_chunks.push(cast(chunk, new_dtype)?);
+        new_chunks.push(chunk.cast(new_dtype.clone())?);
         current_chunk_id += 1;
     }
 
@@ -138,7 +137,7 @@ fn mask_slices(
                 }
                 ChunkFilter::None => {
                     // entire chunk is not affected by mask
-                    cast(chunk, new_dtype)
+                    chunk.cast(new_dtype.clone())
                 }
                 ChunkFilter::Slices(slices) => {
                     // Slices of indices that must be set to null

@@ -5,21 +5,14 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::compute::FillNullReduce;
-use crate::compute::cast;
+use crate::expr::fill_null_constant;
 
 impl FillNullReduce for ConstantVTable {
     fn fill_null(array: &ConstantArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
-        if array.scalar().is_null() {
-            Ok(Some(
-                ConstantArray::new(fill_value.clone(), array.len()).into_array(),
-            ))
-        } else {
-            cast(array.as_ref(), fill_value.dtype()).map(Some)
-        }
+        fill_null_constant(array, fill_value).map(Some)
     }
 }
 

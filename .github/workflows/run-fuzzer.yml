@@ -92,21 +92,8 @@ jobs:
           CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
           CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
 
-          # Try to get ETag for optimistic locking on upload
-          if aws s3api head-object --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --query ETag --output text > current_etag 2>/dev/null; then
-            echo "Found existing corpus at s3://vortex-fuzz-corpus/$CORPUS_KEY"
-          else
-            echo ""
-            echo "=========================================="
-            echo "WARNING: No existing corpus found for ${{ inputs.fuzz_target }}"
-            echo "This is expected for new fuzzers. Starting with empty corpus."
-            echo "=========================================="
-            echo ""
-            echo '""' > current_etag
-          fi
-
           # Try to download corpus
-          if aws s3 cp "s3://vortex-fuzz-corpus/$CORPUS_KEY" . 2>/dev/null; then
+          if python3 scripts/s3-download.py "s3://vortex-fuzz-corpus/$CORPUS_KEY" "$CORPUS_KEY"; then
             echo "Downloaded corpus successfully"
             tar -xf "$CORPUS_KEY"
           else
@@ -183,14 +170,7 @@ jobs:
 
           tar -acf "$CORPUS_KEY" "$CORPUS_DIR"
 
-          ETAG=$(cat current_etag)
-          if [ "$ETAG" = '""' ] || [ -z "$ETAG" ]; then
-            # New corpus, no ETag check needed
-            aws s3api put-object --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --body "$CORPUS_KEY" --checksum-algorithm CRC32
-          else
-            # Existing corpus, use optimistic locking
-            aws s3api put-object --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --body "$CORPUS_KEY" --checksum-algorithm CRC32 --if-match "$ETAG"
-          fi
+          python3 scripts/s3-upload.py --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --body "$CORPUS_KEY" --checksum-algorithm CRC32 --optimistic-lock
 
       - name: Fail job if fuzz run found a bug
         if: steps.check.outputs.crashes_found == 'true'

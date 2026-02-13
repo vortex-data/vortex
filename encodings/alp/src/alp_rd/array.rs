@@ -45,6 +45,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::alp_rd::kernel::PARENT_KERNELS;
+use crate::alp_rd::rules::RULES;
 use crate::alp_rd_decode;
 
 vtable!(ALPRD);
@@ -264,6 +265,14 @@ impl VTable for ALPRDVTable {
         Ok(decoded_array.into_array())
     }
 
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
+    }
+
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
@@ -338,7 +347,12 @@ impl ALPRDArray {
                     vortex_bail!("patches must be all valid: {}", patches.values());
                 }
                 // TODO(ngates): assert the DType, don't cast it.
-                patches.cast_values(left_parts.dtype())
+                // TODO(joe): assert the DType, don't cast it in the next PR.
+                let mut patches = patches.cast_values(left_parts.dtype())?;
+                // Force execution of the lazy cast so patch values are materialized
+                // before serialization.
+                *patches.values_mut() = patches.values().to_canonical()?.into_array();
+                Ok(patches)
             })
             .transpose()?;
 

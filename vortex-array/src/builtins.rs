@@ -103,6 +103,9 @@ pub trait ArrayBuiltins: Sized {
 
 impl ArrayBuiltins for ArrayRef {
     fn cast(&self, dtype: DType) -> VortexResult<ArrayRef> {
+        if self.dtype() == &dtype {
+            return Ok(self.clone());
+        }
         Cast.try_new_array(self.len(), dtype, [self.clone()])?
             .optimize()
     }

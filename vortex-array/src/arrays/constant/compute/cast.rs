@@ -8,20 +8,16 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
-use crate::compute::CastKernel;
-use crate::compute::CastKernelAdapter;
-use crate::register_kernel;
+use crate::compute::CastReduce;
 
-impl CastKernel for ConstantVTable {
-    fn cast(&self, array: &ConstantArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for ConstantVTable {
+    fn cast(array: &ConstantArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         match array.scalar().cast(dtype) {
             Ok(scalar) => Ok(Some(ConstantArray::new(scalar, array.len()).into_array())),
             Err(_e) => Ok(None),
         }
     }
 }
-
-register_kernel!(CastKernelAdapter(ConstantVTable).lift());
 
 #[cfg(test)]
 mod tests {
