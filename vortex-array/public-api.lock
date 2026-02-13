@@ -369,17 +369,17 @@ pub fn vortex_array::arrays::ConstantVTable::scalar_at(array: &vortex_array::arr
 impl vortex_array::vtable::VTable for vortex_array::arrays::ConstantVTable
 pub type vortex_array::arrays::ConstantVTable::Array = vortex_array::arrays::ConstantArray
 pub type vortex_array::arrays::ConstantVTable::ArrayVTable = vortex_array::arrays::ConstantVTable
-pub type vortex_array::arrays::ConstantVTable::Metadata = core::option::Option<vortex_scalar::scalar::Scalar>
+pub type vortex_array::arrays::ConstantVTable::Metadata = vortex_array::EmptyMetadata
 pub type vortex_array::arrays::ConstantVTable::OperationsVTable = vortex_array::arrays::ConstantVTable
 pub type vortex_array::arrays::ConstantVTable::ValidityVTable = vortex_array::arrays::ConstantVTable
 pub type vortex_array::arrays::ConstantVTable::VisitorVTable = vortex_array::arrays::ConstantVTable
-pub fn vortex_array::arrays::ConstantVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::ConstantArray>
-pub fn vortex_array::arrays::ConstantVTable::deserialize(bytes: &[u8], dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::arrays::ConstantVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::ConstantArray>
+pub fn vortex_array::arrays::ConstantVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ConstantVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 pub fn vortex_array::arrays::ConstantVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
-pub fn vortex_array::arrays::ConstantVTable::metadata(array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::arrays::ConstantVTable::metadata(_array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ConstantVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-pub fn vortex_array::arrays::ConstantVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::arrays::ConstantVTable::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 pub fn vortex_array::arrays::ConstantVTable::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::ConstantVTable> for vortex_array::arrays::ConstantVTable
 pub fn vortex_array::arrays::ConstantVTable::validity(array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
@@ -5660,17 +5660,17 @@ pub fn vortex_array::arrays::ChunkedVTable::with_children(array: &mut Self::Arra
 impl vortex_array::vtable::VTable for vortex_array::arrays::ConstantVTable
 pub type vortex_array::arrays::ConstantVTable::Array = vortex_array::arrays::ConstantArray
 pub type vortex_array::arrays::ConstantVTable::ArrayVTable = vortex_array::arrays::ConstantVTable
-pub type vortex_array::arrays::ConstantVTable::Metadata = core::option::Option<vortex_scalar::scalar::Scalar>
+pub type vortex_array::arrays::ConstantVTable::Metadata = vortex_array::EmptyMetadata
 pub type vortex_array::arrays::ConstantVTable::OperationsVTable = vortex_array::arrays::ConstantVTable
 pub type vortex_array::arrays::ConstantVTable::ValidityVTable = vortex_array::arrays::ConstantVTable
 pub type vortex_array::arrays::ConstantVTable::VisitorVTable = vortex_array::arrays::ConstantVTable
-pub fn vortex_array::arrays::ConstantVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::ConstantArray>
-pub fn vortex_array::arrays::ConstantVTable::deserialize(bytes: &[u8], dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::arrays::ConstantVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::ConstantArray>
+pub fn vortex_array::arrays::ConstantVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ConstantVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 pub fn vortex_array::arrays::ConstantVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
-pub fn vortex_array::arrays::ConstantVTable::metadata(array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::arrays::ConstantVTable::metadata(_array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ConstantVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-pub fn vortex_array::arrays::ConstantVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::arrays::ConstantVTable::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 pub fn vortex_array::arrays::ConstantVTable::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 impl vortex_array::vtable::VTable for vortex_array::arrays::DecimalVTable
 pub type vortex_array::arrays::DecimalVTable::Array = vortex_array::arrays::DecimalArray
