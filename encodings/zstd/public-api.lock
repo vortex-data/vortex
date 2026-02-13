@@ -81,8 +81,8 @@ impl core::fmt::Debug for vortex_zstd::ZstdVTable
 pub fn vortex_zstd::ZstdVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl vortex_array::arrays::slice::SliceReduce for vortex_zstd::ZstdVTable
 pub fn vortex_zstd::ZstdVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-impl vortex_array::compute::cast::CastKernel for vortex_zstd::ZstdVTable
-pub fn vortex_zstd::ZstdVTable::cast(&self, array: &vortex_zstd::ZstdArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+impl vortex_array::compute::cast::CastReduce for vortex_zstd::ZstdVTable
+pub fn vortex_zstd::ZstdVTable::cast(array: &vortex_zstd::ZstdArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::vtable::VTable for vortex_zstd::ZstdVTable
 pub type vortex_zstd::ZstdVTable::Array = vortex_zstd::ZstdArray
 pub type vortex_zstd::ZstdVTable::ArrayVTable = vortex_zstd::ZstdVTable

@@ -8,8 +8,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
+use vortex_array::compute::CastReduce;
 use vortex_array::compute::MaskKernel;
 use vortex_array::compute::MaskKernelAdapter;
 use vortex_array::register_kernel;
@@ -22,8 +21,8 @@ use vortex_mask::Mask;
 use super::ByteBoolArray;
 use super::ByteBoolVTable;
 
-impl CastKernel for ByteBoolVTable {
-    fn cast(&self, array: &ByteBoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for ByteBoolVTable {
+    fn cast(array: &ByteBoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // ByteBool is essentially a bool array stored as bytes
         // The main difference from BoolArray is the storage format
         // For casting, we can decode to canonical (BoolArray) and let it handle the cast
@@ -44,8 +43,6 @@ impl CastKernel for ByteBoolVTable {
         Ok(None)
     }
 }
-
-register_kernel!(CastKernelAdapter(ByteBoolVTable).lift());
 
 impl MaskKernel for ByteBoolVTable {
     fn mask(&self, array: &ByteBoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -88,11 +85,16 @@ impl TakeExecute for ByteBoolVTable {
 mod tests {
     use rstest::rstest;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
+    use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
     use super::*;
 
@@ -166,16 +168,13 @@ mod tests {
         test_take_conformance(array.as_ref());
     }
 
-    use vortex_array::compute::cast;
-    use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-
     #[test]
     fn test_cast_bytebool_to_nullable() {
         let array = ByteBoolArray::from(vec![true, false, true, false]);
-        let casted = cast(array.as_ref(), &DType::Bool(Nullability::Nullable)).unwrap();
+        let casted = array
+            .to_array()
+            .cast(DType::Bool(Nullability::Nullable))
+            .unwrap();
         assert_eq!(casted.dtype(), &DType::Bool(Nullability::Nullable));
         assert_eq!(casted.len(), 4);
     }

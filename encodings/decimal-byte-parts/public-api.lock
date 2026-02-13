@@ -31,8 +31,8 @@ impl vortex_array::arrays::filter::kernel::FilterReduce for vortex_decimal_byte_
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::filter(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::arrays::slice::SliceReduce for vortex_decimal_byte_parts::DecimalBytePartsVTable
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::slice(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-impl vortex_array::compute::cast::CastKernel for vortex_decimal_byte_parts::DecimalBytePartsVTable
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::cast(&self, array: &vortex_decimal_byte_parts::DecimalBytePartsArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+impl vortex_array::compute::cast::CastReduce for vortex_decimal_byte_parts::DecimalBytePartsVTable
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::cast(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::compute::compare::CompareKernel for vortex_decimal_byte_parts::DecimalBytePartsVTable
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::compare(&self, lhs: &Self::Array, rhs: &dyn vortex_array::array::Array, operator: vortex_array::compute::compare::Operator) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::compute::is_constant::IsConstantKernel for vortex_decimal_byte_parts::DecimalBytePartsVTable

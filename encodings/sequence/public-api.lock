@@ -38,8 +38,8 @@ impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_sequence::Seq
 pub fn vortex_sequence::SequenceVTable::filter(array: &vortex_sequence::SequenceArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::arrays::slice::SliceReduce for vortex_sequence::SequenceVTable
 pub fn vortex_sequence::SequenceVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-impl vortex_array::compute::cast::CastKernel for vortex_sequence::SequenceVTable
-pub fn vortex_sequence::SequenceVTable::cast(&self, array: &vortex_sequence::SequenceArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+impl vortex_array::compute::cast::CastReduce for vortex_sequence::SequenceVTable
+pub fn vortex_sequence::SequenceVTable::cast(array: &vortex_sequence::SequenceArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::compute::compare::CompareKernel for vortex_sequence::SequenceVTable
 pub fn vortex_sequence::SequenceVTable::compare(&self, lhs: &vortex_sequence::SequenceArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::compute::compare::Operator) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::compute::is_sorted::IsSortedKernel for vortex_sequence::SequenceVTable

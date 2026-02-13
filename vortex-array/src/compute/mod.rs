@@ -83,7 +83,6 @@ pub struct ComputeFn {
 pub fn warm_up_vtables() {
     #[allow(unused_qualifications)]
     between::warm_up_vtable();
-    cast::warm_up_vtable();
     compare::warm_up_vtable();
     is_constant::warm_up_vtable();
     is_sorted::warm_up_vtable();
@@ -92,7 +91,6 @@ pub fn warm_up_vtables() {
     mask::warm_up_vtable();
     min_max::warm_up_vtable();
     nan_count::warm_up_vtable();
-    numeric::warm_up_vtable();
     sum::warm_up_vtable();
 }
 
