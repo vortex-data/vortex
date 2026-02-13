@@ -11,7 +11,6 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::ArrayVisitor;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
@@ -135,22 +134,19 @@ impl ReduceNode for ArrayRef {
     }
 
     fn node_dtype(&self) -> VortexResult<DType> {
-        Ok(self.as_ref().dtype().clone())
+        self.as_ref().node_dtype()
     }
 
     fn scalar_fn(&self) -> Option<&ScalarFn> {
-        self.as_opt::<ScalarFnVTable>().map(|a| a.scalar_fn())
+        self.as_ref().scalar_fn()
     }
 
     fn child(&self, idx: usize) -> ReduceNodeRef {
-        Arc::new(
-            self.nth_child(idx)
-                .vortex_expect("child index out of bounds"),
-        )
+        self.as_ref().child(idx)
     }
 
     fn child_count(&self) -> usize {
-        self.nchildren()
+        self.as_ref().child_count()
     }
 }
 

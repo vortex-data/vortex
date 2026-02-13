@@ -39,12 +39,16 @@ use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
 use crate::arrays::NullVTable;
 use crate::arrays::PrimitiveVTable;
+use crate::arrays::ScalarFnVTable;
 use crate::arrays::SliceArray;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::compute;
+use crate::expr::ReduceNode;
+use crate::expr::ReduceNodeRef;
+use crate::expr::ScalarFn;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
@@ -64,7 +68,15 @@ use crate::vtable::VisitorVTable;
 
 /// The public API trait for all Vortex arrays.
 pub trait Array:
-    'static + private::Sealed + Send + Sync + Debug + DynArrayEq + DynArrayHash + ArrayVisitor
+    'static
+    + private::Sealed
+    + Send
+    + Sync
+    + Debug
+    + DynArrayEq
+    + DynArrayHash
+    + ArrayVisitor
+    + ReduceNode
 {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
@@ -159,7 +171,7 @@ pub trait Array:
 impl Array for Arc<dyn Array> {
     #[inline]
     fn as_any(&self) -> &dyn Any {
-        self.as_ref().as_any()
+        Array::as_any(self.as_ref())
     }
 
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
@@ -383,6 +395,29 @@ impl<V: VTable> ArrayAdapter<V> {
 impl<V: VTable> Debug for ArrayAdapter<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+impl<V: VTable> ReduceNode for ArrayAdapter<V> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn node_dtype(&self) -> VortexResult<DType> {
+        Ok(<V::ArrayVTable as BaseArrayVTable<V>>::dtype(&self.0).clone())
+    }
+
+    fn scalar_fn(&self) -> Option<&ScalarFn> {
+        self.0.as_opt::<ScalarFnVTable>().map(|a| a.scalar_fn())
+    }
+
+    fn child(&self, idx: usize) -> ReduceNodeRef {
+        self.nth_child(idx)
+            .unwrap_or_else(|| vortex_panic!("Child index out of bounds: {}", idx))
+    }
+
+    fn child_count(&self) -> usize {
+        self.nchildren()
     }
 }
 
@@ -779,12 +814,11 @@ impl<V: VTable> Matcher for V {
     type Match<'a> = &'a V::Array;
 
     fn matches(array: &dyn Array) -> bool {
-        array.as_any().is::<ArrayAdapter<V>>()
+        Array::as_any(array).is::<ArrayAdapter<V>>()
     }
 
     fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
-        array
-            .as_any()
+        Array::as_any(array)
             .downcast_ref::<ArrayAdapter<V>>()
             .map(|array_adapter| &array_adapter.0)
     }
