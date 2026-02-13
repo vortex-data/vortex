@@ -157,7 +157,9 @@ fn fill_null_canonical(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     if let Some(result) = precondition(canonical.as_ref(), fill_value)? {
-        return Ok(result);
+        // The result of precondition may return another ScalarFn, in which case we should
+        // apply it immediately.
+        return result.execute::<ArrayRef>(ctx);
     }
     match canonical {
         CanonicalView::Bool(a) => <BoolVTable as FillNullKernel>::fill_null(a, fill_value, ctx)?
