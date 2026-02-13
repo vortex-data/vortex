@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 // https://github.com/rust-lang/cargo/pull/11645#issuecomment-1536905941
-#![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
+// Commented out for Bazel compatibility - CARGO_PKG_README not available in Bazel sandbox
+// #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
 // vortex::compute is deprecated and will be ported over to expressions.
 pub use vortex_array::compute;
