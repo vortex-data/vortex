@@ -7,6 +7,7 @@
 use std::clone::Clone;
 use std::fmt::Display;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 use anyhow::bail;
@@ -243,6 +244,9 @@ impl CompactionStrategy {
             CompactionStrategy::CudaCompatible => options.with_strategy(
                 WriteStrategyBuilder::default()
                     .with_cuda_compatible_encodings()
+                    .with_flat_strategy(Arc::new(
+                        vortex_cuda::layout::CudaFlatLayoutStrategy::default(),
+                    ))
                     .build(),
             ),
             CompactionStrategy::Default => options,
