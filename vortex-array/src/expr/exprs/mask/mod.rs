@@ -18,7 +18,10 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::arrays::mask_validity_canonical;
+use crate::builtins::ArrayBuiltins;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -97,13 +100,11 @@ impl VTable for Mask {
             .try_into()
             .map_err(|_| vortex_err!("Wrong arg count"))?;
 
-        // Execute mask child to BoolArray (true=keep, false=null-out).
-        let mask_bool = mask_array.execute::<BoolArray>(args.ctx)?;
-        let validity_mask = vortex_mask::Mask::from(mask_bool.to_bit_buffer());
+        if let Some(result) = execute_constant(&input, &mask_array)? {
+            return Ok(result);
+        }
 
-        // Execute input to canonical and apply the validity mask.
-        let canonical = input.execute::<Canonical>(args.ctx)?;
-        Ok(mask_validity_canonical(canonical, &validity_mask, args.ctx)?.into_array())
+        execute_canonical(input, mask_array, args.ctx)
     }
 
     fn simplify(
@@ -141,6 +142,52 @@ impl VTable for Mask {
             expression.child(1).clone(),
         )))
     }
+}
+
+/// Handle masking when at least one of the input or mask is a constant array.
+fn execute_constant(
+    input: ArrayRef,
+    mask_array: ArrayRef,
+    ctx: &mut crate::executor::ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let len = input.len();
+
+    // Constant mask: avoid materializing the bool array entirely.
+    if let Some(constant_mask) = mask_array.as_opt::<ConstantVTable>() {
+        let mask_value = constant_mask.scalar().as_bool().value().unwrap_or(false);
+        return if mask_value {
+            // Mask is all true (keep everything), just cast input to nullable.
+            input.cast(input.dtype().as_nullable())
+        } else {
+            // Mask is all false (mask everything out), return all nulls.
+            Ok(ConstantArray::new(Scalar::null(input.dtype().as_nullable()), len).into_array())
+        };
+    }
+
+    // Constant input: avoid executing to canonical when input is all-null.
+    if let Some(constant_input) = input.as_opt::<ConstantVTable>()
+        && constant_input.scalar().is_null()
+    {
+        return Ok(
+            ConstantArray::new(Scalar::null(input.dtype().as_nullable()), len).into_array(),
+        );
+    }
+
+    // Non-null constant input with variable mask: fall through to canonical path.
+    execute_canonical(input, mask_array, ctx)
+}
+
+/// Execute the mask by materializing both inputs to their canonical forms.
+fn execute_canonical(
+    input: ArrayRef,
+    mask_array: ArrayRef,
+    ctx: &mut crate::executor::ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let mask_bool = mask_array.execute::<BoolArray>(ctx)?;
+    let validity_mask = vortex_mask::Mask::from(mask_bool.to_bit_buffer());
+
+    let canonical = input.execute::<Canonical>(ctx)?;
+    Ok(mask_validity_canonical(canonical, &validity_mask, ctx)?.into_array())
 }
 
 /// Creates a mask expression that applies the given boolean mask to the input array.
