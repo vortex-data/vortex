@@ -16,13 +16,12 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use vortex_array::buffer::BufferHandle;
-use vortex_buffer::Alignment;
-use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::CoalesceConfig;
-use crate::VortexReadAt;
+use crate::ReadInto;
+use crate::WriteTarget;
+use crate::read_at::AllocatingReader;
 use crate::runtime::Handle;
 
 /// Read exactly `buffer.len()` bytes from `file` starting at `offset`.
@@ -64,36 +63,21 @@ const COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
 /// Default number of concurrent requests to allow for local file I/O.
 pub const DEFAULT_CONCURRENCY: usize = 32;
 
-/// An adapter type wrapping a [`File`] to implement [`VortexReadAt`].
-pub struct FileReadAt {
-    uri: Arc<str>,
+/// Low-level file reader that implements [`ReadInto`].
+pub struct FileReader {
     file: Arc<File>,
     handle: Handle,
 }
 
-impl FileReadAt {
+impl FileReader {
     /// Open a file for reading.
     pub fn open(path: impl AsRef<Path>, handle: Handle) -> VortexResult<Self> {
-        let path = path.as_ref();
-        let uri = path.to_string_lossy().to_string().into();
-        let file = Arc::new(File::open(path)?);
-        Ok(Self { uri, file, handle })
+        let file = Arc::new(File::open(path.as_ref())?);
+        Ok(Self { file, handle })
     }
 }
 
-impl VortexReadAt for FileReadAt {
-    fn uri(&self) -> Option<&Arc<str>> {
-        Some(&self.uri)
-    }
-
-    fn coalesce_config(&self) -> Option<CoalesceConfig> {
-        Some(COALESCING_CONFIG)
-    }
-
-    fn concurrency(&self) -> usize {
-        DEFAULT_CONCURRENCY
-    }
-
+impl ReadInto for FileReader {
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
         let file = self.file.clone();
         async move {
@@ -103,24 +87,40 @@ impl VortexReadAt for FileReadAt {
         .boxed()
     }
 
-    fn read_at(
+    fn read_into(
         &self,
+        mut target: Box<dyn WriteTarget>,
         offset: u64,
-        length: usize,
-        alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+    ) -> BoxFuture<'static, VortexResult<Box<dyn WriteTarget>>> {
         let file = self.file.clone();
         let handle = self.handle.clone();
         async move {
             handle
                 .spawn_blocking(move || {
-                    let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
-                    unsafe { buffer.set_len(length) };
-                    read_exact_at(&file, &mut buffer, offset)?;
-                    Ok(BufferHandle::new_host(buffer.freeze()))
+                    read_exact_at(&file, target.as_mut_slice(), offset)?;
+                    Ok(target)
                 })
                 .await
         }
         .boxed()
+    }
+}
+
+/// An adapter type wrapping a [`File`] to implement [`VortexReadAt`](crate::VortexReadAt).
+///
+/// This is a convenience alias for [`AllocatingReader<FileReader>`] using the default allocator.
+pub type FileReadAt = AllocatingReader<FileReader>;
+
+impl FileReadAt {
+    /// Open a file for reading with the default allocator.
+    pub fn open(path: impl AsRef<Path>, handle: Handle) -> VortexResult<Self> {
+        let path = path.as_ref();
+        let uri: Arc<str> = path.to_string_lossy().to_string().into();
+        let reader = FileReader::open(path, handle)?;
+        Ok(
+            AllocatingReader::with_default_allocator(reader, DEFAULT_CONCURRENCY)
+                .with_uri(uri)
+                .with_coalesce_config(COALESCING_CONFIG),
+        )
     }
 }

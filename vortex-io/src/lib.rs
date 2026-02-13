@@ -10,11 +10,14 @@
 //! This crate provides core traits for positioned and streaming IO, and via feature
 //! flags implements the core traits for several common async runtimes and backing stores.
 
+pub use allocator::*;
 pub use io_buf::*;
 pub use limit::*;
 pub use read_at::*;
 pub use write::*;
+pub use write_target::*;
 
+mod allocator;
 pub mod compat;
 pub mod filesystem;
 mod io_buf;
@@ -30,3 +33,4 @@ pub mod std_file;
 #[cfg(feature = "tokio")]
 mod tokio;
 mod write;
+mod write_target;

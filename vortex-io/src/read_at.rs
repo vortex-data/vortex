@@ -18,6 +18,10 @@ use vortex_metrics::MetricBuilder;
 use vortex_metrics::MetricsRegistry;
 use vortex_metrics::Timer;
 
+use crate::BufferAllocator;
+use crate::DefaultAllocator;
+use crate::WriteTarget;
+
 /// Configuration for coalescing nearby I/O requests into single operations.
 #[derive(Clone, Copy, Debug)]
 pub struct CoalesceConfig {
@@ -172,6 +176,130 @@ impl VortexReadAt for ByteBuffer {
             Ok(BufferHandle::new_host(
                 buffer.slice_unaligned(start..end).aligned(alignment),
             ))
+        }
+        .boxed()
+    }
+}
+
+/// Low-level trait for reading bytes at an offset into a provided [`WriteTarget`].
+///
+/// This trait decouples "where to read from" (file, object store, etc.) from
+/// "how to allocate the destination buffer" ([`BufferAllocator`]).
+///
+/// Compose a `ReadInto` with a [`BufferAllocator`] via [`AllocatingReader`] to
+/// produce a [`VortexReadAt`]. Source metadata (URI, concurrency, coalesce config)
+/// is configured on [`AllocatingReader`] directly, keeping this trait minimal.
+///
+/// [`WriteTarget`]: crate::WriteTarget
+pub trait ReadInto: Send + Sync + 'static {
+    /// Asynchronously get the number of bytes of the underlying source.
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>>;
+
+    /// Read from `offset` into the provided [`WriteTarget`](crate::WriteTarget).
+    ///
+    /// The target is consumed and returned on success so it can be moved across
+    /// thread boundaries (e.g. into `spawn_blocking`).
+    fn read_into(
+        &self,
+        target: Box<dyn WriteTarget>,
+        offset: u64,
+    ) -> BoxFuture<'static, VortexResult<Box<dyn WriteTarget>>>;
+}
+
+/// Composes a [`ReadInto`] with a [`BufferAllocator`] to produce a [`VortexReadAt`].
+///
+/// On each `read_at` call, the allocator provides a buffer, the reader fills it,
+/// and the buffer is finalized into a [`BufferHandle`].
+///
+/// Source metadata (URI, concurrency, coalesce config) is stored here rather than
+/// on the [`ReadInto`] trait, so that `ReadInto` stays focused on I/O.
+pub struct AllocatingReader<R: ReadInto> {
+    /// The underlying reader.
+    pub reader: R,
+    allocator: Arc<dyn BufferAllocator>,
+    pub(crate) uri: Option<Arc<str>>,
+    pub(crate) coalesce_config: Option<CoalesceConfig>,
+    pub(crate) concurrency: usize,
+}
+
+impl<R: ReadInto> AllocatingReader<R> {
+    /// Create a new allocating reader with the given reader and allocator.
+    pub fn with_allocator(
+        reader: R,
+        allocator: Arc<dyn BufferAllocator>,
+        concurrency: usize,
+    ) -> Self {
+        Self {
+            reader,
+            allocator,
+            uri: None,
+            coalesce_config: None,
+            concurrency,
+        }
+    }
+
+    /// Create a new allocating reader using the [`DefaultAllocator`].
+    pub fn with_default_allocator(reader: R, concurrency: usize) -> Self {
+        Self::with_allocator(reader, Arc::new(DefaultAllocator), concurrency)
+    }
+
+    /// Set the URI for this reader.
+    pub fn with_uri(mut self, uri: Arc<str>) -> Self {
+        self.uri = Some(uri);
+        self
+    }
+
+    /// Set the coalesce config for this reader.
+    pub fn with_coalesce_config(mut self, config: CoalesceConfig) -> Self {
+        self.coalesce_config = Some(config);
+        self
+    }
+
+    /// Set an optional coalesce config for this reader.
+    pub fn with_some_coalesce_config(mut self, config: Option<CoalesceConfig>) -> Self {
+        self.coalesce_config = config;
+        self
+    }
+
+    /// Set the concurrency for this reader.
+    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
+        self.concurrency = concurrency;
+        self
+    }
+}
+
+impl<R: ReadInto> VortexReadAt for AllocatingReader<R> {
+    fn uri(&self) -> Option<&Arc<str>> {
+        self.uri.as_ref()
+    }
+
+    fn coalesce_config(&self) -> Option<CoalesceConfig> {
+        self.coalesce_config
+    }
+
+    fn concurrency(&self) -> usize {
+        self.concurrency
+    }
+
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        self.reader.size()
+    }
+
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let target = match self.allocator.allocate(length, alignment) {
+            Ok(target) => target,
+            Err(e) => return async move { Err(e) }.boxed(),
+        };
+
+        let fut = self.reader.read_into(target, offset);
+        async move {
+            let target = fut.await?;
+            target.into_handle().await
         }
         .boxed()
     }
