@@ -323,6 +323,34 @@ jobs:
         run: |
           cargo hack --no-dev-deps --ignore-private clippy --no-default-features -- -D warnings
 
+  public-api:
+    name: "Public API lock files"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=16
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+      - tag=public-api
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: nightly
+      - name: Install cargo-public-api
+        run: cargo install cargo-public-api --locked
+      - name: Regenerate public API lock files
+        run: bash scripts/public-api.sh
+      - name: Verify lock files are up to date
+        run: |
+          git diff --name-only
+          git diff --exit-code '**/public-api.lock'
+
   rust-coverage:
     name: "Rust tests (coverage) (${{ matrix.suite }})"
     timeout-minutes: 120

@@ -59,6 +59,7 @@ use crate::take::slice::take_scalar;
 #[allow(dead_code, unused_variables, reason = "TODO(connor): Implement this")]
 #[target_feature(enable = "avx2")]
 #[inline]
+#[doc(hidden)]
 pub unsafe fn take_avx2<V: NativePType, I: UnsignedPType>(
     buffer: &[V],
     indices: &[I],

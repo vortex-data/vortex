@@ -8,10 +8,10 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::CompareKernel;
 use vortex_array::compute::CompareKernelAdapter;
 use vortex_array::compute::Operator;
-use vortex_array::compute::and;
+use vortex_array::compute::and_kleene;
 use vortex_array::compute::cast;
 use vortex_array::compute::compare;
-use vortex_array::compute::or;
+use vortex_array::compute::or_kleene;
 use vortex_array::register_kernel;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
@@ -84,7 +84,7 @@ fn compare_eq(
         return Ok(Some(comparison));
     }
 
-    comparison = and(
+    comparison = and_kleene(
         &compare_dtp(lhs.seconds(), ts_parts.seconds, Operator::Eq, nullability)?,
         &comparison,
     )?;
@@ -94,7 +94,7 @@ fn compare_eq(
         return Ok(Some(comparison));
     }
 
-    comparison = and(
+    comparison = and_kleene(
         &compare_dtp(
             lhs.subseconds(),
             ts_parts.subseconds,
@@ -118,7 +118,7 @@ fn compare_ne(
         return Ok(Some(comparison));
     }
 
-    comparison = or(
+    comparison = or_kleene(
         &compare_dtp(
             lhs.seconds(),
             ts_parts.seconds,
@@ -133,7 +133,7 @@ fn compare_ne(
         return Ok(Some(comparison));
     }
 
-    comparison = or(
+    comparison = or_kleene(
         &compare_dtp(
             lhs.subseconds(),
             ts_parts.subseconds,

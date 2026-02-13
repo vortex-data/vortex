@@ -9,6 +9,7 @@ use vortex_dtype::UnsignedPType;
 
 use crate::take::Take;
 
+#[doc(hidden)]
 pub mod avx2;
 pub mod portable;
 

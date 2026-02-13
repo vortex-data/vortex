@@ -240,7 +240,7 @@ fn constant_list_scalar_contains(
         )?
         .fill_null(false_scalar.clone())?;
         if let Some(acc) = result {
-            result = Some(compute::or(&acc, &res)?)
+            result = Some(compute::or_kleene(&acc, &res)?)
         } else {
             result = Some(res);
         }

@@ -32,13 +32,13 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::compute::Operator;
-use crate::compute::and;
+use crate::compute::and_kleene;
 use crate::compute::cast;
 use crate::compute::compare;
 #[expect(deprecated)]
 use crate::compute::invert;
 use crate::compute::mask;
-use crate::compute::or;
+use crate::compute::or_kleene;
 
 /// Tests that filter and take operations produce consistent results.
 ///
@@ -902,11 +902,13 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
     let mask = mask.as_ref();
 
     // Test first De Morgan's law: NOT(A AND B) = (NOT A) OR (NOT B)
-    if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) = (and(array, mask), invert(array), invert(mask)) {
+    if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) =
+        (and_kleene(array, mask), invert(array), invert(mask))
+    {
         let not_a_and_b =
             invert(&a_and_b).vortex_expect("invert should succeed in conformance test");
         let not_a_or_not_b =
-            or(&not_a, &not_b).vortex_expect("or should succeed in conformance test");
+            or_kleene(&not_a, &not_b).vortex_expect("or should succeed in conformance test");
 
         assert_eq!(
             not_a_and_b.len(),
@@ -930,10 +932,12 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
     }
 
     // Test second De Morgan's law: NOT(A OR B) = (NOT A) AND (NOT B)
-    if let (Ok(a_or_b), Ok(not_a), Ok(not_b)) = (or(array, mask), invert(array), invert(mask)) {
+    if let (Ok(a_or_b), Ok(not_a), Ok(not_b)) =
+        (or_kleene(array, mask), invert(array), invert(mask))
+    {
         let not_a_or_b = invert(&a_or_b).vortex_expect("invert should succeed in conformance test");
         let not_a_and_not_b =
-            and(&not_a, &not_b).vortex_expect("and should succeed in conformance test");
+            and_kleene(&not_a, &not_b).vortex_expect("and should succeed in conformance test");
 
         for i in 0..not_a_or_b.len() {
             let left = not_a_or_b
