@@ -295,6 +295,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::release_array;
     use crate::arrow::DeviceArrayExt;
     use crate::arrow::DeviceType;
     use crate::session::CudaSession;
@@ -316,7 +317,7 @@ mod tests {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let device_array = array.export_device_array(&mut ctx).await?;
+        let mut device_array = array.export_device_array(&mut ctx).await?;
 
         assert_eq!(device_array.array.length, expected_len);
         assert_eq!(device_array.array.null_count, 0);
@@ -326,6 +327,7 @@ mod tests {
         assert!(device_array.array.release.is_some());
         assert!(matches!(device_array.device_type, DeviceType::Cuda));
 
+        unsafe { release_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -335,12 +337,13 @@ mod tests {
             .vortex_expect("failed to create execution context");
 
         let array = NullArray::new(7).into_array();
-        let device_array = array.export_device_array(&mut ctx).await?;
+        let mut device_array = array.export_device_array(&mut ctx).await?;
 
         assert_eq!(device_array.array.length, 7);
         assert_eq!(device_array.array.null_count, 7);
         assert!(matches!(device_array.device_type, DeviceType::Cuda));
 
+        unsafe { release_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -350,7 +353,7 @@ mod tests {
             .vortex_expect("failed to create execution context");
 
         let array = DecimalArray::from_iter(0i128..5, DecimalDType::new(38, 2)).into_array();
-        let device_array = array.export_device_array(&mut ctx).await?;
+        let mut device_array = array.export_device_array(&mut ctx).await?;
 
         assert_eq!(device_array.array.length, 5);
         assert_eq!(device_array.array.null_count, 0);
@@ -359,6 +362,7 @@ mod tests {
         assert!(device_array.array.release.is_some());
         assert!(matches!(device_array.device_type, DeviceType::Cuda));
 
+        unsafe { release_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -372,7 +376,7 @@ mod tests {
             TimeUnit::Days,
         )
         .into_array();
-        let device_array = array.export_device_array(&mut ctx).await?;
+        let mut device_array = array.export_device_array(&mut ctx).await?;
 
         assert_eq!(device_array.array.length, 3);
         assert_eq!(device_array.array.null_count, 0);
@@ -381,6 +385,7 @@ mod tests {
         assert!(device_array.array.release.is_some());
         assert!(matches!(device_array.device_type, DeviceType::Cuda));
 
+        unsafe { release_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -395,7 +400,7 @@ mod tests {
             "this is a longer string for out-of-line storage",
         ])
         .into_array();
-        let device_array = array.export_device_array(&mut ctx).await?;
+        let mut device_array = array.export_device_array(&mut ctx).await?;
 
         assert_eq!(device_array.array.length, 3);
         assert_eq!(device_array.array.null_count, 0);
@@ -405,6 +410,7 @@ mod tests {
         assert!(device_array.array.release.is_some());
         assert!(matches!(device_array.device_type, DeviceType::Cuda));
 
+        unsafe { release_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -423,7 +429,7 @@ mod tests {
             Validity::NonNullable,
         )
         .into_array();
-        let device_array = array.export_device_array(&mut ctx).await?;
+        let mut device_array = array.export_device_array(&mut ctx).await?;
 
         assert_eq!(device_array.array.length, 5);
         assert_eq!(device_array.array.null_count, 0);
@@ -433,6 +439,7 @@ mod tests {
         assert!(device_array.array.release.is_some());
         assert!(matches!(device_array.device_type, DeviceType::Cuda));
 
+        unsafe { release_array(&raw mut device_array.array) };
         Ok(())
     }
 }
