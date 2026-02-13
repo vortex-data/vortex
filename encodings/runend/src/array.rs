@@ -219,7 +219,7 @@ impl RunEndArray {
 
         debug_assert!({
             // Run ends must be strictly sorted for binary search to work correctly.
-            let pre_validation = ends.statistics().to_owned().clone();
+            let pre_validation = ends.statistics().to_owned();
 
             let is_sorted = ends
                 .statistics()
