@@ -75,20 +75,6 @@ fn zip_impl_with_builder(
     } else {
         Ok(if_false.to_array())
     }
-    // match mask.slices() {
-    //     AllOr::All => Ok(if_true.to_array()),
-    //     AllOr::None => Ok(if_false.to_array()),
-    //     AllOr::Some(slices) => {
-    //         for (start, end) in slices {
-    //             builder.extend_from_array(&if_false.slice(builder.len()..*start)?);
-    //             builder.extend_from_array(&if_true.slice(*start..*end)?);
-    //         }
-    //         if builder.len() < if_false.len() {
-    //             builder.extend_from_array(&if_false.slice(builder.len()..if_false.len())?);
-    //         }
-    //         Ok(builder.finish())
-    //     }
-    // }
 }
 
 #[cfg(test)]

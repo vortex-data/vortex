@@ -397,7 +397,7 @@ mod tests {
 
             // Should include 15-19 (mapped to 0-4) and 30-34 (mapped to 15-19)
             let expected: Vec<usize> = (0..5).chain(15..20).collect();
-            assert_eq!(collect_indices(row_mask.mask()), &expected);
+            assert_eq!(collect_indices(row_mask.mask()), expected);
         }
 
         #[test]
