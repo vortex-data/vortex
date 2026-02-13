@@ -3,13 +3,8 @@
 
 #include "config.cuh"
 
-template<typename ValueT>
-__device__ void sequence(
-    ValueT *const output,
-    ValueT base,
-    ValueT multiplier,
-    uint64_t len
-) {
+template <typename ValueT>
+__device__ void sequence(ValueT *const output, ValueT base, ValueT multiplier, uint64_t len) {
     const uint64_t worker = blockIdx.x * blockDim.x + threadIdx.x;
 
     const uint64_t startElem = START_ELEM(worker, len);
@@ -20,15 +15,13 @@ __device__ void sequence(
     }
 }
 
-#define GENERATE_KERNEL(ValueT, suffix) \
-extern "C" __global__ void sequence_##suffix( \
-    ValueT *const output, \
-    ValueT base, \
-    ValueT multiplier, \
-    uint64_t len \
-) { \
-    sequence(output, base, multiplier, len); \
-}
+#define GENERATE_KERNEL(ValueT, suffix)                                                                      \
+    extern "C" __global__ void sequence_##suffix(ValueT *const output,                                       \
+                                                 ValueT base,                                                \
+                                                 ValueT multiplier,                                          \
+                                                 uint64_t len) {                                             \
+        sequence(output, base, multiplier, len);                                                             \
+    }
 
 GENERATE_KERNEL(uint8_t, u8);
 GENERATE_KERNEL(uint16_t, u16);

@@ -9,10 +9,10 @@
 constexpr int32_t MAX_INLINED_SIZE = 12;
 
 // a byte buffer holding string data
-typedef uint8_t* Buffer;
+typedef uint8_t *Buffer;
 
 // an i32 offsets buffer
-typedef int32_t* Offsets;
+typedef int32_t *Offsets;
 
 struct InlinedBinaryView {
     int32_t size;

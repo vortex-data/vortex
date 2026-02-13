@@ -19,17 +19,17 @@ constexpr uint32_t MAX_CACHED_RUNS = 512;
 /// is chosen as the binary search runs on a single GPU thread. This is
 /// preferred over `thrust::device` as this would spawn an additional kernel
 /// launch.
-/// See: https://nvidia.github.io/cccl/thrust/api/group__binary__search_1gac85cc9ea00f4bdd8f80ad25fff16741d.html#thrust-upper-bound
+/// See:
+/// https://nvidia.github.io/cccl/thrust/api/group__binary__search_1gac85cc9ea00f4bdd8f80ad25fff16741d.html#thrust-upper-bound
 ///
 /// Returns the index of the first element that is greater than `value`, or
 /// `len` if no such element exists.
-template<typename T>
+template <typename T>
 __device__ inline uint64_t upper_bound(const T *data, uint64_t len, uint64_t value) {
 
     auto it = thrust::upper_bound(thrust::seq, data, data + len, value);
     return it - data;
 }
-
 
 // Decodes run-end encoded data on the GPU.
 //
@@ -58,15 +58,13 @@ __device__ inline uint64_t upper_bound(const T *data, uint64_t len, uint64_t val
 //       fall back to binary search in global memory for each element.
 //
 // TODO(0ax1): Investigate whether there are faster solutions.
-template<typename ValueT, typename EndsT>
-__device__ void runend_decode_kernel(
-    const EndsT *const __restrict ends,
-    uint64_t num_runs,
-    const ValueT *const __restrict values,
-    uint64_t offset,
-    uint64_t output_len,
-    ValueT *const __restrict output
-) {
+template <typename ValueT, typename EndsT>
+__device__ void runend_decode_kernel(const EndsT *const __restrict ends,
+                                     uint64_t num_runs,
+                                     const ValueT *const __restrict values,
+                                     uint64_t offset,
+                                     uint64_t output_len,
+                                     ValueT *const __restrict output) {
     __shared__ EndsT shared_ends[MAX_CACHED_RUNS];
     __shared__ ValueT shared_values[MAX_CACHED_RUNS];
     __shared__ uint64_t block_first_run;
@@ -76,7 +74,8 @@ __device__ void runend_decode_kernel(
     const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * elements_per_block;
     const uint64_t block_end = min(block_start + elements_per_block, output_len);
 
-    if (block_start >= output_len) return;
+    if (block_start >= output_len)
+        return;
 
     // Thread 0 finds the run range for this block.
     if (threadIdx.x == 0) {
@@ -87,7 +86,8 @@ __device__ void runend_decode_kernel(
         uint64_t last_run = upper_bound(ends, num_runs, last_pos);
 
         block_first_run = first_run;
-        block_num_runs = static_cast<uint32_t>(min(last_run - first_run + 1, static_cast<uint64_t>(MAX_CACHED_RUNS)));
+        block_num_runs =
+            static_cast<uint32_t>(min(last_run - first_run + 1, static_cast<uint64_t>(MAX_CACHED_RUNS)));
     }
     __syncthreads();
 
@@ -118,28 +118,28 @@ __device__ void runend_decode_kernel(
         for (uint64_t idx = block_start + threadIdx.x; idx < block_end; idx += blockDim.x) {
             uint64_t pos = idx + offset;
             uint64_t run_idx = upper_bound(ends, num_runs, pos);
-            if (run_idx >= num_runs) run_idx = num_runs - 1;
+            if (run_idx >= num_runs)
+                run_idx = num_runs - 1;
             output[idx] = values[run_idx];
         }
     }
 }
 
-#define GENERATE_RUNEND_KERNEL(value_suffix, ValueType, ends_suffix, EndsType) \
-extern "C" __global__ void runend_##value_suffix##_##ends_suffix( \
-    const EndsType *const __restrict ends, \
-    uint64_t num_runs, \
-    const ValueType *const __restrict values, \
-    uint64_t offset, \
-    uint64_t output_len, \
-    ValueType *const __restrict output \
-) { \
-    runend_decode_kernel<ValueType, EndsType>(ends, num_runs, values, offset, output_len, output); \
-}
+#define GENERATE_RUNEND_KERNEL(value_suffix, ValueType, ends_suffix, EndsType)                               \
+    extern "C" __global__ void runend_##value_suffix##_##ends_suffix(                                        \
+        const EndsType *const __restrict ends,                                                               \
+        uint64_t num_runs,                                                                                   \
+        const ValueType *const __restrict values,                                                            \
+        uint64_t offset,                                                                                     \
+        uint64_t output_len,                                                                                 \
+        ValueType *const __restrict output) {                                                                \
+        runend_decode_kernel<ValueType, EndsType>(ends, num_runs, values, offset, output_len, output);       \
+    }
 
-#define GENERATE_RUNEND_KERNELS_FOR_VALUE(value_suffix, ValueType) \
-    GENERATE_RUNEND_KERNEL(value_suffix, ValueType, u8, uint8_t) \
-    GENERATE_RUNEND_KERNEL(value_suffix, ValueType, u16, uint16_t) \
-    GENERATE_RUNEND_KERNEL(value_suffix, ValueType, u32, uint32_t) \
+#define GENERATE_RUNEND_KERNELS_FOR_VALUE(value_suffix, ValueType)                                           \
+    GENERATE_RUNEND_KERNEL(value_suffix, ValueType, u8, uint8_t)                                             \
+    GENERATE_RUNEND_KERNEL(value_suffix, ValueType, u16, uint16_t)                                           \
+    GENERATE_RUNEND_KERNEL(value_suffix, ValueType, u32, uint32_t)                                           \
     GENERATE_RUNEND_KERNEL(value_suffix, ValueType, u64, uint64_t)
 
 GENERATE_RUNEND_KERNELS_FOR_VALUE(u8, uint8_t)

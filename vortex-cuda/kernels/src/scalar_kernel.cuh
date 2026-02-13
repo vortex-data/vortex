@@ -14,18 +14,13 @@
 // Launch config: grid_dim = (array_len / 2048, 1, 1), block_dim = (64, 1, 1)
 // Each block handles 2048 elements, 64 threads per block.
 // Vectorized to process 16 bytes per iteration for better memory throughput.
-template<typename InputT, typename OutputT, typename Op>
-__device__ void scalar_kernel(
-    const InputT *__restrict in,
-    OutputT *__restrict out,
-    uint64_t array_len,
-    Op op
-) {
+template <typename InputT, typename OutputT, typename Op>
+__device__ void
+scalar_kernel(const InputT *__restrict in, OutputT *__restrict out, uint64_t array_len, Op op) {
     const uint32_t elements_per_block = 2048;
     const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * elements_per_block;
-    const uint64_t block_end = (block_start + elements_per_block < array_len)
-        ? (block_start + elements_per_block)
-        : array_len;
+    const uint64_t block_end =
+        (block_start + elements_per_block < array_len) ? (block_start + elements_per_block) : array_len;
 
     // Vectorized loop - process 16 bytes per iteration for better memory throughput.
     constexpr auto VALUES_PER_LOOP = 16 / sizeof(InputT);
@@ -36,7 +31,9 @@ __device__ void scalar_kernel(
         uint64_t base_idx = idx * VALUES_PER_LOOP;
 
         // The loop can be unrolled, as `VALUES_PER_LOOP` is `constexpr`.
+        // clang-format off
         #pragma unroll
+        // clang-format on
         for (uint64_t i = 0; i < VALUES_PER_LOOP; ++i) {
             out[base_idx + i] = op(in[base_idx + i]);
         }
@@ -50,11 +47,7 @@ __device__ void scalar_kernel(
 }
 
 // In-place variant (same input/output buffer, same type).
-template<typename T, typename Op>
-__device__ void scalar_kernel_inplace(
-    T *__restrict values,
-    uint64_t array_len,
-    Op op
-) {
+template <typename T, typename Op>
+__device__ void scalar_kernel_inplace(T *__restrict values, uint64_t array_len, Op op) {
     scalar_kernel<T, T>(values, values, array_len, op);
 }

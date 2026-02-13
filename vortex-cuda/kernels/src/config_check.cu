@@ -13,7 +13,7 @@
 
 // Kernel that outputs the config values for verification.
 // Output buffer layout: [elements_per_thread, block_dim_x, elements_per_block]
-extern "C" __global__ void config_check(uint32_t* output) {
+extern "C" __global__ void config_check(uint32_t *output) {
     if (threadIdx.x == 0 && blockIdx.x == 0) {
         output[0] = ELEMENTS_PER_THREAD;
         output[1] = blockDim.x;
