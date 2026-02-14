@@ -4,6 +4,8 @@
 //! [`VortexExec`] implements DataFusion's [`ExecutionPlan`] trait, mapping Vortex splits
 //! to DataFusion partitions. Multiple splits may be grouped into a single partition
 //! via [`ExecutionPlan::repartitioned`] to match the target partition count.
+//!
+//! FIXME(ngates): consider replacing this with a DataFusion DataSource.
 
 use std::any::Any;
 use std::fmt;
