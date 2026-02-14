@@ -22,11 +22,13 @@ pub use crate::duckdb::Database;
 pub use crate::duckdb::LogicalType;
 pub use crate::duckdb::Value;
 use crate::scan::VortexTableFunction;
+use crate::scan_api::VortexScanApiTableFunction;
 
 pub mod convert;
 pub mod duckdb;
 pub mod exporter;
 mod scan;
+mod scan_api;
 mod utils;
 
 #[rustfmt::skip]
@@ -78,8 +80,13 @@ pub fn register_extension_options(config: &Config) {
 /// Note: This also registers extension options. If you want to register options
 /// separately (e.g., before creating connections), call `register_extension_options` first.
 pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
-    conn.register_table_function::<VortexTableFunction>(c"vortex_scan")?;
-    conn.register_table_function::<VortexTableFunction>(c"read_vortex")?;
+    if std::env::var("VORTEX_USE_SCAN_API").is_ok_and(|v| v == "1") {
+        conn.register_table_function::<VortexScanApiTableFunction>(c"vortex_scan")?;
+        conn.register_table_function::<VortexScanApiTableFunction>(c"read_vortex")?;
+    } else {
+        conn.register_table_function::<VortexTableFunction>(c"vortex_scan")?;
+        conn.register_table_function::<VortexTableFunction>(c"read_vortex")?;
+    }
     conn.register_copy_function::<VortexCopyFunction>(c"vortex", c"vortex")
 }
 

@@ -14,7 +14,6 @@ use std::task::Context;
 use std::task::Poll;
 
 use async_compat::Compat;
-use async_trait::async_trait;
 use custom_labels::CURRENT_LABELSET;
 use futures::FutureExt;
 use futures::Stream;
@@ -52,12 +51,6 @@ use vortex::file::VortexOpenOptions;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::metrics::tracing::get_global_labels;
-use vortex::scan::api::DataSource as _;
-use vortex::scan::api::DataSourceRef;
-use vortex::scan::api::ScanRequest;
-use vortex::scan::layout::LayoutReaderDataSource;
-use vortex::scan::multi::DataSourceFactory;
-use vortex::scan::multi::MultiDataSource;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -118,28 +111,25 @@ impl Debug for VortexBindData {
 }
 
 pub struct VortexGlobalData {
-    iterator: ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>,
-    batch_id: AtomicU64,
-    ctx: ExecutionCtx,
+    pub(crate) iterator: ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>,
+    pub(crate) batch_id: AtomicU64,
+    pub(crate) ctx: ExecutionCtx,
 }
 
 pub struct VortexLocalData {
-    iterator: ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>,
-    exporter: Option<ArrayExporter>,
+    pub(crate) iterator: ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>,
+    pub(crate) exporter: Option<ArrayExporter>,
     // The unique batch id the of the last chunk exported via scan()
-    batch_id: Option<u64>,
+    pub(crate) batch_id: Option<u64>,
 }
 
 #[derive(Debug)]
 pub struct VortexTableFunction;
 
-/// Extracts the schema from a Vortex file.
-fn extract_schema_from_vortex_file(
-    file: &VortexFile,
+/// Extracts DuckDB column names and logical types from a Vortex struct DType.
+pub(crate) fn extract_schema_from_dtype(
+    dtype: &vortex::dtype::DType,
 ) -> VortexResult<(Vec<String>, Vec<LogicalType>)> {
-    let dtype = file.dtype();
-
-    // For now, we assume the top-level type to be a struct.
     let struct_dtype = dtype
         .as_struct_fields_opt()
         .ok_or_else(|| vortex_err!("Vortex file must contain a struct array at the top level"))?;
@@ -156,10 +146,20 @@ fn extract_schema_from_vortex_file(
     Ok((column_names, column_types))
 }
 
-/// Creates a projection expression based on the table initialization input.
-fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> Expression {
-    let projection_ids = init.projection_ids().unwrap_or(&[]);
-    let column_ids = init.column_ids();
+/// Extracts the schema from a Vortex file.
+fn extract_schema_from_vortex_file(
+    file: &VortexFile,
+) -> VortexResult<(Vec<String>, Vec<LogicalType>)> {
+    extract_schema_from_dtype(file.dtype())
+}
+
+/// Creates a projection expression from raw projection/column IDs and column names.
+pub(crate) fn extract_projection_expr_from(
+    projection_ids: Option<&[u64]>,
+    column_ids: &[u64],
+    column_names: &[String],
+) -> Expression {
+    let projection_ids = projection_ids.unwrap_or(&[]);
 
     select(
         projection_ids
@@ -170,8 +170,7 @@ fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> Expres
                 val
             })
             .map(|idx| {
-                init.bind_data()
-                    .column_names
+                column_names
                     .get(idx)
                     .vortex_expect("prune idx in column names")
             })
@@ -181,28 +180,31 @@ fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> Expres
     )
 }
 
-/// Creates a table filter expression from the table filter set.
-fn extract_table_filter_expr(
-    init: &TableInitInput<VortexTableFunction>,
+/// Creates a projection expression based on the table initialization input.
+fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> Expression {
+    extract_projection_expr_from(
+        init.projection_ids(),
+        init.column_ids(),
+        &init.bind_data().column_names,
+    )
+}
+
+/// Creates a table filter expression from raw components.
+pub(crate) fn extract_table_filter_expr_from(
+    table_filter_set: Option<duckdb::TableFilterSet>,
     column_ids: &[u64],
+    column_names: &[String],
+    dtype: &vortex::dtype::DType,
+    additional_filter_exprs: &[Expression],
 ) -> VortexResult<Option<Expression>> {
-    let mut table_filter_exprs: HashSet<Expression> = if let Some(filter) = init.table_filter_set()
-    {
+    let mut table_filter_exprs: HashSet<Expression> = if let Some(filter) = table_filter_set {
         filter
             .into_iter()
             .map(|(idx, ex)| {
                 let idx_u: usize = idx.as_();
                 let col_idx: usize = column_ids[idx_u].as_();
-                let name = init
-                    .bind_data()
-                    .column_names
-                    .get(col_idx)
-                    .vortex_expect("exists");
-                try_from_table_filter(
-                    &ex,
-                    &col(name.as_str()),
-                    init.bind_data().first_file.dtype(),
-                )
+                let name = column_names.get(col_idx).vortex_expect("exists");
+                try_from_table_filter(&ex, &col(name.as_str()), dtype)
             })
             .collect::<VortexResult<Option<HashSet<_>>>>()?
             .unwrap_or_else(HashSet::new)
@@ -210,8 +212,22 @@ fn extract_table_filter_expr(
         HashSet::new()
     };
 
-    table_filter_exprs.extend(init.bind_data().filter_exprs.clone());
+    table_filter_exprs.extend(additional_filter_exprs.iter().cloned());
     Ok(and_collect(table_filter_exprs.into_iter().collect_vec()))
+}
+
+/// Creates a table filter expression from the table initialization input.
+fn extract_table_filter_expr(
+    init: &TableInitInput<VortexTableFunction>,
+    column_ids: &[u64],
+) -> VortexResult<Option<Expression>> {
+    extract_table_filter_expr_from(
+        init.table_filter_set(),
+        column_ids,
+        &init.bind_data().column_names,
+        init.bind_data().first_file.dtype(),
+        &init.bind_data().filter_exprs,
+    )
 }
 
 /// Helper function to open a Vortex file from either a local or S3 URL
@@ -237,45 +253,12 @@ async fn open_file(url: Url, options: VortexOpenOptions) -> VortexResult<VortexF
     }
 }
 
-/// A [`DataSourceFactory`] that opens a Vortex file from a URL and creates a
-/// [`LayoutReaderDataSource`]. Handles footer caching and statistics-based pruning.
-struct VortexFileFactory {
-    url: Url,
-    filter: Option<Expression>,
-    footer_cache: FooterCacheRef,
-}
-
-#[async_trait]
-impl DataSourceFactory for VortexFileFactory {
-    async fn open(&self) -> VortexResult<Option<DataSourceRef>> {
-        let mut options = SESSION.open_options();
-        if let Some(footer) = self.footer_cache.get(self.url.as_ref()) {
-            options = options.with_footer(footer);
-        }
-        let file = open_file(self.url.clone(), options).await?;
-        self.footer_cache
-            .put(self.url.as_ref(), file.footer().clone());
-
-        if let Some(ref filter) = self.filter
-            && file.can_prune(filter)?
-        {
-            return Ok(None);
-        }
-
-        let reader = file.layout_reader()?;
-        Ok(Some(Arc::new(LayoutReaderDataSource::new(
-            reader,
-            SESSION.clone(),
-        ))))
-    }
-}
-
 // taken from duckdb/common/constants.h COLUMN_IDENTIFIER_EMPTY
 // This is used by duckdb whenever there is no projection id in a logical_get node.
 // For some reason we cannot return an empty DataChunk and duckdb will look for the virtual column
 // with this index and create a data chunk with a single vector of that type.
-static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
-static EMPTY_COLUMN_NAME: &str = "";
+pub(crate) static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
+pub(crate) static EMPTY_COLUMN_NAME: &str = "";
 
 impl TableFunction for VortexTableFunction {
     type BindData = VortexBindData;
@@ -364,60 +347,7 @@ impl TableFunction for VortexTableFunction {
         global_state: &mut Self::GlobalState,
         chunk: &mut DataChunk,
     ) -> VortexResult<()> {
-        loop {
-            if local_state.exporter.is_none() {
-                let Some(result) = local_state.iterator.next() else {
-                    return Ok(());
-                };
-
-                let (array_result, conversion_cache) = result?;
-
-                let array_result = array_result.optimize_recursive()?;
-                let array_result = if let Some(array) = array_result.as_opt::<StructVTable>() {
-                    array.clone()
-                } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
-                    && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
-                {
-                    StructArray::new(
-                        pack_options.names.clone(),
-                        array.children(),
-                        array.len(),
-                        pack_options.nullability.into(),
-                    )
-                } else {
-                    array_result
-                        .execute::<Canonical>(&mut global_state.ctx)?
-                        .into_struct()
-                };
-
-                local_state.exporter = Some(ArrayExporter::try_new(
-                    &array_result,
-                    &conversion_cache,
-                    &mut global_state.ctx,
-                )?);
-                // Relaxed since there is no intra-instruction ordering required.
-                local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
-            }
-
-            let exporter = local_state
-                .exporter
-                .as_mut()
-                .vortex_expect("error: exporter missing");
-
-            let has_more_data = exporter.export(chunk)?;
-
-            if !has_more_data {
-                // This exporter is fully consumed.
-                local_state.exporter = None;
-                local_state.batch_id = None;
-            } else {
-                break;
-            }
-        }
-
-        assert!(!chunk.is_empty());
-
-        Ok(())
+        scan_shared(local_state, global_state, chunk)
     }
 
     fn init_global(init_input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
@@ -441,25 +371,13 @@ impl TableFunction for VortexTableFunction {
         let footer_cache: FooterCacheRef =
             Arc::new(DuckDbFooterCache::new(client_context.object_cache()));
 
-        let use_scan_api = std::env::var("VORTEX_USE_SCAN_API").is_ok_and(|v| v == "1");
-
-        let iterator = if use_scan_api {
-            init_global_scan_api(
-                bind_data,
-                projection_expr,
-                filter_expr,
-                num_workers,
-                footer_cache,
-            )?
-        } else {
-            init_global_direct(
-                bind_data,
-                projection_expr,
-                filter_expr,
-                num_workers,
-                footer_cache,
-            )?
-        };
+        let iterator = init_global_direct(
+            bind_data,
+            projection_expr,
+            filter_expr,
+            num_workers,
+            footer_cache,
+        )?;
 
         Ok(VortexGlobalData {
             iterator,
@@ -556,60 +474,71 @@ impl TableFunction for VortexTableFunction {
     }
 }
 
-type ScanIterator = ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>;
+pub(crate) type ScanIterator = ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>;
 
-/// Scan API path: creates a [`MultiDataSource`] from all files and lazily pulls splits,
-/// executing each split as an independent stream for parallel consumption by DuckDB workers.
-fn init_global_scan_api(
-    bind_data: &VortexBindData,
-    projection_expr: Expression,
-    filter_expr: Option<Expression>,
-    num_workers: usize,
-    footer_cache: FooterCacheRef,
-) -> VortexResult<ScanIterator> {
-    let first_reader = bind_data.first_file.layout_reader()?;
-    let first_ds: DataSourceRef =
-        Arc::new(LayoutReaderDataSource::new(first_reader, SESSION.clone()));
+/// Shared scan logic used by both `VortexTableFunction` and `VortexScanApiTableFunction`.
+///
+/// Pulls arrays from the thread-safe iterator, converts them to struct arrays, and exports
+/// them into DuckDB data chunks.
+pub(crate) fn scan_shared(
+    local_state: &mut VortexLocalData,
+    global_state: &mut VortexGlobalData,
+    chunk: &mut DataChunk,
+) -> VortexResult<()> {
+    loop {
+        if local_state.exporter.is_none() {
+            let Some(result) = local_state.iterator.next() else {
+                return Ok(());
+            };
 
-    let factories: Vec<Arc<dyn DataSourceFactory>> = bind_data.file_urls[1..]
-        .iter()
-        .map(|url| {
-            Arc::new(VortexFileFactory {
-                url: url.clone(),
-                filter: filter_expr.clone(),
-                footer_cache: footer_cache.clone(),
-            }) as Arc<dyn DataSourceFactory>
-        })
-        .collect();
+            let (array_result, conversion_cache) = result?;
 
-    let multi_ds =
-        MultiDataSource::lazy(first_ds, factories, &SESSION).with_prefetch(num_workers * 2);
+            let array_result = array_result.optimize_recursive()?;
+            let array_result = if let Some(array) = array_result.as_opt::<StructVTable>() {
+                array.clone()
+            } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
+                && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
+            {
+                StructArray::new(
+                    pack_options.names.clone(),
+                    array.children(),
+                    array.len(),
+                    pack_options.nullability.into(),
+                )
+            } else {
+                array_result
+                    .execute::<Canonical>(&mut global_state.ctx)?
+                    .into_struct()
+            };
 
-    let request = ScanRequest {
-        projection: Some(projection_expr),
-        filter: filter_expr,
-        ..Default::default()
-    };
-
-    let scan = multi_ds.scan(request)?;
-    let conversion_cache = Arc::new(ConversionCache::new(0));
-
-    // Lazily pull splits, execute each into a stream, and feed into MultiScan.
-    let scan_streams = scan.splits().then(move |split_result| {
-        let cache = conversion_cache.clone();
-        async move {
-            let split = split_result?;
-            let s = split.execute().await?;
-            Ok(s.map(move |r| Ok((r?, cache.clone()))).boxed())
+            local_state.exporter = Some(ArrayExporter::try_new(
+                &array_result,
+                &conversion_cache,
+                &mut global_state.ctx,
+            )?);
+            // Relaxed since there is no intra-instruction ordering required.
+            local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
         }
-    });
 
-    Ok(RUNTIME.block_on_stream_thread_safe(move |_| MultiScan {
-        streams: scan_streams.boxed(),
-        streams_finished: false,
-        select_all: Default::default(),
-        max_concurrency: num_workers * 2,
-    }))
+        let exporter = local_state
+            .exporter
+            .as_mut()
+            .vortex_expect("error: exporter missing");
+
+        let has_more_data = exporter.export(chunk)?;
+
+        if !has_more_data {
+            // This exporter is fully consumed.
+            local_state.exporter = None;
+            local_state.batch_id = None;
+        } else {
+            break;
+        }
+    }
+
+    assert!(!chunk.is_empty());
+
+    Ok(())
 }
 
 /// Direct ScanBuilder path (existing behavior): opens files lazily via spawned tasks,
@@ -679,14 +608,14 @@ fn init_global_direct(
     }))
 }
 
-struct MultiScan<'rt, T> {
+pub(crate) struct MultiScan<'rt, T> {
     // A stream-of-streams of scan results.
-    streams: BoxStream<'rt, VortexResult<BoxStream<'rt, VortexResult<T>>>>,
-    streams_finished: bool,
+    pub(crate) streams: BoxStream<'rt, VortexResult<BoxStream<'rt, VortexResult<T>>>>,
+    pub(crate) streams_finished: bool,
     // The SelectAll used to drive the inner streams.
-    select_all: SelectAll<BoxStream<'rt, VortexResult<T>>>,
+    pub(crate) select_all: SelectAll<BoxStream<'rt, VortexResult<T>>>,
     // The maximum number of streams to be driving concurrently.
-    max_concurrency: usize,
+    pub(crate) max_concurrency: usize,
 }
 
 impl<'rt, T: 'rt> Stream for MultiScan<'rt, T> {
