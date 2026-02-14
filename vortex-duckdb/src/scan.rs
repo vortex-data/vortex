@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::max;
-use std::ffi::CString;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -62,7 +61,6 @@ use crate::duckdb::BindResult;
 use crate::duckdb::Cardinality;
 use crate::duckdb::ClientContext;
 use crate::duckdb::DataChunk;
-use crate::duckdb::ExtractedValue;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
@@ -79,7 +77,6 @@ pub struct VortexBindData {
     file_urls: Vec<Url>,
     column_names: Vec<String>,
     column_types: Vec<LogicalType>,
-    max_threads: u64,
 }
 
 impl Clone for VortexBindData {
@@ -92,7 +89,6 @@ impl Clone for VortexBindData {
             file_urls: self.file_urls.clone(),
             column_names: self.column_names.clone(),
             column_types: self.column_types.clone(),
-            max_threads: self.max_threads,
         }
     }
 }
@@ -260,24 +256,6 @@ impl TableFunction for VortexTableFunction {
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
-        // Read the vortex_max_threads setting from DuckDB configuration
-        let max_threads_cstr = CString::new("vortex_max_threads")
-            .map_err(|e| vortex_err!("Invalid setting name: {}", e))?;
-        let max_threads = ctx
-            .try_get_current_setting(&max_threads_cstr)
-            .and_then(|v| match v.as_ref().extract() {
-                ExtractedValue::UBigInt(val) => usize::try_from(val).ok(),
-                ExtractedValue::BigInt(val) if val > 0 => usize::try_from(val as u64).ok(),
-                _ => None,
-            })
-            .unwrap_or_else(|| {
-                std::thread::available_parallelism()
-                    .map(|n| n.get())
-                    .unwrap_or(1)
-            });
-
-        tracing::trace!("running scan with max_threads {max_threads}");
-
         let (file_urls, _metadata) = RUNTIME.block_on(Compat::new(expand_glob(
             file_glob_string.as_ref().as_string(),
         )))?;
@@ -309,7 +287,6 @@ impl TableFunction for VortexTableFunction {
             filter_exprs: vec![],
             column_names,
             column_types,
-            max_threads: max_threads as u64,
         })
     }
 
@@ -389,12 +366,12 @@ impl TableFunction for VortexTableFunction {
                 .map_or_else(|| "true".to_string(), |f| f.to_string())
         );
 
-        // Use the max_threads from bind_data (read from vortex_max_threads setting)
-        #[expect(clippy::cast_possible_truncation, reason = "max_threads fits in usize")]
-        let num_workers = bind_data.max_threads as usize;
-
         let client_context = init_input.client_context()?;
         let object_cache = client_context.object_cache();
+
+        let num_workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
 
         let handle = RUNTIME.handle();
         let first_file = bind_data.first_file.clone();
