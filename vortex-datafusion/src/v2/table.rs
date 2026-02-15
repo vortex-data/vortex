@@ -133,19 +133,17 @@ impl TableProvider for VortexTable {
     }
 
     fn statistics(&self) -> Option<Statistics> {
-        let row_count_est = self.data_source.row_count_estimate();
-        let num_rows = match row_count_est.upper {
-            Some(upper) if row_count_est.lower == upper => usize::try_from(upper)
-                .map(Precision::Exact)
-                .unwrap_or_default(),
+        let num_rows = match self.data_source.row_count_estimate() {
+            Some(vortex::expr::stats::Precision::Exact(v)) => {
+                usize::try_from(v).map(Precision::Exact).unwrap_or_default()
+            }
             _ => Precision::Absent,
         };
 
-        let byte_size_est = self.data_source.byte_size_estimate();
-        let total_byte_size = match byte_size_est.upper {
-            Some(upper) if byte_size_est.lower == upper => usize::try_from(upper)
-                .map(Precision::Exact)
-                .unwrap_or_default(),
+        let total_byte_size = match self.data_source.byte_size_estimate() {
+            Some(vortex::expr::stats::Precision::Exact(v)) => {
+                usize::try_from(v).map(Precision::Exact).unwrap_or_default()
+            }
             _ => Precision::Absent,
         };
 

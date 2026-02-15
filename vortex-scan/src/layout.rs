@@ -16,6 +16,7 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
+use vortex_array::expr::stats::Precision;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
@@ -33,7 +34,6 @@ use crate::Selection;
 use crate::api::DataSource;
 use crate::api::DataSourceScan;
 use crate::api::DataSourceScanRef;
-use crate::api::Estimate;
 use crate::api::ScanRequest;
 use crate::api::Split;
 use crate::api::SplitRef;
@@ -91,12 +91,12 @@ impl DataSource for LayoutReaderDataSource {
         self.reader.dtype()
     }
 
-    fn row_count_estimate(&self) -> Estimate<u64> {
-        Estimate::exact(self.reader.row_count())
+    fn row_count_estimate(&self) -> Option<Precision<u64>> {
+        Some(Precision::exact(self.reader.row_count()))
     }
 
-    fn byte_size_estimate(&self) -> Estimate<u64> {
-        Estimate::default()
+    fn byte_size_estimate(&self) -> Option<Precision<u64>> {
+        None
     }
 
     fn deserialize_split(&self, _data: &[u8], _session: &VortexSession) -> VortexResult<SplitRef> {
@@ -190,9 +190,13 @@ impl DataSourceScan for LayoutReaderScan {
         &self.dtype
     }
 
-    fn split_count_estimate(&self) -> Estimate<usize> {
+    fn split_count_estimate(&self) -> Option<Precision<usize>> {
         let (lower, upper) = self.size_hint();
-        Estimate { lower, upper }
+        match upper {
+            Some(u) if u == lower => Some(Precision::exact(lower)),
+            Some(u) => Some(Precision::inexact(u)),
+            None => Some(Precision::inexact(lower)),
+        }
     }
 
     fn splits(self: Box<Self>) -> SplitStream {
@@ -270,15 +274,24 @@ impl Split for LayoutReaderSplit {
         self
     }
 
-    fn row_count_estimate(&self) -> Estimate<u64> {
-        Estimate {
-            lower: 0,
-            upper: Some(self.row_range.end - self.row_range.start),
-        }
+    fn row_count_estimate(&self) -> Option<Precision<u64>> {
+        let row_count = self.row_range.end - self.row_range.start;
+        let row_count = match &self.selection {
+            Selection::All => row_count,
+            Selection::IncludeByIndex(idx) => idx.len() as u64,
+            Selection::ExcludeByIndex(idx) => row_count - idx.len() as u64,
+        };
+        let row_count = self.limit.map_or(row_count, |limit| row_count.min(limit));
+
+        Some(if self.filter.is_some() {
+            Precision::inexact(row_count)
+        } else {
+            Precision::exact(row_count)
+        })
     }
 
-    fn byte_size_estimate(&self) -> Estimate<u64> {
-        Estimate::default()
+    fn byte_size_estimate(&self) -> Option<Precision<u64>> {
+        None
     }
 
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
@@ -313,8 +326,8 @@ impl DataSourceScan for Empty {
         &self.dtype
     }
 
-    fn split_count_estimate(&self) -> Estimate<usize> {
-        Estimate::exact(1)
+    fn split_count_estimate(&self) -> Option<Precision<usize>> {
+        Some(Precision::exact(1usize))
     }
 
     fn splits(self: Box<Self>) -> SplitStream {
@@ -327,12 +340,12 @@ impl Split for Empty {
         self
     }
 
-    fn row_count_estimate(&self) -> Estimate<u64> {
-        Estimate::exact(self.row_count)
+    fn row_count_estimate(&self) -> Option<Precision<u64>> {
+        Some(Precision::exact(self.row_count))
     }
 
-    fn byte_size_estimate(&self) -> Estimate<u64> {
-        Estimate::exact(0)
+    fn byte_size_estimate(&self) -> Option<Precision<u64>> {
+        Some(Precision::exact(0u64))
     }
 
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {

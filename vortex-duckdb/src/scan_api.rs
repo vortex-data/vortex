@@ -17,6 +17,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
+use vortex::expr::stats::Precision;
 use vortex::file::filesystem::FileSystemRef;
 use vortex::file::filesystem::object_store::ObjectStoreFileSystem;
 use vortex::file::multi::MultiFileDataSource;
@@ -76,7 +77,14 @@ impl Debug for VortexScanApiBindData {
         f.debug_struct("VortexScanApiBindData")
             .field("column_names", &self.column_names)
             .field("column_types", &self.column_types)
-            .field("filter_exprs", &self.filter_exprs)
+            .field(
+                "filter_exprs",
+                &self
+                    .filter_exprs
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect_vec(),
+            )
             .finish()
     }
 }
@@ -182,7 +190,7 @@ impl TableFunction for VortexScanApiTableFunction {
             &bind_data.filter_exprs,
         )?;
 
-        tracing::trace!(
+        tracing::debug!(
             "Global init Vortex scan_api SELECT {} WHERE {}",
             &projection_expr,
             filter_expr
@@ -255,18 +263,27 @@ impl TableFunction for VortexScanApiTableFunction {
         bind_data: &mut Self::BindData,
         expr: &duckdb::Expression,
     ) -> VortexResult<bool> {
+        tracing::debug!("Attempting to push down filter expression: {expr}");
         let Some(expr) = try_from_bound_expression(expr)? else {
             return Ok(false);
         };
         bind_data.filter_exprs.push(expr);
-        Ok(true)
+
+        // NOTE(ngates): Vortex does indeed run exact filters, so in theory we should return `true`
+        //  here to tell DuckDB we've handled the filter. However, DuckDB applies some crude
+        //  cardinality estimation heuristics (e.g. an equality filter => 20% selectivity) that
+        //  means by returning false, DuckDB runs an additional filter (a little bit of overhead)
+        //  but tends to end up with a better query plan.
+        //  If we plumb row count estimation into the layout tree, perhaps we could use zone maps
+        //  etc. to return estimates. But this function is probably called too late anyway. Maybe
+        //  we need our own cardinality heuristics.
+        Ok(false)
     }
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {
-        let est = bind_data.data_source.row_count_estimate();
-        match est.upper {
-            Some(upper) if upper == est.lower => Cardinality::Maximum(upper),
-            Some(upper) => Cardinality::Estimate(upper),
+        match bind_data.data_source.row_count_estimate() {
+            Some(Precision::Exact(v)) => Cardinality::Maximum(v),
+            Some(Precision::Inexact(v)) => Cardinality::Estimate(v),
             None => Cardinality::Unknown,
         }
     }

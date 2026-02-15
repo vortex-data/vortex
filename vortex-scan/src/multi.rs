@@ -31,6 +31,7 @@ use futures::StreamExt;
 use futures::stream;
 use parking_lot::Mutex;
 use tracing::Instrument;
+use vortex_array::expr::stats::Precision;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -44,7 +45,6 @@ use crate::api::DataSource;
 use crate::api::DataSourceRef;
 use crate::api::DataSourceScan;
 use crate::api::DataSourceScanRef;
-use crate::api::Estimate;
 use crate::api::ScanRequest;
 use crate::api::SplitRef;
 use crate::api::SplitStream;
@@ -174,33 +174,53 @@ impl DataSource for MultiDataSource {
         &self.dtype
     }
 
-    fn row_count_estimate(&self) -> Estimate<u64> {
-        let mut lower: u64 = 0;
-        let mut upper: Option<u64> = Some(0);
-        let mut has_deferred = false;
+    fn row_count_estimate(&self) -> Option<Precision<u64>> {
+        let mut sum: u64 = 0;
+        let mut all_exact = true;
+        let mut opened_count: u64 = 0;
+        let mut deferred_count: u64 = 0;
 
         let children = self.children.lock();
         for child in children.iter() {
             match child {
                 MultiChild::Opened(ds) => {
-                    let est = ds.row_count_estimate();
-                    lower = lower.saturating_add(est.lower);
-                    upper = match (upper, est.upper) {
-                        (Some(a), Some(b)) => Some(a.saturating_add(b)),
-                        _ => None,
-                    };
+                    opened_count += 1;
+                    match ds.row_count_estimate() {
+                        Some(est) => {
+                            if !est.is_exact() {
+                                all_exact = false;
+                            }
+                            sum = sum.saturating_add(est.into_inner());
+                        }
+                        None => {
+                            all_exact = false;
+                        }
+                    }
                 }
                 MultiChild::Deferred(_) => {
-                    has_deferred = true;
+                    deferred_count += 1;
                 }
             }
         }
 
-        if has_deferred {
-            upper = None;
+        let total_count = opened_count + deferred_count;
+        if total_count == 0 {
+            return Some(Precision::Exact(0));
         }
 
-        Estimate { lower, upper }
+        if deferred_count == 0 {
+            if all_exact {
+                Some(Precision::exact(sum))
+            } else {
+                Some(Precision::inexact(sum))
+            }
+        } else if opened_count > 0 {
+            let avg = sum / opened_count;
+            let extrapolated = avg.saturating_mul(total_count);
+            Some(Precision::inexact(extrapolated))
+        } else {
+            None
+        }
     }
 
     fn deserialize_split(&self, _data: &[u8], _session: &VortexSession) -> VortexResult<SplitRef> {
@@ -311,22 +331,17 @@ impl DataSourceScan for MultiDataSourceScan {
         &self.dtype
     }
 
-    fn split_count_estimate(&self) -> Estimate<usize> {
-        let current_estimate = self
-            .current
-            .as_ref()
-            .map_or_else(|| Estimate::exact(0), |s| s.split_count_estimate());
+    fn split_count_estimate(&self) -> Option<Precision<usize>> {
+        let current_estimate = self.current.as_ref().and_then(|s| s.split_count_estimate());
 
         let remaining_sources = self.ready.len() + self.opening.len() + self.deferred.len();
         if remaining_sources == 0 {
             return current_estimate;
         }
 
-        // With remaining sources whose split counts are unknown, we can only provide a lower bound.
-        Estimate {
-            lower: current_estimate.lower,
-            upper: None,
-        }
+        // With remaining sources whose split counts are unknown, return inexact.
+        let current_count = current_estimate.map(|p| p.into_inner()).unwrap_or(0);
+        Some(Precision::inexact(current_count))
     }
 
     fn splits(self: Box<Self>) -> SplitStream {
@@ -341,8 +356,11 @@ impl DataSourceScan for MultiDataSourceScan {
                                 if let Some(ref mut s) = state
                                     && let Some(ref mut limit) = s.remaining_limit
                                 {
-                                    let est = split.row_count_estimate();
-                                    *limit = limit.saturating_sub(est.upper.unwrap_or(est.lower));
+                                    let est = split
+                                        .row_count_estimate()
+                                        .map(|p| p.into_inner())
+                                        .unwrap_or(0);
+                                    *limit = limit.saturating_sub(est);
                                 }
                                 return Some((Ok(split), (state, current_stream)));
                             }

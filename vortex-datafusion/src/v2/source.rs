@@ -41,7 +41,7 @@ use vortex::dtype::Nullability;
 use vortex::expr::Expression;
 use vortex::expr::and as vx_and;
 use vortex::expr::pack;
-use vortex::scan::api::Estimate;
+use vortex::expr::stats::Precision;
 use vortex::scan::api::SplitRef;
 use vortex::session::VortexSession;
 
@@ -447,15 +447,12 @@ fn is_decimal(dt: &DataType) -> bool {
     )
 }
 
-/// Convert a Vortex [`Estimate`] to a DataFusion [`Precision`](DFPrecision).
-fn estimate_to_df_precision(est: &Estimate<u64>) -> DFPrecision<usize> {
-    match est.upper {
-        Some(upper) if upper == est.lower => {
-            DFPrecision::Exact(usize::try_from(upper).unwrap_or(usize::MAX))
-        }
-        Some(upper) => DFPrecision::Inexact(usize::try_from(upper).unwrap_or(usize::MAX)),
-        None if est.lower > 0 => {
-            DFPrecision::Inexact(usize::try_from(est.lower).unwrap_or(usize::MAX))
+/// Convert a Vortex [`Option<Precision>`] to a DataFusion [`Precision`](DFPrecision).
+fn estimate_to_df_precision(est: &Option<Precision<u64>>) -> DFPrecision<usize> {
+    match est {
+        Some(Precision::Exact(v)) => DFPrecision::Exact(usize::try_from(*v).unwrap_or(usize::MAX)),
+        Some(Precision::Inexact(v)) => {
+            DFPrecision::Inexact(usize::try_from(*v).unwrap_or(usize::MAX))
         }
         None => DFPrecision::Absent,
     }

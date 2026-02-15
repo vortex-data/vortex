@@ -26,6 +26,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use vortex_array::expr::Expression;
+use vortex_array::expr::stats::Precision;
 use vortex_array::stream::SendableArrayStream;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -71,13 +72,13 @@ pub trait DataSource: 'static + Send + Sync {
     fn dtype(&self) -> &DType;
 
     /// Returns an estimate of the row count of the un-filtered source.
-    fn row_count_estimate(&self) -> Estimate<u64> {
-        Estimate::default()
+    fn row_count_estimate(&self) -> Option<Precision<u64>> {
+        None
     }
 
     /// Returns an estimate of the byte size of the un-filtered source.
-    fn byte_size_estimate(&self) -> Estimate<u64> {
-        Estimate::default()
+    fn byte_size_estimate(&self) -> Option<Precision<u64>> {
+        None
     }
 
     /// Serialize the [`DataSource`] to pass to a remote worker.
@@ -121,7 +122,7 @@ pub trait DataSourceScan: 'static + Send {
     fn dtype(&self) -> &DType;
 
     /// Returns an estimate of the total number of splits the scan will produce.
-    fn split_count_estimate(&self) -> Estimate<usize>;
+    fn split_count_estimate(&self) -> Option<Precision<usize>>;
 
     /// Returns a stream of splits to be processed.
     fn splits(self: Box<Self>) -> SplitStream;
@@ -136,10 +137,10 @@ pub trait Split: 'static + Send {
     fn as_any(&self) -> &dyn Any;
 
     /// Returns an estimate of the row count for this split.
-    fn row_count_estimate(&self) -> Estimate<u64>;
+    fn row_count_estimate(&self) -> Option<Precision<u64>>;
 
     /// Returns an estimate of the byte size for this split.
-    fn byte_size_estimate(&self) -> Estimate<u64>;
+    fn byte_size_estimate(&self) -> Option<Precision<u64>>;
 
     /// Serialize this split for a remote worker.
     fn serialize(&self) -> VortexResult<Option<Vec<u8>>> {
@@ -153,32 +154,4 @@ pub trait Split: 'static + Send {
     /// operations should be spawned onto the runtime to enable parallel execution across
     /// threads.
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream>;
-}
-
-/// An estimate that can be exact, an upper bound, or unknown.
-#[derive(Clone, Debug)]
-pub struct Estimate<T> {
-    /// The lower bound
-    pub lower: T,
-    /// The upper bound
-    pub upper: Option<T>,
-}
-
-impl<T: Default> Default for Estimate<T> {
-    fn default() -> Self {
-        Self {
-            lower: T::default(),
-            upper: None,
-        }
-    }
-}
-
-impl<T: Copy> Estimate<T> {
-    /// Creates an exact estimate.
-    pub fn exact(value: T) -> Self {
-        Self {
-            lower: value,
-            upper: Some(value),
-        }
-    }
 }
