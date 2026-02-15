@@ -98,7 +98,6 @@ impl MultiFileDataSourceBuilder {
     ///
     /// Discovers files via glob, opens the first file eagerly to determine the schema,
     /// and creates lazy factories for the remaining files.
-    #[tracing::instrument(name = "MultiFileDataSourceBuilder::build", skip(self))]
     pub async fn build(mut self) -> VortexResult<MultiFileDataSource> {
         let glob_url = self
             .glob_url

@@ -57,7 +57,6 @@ pub struct VortexScanApiBindData {
     filter_exprs: Vec<Expression>,
     column_names: Vec<String>,
     column_types: Vec<LogicalType>,
-    file_count: usize,
 }
 
 impl Clone for VortexScanApiBindData {
@@ -68,7 +67,6 @@ impl Clone for VortexScanApiBindData {
             filter_exprs: vec![],
             column_names: self.column_names.clone(),
             column_types: self.column_types.clone(),
-            file_count: self.file_count,
         }
     }
 }
@@ -134,7 +132,7 @@ impl TableFunction for VortexScanApiTableFunction {
 
         let glob_str = file_glob_string.as_ref().as_string();
 
-        let (data_source, file_count): (DataSourceRef, usize) = RUNTIME.block_on(async {
+        let data_source: DataSourceRef = RUNTIME.block_on(async {
             let mut builder = MultiFileDataSource::builder(SESSION.clone());
             if let Some((fs, glob_pattern)) = create_s3_filesystem_and_glob(&glob_str)? {
                 builder = builder.with_filesystem(fs).with_glob_url(glob_pattern);
@@ -142,8 +140,7 @@ impl TableFunction for VortexScanApiTableFunction {
                 builder = builder.with_glob_url(glob_str.to_string());
             }
             let ds = builder.build().await?;
-            let file_count = ds.file_count();
-            VortexResult::Ok((Arc::new(ds) as DataSourceRef, file_count))
+            VortexResult::Ok(Arc::new(ds))
         })?;
 
         let (column_names, column_types) = extract_schema_from_dtype(data_source.dtype())?;
@@ -157,7 +154,6 @@ impl TableFunction for VortexScanApiTableFunction {
             filter_exprs: vec![],
             column_names,
             column_types,
-            file_count,
         })
     }
 
@@ -271,9 +267,7 @@ impl TableFunction for VortexScanApiTableFunction {
         match est.upper {
             Some(upper) if upper == est.lower => Cardinality::Maximum(upper),
             Some(upper) => Cardinality::Estimate(upper),
-            // When the upper bound is unknown (e.g. deferred files not yet opened), scale the
-            // lower bound by the file count to give DuckDB a reasonable cardinality estimate.
-            None => Cardinality::Estimate(est.lower.saturating_mul(bind_data.file_count as u64)),
+            None => Cardinality::Unknown,
         }
     }
 
