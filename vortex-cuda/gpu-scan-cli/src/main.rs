@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![allow(unused_imports)]
+
 use std::env::args;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::exit;
 use std::sync::Arc;
 
 use futures::StreamExt;
@@ -25,12 +28,24 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::session::VortexSession;
+#[cfg(feature = "cuda")]
 use vortex_cuda::CopyDeviceReadAt;
+#[cfg(feature = "cuda")]
 use vortex_cuda::CudaSession;
+#[cfg(feature = "cuda")]
 use vortex_cuda::TracingLaunchStrategy;
+#[cfg(feature = "cuda")]
 use vortex_cuda::VortexCudaStreamPool;
+#[cfg(feature = "cuda")]
 use vortex_cuda::executor::CudaArrayExt;
 
+#[cfg(not(feature = "cuda"))]
+pub fn main() {
+    eprintln!("this CLI requires being built with the `cuda` feature enabled");
+    exit(1);
+}
+
+#[cfg(feature = "cuda")]
 #[tokio::main]
 pub async fn main() -> VortexResult<()> {
     let args: Vec<String> = args().collect();
@@ -120,6 +135,7 @@ pub async fn main() -> VortexResult<()> {
 
 /// Recompress the input file using only GPU-executable encodings, returning the file as an
 /// in-memory byte array.
+#[cfg(feature = "cuda")]
 async fn recompress_for_gpu(
     input_path: impl AsRef<Path>,
     session: &VortexSession,
