@@ -164,6 +164,14 @@ impl MultiFileDataSourceBuilder {
         };
 
         let fs = create_local_filesystem(&self.session)?;
+
+        // object_store paths are always relative (no leading `/`), so strip it from
+        // the glob pattern to ensure consistent matching with listed file paths.
+        let glob_pattern = glob_pattern
+            .strip_prefix('/')
+            .unwrap_or(&glob_pattern)
+            .to_string();
+
         Ok((fs, glob_pattern))
     }
 }
@@ -250,7 +258,10 @@ impl DataSourceFactory for VortexFileFactory {
 // ---------------------------------------------------------------------------
 
 /// Expand a glob pattern against a filesystem, returning matching files as a stream.
-#[cfg(feature = "object_store")]
+///
+/// Splits the pattern at the first glob character (`*`, `?`, or `[`) and uses the
+/// preceding path prefix to narrow the `FileSystem::list()` call. The full glob pattern
+/// is then applied as a filter over the returned entries.
 fn glob_files<'a>(
     fs: &'a dyn FileSystem,
     pattern: &str,
@@ -280,16 +291,10 @@ fn glob_files<'a>(
     Ok(Box::pin(stream))
 }
 
-#[cfg(not(feature = "object_store"))]
-fn glob_files<'a>(
-    _fs: &'a dyn FileSystem,
-    _pattern: &str,
-) -> VortexResult<futures::stream::BoxStream<'a, VortexResult<FileListing>>> {
-    vortex_bail!("The 'object_store' feature is required for glob-based file discovery");
-}
-
 /// Returns the list prefix for a path pattern containing glob characters.
-#[cfg(feature = "object_store")]
+///
+/// Finds the first glob character and returns everything up to and including the last `/`
+/// before it. For example, `data/2023/*/logs/*.log` returns `data/2023/`.
 fn list_prefix(pattern: &str) -> &str {
     let glob_pos = pattern.find(['*', '?', '[']).unwrap_or(pattern.len());
     match pattern[..glob_pos].rfind('/') {
@@ -299,7 +304,6 @@ fn list_prefix(pattern: &str) -> &str {
 }
 
 /// Validates that a glob pattern does not contain escaped glob characters.
-#[cfg(feature = "object_store")]
 fn validate_glob(pattern: &str) -> VortexResult<()> {
     for escape_pattern in ["\\*", "\\?", "\\["] {
         if pattern.contains(escape_pattern) {
@@ -314,7 +318,6 @@ fn validate_glob(pattern: &str) -> VortexResult<()> {
 }
 
 #[cfg(test)]
-#[cfg(feature = "object_store")]
 mod tests {
     use super::*;
 

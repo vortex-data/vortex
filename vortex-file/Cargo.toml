@@ -22,7 +22,7 @@ bytes = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
 getrandom_v03 = { workspace = true }                              # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
-glob = { workspace = true, optional = true }
+glob = { workspace = true }
 itertools = { workspace = true }
 kanal = { workspace = true }
 moka = { workspace = true, features = ["sync"] }
@@ -77,7 +77,7 @@ vortex-cuda-macros = { workspace = true }
 workspace = true
 
 [features]
-object_store = ["dep:object_store", "dep:glob", "vortex-io/object_store", "tokio"]
+object_store = ["dep:object_store", "vortex-io/object_store", "tokio"]
 tokio = [
     "dep:tokio",
     "vortex-error/tokio",
