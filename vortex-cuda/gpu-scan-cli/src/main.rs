@@ -6,7 +6,6 @@
 use std::env::args;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::exit;
 use std::sync::Arc;
 
 use futures::StreamExt;
@@ -40,14 +39,15 @@ use vortex_cuda::VortexCudaStreamPool;
 use vortex_cuda::executor::CudaArrayExt;
 
 #[cfg(not(feature = "cuda"))]
-pub fn main() {
+#[allow(clippy::exit)]
+fn main() {
     eprintln!("this CLI requires being built with the `cuda` feature enabled");
-    exit(1);
+    std::process::exit(1);
 }
 
 #[cfg(feature = "cuda")]
 #[tokio::main]
-pub async fn main() -> VortexResult<()> {
+async fn main() -> VortexResult<()> {
     let args: Vec<String> = args().collect();
     let json_output = args.iter().any(|arg| arg == "--json");
 

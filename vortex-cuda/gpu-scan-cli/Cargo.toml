@@ -24,4 +24,7 @@ tokio = { workspace = true, features = ["macros", "full"] }
 tracing = { workspace = true, features = ["std", "attributes"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 vortex = { workspace = true }
-vortex-cuda = { workspace = true, features = ["_test-harness", "tracing"], optional = true }
+vortex-cuda = { workspace = true, features = [
+    "_test-harness",
+    "tracing",
+], optional = true }
