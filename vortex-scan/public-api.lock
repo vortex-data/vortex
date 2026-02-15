@@ -30,6 +30,8 @@ pub vortex_scan::api::ScanRequest::filter: core::option::Option<vortex_array::ex
 
 pub vortex_scan::api::ScanRequest::limit: core::option::Option<u64>
 
+pub vortex_scan::api::ScanRequest::ordered: bool
+
 pub vortex_scan::api::ScanRequest::projection: core::option::Option<vortex_array::expr::expression::Expression>
 
 pub vortex_scan::api::ScanRequest::row_range: core::option::Option<core::ops::range::Range<u64>>
@@ -106,7 +108,7 @@ pub fn vortex_scan::api::Split::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_scan::api::Split::byte_size_estimate(&self) -> vortex_scan::api::Estimate<u64>
 
-pub fn vortex_scan::api::Split::execute(self: alloc::boxed::Box<Self>) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>>
+pub fn vortex_scan::api::Split::execute(self: alloc::boxed::Box<Self>) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_scan::api::Split::row_count_estimate(&self) -> vortex_scan::api::Estimate<u64>
 
@@ -154,7 +156,7 @@ pub fn vortex_scan::layout::LayoutReaderDataSource::with_metrics_registry(self, 
 
 pub fn vortex_scan::layout::LayoutReaderDataSource::with_some_metrics_registry(self, metrics: core::option::Option<alloc::sync::Arc<dyn vortex_metrics::MetricsRegistry>>) -> Self
 
-pub fn vortex_scan::layout::LayoutReaderDataSource::with_split_size(self, split_size: u64) -> Self
+pub fn vortex_scan::layout::LayoutReaderDataSource::with_split_max_row_count(self, row_count: u64) -> Self
 
 impl vortex_scan::api::DataSource for vortex_scan::layout::LayoutReaderDataSource
 

@@ -16,6 +16,7 @@ use datafusion_common::ColumnStatistics;
 use datafusion_common::Result as DFResult;
 use datafusion_common::Statistics;
 use datafusion_common::stats::Precision;
+use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Expr;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_expr::TableProviderFilterPushDown;
@@ -46,7 +47,7 @@ use vortex::scan::api::ScanRequest;
 use vortex::session::VortexSession;
 
 use crate::convert::FromDataFusion;
-use crate::v2::exec::VortexExec;
+use crate::v2::source::VortexScanSource;
 
 fn vx_err(e: vortex::error::VortexError) -> datafusion_common::DataFusionError {
     datafusion_common::DataFusionError::External(Box::new(e))
@@ -240,7 +241,7 @@ impl TableProvider for VortexTable {
         let scan = self.data_source.scan(scan_request).map_err(vx_err)?;
         let splits: Vec<_> = scan.splits().try_collect().await.map_err(vx_err)?;
 
-        Ok(Arc::new(VortexExec::new(
+        Ok(DataSourceExec::from_data_source(VortexScanSource::new(
             splits,
             projected_schema,
             self.session.clone(),

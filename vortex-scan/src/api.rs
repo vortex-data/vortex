@@ -24,7 +24,6 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use vortex_array::expr::Expression;
 use vortex_array::stream::SendableArrayStream;
@@ -105,6 +104,9 @@ pub struct ScanRequest {
     /// A row selection to apply to the scan. The selection identifies rows within the specified
     /// row range.
     pub selection: Selection,
+    /// Whether the scan should preserve row order. If false, the scan may produce rows in any
+    /// order, for example to enable parallel execution across splits.
+    pub ordered: bool,
     /// Optional limit on the number of rows returned by scan. Limits are applied after all
     /// filtering and row selection.
     pub limit: Option<u64>,
@@ -144,11 +146,13 @@ pub trait Split: 'static + Send {
         Ok(None)
     }
 
-    /// Executes the split, returning a future that resolves to an array stream.
+    /// Executes the split, returning an array stream.
     ///
-    /// This is async to allow split preparation (e.g. metadata reads) to happen concurrently
-    /// with consumption of the previous split's stream.
-    fn execute(self: Box<Self>) -> BoxFuture<'static, VortexResult<SendableArrayStream>>;
+    /// This method must be fast. The returned stream should be lazy — all non-trivial work
+    /// (I/O, decoding, filtering) must be deferred to when the stream is polled. Expensive
+    /// operations should be spawned onto the runtime to enable parallel execution across
+    /// threads.
+    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream>;
 }
 
 /// An estimate that can be exact, an upper bound, or unknown.

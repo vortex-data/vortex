@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 
+use futures::FutureExt;
 use futures::Stream;
-use futures::future::BoxFuture;
 use futures::stream;
 use futures::stream::StreamExt;
 use vortex_array::Canonical;
@@ -23,8 +23,8 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReaderRef;
+use vortex_mask::Mask;
 use vortex_metrics::MetricsRegistry;
 use vortex_session::VortexSession;
 
@@ -133,6 +133,26 @@ impl DataSource for LayoutReaderDataSource {
             return Ok(Box::new(Empty { dtype, row_count }));
         }
 
+        // Check file-level pruning: if the filter can be proven false for the entire row range
+        // using file-level statistics (e.g. via FileStatsLayoutReader), skip the scan entirely.
+        if let Some(ref filter) = scan_request.filter {
+            let mask = Mask::new_true(
+                usize::try_from(row_range.end - row_range.start).unwrap_or(usize::MAX),
+            );
+            let pruning_result = self
+                .reader
+                .pruning_evaluation(&row_range, filter, mask)?
+                .now_or_never();
+            if let Some(Ok(result_mask)) = pruning_result
+                && result_mask.all_false()
+            {
+                return Ok(Box::new(Empty {
+                    dtype,
+                    row_count: 0,
+                }));
+            }
+        }
+
         Ok(Box::new(LayoutReaderScan {
             reader: self.reader.clone(),
             session: self.session.clone(),
@@ -141,6 +161,7 @@ impl DataSource for LayoutReaderDataSource {
             filter: scan_request.filter,
             limit: scan_request.limit,
             selection: scan_request.selection,
+            ordered: scan_request.ordered,
             metrics_registry: self.metrics_registry.clone(),
             next_row: row_range.start,
             end_row: row_range.end,
@@ -156,6 +177,7 @@ struct LayoutReaderScan {
     projection: Expression,
     filter: Option<Expression>,
     limit: Option<u64>,
+    ordered: bool,
     selection: Selection,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     next_row: u64,
@@ -210,6 +232,7 @@ impl Stream for LayoutReaderScan {
             projection: this.projection.clone(),
             filter: this.filter.clone(),
             limit: split_limit,
+            ordered: this.ordered,
             row_range,
             selection: this.selection.clone(),
             metrics_registry: this.metrics_registry.clone(),
@@ -236,6 +259,7 @@ struct LayoutReaderSplit {
     projection: Expression,
     filter: Option<Expression>,
     limit: Option<u64>,
+    ordered: bool,
     row_range: Range<u64>,
     selection: Selection,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
@@ -257,41 +281,24 @@ impl Split for LayoutReaderSplit {
         Estimate::default()
     }
 
-    fn execute(self: Box<Self>) -> BoxFuture<'static, VortexResult<SendableArrayStream>> {
-        let handle = self.session.handle();
+    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
         let builder = ScanBuilder::new(self.session, self.reader)
             .with_row_range(self.row_range)
             .with_selection(self.selection)
             .with_projection(self.projection)
             .with_some_filter(self.filter)
             .with_some_limit(self.limit)
-            .with_some_metrics_registry(self.metrics_registry);
+            .with_some_metrics_registry(self.metrics_registry)
+            .with_ordered(self.ordered);
 
-        Box::pin(async move {
-            // NOTE(ngates): for now we replicate the behavior inside builder.into_stream() so
-            //  that we can spawn the blocking phase as a future and give the caller more control
-            //  over when a scan is planned vs executed.
-            let num_workers = std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(1);
-            let concurrency = builder.concurrency() * num_workers;
-            let ordered = builder.ordered();
-            let dtype = builder.dtype()?;
+        let dtype = builder.dtype()?;
+        // Use into_stream() which creates a LazyScanStream that spawns individual I/O
+        // tasks onto the runtime, enabling parallel execution across executor threads.
+        let stream = builder.into_stream()?;
 
-            let tasks = handle.spawn_blocking(move || builder.build()).await?;
-
-            let stream = stream::iter(tasks);
-            let stream = if ordered {
-                stream.buffered(concurrency).boxed()
-            } else {
-                stream.buffer_unordered(concurrency).boxed()
-            };
-            let stream = stream.filter_map(|chunk| async move { chunk.transpose() });
-
-            Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
-                dtype, stream,
-            )))
-        })
+        Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+            dtype, stream,
+        )))
     }
 }
 
@@ -328,11 +335,9 @@ impl Split for Empty {
         Estimate::exact(0)
     }
 
-    fn execute(self: Box<Self>) -> BoxFuture<'static, VortexResult<SendableArrayStream>> {
-        Box::pin(async move {
-            Ok(ArrayStreamExt::boxed(
-                Canonical::empty(&self.dtype).into_array().to_array_stream(),
-            ))
-        })
+    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
+        Ok(ArrayStreamExt::boxed(
+            Canonical::empty(&self.dtype).into_array().to_array_stream(),
+        ))
     }
 }

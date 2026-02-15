@@ -7,9 +7,9 @@
 //! `FileFormat` abstraction.
 
 mod cache;
-mod exec;
+mod source;
 mod table;
 
 pub use cache::DataFusionFooterCache;
-pub use exec::VortexExec;
+pub use source::VortexScanSource;
 pub use table::VortexTable;

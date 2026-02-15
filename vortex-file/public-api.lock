@@ -1,5 +1,141 @@
 pub mod vortex_file
 
+pub mod vortex_file::filesystem
+
+pub mod vortex_file::filesystem::object_store
+
+pub struct vortex_file::filesystem::object_store::ObjectStoreFileSystem
+
+impl vortex_file::filesystem::object_store::ObjectStoreFileSystem
+
+pub fn vortex_file::filesystem::object_store::ObjectStoreFileSystem::new(store: alloc::sync::Arc<dyn object_store::ObjectStore>, handle: vortex_io::runtime::handle::Handle) -> Self
+
+impl vortex_file::filesystem::FileSystem for vortex_file::filesystem::object_store::ObjectStoreFileSystem
+
+pub fn vortex_file::filesystem::object_store::ObjectStoreFileSystem::list(&self, prefix: core::option::Option<&str>) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_file::filesystem::FileListing>>
+
+pub fn vortex_file::filesystem::object_store::ObjectStoreFileSystem::open_read<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_io::read::VortexReadAt>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
+pub struct vortex_file::filesystem::FileListing
+
+pub vortex_file::filesystem::FileListing::path: alloc::string::String
+
+pub vortex_file::filesystem::FileListing::size: core::option::Option<u64>
+
+impl core::clone::Clone for vortex_file::filesystem::FileListing
+
+pub fn vortex_file::filesystem::FileListing::clone(&self) -> vortex_file::filesystem::FileListing
+
+impl core::cmp::Eq for vortex_file::filesystem::FileListing
+
+impl core::cmp::Ord for vortex_file::filesystem::FileListing
+
+pub fn vortex_file::filesystem::FileListing::cmp(&self, other: &vortex_file::filesystem::FileListing) -> core::cmp::Ordering
+
+impl core::cmp::PartialEq for vortex_file::filesystem::FileListing
+
+pub fn vortex_file::filesystem::FileListing::eq(&self, other: &vortex_file::filesystem::FileListing) -> bool
+
+impl core::cmp::PartialOrd for vortex_file::filesystem::FileListing
+
+pub fn vortex_file::filesystem::FileListing::partial_cmp(&self, other: &vortex_file::filesystem::FileListing) -> core::option::Option<core::cmp::Ordering>
+
+impl core::fmt::Debug for vortex_file::filesystem::FileListing
+
+pub fn vortex_file::filesystem::FileListing::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_file::filesystem::FileListing
+
+pub trait vortex_file::filesystem::FileSystem: core::marker::Send + core::marker::Sync + 'static
+
+pub fn vortex_file::filesystem::FileSystem::list(&self, prefix: core::option::Option<&str>) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_file::filesystem::FileListing>>
+
+pub fn vortex_file::filesystem::FileSystem::open_read<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_io::read::VortexReadAt>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
+impl vortex_file::filesystem::FileSystem for vortex_file::filesystem::object_store::ObjectStoreFileSystem
+
+pub fn vortex_file::filesystem::object_store::ObjectStoreFileSystem::list(&self, prefix: core::option::Option<&str>) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_file::filesystem::FileListing>>
+
+pub fn vortex_file::filesystem::object_store::ObjectStoreFileSystem::open_read<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_io::read::VortexReadAt>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
+pub type vortex_file::filesystem::FileSystemRef = alloc::sync::Arc<dyn vortex_file::filesystem::FileSystem>
+
+pub mod vortex_file::multi
+
+pub use vortex_file::multi::Pattern
+
+pub enum vortex_file::multi::FileDiscovery
+
+pub vortex_file::multi::FileDiscovery::Glob(glob::Pattern)
+
+pub vortex_file::multi::FileDiscovery::ListAll
+
+pub vortex_file::multi::FileDiscovery::Paths(alloc::vec::Vec<alloc::string::String>)
+
+impl core::fmt::Debug for vortex_file::multi::FileDiscovery
+
+pub fn vortex_file::multi::FileDiscovery::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub enum vortex_file::multi::SchemaResolution
+
+pub vortex_file::multi::SchemaResolution::Exact
+
+pub vortex_file::multi::SchemaResolution::Union
+
+impl core::clone::Clone for vortex_file::multi::SchemaResolution
+
+pub fn vortex_file::multi::SchemaResolution::clone(&self) -> vortex_file::multi::SchemaResolution
+
+impl core::default::Default for vortex_file::multi::SchemaResolution
+
+pub fn vortex_file::multi::SchemaResolution::default() -> vortex_file::multi::SchemaResolution
+
+impl core::fmt::Debug for vortex_file::multi::SchemaResolution
+
+pub fn vortex_file::multi::SchemaResolution::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_file::multi::MultiFileDataSource
+
+impl vortex_file::multi::MultiFileDataSource
+
+pub fn vortex_file::multi::MultiFileDataSource::builder(session: vortex_session::VortexSession, fs: vortex_file::filesystem::FileSystemRef) -> vortex_file::multi::MultiFileDataSourceBuilder
+
+impl vortex_file::multi::MultiFileDataSource
+
+pub fn vortex_file::multi::MultiFileDataSource::file_count(&self) -> usize
+
+impl vortex_scan::api::DataSource for vortex_file::multi::MultiFileDataSource
+
+pub fn vortex_file::multi::MultiFileDataSource::deserialize_split(&self, data: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_scan::api::SplitRef>
+
+pub fn vortex_file::multi::MultiFileDataSource::dtype(&self) -> &vortex_dtype::dtype::DType
+
+pub fn vortex_file::multi::MultiFileDataSource::row_count_estimate(&self) -> vortex_scan::api::Estimate<u64>
+
+pub fn vortex_file::multi::MultiFileDataSource::scan(&self, scan_request: vortex_scan::api::ScanRequest) -> vortex_error::VortexResult<vortex_scan::api::DataSourceScanRef>
+
+pub struct vortex_file::multi::MultiFileDataSourceBuilder
+
+impl vortex_file::multi::MultiFileDataSourceBuilder
+
+pub async fn vortex_file::multi::MultiFileDataSourceBuilder::build(self) -> vortex_error::VortexResult<vortex_file::multi::MultiFileDataSource>
+
+pub fn vortex_file::multi::MultiFileDataSourceBuilder::with_discovery(self, discovery: vortex_file::multi::FileDiscovery) -> Self
+
+pub fn vortex_file::multi::MultiFileDataSourceBuilder::with_dtype(self, dtype: vortex_dtype::dtype::DType) -> Self
+
+pub fn vortex_file::multi::MultiFileDataSourceBuilder::with_footer_cache(self, cache: vortex_file::FooterCacheRef) -> Self
+
+pub fn vortex_file::multi::MultiFileDataSourceBuilder::with_glob(self, pattern: glob::Pattern) -> Self
+
+pub fn vortex_file::multi::MultiFileDataSourceBuilder::with_open_options(self, f: impl core::ops::function::Fn(vortex_file::VortexOpenOptions) -> vortex_file::VortexOpenOptions + core::marker::Send + core::marker::Sync + 'static) -> Self
+
+pub fn vortex_file::multi::MultiFileDataSourceBuilder::with_paths(self, paths: alloc::vec::Vec<alloc::string::String>) -> Self
+
+pub fn vortex_file::multi::MultiFileDataSourceBuilder::with_prefetch(self, prefetch: usize) -> Self
+
+pub fn vortex_file::multi::MultiFileDataSourceBuilder::with_schema_resolution(self, resolution: vortex_file::multi::SchemaResolution) -> Self
+
 pub mod vortex_file::segments
 
 pub enum vortex_file::segments::ReadEvent
@@ -144,6 +280,8 @@ pub struct vortex_file::Footer
 
 impl vortex_file::Footer
 
+pub fn vortex_file::Footer::approx_byte_size(&self) -> core::option::Option<usize>
+
 pub fn vortex_file::Footer::deserializer(eof_buffer: vortex_buffer::ByteBuffer, session: vortex_session::VortexSession) -> vortex_file::FooterDeserializer
 
 pub fn vortex_file::Footer::dtype(&self) -> &vortex_dtype::dtype::DType
@@ -195,6 +333,22 @@ pub fn vortex_file::FooterSerializer::serialize(self) -> vortex_error::VortexRes
 pub fn vortex_file::FooterSerializer::with_exclude_dtype(self, exclude_dtype: bool) -> Self
 
 pub fn vortex_file::FooterSerializer::with_offset(self, offset: u64) -> Self
+
+pub struct vortex_file::InMemoryFooterCache
+
+impl vortex_file::InMemoryFooterCache
+
+pub fn vortex_file::InMemoryFooterCache::new() -> Self
+
+impl core::default::Default for vortex_file::InMemoryFooterCache
+
+pub fn vortex_file::InMemoryFooterCache::default() -> vortex_file::InMemoryFooterCache
+
+impl vortex_file::FooterCache for vortex_file::InMemoryFooterCache
+
+pub fn vortex_file::InMemoryFooterCache::get(&self, key: &str) -> core::option::Option<vortex_file::Footer>
+
+pub fn vortex_file::InMemoryFooterCache::put(&self, key: &str, footer: vortex_file::Footer)
 
 pub struct vortex_file::SegmentSpec
 
@@ -362,6 +516,18 @@ pub const vortex_file::VORTEX_FILE_EXTENSION: &str
 
 pub static vortex_file::ALLOWED_ENCODINGS: std::sync::lazy_lock::LazyLock<vortex_array::session::ArrayRegistry>
 
+pub trait vortex_file::FooterCache: core::marker::Send + core::marker::Sync
+
+pub fn vortex_file::FooterCache::get(&self, key: &str) -> core::option::Option<vortex_file::Footer>
+
+pub fn vortex_file::FooterCache::put(&self, key: &str, footer: vortex_file::Footer)
+
+impl vortex_file::FooterCache for vortex_file::InMemoryFooterCache
+
+pub fn vortex_file::InMemoryFooterCache::get(&self, key: &str) -> core::option::Option<vortex_file::Footer>
+
+pub fn vortex_file::InMemoryFooterCache::put(&self, key: &str, footer: vortex_file::Footer)
+
 pub trait vortex_file::OpenOptionsSessionExt: vortex_array::session::ArraySessionExt + vortex_layout::session::LayoutSessionExt + vortex_io::session::RuntimeSessionExt
 
 pub fn vortex_file::OpenOptionsSessionExt::open_options(&self) -> vortex_file::VortexOpenOptions
@@ -375,3 +541,5 @@ pub fn vortex_file::WriteOptionsSessionExt::write_options(&self) -> vortex_file:
 impl<S: vortex_session::SessionExt> vortex_file::WriteOptionsSessionExt for S
 
 pub fn vortex_file::register_default_encodings(session: &mut vortex_session::VortexSession)
+
+pub type vortex_file::FooterCacheRef = alloc::sync::Arc<dyn vortex_file::FooterCache>

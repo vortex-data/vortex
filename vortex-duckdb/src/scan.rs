@@ -6,21 +6,16 @@ use std::ffi::CString;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
-use std::task::Context;
-use std::task::Poll;
 
 use async_compat::Compat;
 use custom_labels::CURRENT_LABELSET;
 use futures::FutureExt;
-use futures::Stream;
 use futures::StreamExt;
+use futures::TryStreamExt;
 use futures::stream;
-use futures::stream::BoxStream;
-use futures::stream::SelectAll;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use url::Url;
@@ -542,7 +537,8 @@ pub(crate) fn scan_shared(
 }
 
 /// Direct ScanBuilder path (existing behavior): opens files lazily via spawned tasks,
-/// creates per-file scan streams, and drives them concurrently via [`MultiScan`].
+/// creates per-file scan streams, and drives them concurrently via
+/// [`TryStreamExt::try_flatten_unordered`].
 fn init_global_direct(
     bind_data: &VortexBindData,
     projection_expr: Expression,
@@ -580,7 +576,7 @@ fn init_global_direct(
                     if let Some(ref filter) = filter_expr
                         && vxf.can_prune(filter)?
                     {
-                        return Ok(None);
+                        return VortexResult::Ok(None);
                     };
 
                     let scan = vxf
@@ -592,7 +588,7 @@ fn init_global_direct(
                         .into_stream()?
                         .boxed();
 
-                    Ok(Some(scan))
+                    VortexResult::Ok(Some(scan))
                 })
                 .boxed()
         })
@@ -600,79 +596,7 @@ fn init_global_direct(
         .buffer_unordered(num_workers * 2)
         .filter_map(|result| async move { result.transpose() });
 
-    Ok(RUNTIME.block_on_stream_thread_safe(move |_| MultiScan {
-        streams: scan_streams.boxed(),
-        streams_finished: false,
-        select_all: Default::default(),
-        max_concurrency: num_workers * 2,
+    Ok(RUNTIME.block_on_stream_thread_safe(move |_| {
+        scan_streams.try_flatten_unordered(Some(num_workers * 2))
     }))
-}
-
-pub(crate) struct MultiScan<'rt, T> {
-    // A stream-of-streams of scan results.
-    pub(crate) streams: BoxStream<'rt, VortexResult<BoxStream<'rt, VortexResult<T>>>>,
-    pub(crate) streams_finished: bool,
-    // The SelectAll used to drive the inner streams.
-    pub(crate) select_all: SelectAll<BoxStream<'rt, VortexResult<T>>>,
-    // The maximum number of streams to be driving concurrently.
-    pub(crate) max_concurrency: usize,
-}
-
-impl<'rt, T: 'rt> Stream for MultiScan<'rt, T> {
-    type Item = VortexResult<T>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = &mut *self;
-
-        loop {
-            // First, try to pull from the SelectAll of active streams.
-            // This means we prefer to complete existing work before starting new work, unless it
-            // all returns Poll::Pending.
-            match this.select_all.poll_next_unpin(cx) {
-                Poll::Ready(None) => {
-                    if this.streams_finished {
-                        // All streams are done
-                        return Poll::Ready(None);
-                    }
-                }
-                Poll::Ready(Some(result)) => return Poll::Ready(Some(result)),
-                Poll::Pending => {
-                    // None of the active streams are ready right now.
-                }
-            }
-
-            // If all current streams returned `Poll::Pending`, then we try to fetch the next
-            // stream to drive. The idea here is to ensure our executors are always busy with
-            // CPU work by driving as many streams necessary to keep the I/O queues full.
-            if !this.streams_finished && this.select_all.len() < this.max_concurrency {
-                match Pin::new(&mut this.streams).poll_next(cx) {
-                    Poll::Ready(Some(Ok(stream))) => {
-                        // Add the new stream to SelectAll, and continue the loop to poll it.
-                        this.select_all.push(stream);
-                        continue;
-                    }
-                    Poll::Ready(Some(Err(e))) => {
-                        // Error opening one of the streams
-                        return Poll::Ready(Some(Err(e)));
-                    }
-                    Poll::Ready(None) => {
-                        // No more streams available from the source
-                        this.streams_finished = true;
-                        if this.select_all.is_empty() {
-                            // No active streams, so we're done.
-                            return Poll::Ready(None);
-                        }
-                        return Poll::Pending;
-                    }
-                    Poll::Pending => {
-                        // Can't get more streams right now
-                        return Poll::Pending;
-                    }
-                }
-            } else {
-                // We have enough active streams, so just wait for one of them to yield.
-                return Poll::Pending;
-            }
-        }
-    }
 }

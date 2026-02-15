@@ -10,6 +10,7 @@ use std::sync::atomic::AtomicU64;
 use async_compat::Compat;
 use custom_labels::CURRENT_LABELSET;
 use futures::StreamExt;
+use futures::TryStreamExt;
 use itertools::Itertools;
 use object_store::local::LocalFileSystem;
 use url::Url;
@@ -47,7 +48,6 @@ use crate::duckdb::footer_cache::DuckDbFooterCache;
 use crate::exporter::ConversionCache;
 use crate::scan::EMPTY_COLUMN_IDX;
 use crate::scan::EMPTY_COLUMN_NAME;
-use crate::scan::MultiScan;
 use crate::scan::VortexGlobalData;
 use crate::scan::VortexLocalData;
 use crate::scan::extract_projection_expr_from;
@@ -64,6 +64,7 @@ pub struct VortexScanApiBindData {
     filter_exprs: Vec<Expression>,
     column_names: Vec<String>,
     column_types: Vec<LogicalType>,
+    file_count: usize,
 }
 
 impl Clone for VortexScanApiBindData {
@@ -74,6 +75,7 @@ impl Clone for VortexScanApiBindData {
             filter_exprs: vec![],
             column_names: self.column_names.clone(),
             column_types: self.column_types.clone(),
+            file_count: self.file_count,
         }
     }
 }
@@ -164,6 +166,7 @@ impl TableFunction for VortexScanApiTableFunction {
         let footer_cache: FooterCacheRef = Arc::new(DuckDbFooterCache::new(ctx.object_cache()));
         let (fs, paths) = create_filesystem_and_paths(&file_urls)?;
 
+        let file_count = file_urls.len();
         let data_source: DataSourceRef = Arc::new(RUNTIME.block_on(async {
             MultiFileDataSource::builder(SESSION.clone(), fs)
                 .with_discovery(FileDiscovery::Paths(paths))
@@ -183,6 +186,7 @@ impl TableFunction for VortexScanApiTableFunction {
             filter_exprs: vec![],
             column_names,
             column_types,
+            file_count,
         })
     }
 
@@ -228,26 +232,23 @@ impl TableFunction for VortexScanApiTableFunction {
         let scan = bind_data.data_source.scan(request)?;
         let conversion_cache = Arc::new(ConversionCache::new(0));
 
-        let scan_streams = scan.splits().then(move |split_result| {
-            let cache = conversion_cache.clone();
-            async move {
-                let split = split_result?;
-                let s = split.execute().await?;
-                Ok(s.map(move |r| Ok((r?, cache.clone()))).boxed())
-            }
-        });
-
         let num_workers = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
 
-        // It's questionable whether we want to use a MultiScan here, or whether flatten_unordered
-        // would be sufficient. Similarly, would we rather
-        let iterator = RUNTIME.block_on_stream_thread_safe(move |_| MultiScan {
-            streams: scan_streams.boxed(),
-            streams_finished: false,
-            select_all: Default::default(),
-            max_concurrency: num_workers * 2,
+        // Each split.execute() returns a lazy stream whose early polls do preparation
+        // work (expression resolution, layout traversal, first I/O spawns). We use
+        // try_flatten_unordered to poll multiple split streams concurrently so that
+        // the next split is already warm when the current one finishes.
+        let scan_streams = scan.splits().map(move |split_result| {
+            let cache = conversion_cache.clone();
+            let split = split_result?;
+            let s = split.execute()?;
+            VortexResult::Ok(s.map(move |r| Ok((r?, cache.clone()))).boxed())
+        });
+
+        let iterator = RUNTIME.block_on_stream_thread_safe(move |_| {
+            scan_streams.try_flatten_unordered(Some(num_workers * 2))
         });
 
         Ok(VortexGlobalData {
@@ -299,7 +300,9 @@ impl TableFunction for VortexScanApiTableFunction {
         match est.upper {
             Some(upper) if upper == est.lower => Cardinality::Maximum(upper),
             Some(upper) => Cardinality::Estimate(upper),
-            None => Cardinality::Estimate(est.lower),
+            // When the upper bound is unknown (e.g. deferred files not yet opened), scale the
+            // lower bound by the file count to give DuckDB a reasonable cardinality estimate.
+            None => Cardinality::Estimate(est.lower.saturating_mul(bind_data.file_count as u64)),
         }
     }
 
