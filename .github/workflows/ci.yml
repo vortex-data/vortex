@@ -615,7 +615,7 @@ jobs:
             --exclude vortex-cub --exclude vortex-test-e2e-cuda --exclude duckdb-bench `
             --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench `
             --exclude compress-bench --exclude xtask --exclude vortex-datafusion `
-            --exclude vortex-sqllogictest
+            --exclude gpu-scan-cli --exclude vortex-sqllogictest
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
         run: |
