@@ -116,11 +116,14 @@ impl DataSource for LayoutReaderDataSource {
             && fields.nfields() == 0
             && scan_request.filter.is_none()
         {
+            // FIXME(ngates): extract out maybe?
             let row_count = row_range.end - row_range.start;
             let row_count = match scan_request.selection {
                 Selection::All => row_count,
                 Selection::IncludeByIndex(idx) => idx.len() as u64,
                 Selection::ExcludeByIndex(idx) => row_count - idx.len() as u64,
+                Selection::IncludeRoaring(treemap) => treemap.len(),
+                Selection::ExcludeRoaring(treemap) => row_count - treemap.len(),
             };
 
             // Apply the limit.
@@ -280,6 +283,8 @@ impl Split for LayoutReaderSplit {
             Selection::All => row_count,
             Selection::IncludeByIndex(idx) => idx.len() as u64,
             Selection::ExcludeByIndex(idx) => row_count - idx.len() as u64,
+            Selection::IncludeRoaring(treemap) => treemap.len(),
+            Selection::ExcludeRoaring(treemap) => row_count - treemap.len(),
         };
         let row_count = self.limit.map_or(row_count, |limit| row_count.min(limit));
 

@@ -22,10 +22,8 @@ pub enum Selection {
     /// A selection of sorted rows to exclude by index.
     ExcludeByIndex(Buffer<u64>),
     /// A selection of rows to include using a [`roaring::RoaringTreemap`].
-    #[cfg(feature = "roaring")]
     IncludeRoaring(roaring::RoaringTreemap),
     /// A selection of rows to exclude using a [`roaring::RoaringTreemap`].
-    #[cfg(feature = "roaring")]
     ExcludeRoaring(roaring::RoaringTreemap),
 }
 
@@ -81,7 +79,6 @@ impl Selection {
                     .clone();
                 RowMask::new(range.start, mask.not())
             }
-            #[cfg(feature = "roaring")]
             Selection::IncludeRoaring(roaring) => {
                 use std::ops::BitAnd;
 
@@ -113,7 +110,6 @@ impl Selection {
 
                 RowMask::new(range.start, mask)
             }
-            #[cfg(feature = "roaring")]
             Selection::ExcludeRoaring(roaring) => {
                 use std::ops::BitAnd;
 
@@ -220,7 +216,6 @@ mod tests {
         assert_eq!(row_mask.mask().values().unwrap().indices(), &[0]);
     }
 
-    #[cfg(feature = "roaring")]
     mod roaring_tests {
         use roaring::RoaringTreemap;
 
