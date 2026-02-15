@@ -17,7 +17,6 @@ use vortex_bench::generate_duckdb_registration_sql;
 use vortex_duckdb::duckdb::Config;
 use vortex_duckdb::duckdb::Connection;
 use vortex_duckdb::duckdb::Database;
-use vortex_duckdb::register_extension_options;
 
 /// DuckDB context for benchmarks.
 pub struct DuckClient {
@@ -67,10 +66,12 @@ impl DuckClient {
         path: Option<PathBuf>,
         threads: Option<usize>,
     ) -> Result<(Database, Connection)> {
-        let config = Config::new().vortex_expect("failed to create duckdb config");
+        let mut config = Config::new().vortex_expect("failed to create duckdb config");
 
-        // Register Vortex extension options before creating connection
-        register_extension_options(&config);
+        // Set DuckDB thread count if specified
+        if let Some(thread_count) = threads {
+            config.set("threads", &format!("{}", thread_count))?;
+        }
 
         let db = match path {
             Some(path) => Database::open_with_config(path, config),
@@ -90,11 +91,6 @@ impl DuckClient {
         // "Invalid Input Error: The following options were not recognized:
         // parquet_metadata_cache" when running DuckDB in debug mode.
         connection.query("SET parquet_metadata_cache = true")?;
-
-        // Set vortex_max_threads if specified
-        if let Some(thread_count) = threads {
-            connection.query(&format!("SET vortex_max_threads = {}", thread_count))?;
-        }
 
         Ok((db, connection))
     }
