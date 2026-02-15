@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Builder for constructing a [`MultiFileDataSource`].
+//! Builder for constructing a [`MultiDataSource`] from multiple Vortex files.
 
 use std::sync::Arc;
 
@@ -17,7 +17,6 @@ use vortex_scan::multi::DataSourceFactory;
 use vortex_scan::multi::MultiDataSource;
 use vortex_session::VortexSession;
 
-use super::MultiFileDataSource;
 use super::session::MultiFileSessionExt;
 use crate::OpenOptionsSessionExt;
 use crate::VortexOpenOptions;
@@ -25,7 +24,8 @@ use crate::filesystem::FileListing;
 use crate::filesystem::FileSystem;
 use crate::filesystem::FileSystemRef;
 
-/// Builder for constructing a [`MultiFileDataSource`].
+/// A builder that discovers multiple Vortex files from a glob pattern and constructs a
+/// [`MultiDataSource`] to scan them as a single data source.
 ///
 /// The primary interface is [`with_glob_url`](Self::with_glob_url), which accepts a glob
 /// pattern (optionally prefixed with `file://`). For non-local filesystems (S3, GCS, etc.),
@@ -35,27 +35,28 @@ use crate::filesystem::FileSystemRef;
 ///
 /// ```ignore
 /// // Local files — filesystem is auto-created:
-/// let ds = MultiFileDataSource::builder(session)
+/// let ds = MultiFileDataSource::new(session)
 ///     .with_glob_url("/data/warehouse/*.vortex")
 ///     .build()
 ///     .await?;
 ///
 /// // S3 — caller provides the filesystem:
-/// let ds = MultiFileDataSource::builder(session)
+/// let ds = MultiFileDataSource::new(session)
 ///     .with_filesystem(s3_fs)
 ///     .with_glob_url("prefix/*.vortex")
 ///     .build()
 ///     .await?;
 /// ```
-pub struct MultiFileDataSourceBuilder {
+pub struct MultiFileDataSource {
     session: VortexSession,
     fs: Option<FileSystemRef>,
     glob_url: Option<String>,
     open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
 }
 
-impl MultiFileDataSourceBuilder {
-    pub(super) fn new(session: VortexSession) -> Self {
+impl MultiFileDataSource {
+    /// Create a new [`MultiFileDataSource`] builder.
+    pub fn new(session: VortexSession) -> Self {
         Self {
             session,
             fs: None,
@@ -94,11 +95,11 @@ impl MultiFileDataSourceBuilder {
         self
     }
 
-    /// Build the [`MultiFileDataSource`].
+    /// Build the [`MultiDataSource`].
     ///
     /// Discovers files via glob, opens the first file eagerly to determine the schema,
     /// and creates lazy factories for the remaining files.
-    pub async fn build(mut self) -> VortexResult<MultiFileDataSource> {
+    pub async fn build(mut self) -> VortexResult<MultiDataSource> {
         let glob_url = self
             .glob_url
             .take()
@@ -138,7 +139,7 @@ impl MultiFileDataSourceBuilder {
 
         debug!(file_count, dtype = %inner.dtype(), "built MultiFileDataSource");
 
-        Ok(MultiFileDataSource { inner, file_count })
+        Ok(inner)
     }
 
     /// Resolve the filesystem from the builder configuration and glob URL.

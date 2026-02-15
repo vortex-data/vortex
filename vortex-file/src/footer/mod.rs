@@ -9,7 +9,6 @@
 //! - Segment map, which describe the physical location of data in the file
 //!
 //! The footer is located at the end of the file and is used to interpret the file's contents.
-mod cache;
 mod file_layout;
 mod file_statistics;
 mod postscript;
@@ -17,7 +16,6 @@ mod segment;
 
 use std::sync::Arc;
 
-pub use cache::*;
 mod serializer;
 pub use serializer::*;
 mod deserializer;

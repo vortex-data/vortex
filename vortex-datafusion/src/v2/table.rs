@@ -18,113 +18,22 @@ use datafusion_common::Statistics;
 use datafusion_common::stats::Precision;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Expr;
-use datafusion_expr::Operator as DFOperator;
-use datafusion_expr::TableProviderFilterPushDown;
 use datafusion_expr::TableType;
 use datafusion_physical_plan::ExecutionPlan;
 use futures::TryStreamExt;
-use vortex::compute::LikeOptions;
-use vortex::dtype::DType;
 use vortex::dtype::Nullability;
-use vortex::dtype::arrow::FromArrowType;
-use vortex::expr::Binary;
 use vortex::expr::Expression;
-use vortex::expr::Like;
-use vortex::expr::Operator;
-use vortex::expr::VTableExt;
-use vortex::expr::and_collect;
-use vortex::expr::cast;
 use vortex::expr::get_item;
-use vortex::expr::is_null;
-use vortex::expr::list_contains;
-use vortex::expr::lit;
-use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
-use vortex::scalar::Scalar;
 use vortex::scan::api::DataSourceRef;
 use vortex::scan::api::ScanRequest;
 use vortex::session::VortexSession;
 
-use crate::convert::FromDataFusion;
 use crate::v2::source::VortexScanSource;
 
 fn vx_err(e: vortex::error::VortexError) -> datafusion_common::DataFusionError {
     datafusion_common::DataFusionError::External(Box::new(e))
-}
-
-/// Try to convert a DataFusion logical [`Expr`] into a Vortex [`Expression`].
-///
-/// Returns `None` if the expression contains unsupported nodes.
-fn try_convert_expr(expr: &Expr) -> Option<Expression> {
-    match expr {
-        Expr::Column(col) => Some(get_item(col.name.clone(), root())),
-        Expr::Literal(value, _) => Some(lit(Scalar::from_df(value))),
-        Expr::BinaryExpr(binary) => {
-            let left = try_convert_expr(&binary.left)?;
-            let right = try_convert_expr(&binary.right)?;
-            let op = try_convert_operator(&binary.op)?;
-            Some(Binary.new_expr(op, [left, right]))
-        }
-        Expr::Not(child) => Some(not(try_convert_expr(child)?)),
-        Expr::IsNull(child) => Some(is_null(try_convert_expr(child)?)),
-        Expr::IsNotNull(child) => Some(not(is_null(try_convert_expr(child)?))),
-        Expr::Like(like) => {
-            let child = try_convert_expr(&like.expr)?;
-            let pattern = try_convert_expr(&like.pattern)?;
-            Some(Like.new_expr(
-                LikeOptions {
-                    negated: like.negated,
-                    case_insensitive: like.case_insensitive,
-                },
-                [child, pattern],
-            ))
-        }
-        Expr::Cast(cast_expr) => {
-            let child = try_convert_expr(&cast_expr.expr)?;
-            let target = DType::from_arrow((&cast_expr.data_type, Nullability::Nullable));
-            Some(cast(child, target))
-        }
-        Expr::InList(in_list) => {
-            let value = try_convert_expr(&in_list.expr)?;
-            let scalars: Option<Vec<Scalar>> = in_list
-                .list
-                .iter()
-                .map(|e| match e {
-                    Expr::Literal(v, _) => Some(Scalar::from_df(v)),
-                    _ => None,
-                })
-                .collect();
-            let scalars = scalars?;
-            let first_dtype = scalars.first()?.dtype().clone();
-            let list_scalar = Scalar::list(first_dtype, scalars, Nullability::Nullable);
-            let expr = list_contains(lit(list_scalar), value);
-            if in_list.negated {
-                Some(not(expr))
-            } else {
-                Some(expr)
-            }
-        }
-        _ => None,
-    }
-}
-
-fn try_convert_operator(op: &DFOperator) -> Option<Operator> {
-    match op {
-        DFOperator::Eq => Some(Operator::Eq),
-        DFOperator::NotEq => Some(Operator::NotEq),
-        DFOperator::Lt => Some(Operator::Lt),
-        DFOperator::LtEq => Some(Operator::Lte),
-        DFOperator::Gt => Some(Operator::Gt),
-        DFOperator::GtEq => Some(Operator::Gte),
-        DFOperator::And => Some(Operator::And),
-        DFOperator::Or => Some(Operator::Or),
-        DFOperator::Plus => Some(Operator::Add),
-        DFOperator::Minus => Some(Operator::Sub),
-        DFOperator::Multiply => Some(Operator::Mul),
-        DFOperator::Divide => Some(Operator::Div),
-        _ => None,
-    }
 }
 
 /// A DataFusion [`TableProvider`] backed by a Vortex [`DataSourceRef`].
@@ -170,34 +79,18 @@ impl TableProvider for VortexTable {
     }
 
     fn schema(&self) -> SchemaRef {
-        Arc::clone(&self.arrow_schema)
+        self.arrow_schema.clone()
     }
 
     fn table_type(&self) -> TableType {
         TableType::Base
     }
 
-    fn supports_filters_pushdown(
-        &self,
-        filters: &[&Expr],
-    ) -> DFResult<Vec<TableProviderFilterPushDown>> {
-        Ok(filters
-            .iter()
-            .map(|expr| {
-                if try_convert_expr(expr).is_some() {
-                    TableProviderFilterPushDown::Exact
-                } else {
-                    TableProviderFilterPushDown::Inexact
-                }
-            })
-            .collect())
-    }
-
     async fn scan(
         &self,
         _state: &dyn Session,
         projection: Option<&Vec<usize>>,
-        filters: &[Expr],
+        _filters: &[Expr],
         limit: Option<usize>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
         // Build the projection expression and projected arrow schema.
@@ -218,21 +111,12 @@ impl TableProvider for VortexTable {
             let expr = pack(elements, Nullability::NonNullable);
             (Some(expr), projected_schema)
         } else {
-            (None, Arc::clone(&self.arrow_schema))
-        };
-
-        // Convert logical filter expressions to Vortex expressions.
-        let vx_filter = if !filters.is_empty() {
-            let vx_exprs: Vec<Expression> = filters.iter().filter_map(try_convert_expr).collect();
-            and_collect(vx_exprs)
-        } else {
-            None
+            (None, self.arrow_schema.clone())
         };
 
         // Build the scan request.
         let scan_request = ScanRequest {
             projection: vx_projection,
-            filter: vx_filter,
             limit: limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
             ..Default::default()
         };

@@ -57,7 +57,6 @@ use crate::convert::exprs::make_vortex_predicate;
 pub struct VortexScanSource {
     /// Each partition holds one or more splits. Splits are consumed on first execute.
     partitions: Arc<[Mutex<Vec<SplitRef>>]>,
-    partition_stats: Vec<Statistics>,
     session: VortexSession,
     schema: SchemaRef,
     /// An optional projection expression applied to each array chunk before Arrow conversion.
@@ -78,22 +77,12 @@ impl VortexScanSource {
     /// batches. It must be compatible with the schema of the splits, but no eager validation is
     /// performed.
     pub(crate) fn new(splits: Vec<SplitRef>, schema: SchemaRef, session: VortexSession) -> Self {
-        let partition_stats: Vec<Statistics> = splits
-            .iter()
-            .map(|split| Statistics {
-                num_rows: estimate_to_df_precision(&split.row_count_estimate()),
-                total_byte_size: estimate_to_df_precision(&split.byte_size_estimate()),
-                column_statistics: vec![],
-            })
-            .collect();
-
         Self {
             partitions: splits
                 .into_iter()
                 .map(|s| Mutex::new(vec![s]))
                 .collect::<Vec<_>>()
                 .into(),
-            partition_stats,
             session,
             schema,
             projection: None,
@@ -167,7 +156,7 @@ impl DataSource for VortexScanSource {
             .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
 
         Ok(Box::pin(RecordBatchStreamAdapter::new(
-            Arc::clone(&self.schema),
+            self.schema.clone(),
             stream,
         )))
     }
@@ -206,24 +195,11 @@ impl DataSource for VortexScanSource {
             return Ok(None);
         }
 
-        // Distribute old partitions round-robin into target_partitions groups,
-        // draining splits from each current partition and aggregating stats.
+        // Distribute old partitions round-robin into target_partitions groups.
         let mut grouped_splits: Vec<Vec<SplitRef>> =
             (0..target_partitions).map(|_| Vec::new()).collect();
-        let mut grouped_stats: Vec<Statistics> = (0..target_partitions)
-            .map(|_| Statistics {
-                num_rows: DFPrecision::Absent,
-                total_byte_size: DFPrecision::Absent,
-                column_statistics: vec![],
-            })
-            .collect();
 
-        for (i, (partition, stats)) in self
-            .partitions
-            .iter()
-            .zip(self.partition_stats.iter())
-            .enumerate()
-        {
+        for (i, partition) in self.partitions.iter().enumerate() {
             let group = i % target_partitions;
             let mut guard = partition.try_lock().map_err(|_| {
                 DataFusionError::Internal(
@@ -232,10 +208,6 @@ impl DataSource for VortexScanSource {
                 )
             })?;
             grouped_splits[group].extend(guard.drain(..));
-            grouped_stats[group].num_rows = grouped_stats[group].num_rows.add(&stats.num_rows);
-            grouped_stats[group].total_byte_size = grouped_stats[group]
-                .total_byte_size
-                .add(&stats.total_byte_size);
         }
 
         Ok(Some(Arc::new(VortexScanSource {
@@ -244,9 +216,8 @@ impl DataSource for VortexScanSource {
                 .map(Mutex::new)
                 .collect::<Vec<_>>()
                 .into(),
-            partition_stats: grouped_stats,
             session: self.session.clone(),
-            schema: Arc::clone(&self.schema),
+            schema: self.schema.clone(),
             projection: self.projection.clone(),
             filter: self.filter.clone(),
             limit: self.limit,
@@ -258,44 +229,53 @@ impl DataSource for VortexScanSource {
     }
 
     fn eq_properties(&self) -> EquivalenceProperties {
-        EquivalenceProperties::new(Arc::clone(&self.schema))
+        EquivalenceProperties::new(self.schema.clone())
     }
 
     fn partition_statistics(&self, partition: Option<usize>) -> DFResult<Statistics> {
-        match partition {
+        let partitions: Box<dyn Iterator<Item = &Mutex<Vec<SplitRef>>>> = match partition {
             Some(idx) => {
-                let stats = self.partition_stats.get(idx).ok_or_else(|| {
+                let p = self.partitions.get(idx).ok_or_else(|| {
                     DataFusionError::Internal(format!(
                         "VortexScanSource: partition index {idx} out of range ({})",
-                        self.partition_stats.len()
+                        self.partitions.len()
                     ))
                 })?;
-                Ok(stats.clone())
+                Box::new(std::iter::once(p))
             }
-            None => {
-                let mut num_rows: DFPrecision<usize> = DFPrecision::Absent;
-                let mut total_byte_size: DFPrecision<usize> = DFPrecision::Absent;
-                for stats in &self.partition_stats {
-                    num_rows = num_rows.add(&stats.num_rows);
-                    total_byte_size = total_byte_size.add(&stats.total_byte_size);
+            None => Box::new(self.partitions.iter()),
+        };
+
+        let mut num_rows: DFPrecision<usize> = DFPrecision::Absent;
+        let mut total_byte_size: DFPrecision<usize> = DFPrecision::Absent;
+        for p in partitions {
+            if let Ok(guard) = p.try_lock() {
+                for split in guard.iter() {
+                    num_rows = num_rows.add(&estimate_to_df_precision(&split.row_count_estimate()));
+                    total_byte_size =
+                        total_byte_size.add(&estimate_to_df_precision(&split.byte_size_estimate()));
                 }
-                let column_statistics =
-                    vec![ColumnStatistics::new_unknown(); self.schema.fields().len()];
-                Ok(Statistics {
-                    num_rows,
-                    total_byte_size,
-                    column_statistics,
-                })
             }
         }
+
+        let column_statistics = if partition.is_none() {
+            vec![ColumnStatistics::new_unknown(); self.schema.fields().len()]
+        } else {
+            vec![]
+        };
+
+        Ok(Statistics {
+            num_rows,
+            total_byte_size,
+            column_statistics,
+        })
     }
 
     fn with_fetch(&self, limit: Option<usize>) -> Option<Arc<dyn DataSource>> {
         Some(Arc::new(VortexScanSource {
-            partitions: Arc::clone(&self.partitions),
-            partition_stats: self.partition_stats.clone(),
+            partitions: self.partitions.clone(),
             session: self.session.clone(),
-            schema: Arc::clone(&self.schema),
+            schema: self.schema.clone(),
             projection: self.projection.clone(),
             filter: self.filter.clone(),
             limit,
@@ -353,8 +333,7 @@ impl DataSource for VortexScanSource {
         let scan_output_schema = Arc::new(arrow_schema::Schema::new(scan_fields));
 
         Ok(Some(Arc::new(VortexScanSource {
-            partitions: Arc::clone(&self.partitions),
-            partition_stats: self.partition_stats.clone(),
+            partitions: self.partitions.clone(),
             session: self.session.clone(),
             schema: scan_output_schema,
             projection: Some(scan_projection),
@@ -400,7 +379,7 @@ impl DataSource for VortexScanSource {
             .iter()
             .zip(pushdown_results.iter())
             .filter_map(|(expr, pushed)| match pushed {
-                PushedDown::Yes => Some(Arc::clone(expr)),
+                PushedDown::Yes => Some(expr.clone()),
                 PushedDown::No => None,
             })
             .collect();
@@ -417,10 +396,9 @@ impl DataSource for VortexScanSource {
         };
 
         let new_source = VortexScanSource {
-            partitions: Arc::clone(&self.partitions),
-            partition_stats: self.partition_stats.clone(),
+            partitions: self.partitions.clone(),
             session: self.session.clone(),
-            schema: Arc::clone(&self.schema),
+            schema: self.schema.clone(),
             projection: self.projection.clone(),
             filter: new_filter,
             limit: self.limit,

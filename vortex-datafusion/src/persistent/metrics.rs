@@ -27,13 +27,13 @@ use crate::persistent::source::VortexSource;
 pub(crate) static PARTITION_LABEL: &str = "partition";
 pub(crate) static PATH_LABEL: &str = "file_path";
 
-/// Extracts datafusion metrics from all DataSourceExec instances in
+/// Extracts datafusion metrics from all VortexExec instances in
 /// a given physical plan.
 #[derive(Default)]
 pub struct VortexMetricsFinder(Vec<MetricsSet>);
 
 impl VortexMetricsFinder {
-    /// find all metrics for DataSourceExec nodes.
+    /// find all metrics for VortexExec nodes.
     pub fn find_all(plan: &dyn ExecutionPlan) -> Vec<MetricsSet> {
         let mut finder = Self::default();
         match accept(plan, &mut finder) {

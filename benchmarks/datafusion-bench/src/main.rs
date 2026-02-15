@@ -306,7 +306,7 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             None => format!("*.{}", format.ext()),
         };
 
-        let multi_ds = MultiFileDataSource::builder(SESSION.clone())
+        let multi_ds = MultiFileDataSource::new(SESSION.clone())
             .with_filesystem(fs)
             .with_glob_url(glob_pattern)
             .build()

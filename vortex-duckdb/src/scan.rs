@@ -38,8 +38,6 @@ use vortex::expr::and_collect;
 use vortex::expr::col;
 use vortex::expr::root;
 use vortex::expr::select;
-use vortex::file::FooterCache;
-use vortex::file::FooterCacheRef;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::file::VortexOpenOptions;
@@ -61,10 +59,11 @@ use crate::duckdb::ClientContext;
 use crate::duckdb::DataChunk;
 use crate::duckdb::ExtractedValue;
 use crate::duckdb::LogicalType;
+use crate::duckdb::ObjectCacheRef;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::VirtualColumnsResult;
-use crate::duckdb::footer_cache::DuckDbFooterCache;
+use crate::duckdb::footer_cache::FooterCache;
 use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
 use crate::utils::glob::expand_glob;
@@ -307,14 +306,12 @@ impl TableFunction for VortexTableFunction {
             vortex_bail!("No files matched the glob");
         };
 
-        let footer_cache = Arc::new(DuckDbFooterCache::new(ctx.object_cache()));
-        let first_file = RUNTIME.block_on(async {
-            let mut options = SESSION.open_options();
-            if let Some(footer) = footer_cache.get(first_file_url.as_ref()) {
-                options = options.with_footer(footer);
-            }
+        let footer_cache = FooterCache::new(ctx.object_cache());
+        let entry = footer_cache.entry(first_file_url.as_ref());
+        let first_file = RUNTIME.block_on(async move {
+            let options = entry.apply_to_file(SESSION.open_options());
             let file = open_file(first_file_url.clone(), options).await?;
-            footer_cache.put(first_file_url.as_ref(), file.footer().clone());
+            entry.put_if_absent(|| file.footer().clone());
             VortexResult::Ok(file)
         })?;
 
@@ -363,15 +360,14 @@ impl TableFunction for VortexTableFunction {
         let num_workers = bind_data.max_threads as usize;
 
         let client_context = init_input.client_context()?;
-        let footer_cache: FooterCacheRef =
-            Arc::new(DuckDbFooterCache::new(client_context.object_cache()));
+        let object_cache = client_context.object_cache();
 
         let iterator = init_global_direct(
             bind_data,
             projection_expr,
             filter_expr,
             num_workers,
-            footer_cache,
+            object_cache,
         )?;
 
         Ok(VortexGlobalData {
@@ -544,7 +540,7 @@ fn init_global_direct(
     projection_expr: Expression,
     filter_expr: Option<Expression>,
     num_workers: usize,
-    footer_cache: FooterCacheRef,
+    object_cache: ObjectCacheRef<'static>,
 ) -> VortexResult<ScanIterator> {
     let handle = RUNTIME.handle();
     let first_file = bind_data.first_file.clone();
@@ -555,7 +551,7 @@ fn init_global_direct(
             let filter_expr = filter_expr.clone();
             let projection_expr = projection_expr.clone();
             let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
-            let footer_cache = footer_cache.clone();
+            let object_cache = object_cache;
 
             handle
                 .spawn(async move {
@@ -564,12 +560,11 @@ fn init_global_direct(
                         // the first file was already opened during bind.
                         Ok(first_file)
                     } else {
-                        let mut options = SESSION.open_options();
-                        if let Some(footer) = footer_cache.get(url.as_ref()) {
-                            options = options.with_footer(footer);
-                        }
+                        let cache = FooterCache::new(object_cache);
+                        let entry = cache.entry(url.as_ref());
+                        let options = entry.apply_to_file(SESSION.open_options());
                         let file = open_file(url.clone(), options).await?;
-                        footer_cache.put(url.as_ref(), file.footer().clone());
+                        entry.put_if_absent(|| file.footer().clone());
                         VortexResult::Ok(file)
                     }?;
 

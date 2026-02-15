@@ -133,7 +133,7 @@ impl TableFunction for VortexScanApiTableFunction {
         let glob_str = file_glob_string.as_ref().as_string();
 
         let data_source: DataSourceRef = RUNTIME.block_on(async {
-            let mut builder = MultiFileDataSource::builder(SESSION.clone());
+            let mut builder = MultiFileDataSource::new(SESSION.clone());
             if let Some((fs, glob_pattern)) = create_s3_filesystem_and_glob(&glob_str)? {
                 builder = builder.with_filesystem(fs).with_glob_url(glob_pattern);
             } else {

@@ -6,10 +6,8 @@
 //! This integration directly implements `TableProvider` + `ExecutionPlan`, bypassing DataFusion's
 //! `FileFormat` abstraction.
 
-mod cache;
 mod source;
 mod table;
 
-pub use cache::DataFusionFooterCache;
 pub use source::VortexScanSource;
 pub use table::VortexTable;
