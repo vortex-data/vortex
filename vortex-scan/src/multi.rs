@@ -7,11 +7,21 @@
 //! Children can be pre-opened (eager) or opened lazily via [`DataSourceFactory`] implementations,
 //! with spawned prefetching to overlap file-opening I/O with split execution.
 //!
+//! # Schema Resolution
+//!
+//! Currently, all children must share the exact same [`DType`](vortex_dtype::DType). A dtype
+//! mismatch produces an error. Future work could support schema union (allowing missing columns
+//! filled with nulls and compatible type upcasts).
+//!
 //! # Future Work
 //!
-//! This data source should evolve to support hive-style partitioning columns, different strategies
-//! for unifying schemas, more flexible prefetching configurations, and more robust error handling
-//! (e.g., skip failed sources instead of aborting the entire scan).
+//! - **Schema union**: Allow missing columns (filled with nulls) and compatible type upcasts
+//!   across sources instead of requiring exact dtype matches.
+//! - **Hive-style partitioning**: Extract partition values from file paths (e.g. `year=2024/month=01/`)
+//!   and expose them as virtual columns.
+//! - **Virtual columns**: `filename`, `file_row_number`, `file_index`.
+//! - **Per-file statistics**: Merge column statistics across sources for planner hints.
+//! - **Error resilience**: Skip failed sources instead of aborting the entire scan.
 
 use std::collections::VecDeque;
 use std::sync::Arc;

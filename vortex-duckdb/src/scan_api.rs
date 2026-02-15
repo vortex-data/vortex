@@ -7,23 +7,18 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
-use async_compat::Compat;
 use custom_labels::CURRENT_LABELSET;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use itertools::Itertools;
-use object_store::local::LocalFileSystem;
-use url::Url;
 use vortex::VortexSessionDefault;
 use vortex::array::ExecutionCtx;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
-use vortex::file::FooterCacheRef;
 use vortex::file::filesystem::FileSystemRef;
 use vortex::file::filesystem::object_store::ObjectStoreFileSystem;
-use vortex::file::multi::FileDiscovery;
 use vortex::file::multi::MultiFileDataSource;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::metrics::tracing::get_global_labels;
@@ -44,7 +39,6 @@ use crate::duckdb::LogicalType;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::VirtualColumnsResult;
-use crate::duckdb::footer_cache::DuckDbFooterCache;
 use crate::exporter::ConversionCache;
 use crate::scan::EMPTY_COLUMN_IDX;
 use crate::scan::EMPTY_COLUMN_NAME;
@@ -54,7 +48,6 @@ use crate::scan::extract_projection_expr_from;
 use crate::scan::extract_schema_from_dtype;
 use crate::scan::extract_table_filter_expr_from;
 use crate::scan::scan_shared;
-use crate::utils::glob::expand_glob;
 use crate::utils::object_store::s3_store;
 
 /// Bind data for the scan API table function, holding a [`DataSourceRef`] instead of
@@ -90,43 +83,27 @@ impl Debug for VortexScanApiBindData {
     }
 }
 
-/// Creates a [`FileSystemRef`] and relative paths from a list of URLs.
+/// Creates an S3-backed [`FileSystemRef`] and extracts the glob pattern from the URL path.
 ///
-/// For S3 URLs, creates an S3 object store scoped to the bucket.
-/// For local URLs (file:// or bare paths), uses a local filesystem.
-fn create_filesystem_and_paths(urls: &[Url]) -> VortexResult<(FileSystemRef, Vec<String>)> {
-    let first = urls
-        .first()
-        .ok_or_else(|| vortex_err!("No URLs provided"))?;
-
-    if first.scheme() == "s3" {
-        let bucket = first
+/// Returns `None` for local paths (the builder handles local filesystem creation internally).
+fn create_s3_filesystem_and_glob(url_glob: &str) -> VortexResult<Option<(FileSystemRef, String)>> {
+    if url_glob.starts_with("s3://") {
+        let url = url::Url::parse(url_glob)?;
+        let bucket = url
             .host_str()
-            .ok_or_else(|| vortex_err!("Failed to extract bucket name from URL: {first}"))?;
+            .ok_or_else(|| vortex_err!("Failed to extract bucket name from URL: {url}"))?;
         let store = s3_store(bucket)?;
         let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(store, RUNTIME.handle()));
-        let paths = urls
-            .iter()
-            .map(|url| {
-                url.path()
-                    .strip_prefix('/')
-                    .ok_or_else(|| vortex_err!("Invalid S3 path: {url}"))
-                    .map(|s| s.to_string())
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
-        Ok((fs, paths))
+        let glob_pattern = url
+            .path()
+            .strip_prefix('/')
+            .ok_or_else(|| vortex_err!("Invalid S3 path: {url}"))?
+            .to_string();
+        Ok(Some((fs, glob_pattern)))
+    } else if url_glob.starts_with("gs://") {
+        vortex_bail!("GCS glob expansion not yet implemented")
     } else {
-        let store = Arc::new(LocalFileSystem::default());
-        let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(store, RUNTIME.handle()));
-        let paths = urls
-            .iter()
-            .map(|url| {
-                url.to_file_path()
-                    .map_err(|_| vortex_err!("Invalid file URL: {url}"))
-                    .map(|p| p.to_string_lossy().to_string())
-            })
-            .collect::<VortexResult<Vec<_>>>()?;
-        Ok((fs, paths))
+        Ok(None)
     }
 }
 
@@ -147,7 +124,7 @@ impl TableFunction for VortexScanApiTableFunction {
     }
 
     fn bind(
-        ctx: &ClientContext,
+        _ctx: &ClientContext,
         input: &BindInput,
         result: &mut BindResult,
     ) -> VortexResult<Self::BindData> {
@@ -155,25 +132,19 @@ impl TableFunction for VortexScanApiTableFunction {
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
-        let (file_urls, _metadata) = RUNTIME.block_on(Compat::new(expand_glob(
-            file_glob_string.as_ref().as_string(),
-        )))?;
+        let glob_str = file_glob_string.as_ref().as_string();
 
-        if file_urls.is_empty() {
-            vortex_bail!("No files matched the glob");
-        }
-
-        let footer_cache: FooterCacheRef = Arc::new(DuckDbFooterCache::new(ctx.object_cache()));
-        let (fs, paths) = create_filesystem_and_paths(&file_urls)?;
-
-        let file_count = file_urls.len();
-        let data_source: DataSourceRef = Arc::new(RUNTIME.block_on(async {
-            MultiFileDataSource::builder(SESSION.clone(), fs)
-                .with_discovery(FileDiscovery::Paths(paths))
-                .with_footer_cache(footer_cache)
-                .build()
-                .await
-        })?);
+        let (data_source, file_count): (DataSourceRef, usize) = RUNTIME.block_on(async {
+            let mut builder = MultiFileDataSource::builder(SESSION.clone());
+            if let Some((fs, glob_pattern)) = create_s3_filesystem_and_glob(&glob_str)? {
+                builder = builder.with_filesystem(fs).with_glob_url(glob_pattern);
+            } else {
+                builder = builder.with_glob_url(glob_str.to_string());
+            }
+            let ds = builder.build().await?;
+            let file_count = ds.file_count();
+            VortexResult::Ok((Arc::new(ds) as DataSourceRef, file_count))
+        })?;
 
         let (column_names, column_types) = extract_schema_from_dtype(data_source.dtype())?;
 

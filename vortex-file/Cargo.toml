@@ -25,6 +25,7 @@ getrandom_v03 = { workspace = true }                              # Needed to pi
 glob = { workspace = true, optional = true }
 itertools = { workspace = true }
 kanal = { workspace = true }
+moka = { workspace = true, features = ["sync"] }
 object_store = { workspace = true, optional = true }
 oneshot.workspace = true
 parking_lot = { workspace = true }

@@ -11208,6 +11208,7 @@ dependencies = [
  "glob",
  "itertools 0.14.0",
  "kanal",
+ "moka",
  "object_store",
  "oneshot",
  "parking_lot",

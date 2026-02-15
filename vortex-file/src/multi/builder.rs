@@ -5,134 +5,81 @@
 
 use std::sync::Arc;
 
-use glob::Pattern;
+use async_trait::async_trait;
+use futures::TryStreamExt;
 use tracing::debug;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
+use vortex_scan::api::DataSource;
+use vortex_scan::api::DataSourceRef;
 use vortex_scan::multi::DataSourceFactory;
 use vortex_scan::multi::MultiDataSource;
 use vortex_session::VortexSession;
 
-use super::glob::expand_glob;
-use super::glob::list_all;
-use super::source::MultiFileDataSource;
-use super::source::VortexFileFactory;
-use super::source::data_source_from_file;
-use crate::FooterCacheRef;
+use super::MultiFileDataSource;
+use super::session::MultiFileSessionExt;
 use crate::OpenOptionsSessionExt;
 use crate::VortexOpenOptions;
 use crate::filesystem::FileListing;
+use crate::filesystem::FileSystem;
 use crate::filesystem::FileSystemRef;
-
-/// How to handle schema differences across files in a [`MultiFileDataSource`].
-#[derive(Debug, Clone, Default)]
-pub enum SchemaResolution {
-    /// All files must have exactly the same [`DType`](vortex_dtype::DType). Error on mismatch.
-    #[default]
-    Exact,
-    /// Unify schemas: allow missing columns (filled with nulls) and compatible type upcasts.
-    ///
-    /// **Not yet implemented** — will return an error at build time.
-    Union,
-}
-
-/// How files are discovered for a [`MultiFileDataSource`].
-#[derive(Debug)]
-pub enum FileDiscovery {
-    /// Explicit list of file paths.
-    Paths(Vec<String>),
-    /// A glob pattern to expand against the filesystem.
-    Glob(Pattern),
-    /// List all files in the filesystem.
-    ListAll,
-}
 
 /// Builder for constructing a [`MultiFileDataSource`].
 ///
-/// By default, all files are discovered by listing the filesystem (equivalent to `ListAll`).
-/// Use [`with_paths`](Self::with_paths) or [`with_glob`](Self::with_glob) to restrict
-/// which files are included.
-///
-/// To scope the data source to a subdirectory, wrap the filesystem with
-/// [`FileSystem::prefix`](crate::filesystem::FileSystem::prefix) before passing it to the builder.
+/// The primary interface is [`with_glob_url`](Self::with_glob_url), which accepts a glob
+/// pattern (optionally prefixed with `file://`). For non-local filesystems (S3, GCS, etc.),
+/// callers must also provide a [`FileSystem`] via [`with_filesystem`](Self::with_filesystem).
 ///
 /// # Examples
 ///
 /// ```ignore
-/// // Discover all files under a prefix:
-/// let fs = fs.prefix("data/".into());
-/// let ds = MultiFileDataSource::builder(session, fs)
+/// // Local files — filesystem is auto-created:
+/// let ds = MultiFileDataSource::builder(session)
+///     .with_glob_url("/data/warehouse/*.vortex")
 ///     .build()
 ///     .await?;
 ///
-/// // From a glob pattern:
-/// let fs = fs.prefix("data/".into());
-/// let ds = MultiFileDataSource::builder(session, fs)
-///     .with_glob(glob::Pattern::new("**/*.vortex")?)
-///     .with_prefetch(16)
-///     .build()
-///     .await?;
-///
-/// // From explicit paths:
-/// let ds = MultiFileDataSource::builder(session, fs)
-///     .with_paths(vec!["a.vortex".into(), "b.vortex".into()])
+/// // S3 — caller provides the filesystem:
+/// let ds = MultiFileDataSource::builder(session)
+///     .with_filesystem(s3_fs)
+///     .with_glob_url("prefix/*.vortex")
 ///     .build()
 ///     .await?;
 /// ```
 pub struct MultiFileDataSourceBuilder {
     session: VortexSession,
-    fs: FileSystemRef,
-    discovery: FileDiscovery,
-    schema_resolution: SchemaResolution,
+    fs: Option<FileSystemRef>,
+    glob_url: Option<String>,
     open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
-    prefetch: Option<usize>,
-    dtype: Option<DType>,
-    footer_cache: Option<FooterCacheRef>,
-}
-
-impl MultiFileDataSource {
-    /// Create a new builder from a filesystem.
-    ///
-    /// To scope the data source to a subdirectory, wrap the filesystem with
-    /// [`FileSystem::prefix`](crate::filesystem::FileSystem::prefix).
-    pub fn builder(session: VortexSession, fs: FileSystemRef) -> MultiFileDataSourceBuilder {
-        MultiFileDataSourceBuilder {
-            session,
-            fs,
-            discovery: FileDiscovery::ListAll,
-            schema_resolution: SchemaResolution::default(),
-            open_options_fn: Arc::new(|opts| opts),
-            prefetch: None,
-            dtype: None,
-            footer_cache: None,
-        }
-    }
 }
 
 impl MultiFileDataSourceBuilder {
-    /// Set how files are discovered.
-    pub fn with_discovery(mut self, discovery: FileDiscovery) -> Self {
-        self.discovery = discovery;
+    pub(super) fn new(session: VortexSession) -> Self {
+        Self {
+            session,
+            fs: None,
+            glob_url: None,
+            open_options_fn: Arc::new(|opts| opts),
+        }
+    }
+
+    /// Set the glob URL for file discovery.
+    ///
+    /// For local files, this can be a bare path (`/data/*.vortex`) or a `file://` URL.
+    /// For remote filesystems, this should be the glob pattern relative to the filesystem
+    /// root — the filesystem must be provided via [`with_filesystem`](Self::with_filesystem).
+    pub fn with_glob_url(mut self, glob_url: impl Into<String>) -> Self {
+        self.glob_url = Some(glob_url.into());
         self
     }
 
-    /// Set explicit file paths.
-    pub fn with_paths(self, paths: Vec<String>) -> Self {
-        self.with_discovery(FileDiscovery::Paths(paths))
-    }
-
-    /// Discover files by expanding a glob pattern against the filesystem.
+    /// Set the filesystem to use for file discovery and reading.
     ///
-    /// The pattern is relative to the filesystem root
-    /// (e.g. `"**/*.vortex"`). Expansion happens eagerly during [`build`](Self::build).
-    pub fn with_glob(self, pattern: Pattern) -> Self {
-        self.with_discovery(FileDiscovery::Glob(pattern))
-    }
-
-    /// Set how schema differences across files should be handled.
-    pub fn with_schema_resolution(mut self, resolution: SchemaResolution) -> Self {
-        self.schema_resolution = resolution;
+    /// Required for non-local URLs (S3, GCS, etc.). For `file://` or bare path URLs,
+    /// a local filesystem is created automatically if none is provided.
+    pub fn with_filesystem(mut self, fs: FileSystemRef) -> Self {
+        self.fs = Some(fs);
         self
     }
 
@@ -147,143 +94,293 @@ impl MultiFileDataSourceBuilder {
         self
     }
 
-    /// Set the prefetch concurrency for lazy file opening.
-    ///
-    /// Higher values overlap more file-opening I/O with split execution but use more memory
-    /// for in-flight metadata.
-    ///
-    /// Defaults to  [`std::thread::available_parallelism`].
-    pub fn with_prefetch(mut self, prefetch: usize) -> Self {
-        self.prefetch = Some(prefetch);
-        self
-    }
-
-    /// Set a [`FooterCache`](crate::FooterCache) to reuse parsed footers across file opens.
-    ///
-    /// When provided, footers are looked up before opening each file (saving the footer I/O)
-    /// and stored after opening (for future reuse).
-    pub fn with_footer_cache(mut self, cache: FooterCacheRef) -> Self {
-        self.footer_cache = Some(cache);
-        self
-    }
-
-    /// Set an explicit [`DType`] for the data source.
-    ///
-    /// When provided, no file needs to be eagerly opened to determine the schema — all files
-    /// are deferred and opened lazily during scanning. This is useful when the caller already
-    /// knows the schema (e.g. from a catalog or a prior scan). Combine with
-    /// [`with_open_options`](Self::with_open_options) to pass the dtype through to
-    /// [`VortexOpenOptions::with_dtype`](crate::VortexOpenOptions::with_dtype) on each file
-    /// open for additional I/O savings.
-    pub fn with_dtype(mut self, dtype: DType) -> Self {
-        self.dtype = Some(dtype);
-        self
-    }
-
     /// Build the [`MultiFileDataSource`].
     ///
-    /// If a glob pattern was provided via [`with_glob`](Self::with_glob), it is expanded
-    /// eagerly against the filesystem. If a [`DType`] was provided via
-    /// [`with_dtype`](Self::with_dtype), all files are opened lazily during scanning.
-    /// Otherwise, the first file is opened eagerly to determine the schema.
+    /// Discovers files via glob, opens the first file eagerly to determine the schema,
+    /// and creates lazy factories for the remaining files.
     #[tracing::instrument(name = "MultiFileDataSourceBuilder::build", skip(self))]
-    pub async fn build(self) -> VortexResult<MultiFileDataSource> {
-        if matches!(self.schema_resolution, SchemaResolution::Union) {
-            vortex_bail!("SchemaResolution::Union is not yet implemented");
-        }
+    pub async fn build(mut self) -> VortexResult<MultiFileDataSource> {
+        let glob_url = self
+            .glob_url
+            .take()
+            .ok_or_else(|| vortex_err!("MultiFileDataSource requires a glob URL"))?;
 
-        let discovery_kind = match &self.discovery {
-            FileDiscovery::Paths(p) => format!("paths({})", p.len()),
-            FileDiscovery::Glob(g) => format!("glob({})", g.as_str()),
-            FileDiscovery::ListAll => "list_all".to_string(),
-        };
-        debug!(
-            discovery = %discovery_kind,
-            "building MultiFileDataSource"
-        );
+        let (fs, glob_pattern) = self.resolve_filesystem(&glob_url)?;
 
-        let files = match self.discovery {
-            FileDiscovery::Paths(ref paths) => paths
-                .iter()
-                .map(|path| FileListing {
-                    path: path.clone(),
-                    size: None,
-                })
-                .collect(),
-            FileDiscovery::Glob(ref pattern) => expand_glob(&self.fs, pattern).await?,
-            FileDiscovery::ListAll => list_all(&self.fs).await?,
-        };
-
-        debug!(
-            file_count = files.len(),
-            files = ?files,
-            "discovered files"
-        );
+        let files: Vec<FileListing> = glob_files(fs.as_ref(), &glob_pattern)?
+            .try_collect()
+            .await?;
 
         if files.is_empty() {
-            vortex_bail!("MultiFileDataSource requires at least one file");
+            vortex_bail!("No files matched the glob pattern '{}'", glob_url);
         }
 
         let file_count = files.len();
+        debug!(file_count, glob = %glob_url, "discovered files");
 
-        let (dtype, inner) = if let Some(ref dtype) = self.dtype {
-            // DType provided externally — all files can be deferred.
-            let factories = self.make_factories(&files);
-            let inner = MultiDataSource::all_deferred(dtype.clone(), factories, &self.session);
-            (dtype.clone(), inner)
-        } else {
-            let first = &files[0];
-            debug!(path = %first.path, "opening first file eagerly for dtype");
-            let mut first_options = (self.open_options_fn)(self.session.open_options());
-            if let Some(size) = first.size {
-                first_options = first_options.with_file_size(size);
-            }
-            if let Some(ref cache) = self.footer_cache
-                && let Some(footer) = cache.get(&first.path)
-            {
-                first_options = first_options.with_footer(footer);
-            }
-            let source = self.fs.open_read(&first.path).await?;
-            let first_file = first_options.open(source).await?;
-            if let Some(ref cache) = self.footer_cache {
-                cache.put(&first.path, first_file.footer().clone());
-            }
+        // Open first file eagerly for dtype.
+        let first_file =
+            open_file(&fs, &files[0], &self.session, self.open_options_fn.as_ref()).await?;
+        let first_ds = first_file.data_source()?;
 
-            let dtype = first_file.dtype().clone();
-            debug!(dtype = %dtype, "determined dtype from first file");
-            let first_ds = data_source_from_file(&first_file, &self.session)?;
-
-            let factories = self.make_factories(&files[1..]);
-            let inner = MultiDataSource::lazy(first_ds, factories, &self.session);
-            (dtype, inner)
-        };
-
-        let inner = match self.prefetch {
-            Some(prefetch) => inner.with_prefetch(prefetch),
-            None => inner,
-        };
-
-        debug!(
-            file_count,
-            dtype = %dtype,
-            "built MultiFileDataSource"
-        );
-
-        Ok(MultiFileDataSource::new(dtype, inner, file_count))
-    }
-
-    fn make_factories(&self, files: &[FileListing]) -> Vec<Arc<dyn DataSourceFactory>> {
-        files
+        let factories: Vec<Arc<dyn DataSourceFactory>> = files[1..]
             .iter()
-            .map(|file| {
+            .map(|f| {
                 Arc::new(VortexFileFactory {
-                    fs: self.fs.clone(),
-                    file: file.clone(),
+                    fs: fs.clone(),
+                    file: f.clone(),
                     session: self.session.clone(),
                     open_options_fn: self.open_options_fn.clone(),
-                    footer_cache: self.footer_cache.clone(),
                 }) as Arc<dyn DataSourceFactory>
             })
-            .collect()
+            .collect();
+
+        let inner = MultiDataSource::lazy(first_ds, factories, &self.session);
+
+        debug!(file_count, dtype = %inner.dtype(), "built MultiFileDataSource");
+
+        Ok(MultiFileDataSource { inner, file_count })
+    }
+
+    /// Resolve the filesystem from the builder configuration and glob URL.
+    fn resolve_filesystem(&self, glob_url: &str) -> VortexResult<(FileSystemRef, String)> {
+        if let Some(ref fs) = self.fs {
+            return Ok((fs.clone(), glob_url.to_string()));
+        }
+
+        // Auto-create local filesystem for file:// or bare paths.
+        let glob_pattern = if let Some(stripped) = glob_url.strip_prefix("file://") {
+            stripped.to_string()
+        } else if glob_url.starts_with('/')
+            || glob_url.starts_with('.')
+            || !glob_url.contains("://")
+        {
+            glob_url.to_string()
+        } else {
+            vortex_bail!(
+                "A filesystem must be provided for non-local URLs. \
+                 Use .with_filesystem() for URL: {}",
+                glob_url
+            );
+        };
+
+        let fs = create_local_filesystem(&self.session)?;
+        Ok((fs, glob_pattern))
+    }
+}
+
+/// Creates a local filesystem backed by `object_store::local::LocalFileSystem`.
+// TODO(ngates): create a native file system without an object_store dependency.
+//  Turns out it's not a trivial change because we have always used object_store with its own
+//  coalescing and concurrency configs, so we need to re-tune for local disk.
+#[cfg(feature = "object_store")]
+fn create_local_filesystem(session: &VortexSession) -> VortexResult<FileSystemRef> {
+    use vortex_io::session::RuntimeSessionExt;
+
+    use crate::filesystem::object_store::ObjectStoreFileSystem;
+
+    let store = Arc::new(object_store::local::LocalFileSystem::default());
+    let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(store, session.handle()));
+    Ok(fs)
+}
+
+#[cfg(not(feature = "object_store"))]
+fn create_local_filesystem(_session: &VortexSession) -> VortexResult<FileSystemRef> {
+    vortex_bail!(
+        "The 'object_store' feature is required for automatic local filesystem creation. \
+         Either enable the feature or provide a filesystem via .with_filesystem()."
+    );
+}
+
+/// Open a single Vortex file, checking the session's footer cache.
+async fn open_file(
+    fs: &FileSystemRef,
+    file: &FileListing,
+    session: &VortexSession,
+    open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
+) -> VortexResult<crate::VortexFile> {
+    debug!(path = %file.path, "opening vortex file");
+
+    // Build open options. The DashMap Ref from multi_file() must not live across an await,
+    // so we scope the cache lookup in a block.
+    let options = {
+        let mut options = open_options_fn(session.open_options());
+        if let Some(size) = file.size {
+            options = options.with_file_size(size);
+        }
+        if let Some(footer) = session.multi_file().get_footer(&file.path) {
+            options = options.with_footer(footer);
+        }
+        options
+    };
+
+    let source = fs.open_read(&file.path).await?;
+    let vortex_file = options.open(source).await?;
+
+    // Store footer in cache (scoped to avoid holding the Ref across subsequent code).
+    session
+        .multi_file()
+        .put_footer(&file.path, vortex_file.footer().clone());
+    Ok(vortex_file)
+}
+
+/// A [`DataSourceFactory`] that lazily opens a single Vortex file.
+struct VortexFileFactory {
+    fs: FileSystemRef,
+    file: FileListing,
+    session: VortexSession,
+    open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
+}
+
+#[async_trait]
+impl DataSourceFactory for VortexFileFactory {
+    async fn open(&self) -> VortexResult<Option<DataSourceRef>> {
+        let file = open_file(
+            &self.fs,
+            &self.file,
+            &self.session,
+            self.open_options_fn.as_ref(),
+        )
+        .await?;
+        Ok(Some(file.data_source()?))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Internal glob helpers (moved from filesystem/glob.rs)
+// ---------------------------------------------------------------------------
+
+/// Expand a glob pattern against a filesystem, returning matching files as a stream.
+#[cfg(feature = "object_store")]
+fn glob_files<'a>(
+    fs: &'a dyn FileSystem,
+    pattern: &str,
+) -> VortexResult<futures::stream::BoxStream<'a, VortexResult<FileListing>>> {
+    validate_glob(pattern)?;
+
+    let glob_pattern = glob::Pattern::new(pattern)
+        .map_err(|e| vortex_err!("Invalid glob pattern '{}': {}", pattern, e))?;
+
+    let prefix = list_prefix(pattern);
+    let listing_prefix = if prefix.is_empty() {
+        None
+    } else {
+        Some(prefix.trim_end_matches('/'))
+    };
+
+    debug!(?listing_prefix, pattern, "expanding glob");
+
+    let stream = fs
+        .list(listing_prefix)
+        .try_filter(move |listing| {
+            let matches = glob_pattern.matches(&listing.path);
+            async move { matches }
+        })
+        .into_stream();
+
+    Ok(Box::pin(stream))
+}
+
+#[cfg(not(feature = "object_store"))]
+fn glob_files<'a>(
+    _fs: &'a dyn FileSystem,
+    _pattern: &str,
+) -> VortexResult<futures::stream::BoxStream<'a, VortexResult<FileListing>>> {
+    vortex_bail!("The 'object_store' feature is required for glob-based file discovery");
+}
+
+/// Returns the list prefix for a path pattern containing glob characters.
+#[cfg(feature = "object_store")]
+fn list_prefix(pattern: &str) -> &str {
+    let glob_pos = pattern.find(['*', '?', '[']).unwrap_or(pattern.len());
+    match pattern[..glob_pos].rfind('/') {
+        Some(slash_pos) => &pattern[..=slash_pos],
+        None => "",
+    }
+}
+
+/// Validates that a glob pattern does not contain escaped glob characters.
+#[cfg(feature = "object_store")]
+fn validate_glob(pattern: &str) -> VortexResult<()> {
+    for escape_pattern in ["\\*", "\\?", "\\["] {
+        if pattern.contains(escape_pattern) {
+            vortex_bail!(
+                "Escaped glob characters are not allowed in patterns. Found '{}' in: {}",
+                escape_pattern,
+                pattern
+            );
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[cfg(feature = "object_store")]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_list_prefix_with_wildcard_in_filename() {
+        assert_eq!(list_prefix("folder/file*.txt"), "folder/");
+    }
+
+    #[test]
+    fn test_list_prefix_with_wildcard_in_directory() {
+        assert_eq!(list_prefix("folder/*/file.txt"), "folder/");
+    }
+
+    #[test]
+    fn test_list_prefix_nested_directories() {
+        assert_eq!(list_prefix("data/2023/*/logs/*.log"), "data/2023/");
+    }
+
+    #[test]
+    fn test_list_prefix_wildcard_at_root() {
+        assert_eq!(list_prefix("*.txt"), "");
+    }
+
+    #[test]
+    fn test_list_prefix_no_wildcards() {
+        assert_eq!(
+            list_prefix("folder/subfolder/file.txt"),
+            "folder/subfolder/"
+        );
+    }
+
+    #[test]
+    fn test_list_prefix_question_mark() {
+        assert_eq!(list_prefix("folder/file?.txt"), "folder/");
+    }
+
+    #[test]
+    fn test_list_prefix_bracket() {
+        assert_eq!(list_prefix("folder/file[abc].txt"), "folder/");
+    }
+
+    #[test]
+    fn test_list_prefix_empty() {
+        assert_eq!(list_prefix(""), "");
+    }
+
+    #[test]
+    fn test_validate_glob_valid() -> VortexResult<()> {
+        validate_glob("path/*.txt")?;
+        validate_glob("path/to/**/*.vortex")?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_validate_glob_escaped_asterisk() {
+        assert!(validate_glob("path\\*.txt").is_err());
+    }
+
+    #[test]
+    fn test_validate_glob_escaped_question() {
+        assert!(validate_glob("path\\?.txt").is_err());
+    }
+
+    #[test]
+    fn test_validate_glob_escaped_bracket() {
+        assert!(validate_glob("path\\[test].txt").is_err());
     }
 }

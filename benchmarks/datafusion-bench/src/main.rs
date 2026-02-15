@@ -26,11 +26,6 @@ use datafusion_physical_plan::collect;
 use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::fs::File;
-use vortex::error::vortex_err;
-use vortex::file::multi::FileDiscovery;
-use vortex::file::multi::MultiFileDataSource;
-use vortex::file::multi::Pattern;
-use vortex::scan::api::DataSource as _;
 use vortex::scan::api::DataSourceRef;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
@@ -286,18 +281,12 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
     format: Format,
 ) -> anyhow::Result<()> {
     use vortex::file::filesystem::object_store::ObjectStoreFileSystem;
+    use vortex::file::multi::MultiFileDataSource;
     use vortex::io::session::RuntimeSessionExt;
-    use vortex_datafusion::v2::DataFusionFooterCache;
+    use vortex::scan::api::DataSource as _;
     use vortex_datafusion::v2::VortexTable;
 
     let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
-    let footer_cache = Arc::new(DataFusionFooterCache::new(
-        session
-            .state()
-            .runtime_env()
-            .cache_manager
-            .get_file_metadata_cache(),
-    ));
 
     for table in benchmark.table_specs().iter() {
         let pattern = benchmark.pattern(table.name, format);
@@ -312,16 +301,14 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
         let base_prefix = benchmark_base.path().trim_start_matches('/').to_string();
         let fs = fs.with_prefix(base_prefix);
 
-        let discovery = match pattern {
-            Some(p) => FileDiscovery::Glob(p),
-            None => FileDiscovery::Glob(
-                Pattern::new(&format!("*.{}", format.ext()))
-                    .map_err(|e| vortex_err!("invalid pattern for table {}: {}", table.name, e))?,
-            ),
+        let glob_pattern = match &pattern {
+            Some(p) => p.as_str().to_string(),
+            None => format!("*.{}", format.ext()),
         };
-        let multi_ds = MultiFileDataSource::builder(SESSION.clone(), fs)
-            .with_discovery(discovery)
-            .with_footer_cache(footer_cache.clone())
+
+        let multi_ds = MultiFileDataSource::builder(SESSION.clone())
+            .with_filesystem(fs)
+            .with_glob_url(glob_pattern)
             .build()
             .await?;
 
