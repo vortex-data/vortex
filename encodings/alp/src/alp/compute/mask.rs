@@ -3,7 +3,6 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::MaskKernel;
 use vortex_array::compute::MaskReduce;
@@ -33,10 +32,7 @@ impl MaskKernel for ALPVTable {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let vortex_mask = Validity::Array(mask.not()?).to_mask(array.len());
-        let masked_encoded = array
-            .encoded()
-            .clone()
-            .mask(vortex_mask.clone().into_array())?;
+        let masked_encoded = array.encoded().clone().mask(mask.clone())?;
         let masked_patches = array
             .patches()
             .map(|p| p.mask(&vortex_mask))

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::collections::BTreeSet;
-use std::ops::Not;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -344,16 +343,14 @@ impl LayoutReader for StructReader {
         Ok(Box::pin(async move {
             if let Some(validity_fut) = validity_fut {
                 let (array, validity) = try_join!(projected, validity_fut)?;
-                let mask = Mask::from_buffer(validity.to_bool().to_bit_buffer().not());
 
                 // If root expression was a pack, then we apply the validity to each child field
                 if is_pack_merge {
                     let struct_array = array.to_struct();
-                    let mask_array = mask.into_array();
                     let masked_fields: Vec<ArrayRef> = struct_array
                         .unmasked_fields()
                         .iter()
-                        .map(|a| a.clone().mask(mask_array.clone()))
+                        .map(|a| a.clone().mask(validity.clone()))
                         .try_collect()?;
 
                     Ok(StructArray::try_new(
@@ -366,7 +363,7 @@ impl LayoutReader for StructReader {
                 } else {
                     // If the root expression was not a pack or merge, e.g. if it's something like
                     // a get_item, then we apply the validity directly to the result
-                    array.mask(mask.into_array())
+                    array.mask(validity)
                 }
             } else {
                 projected.await

@@ -115,7 +115,7 @@ impl VTable for GetItem {
 
         match input.dtype().nullability() {
             Nullability::NonNullable => Ok(field),
-            Nullability::Nullable => field.mask(input.validity()?.not()?.to_array(input.len())),
+            Nullability::Nullable => field.mask(input.validity()?.to_array(input.len())),
         }?
         .execute(args.ctx)
     }

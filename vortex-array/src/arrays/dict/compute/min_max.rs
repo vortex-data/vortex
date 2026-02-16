@@ -30,7 +30,7 @@ impl MinMaxKernel for DictVTable {
 
         // Slow path: compute which values are unreferenced and mask them out
         let unreferenced_mask = BoolArray::new(
-            array.compute_referenced_values_mask(false)?,
+            array.compute_referenced_values_mask(true)?,
             Validity::NonNullable,
         )
         .into_array();
