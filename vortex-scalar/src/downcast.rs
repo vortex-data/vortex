@@ -200,13 +200,6 @@ impl ScalarValue {
         }
     }
 
-    // pub fn as_extension(&self) -> &ExtScalarRef {
-    //     match self {
-    //         ScalarValue::Extension(e) => e,
-    //         _ => vortex_panic!("ScalarValue is not an Extension"),
-    //     }
-    // }
-
     /// Returns the boolean value, panicking if the value is not a [`Bool`][ScalarValue::Bool].
     pub fn into_bool(self) -> bool {
         match self {
@@ -256,11 +249,4 @@ impl ScalarValue {
             _ => vortex_panic!("ScalarValue is not a List"),
         }
     }
-
-    // pub fn into_extension(&self) -> ExtScalarRef {
-    //     match self {
-    //         ScalarValue::Extension(e) => e,
-    //         _ => vortex_panic!("ScalarValue is not an Extension"),
-    //     }
-    // }
 }
