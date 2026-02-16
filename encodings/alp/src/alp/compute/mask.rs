@@ -19,7 +19,7 @@ impl MaskReduce for ALPVTable {
         if array.patches().is_some() {
             return Ok(None);
         }
-        let masked_encoded = array.encoded().clone().mask(mask.not()?)?;
+        let masked_encoded = array.encoded().clone().mask(mask.clone())?;
         Ok(Some(
             ALPArray::new(masked_encoded, array.exponents(), None).to_array(),
         ))

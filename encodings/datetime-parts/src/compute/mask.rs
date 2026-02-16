@@ -19,7 +19,7 @@ impl MaskReduce for DateTimePartsVTable {
             seconds,
             subseconds,
         } = array.clone().into_parts();
-        let masked_days = days.mask(mask.not()?)?;
+        let masked_days = days.mask(mask.clone())?;
         Ok(Some(
             DateTimePartsArray::try_new(dtype.as_nullable(), masked_days, seconds, subseconds)?
                 .into_array(),
