@@ -29,7 +29,7 @@ impl LikeReduce for DictVTable {
             let pattern = ConstantArray::new(pattern, array.values().len()).into_array();
 
             let values = Like
-                .try_new_array(array.len(), options, [array.values().clone(), pattern])?
+                .try_new_array(pattern.len(), options, [array.values().clone(), pattern])?
                 .optimize()?;
 
             // SAFETY: LIKE preserves the len of the values, so codes are still pointing at
