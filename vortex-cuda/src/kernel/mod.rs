@@ -11,10 +11,12 @@ use std::sync::Arc;
 use cudarc::driver::CudaContext;
 use cudarc::driver::CudaFunction;
 use cudarc::driver::CudaModule;
+use cudarc::driver::CudaStream;
 use cudarc::driver::LaunchArgs;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::sys::CUevent_flags;
 use cudarc::nvrtc::Ptx;
+use tracing::trace;
 use vortex_cuda_macros::cuda_tests;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -36,8 +38,6 @@ pub(crate) use filter::FilterExecutor;
 pub(crate) use slice::SliceExecutor;
 
 use crate::CudaKernelEvents;
-#[cfg(feature = "tracing")]
-use crate::trace;
 
 /// Trait for customizing kernel launch behavior.
 ///
@@ -49,6 +49,41 @@ pub trait LaunchStrategy: Debug + Send + Sync + 'static {
 
     /// Called after the kernel launch completes with the recorded events.
     fn on_complete(&self, events: &CudaKernelEvents, len: usize) -> VortexResult<()>;
+}
+
+pub trait LaunchStrategyExt: LaunchStrategy {
+    fn with_strategy<F, R>(&self, stream: &CudaStream, len: usize, func: F) -> VortexResult<R>
+    where
+        F: FnMut() -> R;
+}
+
+impl<S: LaunchStrategyExt> LaunchStrategyExt for S {
+    fn with_strategy<F, R>(&self, stream: &CudaStream, len: usize, func: F) -> VortexResult<R>
+    where
+        F: FnMut() -> R,
+    {
+        let flags = self.event_flags();
+
+        let before = stream
+            .record_event(Some(flags))
+            .map_err(|e| vortex_err!("record_event: {e}"))?;
+
+        let result = func();
+
+        let after = stream
+            .record_event(Some(flags))
+            .map_err(|e| vortex_err!("record_event: {e}"))?;
+
+        self.on_complete(
+            &CudaKernelEvents {
+                before_launch: before,
+                after_launch: after,
+            },
+            len,
+        )?;
+
+        Ok(result)
+    }
 }
 
 /// Default launch strategy with no tracing overhead.
@@ -66,11 +101,9 @@ impl LaunchStrategy for DefaultLaunchStrategy {
 }
 
 /// Launch strategy that records timing and emits trace events.
-#[cfg(feature = "tracing")]
 #[derive(Debug)]
 pub struct TracingLaunchStrategy;
 
-#[cfg(feature = "tracing")]
 impl LaunchStrategy for TracingLaunchStrategy {
     fn event_flags(&self) -> CUevent_flags {
         CUevent_flags::CU_EVENT_DEFAULT

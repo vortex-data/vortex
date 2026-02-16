@@ -5,6 +5,8 @@
 
 use std::process::Command;
 
+use tracing::info;
+
 pub mod arrow;
 mod canonical;
 mod device_buffer;
@@ -36,7 +38,6 @@ use kernel::FoRExecutor;
 pub use kernel::LaunchStrategy;
 use kernel::RunEndExecutor;
 use kernel::SharedExecutor;
-#[cfg(feature = "tracing")]
 pub use kernel::TracingLaunchStrategy;
 use kernel::ZigZagExecutor;
 #[cfg(feature = "unstable_encodings")]

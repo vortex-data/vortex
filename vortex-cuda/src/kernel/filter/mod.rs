@@ -15,6 +15,7 @@ use async_trait::async_trait;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
 use cudarc::driver::DeviceRepr;
+use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::FilterArrayParts;
@@ -42,10 +43,7 @@ pub struct FilterExecutor;
 
 #[async_trait]
 impl CudaExecute for FilterExecutor {
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip_all, fields(self))
-    )]
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,

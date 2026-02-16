@@ -19,7 +19,6 @@ workspace = true
 
 [features]
 default = []
-tracing = ["dep:tracing"]
 _test-harness = []
 unstable_encodings = ["vortex-zstd/unstable_encodings"]
 

@@ -6,6 +6,7 @@ use std::fmt::Debug;
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
+use tracing::instrument;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -38,10 +39,7 @@ impl FoRExecutor {
 
 #[async_trait]
 impl CudaExecute for FoRExecutor {
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip_all, fields(self))
-    )]
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,

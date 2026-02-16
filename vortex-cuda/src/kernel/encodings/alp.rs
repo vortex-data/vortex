@@ -7,6 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
+use tracing::instrument;
 use vortex_alp::ALPArray;
 use vortex_alp::ALPFloat;
 use vortex_alp::ALPVTable;
@@ -37,10 +38,7 @@ pub(crate) struct ALPExecutor;
 
 #[async_trait]
 impl CudaExecute for ALPExecutor {
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(level = "trace", skip_all, fields(self))
-    )]
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
