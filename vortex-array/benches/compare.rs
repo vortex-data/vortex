@@ -33,11 +33,11 @@ fn compare_bool(bencher: Bencher) {
     let session = VortexSession::empty();
 
     bencher
-        .with_inputs(|| (&arr1, &arr2, &mut session.create_execution_ctx()))
-        .bench_refs(|(arr1, arr2, ctx)| {
+        .with_inputs(|| (&arr1, &arr2, session.create_execution_ctx()))
+        .bench_refs(|(arr1, arr2, mut ctx)| {
             compare(*arr1, *arr2, Operator::Gte)
                 .unwrap()
-                .execute::<Canonical>(ctx)
+                .execute::<Canonical>(&mut ctx)
         });
 }
 
@@ -58,10 +58,10 @@ fn compare_int(bencher: Bencher) {
     let session = VortexSession::empty();
 
     bencher
-        .with_inputs(|| (&arr1, &arr2, &mut session.create_execution_ctx()))
-        .bench_refs(|(arr1, arr2, ctx)| {
+        .with_inputs(|| (&arr1, &arr2, session.create_execution_ctx()))
+        .bench_refs(|(arr1, arr2, mut ctx)| {
             compare(*arr1, *arr2, Operator::Gte)
                 .unwrap()
-                .execute::<Canonical>(ctx)
+                .execute::<Canonical>(&mut ctx)
         });
 }
