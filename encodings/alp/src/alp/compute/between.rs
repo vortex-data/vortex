@@ -5,13 +5,12 @@ use std::fmt::Debug;
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::BetweenKernel;
-use vortex_array::compute::BetweenKernelAdapter;
 use vortex_array::compute::BetweenOptions;
 use vortex_array::compute::StrictComparison;
 use vortex_array::compute::between;
-use vortex_array::register_kernel;
 use vortex_dtype::NativeDType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
@@ -25,11 +24,11 @@ use crate::match_each_alp_float_ptype;
 
 impl BetweenKernel for ALPVTable {
     fn between(
-        &self,
         array: &ALPArray,
         lower: &dyn Array,
         upper: &dyn Array,
         options: &BetweenOptions,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {
             return Ok(None);
@@ -54,8 +53,6 @@ impl BetweenKernel for ALPVTable {
         .map(Some)
     }
 }
-
-register_kernel!(BetweenKernelAdapter(ALPVTable).lift());
 
 fn between_impl<T: NativePType + ALPFloat>(
     array: &ALPArray,

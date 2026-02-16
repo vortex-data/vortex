@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod kernel;
+
+use std::any::Any;
+use std::fmt::Display;
 use std::fmt::Formatter;
 
+pub use kernel::*;
 use prost::Message;
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
@@ -11,11 +16,21 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
+use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
+use crate::Array;
 use crate::ArrayRef;
-use crate::compute::BetweenOptions;
-use crate::compute::between as between_compute;
+use crate::Canonical;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::DecimalVTable;
+use crate::arrays::PrimitiveVTable;
+use crate::compute::BooleanOperator;
+use crate::compute::Options;
+use crate::compute::arrow_boolean;
+use crate::compute::compare;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -26,6 +41,131 @@ use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
 use crate::expr::exprs::binary::Binary;
 use crate::expr::exprs::operators::Operator;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BetweenOptions {
+    pub lower_strict: StrictComparison,
+    pub upper_strict: StrictComparison,
+}
+
+impl Display for BetweenOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let lower_op = if self.lower_strict.is_strict() {
+            "<"
+        } else {
+            "<="
+        };
+        let upper_op = if self.upper_strict.is_strict() {
+            "<"
+        } else {
+            "<="
+        };
+        write!(f, "lower_strict: {}, upper_strict: {}", lower_op, upper_op)
+    }
+}
+
+impl Options for BetweenOptions {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+/// Strictness of the comparison.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum StrictComparison {
+    /// Strict bound (`<`)
+    Strict,
+    /// Non-strict bound (`<=`)
+    NonStrict,
+}
+
+impl StrictComparison {
+    pub const fn to_operator(&self) -> crate::compute::Operator {
+        match self {
+            StrictComparison::Strict => crate::compute::Operator::Lt,
+            StrictComparison::NonStrict => crate::compute::Operator::Lte,
+        }
+    }
+
+    pub const fn is_strict(&self) -> bool {
+        matches!(self, StrictComparison::Strict)
+    }
+}
+
+/// Common preconditions for between operations that apply to all arrays.
+///
+/// Returns `Some(result)` if the precondition short-circuits the between operation
+/// (empty array, null bounds), or `None` if between should proceed with the
+/// encoding-specific implementation.
+pub(super) fn precondition(
+    arr: &dyn Array,
+    lower: &dyn Array,
+    upper: &dyn Array,
+) -> VortexResult<Option<ArrayRef>> {
+    let return_dtype =
+        Bool(arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability());
+
+    // Bail early if the array is empty.
+    if arr.is_empty() {
+        return Ok(Some(Canonical::empty(&return_dtype).into_array()));
+    }
+
+    // A quick check to see if either bound is a null constant array.
+    if (lower.is_invalid(0)? || upper.is_invalid(0)?)
+        && let (Some(c_lower), Some(c_upper)) = (lower.as_constant(), upper.as_constant())
+        && (c_lower.is_null() || c_upper.is_null())
+    {
+        return Ok(Some(
+            ConstantArray::new(Scalar::null(return_dtype), arr.len()).into_array(),
+        ));
+    }
+
+    if lower.as_constant().is_some_and(|v| v.is_null())
+        || upper.as_constant().is_some_and(|v| v.is_null())
+    {
+        return Ok(Some(
+            ConstantArray::new(Scalar::null(return_dtype), arr.len()).into_array(),
+        ));
+    }
+
+    Ok(None)
+}
+
+/// Between on a canonical array by directly dispatching to the appropriate kernel.
+///
+/// Falls back to compare + boolean and if no kernel handles the input.
+pub(crate) fn between_canonical(
+    arr: &dyn Array,
+    lower: &dyn Array,
+    upper: &dyn Array,
+    options: &BetweenOptions,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    if let Some(result) = precondition(arr, lower, upper)? {
+        return Ok(result);
+    }
+
+    // Try type-specific kernels
+    if let Some(prim) = arr.as_opt::<PrimitiveVTable>()
+        && let Some(result) =
+            <PrimitiveVTable as BetweenKernel>::between(prim, lower, upper, options, ctx)?
+    {
+        return Ok(result);
+    }
+    if let Some(dec) = arr.as_opt::<DecimalVTable>()
+        && let Some(result) =
+            <DecimalVTable as BetweenKernel>::between(dec, lower, upper, options, ctx)?
+    {
+        return Ok(result);
+    }
+
+    // Fall back to compare + boolean and
+    arrow_boolean(
+        compare(lower, arr, options.lower_strict.to_operator())?,
+        compare(arr, upper, options.upper_strict.to_operator())?,
+        BooleanOperator::AndKleene,
+    )
+}
 
 /// An optimized scalar expression to compute whether values fall between two bounds.
 ///
@@ -65,14 +205,14 @@ impl VTable for Between {
         let opts = pb::BetweenOpts::decode(_metadata)?;
         Ok(BetweenOptions {
             lower_strict: if opts.lower_strict {
-                crate::compute::StrictComparison::Strict
+                StrictComparison::Strict
             } else {
-                crate::compute::StrictComparison::NonStrict
+                StrictComparison::NonStrict
             },
             upper_strict: if opts.upper_strict {
-                crate::compute::StrictComparison::Strict
+                StrictComparison::Strict
             } else {
-                crate::compute::StrictComparison::NonStrict
+                StrictComparison::NonStrict
             },
         })
     }
@@ -148,7 +288,13 @@ impl VTable for Between {
             .try_into()
             .map_err(|_| vortex_err!("Expected 3 arguments for Between expression",))?;
 
-        between_compute(arr.as_ref(), lower.as_ref(), upper.as_ref(), options)
+        between_canonical(
+            arr.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
+            options,
+            args.ctx,
+        )
     }
 
     fn stat_falsification(
@@ -209,9 +355,7 @@ pub fn between(
 
 #[cfg(test)]
 mod tests {
-    use super::between;
-    use crate::compute::BetweenOptions;
-    use crate::compute::StrictComparison;
+    use super::*;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;

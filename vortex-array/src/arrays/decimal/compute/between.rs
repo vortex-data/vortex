@@ -11,25 +11,23 @@ use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
-use crate::compute::BetweenKernel;
-use crate::compute::BetweenKernelAdapter;
 use crate::compute::BetweenOptions;
 use crate::compute::StrictComparison;
-use crate::register_kernel;
+use crate::expr::BetweenKernel;
 use crate::vtable::ValidityHelper;
 
 impl BetweenKernel for DecimalVTable {
-    // Determine if the values are between the lower and upper bounds
     fn between(
-        &self,
         arr: &DecimalArray,
         lower: &dyn Array,
         upper: &dyn Array,
         options: &BetweenOptions,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // NOTE: We know that the precision and scale were already checked to be equal by the main
         // `between` entrypoint function.
@@ -95,8 +93,6 @@ fn between_unpack<T: NativeDecimalType>(
         upper_op,
     )))
 }
-
-register_kernel!(BetweenKernelAdapter(DecimalVTable).lift());
 
 fn between_impl<T: NativeDecimalType>(
     arr: &DecimalArray,

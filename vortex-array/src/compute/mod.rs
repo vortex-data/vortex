@@ -47,6 +47,10 @@ pub use zip::*;
 use crate::Array;
 use crate::ArrayRef;
 use crate::builders::ArrayBuilder;
+pub use crate::expr::BetweenExecuteAdaptor;
+pub use crate::expr::BetweenKernel;
+pub use crate::expr::BetweenReduce;
+pub use crate::expr::BetweenReduceAdaptor;
 pub use crate::expr::CastExecuteAdaptor;
 pub use crate::expr::CastKernel;
 pub use crate::expr::CastReduce;
@@ -95,7 +99,6 @@ pub struct ComputeFn {
 /// Mostly useful for small benchmarks where the overhead might cause noise depending on the order of benchmarks.
 pub fn warm_up_vtables() {
     #[allow(unused_qualifications)]
-    between::warm_up_vtable();
     compare::warm_up_vtable();
     is_constant::warm_up_vtable();
     is_sorted::warm_up_vtable();
