@@ -155,7 +155,7 @@ fn chunked_canonicalize_into(
     let array = generate_chunked_test_data(chunk_size, string_count, avg_len, unique_chars);
 
     bencher
-        .with_inputs(|| (&array, &mut SESSION.create_execution_ctx()))
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
         .bench_refs(|(array, ctx)| {
             let mut builder = VarBinViewBuilder::with_capacity(
                 DType::Binary(Nullability::NonNullable),
