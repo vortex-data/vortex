@@ -7,8 +7,8 @@ template <typename ValueT>
 __device__ void sequence(ValueT *const output, ValueT base, ValueT multiplier, uint64_t len) {
     const uint64_t worker = blockIdx.x * blockDim.x + threadIdx.x;
 
-    const uint64_t startElem = START_ELEM(worker, len);
-    const uint64_t stopElem = STOP_ELEM(worker, len);
+    const uint64_t startElem = start_elem(worker, len);
+    const uint64_t stopElem = stop_elem(worker, len);
 
     for (uint64_t idx = startElem; idx < stopElem; idx++) {
         output[idx] = static_cast<ValueT>(idx) * multiplier + base;

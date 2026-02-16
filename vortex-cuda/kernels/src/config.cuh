@@ -13,7 +13,13 @@
 //   grid_dim = ceil(array_len / 2048)
 constexpr uint32_t ELEMENTS_PER_THREAD = 32;
 
-#define MIN(a, b) (((a) < (b)) ? (a) : (b))
+// We use `::min` from CUDA's `crt/math_functions.hpp` (declared `__host__ __device__`)
+// rather than `std::min` which is host-only.
 
-#define START_ELEM(idx, len) MIN((idx) * ELEMENTS_PER_THREAD, (len))
-#define STOP_ELEM(idx, len)  MIN(START_ELEM(idx, len) + ELEMENTS_PER_THREAD, (len))
+__device__ constexpr inline uint32_t start_elem(uint32_t idx, uint32_t len) {
+    return ::min(idx * ELEMENTS_PER_THREAD, len);
+}
+
+__device__ constexpr inline uint32_t stop_elem(uint32_t idx, uint32_t len) {
+    return ::min(start_elem(idx, len) + ELEMENTS_PER_THREAD, len);
+}

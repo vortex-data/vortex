@@ -9,8 +9,8 @@
 template <typename T>
 __device__ void constant_fill(T *__restrict output, T value, uint64_t array_len) {
     const uint64_t worker = blockIdx.x * blockDim.x + threadIdx.x;
-    const uint64_t startElem = START_ELEM(worker, array_len);
-    const uint64_t stopElem = STOP_ELEM(worker, array_len);
+    const uint64_t startElem = start_elem(worker, array_len);
+    const uint64_t stopElem = stop_elem(worker, array_len);
 
     if (startElem >= array_len) {
         return;
