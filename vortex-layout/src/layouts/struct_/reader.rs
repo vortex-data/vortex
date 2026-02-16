@@ -13,6 +13,7 @@ use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::StructArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
 use vortex_array::expr::Merge;
@@ -348,10 +349,11 @@ impl LayoutReader for StructReader {
                 // If root expression was a pack, then we apply the validity to each child field
                 if is_pack_merge {
                     let struct_array = array.to_struct();
+                    let mask_array = mask.into_array();
                     let masked_fields: Vec<ArrayRef> = struct_array
                         .unmasked_fields()
                         .iter()
-                        .map(|a| a.mask(&mask))
+                        .map(|a| a.clone().mask(mask_array.clone()))
                         .try_collect()?;
 
                     Ok(StructArray::try_new(
@@ -364,7 +366,7 @@ impl LayoutReader for StructReader {
                 } else {
                     // If the root expression was not a pack or merge, e.g. if it's something like
                     // a get_item, then we apply the validity directly to the result
-                    array.mask(&mask)
+                    array.mask(mask.into_array())
                 }
             } else {
                 projected.await

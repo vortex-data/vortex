@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
-use std::ops::Not;
 
 use prost::Message;
 use vortex_dtype::DType;
@@ -17,6 +16,7 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::arrays::StructArray;
+use crate::builtins::ArrayBuiltins;
 use crate::builtins::ExprBuiltins;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -115,7 +115,7 @@ impl VTable for GetItem {
 
         match input.dtype().nullability() {
             Nullability::NonNullable => Ok(field),
-            Nullability::Nullable => field.mask(&input.validity_mask()?.not()),
+            Nullability::Nullable => field.mask(input.validity()?.not()?.to_array(input.len())),
         }?
         .execute(args.ctx)
     }

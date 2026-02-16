@@ -7,7 +7,7 @@ use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::StructArrayParts;
-use vortex::array::optimizer::ArrayOptimizer;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
@@ -44,12 +44,15 @@ pub(crate) fn new_exporter(
         ));
     }
 
+    let array_validity =
+        matches!(validity, Mask::Values(_)).then(|| validity.clone().not().into_array());
+
     let children = fields
         .iter()
         .map(|child| {
-            if matches!(validity, Mask::Values(_)) {
+            if let Some(validity) = &array_validity {
                 // TODO(joe): use new mask.
-                new_array_exporter(child.mask(&validity.clone().not())?.optimize()?, cache, ctx)
+                new_array_exporter(child.clone().mask(validity.clone())?, cache, ctx)
             } else {
                 new_array_exporter(child.clone().into_array(), cache, ctx)
             }

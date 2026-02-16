@@ -644,8 +644,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
             }
             Action::Mask(mask_val) => {
                 current_array = current_array
-                    .as_ref()
-                    .mask(&mask_val)
+                    .mask(mask_val.into_array())
                     .vortex_expect("mask operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }

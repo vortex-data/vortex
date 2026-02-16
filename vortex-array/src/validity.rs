@@ -195,6 +195,16 @@ impl Validity {
         }
     }
 
+    // Invert the validity
+    pub fn not(&self) -> VortexResult<Self> {
+        match self {
+            Validity::NonNullable => Ok(Validity::NonNullable),
+            Validity::AllValid => Ok(Validity::AllInvalid),
+            Validity::AllInvalid => Ok(Validity::AllValid),
+            Validity::Array(arr) => Ok(Validity::Array(arr.not()?)),
+        }
+    }
+
     /// Lazily filters a [`Validity`] with a selection mask, which keeps only the entries for which
     /// the mask is true.
     ///

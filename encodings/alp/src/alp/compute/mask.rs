@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Not;
-
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::MaskKernel;
 use vortex_array::compute::MaskReduce;
 use vortex_array::validity::Validity;
@@ -19,8 +19,7 @@ impl MaskReduce for ALPVTable {
         if array.patches().is_some() {
             return Ok(None);
         }
-        let vortex_mask = Validity::Array(mask.clone()).to_mask(array.len()).not();
-        let masked_encoded = array.encoded().mask(&vortex_mask)?;
+        let masked_encoded = array.encoded().clone().mask(mask.not()?)?;
         Ok(Some(
             ALPArray::new(masked_encoded, array.exponents(), None).to_array(),
         ))
@@ -33,8 +32,11 @@ impl MaskKernel for ALPVTable {
         mask: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let vortex_mask = Validity::Array(mask.clone()).to_mask(array.len()).not();
-        let masked_encoded = array.encoded().mask(&vortex_mask)?;
+        let vortex_mask = Validity::Array(mask.not()?).to_mask(array.len());
+        let masked_encoded = array
+            .encoded()
+            .clone()
+            .mask(vortex_mask.clone().into_array())?;
         let masked_patches = array
             .patches()
             .map(|p| p.mask(&vortex_mask))
