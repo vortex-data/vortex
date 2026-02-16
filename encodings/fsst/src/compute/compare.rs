@@ -27,13 +27,13 @@ use crate::FSSTVTable;
 
 impl CompareKernel for FSSTVTable {
     fn compare(
-        array: &FSSTArray,
-        other: &dyn Array,
+        lhs: &FSSTArray,
+        rhs: &dyn Array,
         operator: Operator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        match other.as_constant() {
-            Some(constant) => compare_fsst_constant(array, &constant, operator),
+        match rhs.as_constant() {
+            Some(constant) => compare_fsst_constant(lhs, &constant, operator),
             // Otherwise, fall back to the default comparison behavior.
             _ => Ok(None),
         }
@@ -46,10 +46,6 @@ fn compare_fsst_constant(
     right: &Scalar,
     operator: Operator,
 ) -> VortexResult<Option<ArrayRef>> {
-    if right.is_null() {
-        return Ok(None);
-    }
-
     let is_rhs_empty = match right.dtype() {
         DType::Binary(_) => right
             .as_binary()

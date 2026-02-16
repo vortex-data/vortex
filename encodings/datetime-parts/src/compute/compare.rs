@@ -24,12 +24,12 @@ use crate::timestamp;
 
 impl CompareKernel for DateTimePartsVTable {
     fn compare(
-        array: &DateTimePartsArray,
-        other: &dyn Array,
+        lhs: &DateTimePartsArray,
+        rhs: &dyn Array,
         operator: Operator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(rhs_const) = other.as_constant() else {
+        let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
         };
         let Some(timestamp) = rhs_const
@@ -45,7 +45,7 @@ impl CompareKernel for DateTimePartsVTable {
             return Ok(None);
         };
 
-        let nullability = array.dtype().nullability() | other.dtype().nullability();
+        let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
 
         let Some(options) = ext_dtype.metadata_opt::<Timestamp>() else {
             return Ok(None);
@@ -53,17 +53,17 @@ impl CompareKernel for DateTimePartsVTable {
         let ts_parts = timestamp::split(timestamp, options.unit)?;
 
         match operator {
-            Operator::Eq => compare_eq(array, &ts_parts, nullability),
-            Operator::NotEq => compare_ne(array, &ts_parts, nullability),
+            Operator::Eq => compare_eq(lhs, &ts_parts, nullability),
+            Operator::NotEq => compare_ne(lhs, &ts_parts, nullability),
             // lt and lte have identical behavior, as we optimize
             // for the case that all days on the lhs are smaller.
             // If that special case is not hit, we return `Ok(None)` to
             // signal that the comparison wasn't handled within dtp.
-            Operator::Lt => compare_lt(array, &ts_parts, nullability),
-            Operator::Lte => compare_lt(array, &ts_parts, nullability),
+            Operator::Lt => compare_lt(lhs, &ts_parts, nullability),
+            Operator::Lte => compare_lt(lhs, &ts_parts, nullability),
             // (Like for lt, lte)
-            Operator::Gt => compare_gt(array, &ts_parts, nullability),
-            Operator::Gte => compare_gt(array, &ts_parts, nullability),
+            Operator::Gt => compare_gt(lhs, &ts_parts, nullability),
+            Operator::Gte => compare_gt(lhs, &ts_parts, nullability),
         }
     }
 }

@@ -18,23 +18,23 @@ use crate::compress::runend_decode_bools;
 
 impl CompareKernel for RunEndVTable {
     fn compare(
-        array: &RunEndArray,
-        other: &dyn Array,
+        lhs: &RunEndArray,
+        rhs: &dyn Array,
         operator: Operator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
-        if let Some(const_scalar) = other.as_constant() {
+        if let Some(const_scalar) = rhs.as_constant() {
             let values = compare(
-                array.values(),
-                ConstantArray::new(const_scalar, array.values().len()).as_ref(),
+                lhs.values(),
+                ConstantArray::new(const_scalar, lhs.values().len()).as_ref(),
                 operator,
             )?;
             let decoded = runend_decode_bools(
-                array.ends().to_primitive(),
+                lhs.ends().to_primitive(),
                 values.to_bool(),
-                array.offset(),
-                array.len(),
+                lhs.offset(),
+                lhs.len(),
             )?;
             return Ok(Some(decoded.into_array()));
         }

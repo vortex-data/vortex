@@ -34,10 +34,10 @@ fn compare_bool(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&arr1, &arr2, session.create_execution_ctx()))
-        .bench_refs(|(arr1, arr2, mut ctx)| {
-            compare(*arr1, *arr2, Operator::Gte)
+        .bench_refs(|input| {
+            compare(input.0, input.1, Operator::Gte)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Canonical>(&mut input.2)
         });
 }
 
@@ -59,9 +59,9 @@ fn compare_int(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&arr1, &arr2, session.create_execution_ctx()))
-        .bench_refs(|(arr1, arr2, mut ctx)| {
-            compare(*arr1, *arr2, Operator::Gte)
+        .bench_refs(|input| {
+            compare(input.0, input.1, Operator::Gte)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Canonical>(&mut input.2)
         });
 }

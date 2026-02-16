@@ -34,18 +34,18 @@ use crate::vtable::ValidityHelper;
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareKernel for VarBinVTable {
     fn compare(
-        array: &VarBinArray,
-        other: &dyn Array,
+        lhs: &VarBinArray,
+        rhs: &dyn Array,
         operator: Operator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if let Some(rhs_const) = other.as_constant() {
+        if let Some(rhs_const) = rhs.as_constant() {
             if rhs_const.is_null() {
                 return Ok(None);
             }
 
-            let nullable = array.dtype().is_nullable() || rhs_const.dtype().is_nullable();
-            let len = array.len();
+            let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
+            let len = lhs.len();
 
             let rhs_is_empty = match rhs_const.dtype() {
                 DType::Binary(_) => rhs_const
@@ -64,7 +64,7 @@ impl CompareKernel for VarBinVTable {
                     Operator::Gte => BitBuffer::new_set(len), // Every possible value is >= ""
                     Operator::Lt => BitBuffer::new_unset(len), // No value is < ""
                     Operator::Eq | Operator::NotEq | Operator::Gt | Operator::Lte => {
-                        let lhs_offsets = array.offsets().to_primitive();
+                        let lhs_offsets = lhs.offsets().to_primitive();
                         match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
                             compare_offsets_to_empty::<P>(lhs_offsets, operator)
                         })
@@ -74,16 +74,15 @@ impl CompareKernel for VarBinVTable {
                 return Ok(Some(
                     BoolArray::new(
                         buffer,
-                        array
-                            .validity()
+                        lhs.validity()
                             .clone()
-                            .union_nullability(other.dtype().nullability()),
+                            .union_nullability(rhs.dtype().nullability()),
                     )
                     .into_array(),
                 ));
             }
 
-            let lhs = Datum::try_new(array.as_ref())?;
+            let lhs = Datum::try_new(lhs.as_ref())?;
 
             // Use StringViewArray/BinaryViewArray to match the Utf8View/BinaryView types
             // produced by Datum::try_new (which uses into_arrow_preferred())
@@ -115,15 +114,11 @@ impl CompareKernel for VarBinVTable {
             .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
 
             Ok(Some(from_arrow_array_with_len(&array, len, nullable)?))
-        } else if !other.is::<VarBinVTable>() {
+        } else if !rhs.is::<VarBinVTable>() {
             // NOTE: If the rhs is not a VarBin array it will be canonicalized to a VarBinView
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
-            return Ok(Some(compare(
-                array.to_varbinview().as_ref(),
-                other,
-                operator,
-            )?));
+            return Ok(Some(compare(lhs.to_varbinview().as_ref(), rhs, operator)?));
         } else {
             Ok(None)
         }

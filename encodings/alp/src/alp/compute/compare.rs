@@ -26,21 +26,21 @@ use crate::match_each_alp_float_ptype;
 
 impl CompareKernel for ALPVTable {
     fn compare(
-        array: &ALPArray,
-        other: &dyn Array,
+        lhs: &ALPArray,
+        rhs: &dyn Array,
         operator: Operator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if array.patches().is_some() {
+        if lhs.patches().is_some() {
             // TODO(joe): support patches
             return Ok(None);
         }
-        if array.dtype().is_nullable() || other.dtype().is_nullable() {
+        if lhs.dtype().is_nullable() || rhs.dtype().is_nullable() {
             // TODO(joe): support nullability
             return Ok(None);
         }
 
-        if let Some(const_scalar) = other.as_constant() {
+        if let Some(const_scalar) = rhs.as_constant() {
             let pscalar = const_scalar.as_primitive_opt().ok_or_else(|| {
                 vortex_err!(
                     "ALP Compare RHS had the wrong type {}, expected {}",
@@ -51,7 +51,7 @@ impl CompareKernel for ALPVTable {
 
             match_each_alp_float_ptype!(pscalar.ptype(), |T| {
                 match pscalar.typed_value::<T>() {
-                    Some(value) => return alp_scalar_compare(array, value, operator),
+                    Some(value) => return alp_scalar_compare(lhs, value, operator),
                     None => vortex_bail!(
                         "Failed to convert scalar {:?} to ALP type {:?}",
                         pscalar,

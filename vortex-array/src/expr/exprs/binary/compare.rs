@@ -33,8 +33,8 @@ use crate::vtable::VTable;
 /// the left-hand side, swapping the operator when necessary.
 pub trait CompareKernel: VTable {
     fn compare(
-        array: &Self::Array,
-        other: &dyn Array,
+        lhs: &Self::Array,
+        rhs: &dyn Array,
         operator: Operator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;

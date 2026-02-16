@@ -4,7 +4,6 @@
 //! Array validity and nullability behavior, used by arrays and compute functions.
 
 use std::fmt::Debug;
-use std::ops::BitAnd;
 use std::ops::Range;
 
 use vortex_buffer::BitBuffer;
@@ -283,9 +282,7 @@ impl Validity {
             | (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
             // Here we actually have to do some work
             (Validity::Array(lhs), Validity::Array(rhs)) => {
-                let conj = Binary.try_new_array(lhs.len(), Operator::And, [lhs, rhs])?;
-
-                Validity::from(conj)
+                Validity::Array(Binary.try_new_array(lhs.len(), Operator::And, [lhs, rhs])?)
             }
         })
     }

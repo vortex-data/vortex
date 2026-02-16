@@ -25,12 +25,12 @@ use crate::FoRVTable;
 
 impl CompareKernel for FoRVTable {
     fn compare(
-        array: &FoRArray,
-        other: &dyn Array,
+        lhs: &FoRArray,
+        rhs: &dyn Array,
         operator: Operator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if let Some(constant) = other.as_constant()
+        if let Some(constant) = rhs.as_constant()
             && let Some(constant) = constant.as_primitive_opt()
         {
             if constant.pvalue().is_none() {
@@ -38,9 +38,9 @@ impl CompareKernel for FoRVTable {
             }
             match_each_integer_ptype!(constant.ptype(), |T| {
                 return compare_constant(
-                    array,
+                    lhs,
                     constant.typed_value::<T>().vortex_expect("RHS is not null"),
-                    other.dtype().nullability(),
+                    rhs.dtype().nullability(),
                     operator,
                 );
             })

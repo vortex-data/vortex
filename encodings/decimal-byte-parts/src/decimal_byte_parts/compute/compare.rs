@@ -27,17 +27,17 @@ use crate::decimal_byte_parts::compute::compare::Sign::Positive;
 
 impl CompareKernel for DecimalBytePartsVTable {
     fn compare(
-        array: &Self::Array,
-        other: &dyn Array,
+        lhs: &Self::Array,
+        rhs: &dyn Array,
         operator: Operator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(rhs_const) = other.as_constant() else {
+        let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
         };
 
-        let nullability = array.dtype.nullability() | other.dtype().nullability();
-        let scalar_type = array.msp.dtype().with_nullability(nullability);
+        let nullability = lhs.dtype.nullability() | rhs.dtype().nullability();
+        let scalar_type = lhs.msp.dtype().with_nullability(nullability);
 
         if rhs_const.is_null() {
             return Ok(None);
@@ -48,14 +48,12 @@ impl CompareKernel for DecimalBytePartsVTable {
             .decimal_value()
             .vortex_expect("RHS is not null");
 
-        match decimal_value_wrapper_to_primitive(
-            rhs_decimal,
-            array.msp.as_primitive_typed().ptype(),
-        ) {
+        match decimal_value_wrapper_to_primitive(rhs_decimal, lhs.msp.as_primitive_typed().ptype())
+        {
             Ok(value) => {
                 let encoded_scalar = Scalar::try_new(scalar_type, Some(value))?;
-                let encoded_const = ConstantArray::new(encoded_scalar, other.len());
-                compare(&array.msp, &encoded_const.to_array(), operator).map(Some)
+                let encoded_const = ConstantArray::new(encoded_scalar, rhs.len());
+                compare(&lhs.msp, &encoded_const.to_array(), operator).map(Some)
             }
 
             Err(sign) => {
@@ -64,11 +62,11 @@ impl CompareKernel for DecimalBytePartsVTable {
                 // (depending on the `sign`) than all values in MSP.
                 // If the LHS or the RHS contain nulls, then we must fallback to the canonicalized
                 // implementation which does null-checking instead.
-                if array.all_valid()? && other.all_valid()? {
+                if lhs.all_valid()? && rhs.all_valid()? {
                     Ok(Some(
                         ConstantArray::new(
                             unconvertible_value(sign, operator, nullability),
-                            array.len(),
+                            lhs.len(),
                         )
                         .to_array(),
                     ))
