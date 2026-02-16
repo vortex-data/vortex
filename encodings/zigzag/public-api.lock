@@ -66,7 +66,7 @@ pub fn vortex_zigzag::ZigZagVTable::cast(array: &vortex_zigzag::ZigZagArray, dty
 
 impl vortex_array::expr::exprs::mask::kernel::MaskReduce for vortex_zigzag::ZigZagVTable
 
-pub fn vortex_zigzag::ZigZagVTable::mask(array: &vortex_zigzag::ZigZagArray, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_zigzag::ZigZagVTable::mask(array: &vortex_zigzag::ZigZagArray, mask: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_zigzag::ZigZagVTable
 

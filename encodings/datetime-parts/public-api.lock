@@ -6,6 +6,8 @@ impl vortex_datetime_parts::DateTimePartsArray
 
 pub fn vortex_datetime_parts::DateTimePartsArray::days(&self) -> &vortex_array::array::ArrayRef
 
+pub fn vortex_datetime_parts::DateTimePartsArray::into_parts(self) -> vortex_datetime_parts::DateTimePartsArrayParts
+
 pub fn vortex_datetime_parts::DateTimePartsArray::seconds(&self) -> &vortex_array::array::ArrayRef
 
 pub fn vortex_datetime_parts::DateTimePartsArray::subseconds(&self) -> &vortex_array::array::ArrayRef
@@ -43,6 +45,24 @@ pub fn vortex_datetime_parts::DateTimePartsArray::deref(&self) -> &Self::Target
 impl vortex_array::array::IntoArray for vortex_datetime_parts::DateTimePartsArray
 
 pub fn vortex_datetime_parts::DateTimePartsArray::into_array(self) -> vortex_array::array::ArrayRef
+
+pub struct vortex_datetime_parts::DateTimePartsArrayParts
+
+pub vortex_datetime_parts::DateTimePartsArrayParts::days: vortex_array::array::ArrayRef
+
+pub vortex_datetime_parts::DateTimePartsArrayParts::dtype: vortex_dtype::dtype::DType
+
+pub vortex_datetime_parts::DateTimePartsArrayParts::seconds: vortex_array::array::ArrayRef
+
+pub vortex_datetime_parts::DateTimePartsArrayParts::subseconds: vortex_array::array::ArrayRef
+
+impl core::clone::Clone for vortex_datetime_parts::DateTimePartsArrayParts
+
+pub fn vortex_datetime_parts::DateTimePartsArrayParts::clone(&self) -> vortex_datetime_parts::DateTimePartsArrayParts
+
+impl core::fmt::Debug for vortex_datetime_parts::DateTimePartsArrayParts
+
+pub fn vortex_datetime_parts::DateTimePartsArrayParts::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 #[repr(C)] pub struct vortex_datetime_parts::DateTimePartsMetadata
 
@@ -128,7 +148,7 @@ pub fn vortex_datetime_parts::DateTimePartsVTable::cast(array: &vortex_datetime_
 
 impl vortex_array::expr::exprs::mask::kernel::MaskReduce for vortex_datetime_parts::DateTimePartsVTable
 
-pub fn vortex_datetime_parts::DateTimePartsVTable::mask(array: &vortex_datetime_parts::DateTimePartsArray, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_datetime_parts::DateTimePartsVTable::mask(array: &vortex_datetime_parts::DateTimePartsArray, mask: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_datetime_parts::DateTimePartsVTable
 

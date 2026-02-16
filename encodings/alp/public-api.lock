@@ -166,7 +166,7 @@ pub fn vortex_alp::ALPRDVTable::cast(array: &vortex_alp::ALPRDArray, dtype: &vor
 
 impl vortex_array::expr::exprs::mask::kernel::MaskReduce for vortex_alp::ALPRDVTable
 
-pub fn vortex_alp::ALPRDVTable::mask(array: &vortex_alp::ALPRDArray, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_alp::ALPRDVTable::mask(array: &vortex_alp::ALPRDArray, mask: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_alp::ALPRDVTable
 
@@ -268,9 +268,13 @@ impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_alp::ALPVTab
 
 pub fn vortex_alp::ALPVTable::cast(array: &vortex_alp::ALPArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
+impl vortex_array::expr::exprs::mask::kernel::MaskKernel for vortex_alp::ALPVTable
+
+pub fn vortex_alp::ALPVTable::mask(array: &vortex_alp::ALPArray, mask: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+
 impl vortex_array::expr::exprs::mask::kernel::MaskReduce for vortex_alp::ALPVTable
 
-pub fn vortex_alp::ALPVTable::mask(array: &vortex_alp::ALPArray, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_alp::ALPVTable::mask(array: &vortex_alp::ALPArray, mask: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_alp::ALPVTable
 

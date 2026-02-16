@@ -7,16 +7,44 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
+use crate::arrays::ScalarFnArrayExt;
 use crate::compute::MaskReduce;
+use crate::expr::EmptyOptions;
+use crate::expr::mask::Mask as MaskExpr;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl MaskReduce for MaskedVTable {
     fn mask(array: &MaskedArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let combined_validity = array.validity().clone().and(Validity::Array(mask.clone()));
-        Ok(Some(
-            MaskedArray::try_new(array.child.clone(), combined_validity)?.into_array(),
-        ))
+        // AND the existing validity mask with the new mask and push into child.
+        let combined_mask = match array.validity() {
+            Validity::NonNullable | Validity::AllValid => mask.clone(),
+            Validity::AllInvalid => {
+                return Ok(Some(array.to_array()));
+            }
+            Validity::Array(existing) => {
+                // Create a mask expression wrapping the existing validity, then AND with new mask.
+                // We push a combined mask onto the child directly.
+                let combined_validity =
+                    Validity::Array(existing.clone()).and(Validity::Array(mask.clone()));
+                match combined_validity {
+                    Validity::AllInvalid => {
+                        return Ok(Some(
+                            MaskedArray::try_new(array.child.clone(), Validity::AllInvalid)?
+                                .into_array(),
+                        ));
+                    }
+                    Validity::Array(combined) => combined,
+                    _ => mask.clone(),
+                }
+            }
+        };
+        let masked_child = MaskExpr.try_new_array(
+            array.child.len(),
+            EmptyOptions,
+            [array.child.clone(), combined_mask],
+        )?;
+        Ok(Some(masked_child))
     }
 }
 

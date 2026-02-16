@@ -78,7 +78,7 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::cast(array: &vortex_de
 
 impl vortex_array::expr::exprs::mask::kernel::MaskReduce for vortex_decimal_byte_parts::DecimalBytePartsVTable
 
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::mask(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::mask(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, mask: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_decimal_byte_parts::DecimalBytePartsVTable
 

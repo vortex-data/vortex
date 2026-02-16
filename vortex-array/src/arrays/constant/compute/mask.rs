@@ -4,12 +4,12 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
-use crate::arrays::MaskedArray;
+use crate::arrays::ScalarFnArrayExt;
 use crate::compute::MaskReduce;
-use crate::validity::Validity;
+use crate::expr::EmptyOptions;
+use crate::expr::mask::Mask as MaskExpr;
 
 impl MaskReduce for ConstantVTable {
     fn mask(array: &ConstantArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
@@ -17,9 +17,11 @@ impl MaskReduce for ConstantVTable {
             // Already all nulls, masking has no effect.
             return Ok(Some(array.to_array()));
         }
-        Ok(Some(
-            MaskedArray::try_new(array.to_array(), Validity::Array(mask.clone()))?.into_array(),
-        ))
+        Ok(Some(MaskExpr.try_new_array(
+            array.len(),
+            EmptyOptions,
+            [array.to_array(), mask.clone()],
+        )?))
     }
 }
 

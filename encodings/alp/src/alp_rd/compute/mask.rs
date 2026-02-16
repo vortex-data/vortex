@@ -3,9 +3,10 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::MaskedArray;
+use vortex_array::arrays::ScalarFnArrayExt;
 use vortex_array::compute::MaskReduce;
-use vortex_array::validity::Validity;
+use vortex_array::expr::EmptyOptions;
+use vortex_array::expr::Mask as MaskExpr;
 use vortex_error::VortexResult;
 
 use crate::ALPRDArray;
@@ -13,9 +14,11 @@ use crate::ALPRDVTable;
 
 impl MaskReduce for ALPRDVTable {
     fn mask(array: &ALPRDArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let masked_left_parts =
-            MaskedArray::try_new(array.left_parts().clone(), Validity::Array(mask.clone()))?
-                .into_array();
+        let masked_left_parts = MaskExpr.try_new_array(
+            array.left_parts().len(),
+            EmptyOptions,
+            [array.left_parts().clone(), mask.clone()],
+        )?;
         Ok(Some(
             ALPRDArray::try_new(
                 array.dtype().as_nullable(),

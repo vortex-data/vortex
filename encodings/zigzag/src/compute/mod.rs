@@ -8,10 +8,11 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterReduce;
-use vortex_array::arrays::MaskedArray;
+use vortex_array::arrays::ScalarFnArrayExt;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::compute::MaskReduce;
-use vortex_array::validity::Validity;
+use vortex_array::expr::EmptyOptions;
+use vortex_array::expr::Mask as MaskExpr;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -38,9 +39,11 @@ impl TakeExecute for ZigZagVTable {
 
 impl MaskReduce for ZigZagVTable {
     fn mask(array: &ZigZagArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let masked_encoded =
-            MaskedArray::try_new(array.encoded().clone(), Validity::Array(mask.clone()))?
-                .into_array();
+        let masked_encoded = MaskExpr.try_new_array(
+            array.encoded().len(),
+            EmptyOptions,
+            [array.encoded().clone(), mask.clone()],
+        )?;
         Ok(Some(ZigZagArray::try_new(masked_encoded)?.into_array()))
     }
 }

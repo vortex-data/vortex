@@ -4,6 +4,8 @@
 use std::ops::Not;
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::compute::MaskKernel;
 use vortex_array::compute::MaskReduce;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
@@ -21,6 +23,25 @@ impl MaskReduce for ALPVTable {
         let masked_encoded = array.encoded().mask(&vortex_mask)?;
         Ok(Some(
             ALPArray::new(masked_encoded, array.exponents(), None).to_array(),
+        ))
+    }
+}
+
+impl MaskKernel for ALPVTable {
+    fn mask(
+        array: &ALPArray,
+        mask: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let vortex_mask = Validity::Array(mask.clone()).to_mask(array.len()).not();
+        let masked_encoded = array.encoded().mask(&vortex_mask)?;
+        let masked_patches = array
+            .patches()
+            .map(|p| p.mask(&vortex_mask))
+            .transpose()?
+            .flatten();
+        Ok(Some(
+            ALPArray::new(masked_encoded, array.exponents(), masked_patches).to_array(),
         ))
     }
 }
@@ -47,6 +68,19 @@ mod test {
     ].into_array())]
     fn test_mask_alp_conformance(#[case] array: vortex_array::ArrayRef) {
         let alp = alp_encode(&array.to_primitive(), None).unwrap();
+        test_mask_conformance(alp.as_ref());
+    }
+
+    #[test]
+    fn test_mask_alp_with_patches() {
+        use std::f64::consts::PI;
+        // PI doesn't encode cleanly with ALP, so it creates patches.
+        let values: Vec<f64> = (0..100)
+            .map(|i| if i % 4 == 3 { PI } else { 1.0 })
+            .collect();
+        let array = PrimitiveArray::from_iter(values);
+        let alp = alp_encode(&array, None).unwrap();
+        assert!(alp.patches().is_some(), "expected patches");
         test_mask_conformance(alp.as_ref());
     }
 }

@@ -74,7 +74,7 @@ pub fn vortex_bytebool::ByteBoolVTable::cast(array: &vortex_bytebool::ByteBoolAr
 
 impl vortex_array::expr::exprs::mask::kernel::MaskReduce for vortex_bytebool::ByteBoolVTable
 
-pub fn vortex_bytebool::ByteBoolVTable::mask(array: &vortex_bytebool::ByteBoolArray, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_bytebool::ByteBoolVTable::mask(array: &vortex_bytebool::ByteBoolArray, mask: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_bytebool::ByteBoolVTable
 
