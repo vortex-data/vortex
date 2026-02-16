@@ -48,7 +48,7 @@ impl ArrayParentReduceRule<DecimalVTable> for DecimalMaskedValidityRule {
                 DecimalArray::new_unchecked(
                     array.buffer::<D>(),
                     array.decimal_dtype(),
-                    array.validity().clone().and(parent.validity().clone()),
+                    array.validity().clone().and(parent.validity().clone())?,
                 )
             }
             .into_array()

@@ -5,13 +5,12 @@ use std::fmt::Debug;
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::CompareKernel;
-use vortex_array::compute::CompareKernelAdapter;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
-use vortex_array::register_kernel;
+use vortex_array::expr::CompareKernel;
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -27,10 +26,10 @@ use crate::match_each_alp_float_ptype;
 
 impl CompareKernel for ALPVTable {
     fn compare(
-        &self,
         lhs: &ALPArray,
         rhs: &dyn Array,
         operator: Operator,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if lhs.patches().is_some() {
             // TODO(joe): support patches
@@ -65,8 +64,6 @@ impl CompareKernel for ALPVTable {
         Ok(None)
     }
 }
-
-register_kernel!(CompareKernelAdapter(ALPVTable).lift());
 
 /// We can compare a scalar to an ALPArray by encoding the scalar into the ALP domain and comparing
 /// the encoded value to the encoded values in the ALPArray. There are fixups when the value doesn't

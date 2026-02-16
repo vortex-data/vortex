@@ -44,7 +44,7 @@ impl ArrayParentReduceRule<PrimitiveVTable> for PrimitiveMaskedValidityRule {
                 PrimitiveArray::new_unchecked_from_handle(
                     array.buffer_handle().clone(),
                     array.ptype(),
-                    array.validity().clone().and(parent.validity().clone()),
+                    array.validity().clone().and(parent.validity().clone())?,
                 )
             }
             .into_array()

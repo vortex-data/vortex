@@ -3,11 +3,11 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::CompareKernel;
 use vortex_array::compute::Operator;
-use vortex_array::validity::Validity;
+use vortex_array::expr::CompareKernel;
 use vortex_buffer::BitBuffer;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
@@ -22,14 +22,15 @@ use crate::array::SequenceVTable;
 
 impl CompareKernel for SequenceVTable {
     fn compare(
-        &self,
         lhs: &SequenceArray,
         rhs: &dyn Array,
         operator: Operator,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // TODO(joe): support other operators (NotEq, Lt, Lte, Gt, Gte) in encoded space.
         if operator != Operator::Eq {
             return Ok(None);
-        };
+        }
 
         let Some(constant) = rhs.as_constant() else {
             return Ok(None);
@@ -43,13 +44,13 @@ impl CompareKernel for SequenceVTable {
             constant
                 .as_primitive()
                 .pvalue()
-                .vortex_expect("non-null constant"),
+                .vortex_expect("null constant handled in adaptor"),
         );
 
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
         let validity = match nullability {
-            Nullability::NonNullable => Validity::NonNullable,
-            Nullability::Nullable => Validity::AllValid,
+            Nullability::NonNullable => vortex_array::validity::Validity::NonNullable,
+            Nullability::Nullable => vortex_array::validity::Validity::AllValid,
         };
 
         if let Some(set_idx) = set_idx {

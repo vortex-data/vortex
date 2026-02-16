@@ -4,9 +4,11 @@
 use crate::arrays::TakeExecuteAdaptor;
 use crate::arrays::VarBinVTable;
 use crate::arrays::filter::FilterExecuteAdaptor;
+use crate::expr::CompareExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<VarBinVTable> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&CompareExecuteAdaptor(VarBinVTable)),
     ParentKernelSet::lift(&FilterExecuteAdaptor(VarBinVTable)),
     ParentKernelSet::lift(&TakeExecuteAdaptor(VarBinVTable)),
 ]);
