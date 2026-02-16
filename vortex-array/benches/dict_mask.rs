@@ -7,7 +7,6 @@ use divan::Bencher;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
