@@ -290,12 +290,15 @@ impl DataSource for VortexDataSource {
 
     fn repartitioned(
         &self,
-        _target_partitions: usize,
+        target_partitions: usize,
         _repartition_file_min_size: usize,
         _output_ordering: Option<LexOrdering>,
     ) -> DFResult<Option<Arc<dyn DataSource>>> {
         // Vortex handles parallelism internally — always use a single partition.
-        Ok(None)
+        let mut this = self.clone();
+        this.num_partitions = NonZero::new(target_partitions)
+            .ok_or_else(|| DataFusionError::Internal("non-zero partitions".to_string()))?;
+        Ok(Some(Arc::new(this)))
     }
 
     fn output_partitioning(&self) -> Partitioning {

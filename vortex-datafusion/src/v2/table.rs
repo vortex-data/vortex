@@ -79,7 +79,7 @@ impl TableProvider for VortexTable {
 
     async fn scan(
         &self,
-        _state: &dyn Session,
+        state: &dyn Session,
         // Unlike filters and limit, we _do_ apply the projection at this stage since DataFusion's
         // physical projection expression push-down is still in its early stages. In theory, we
         // could also wait to apply the projection until we can push down over the physical plan.
@@ -98,6 +98,7 @@ impl TableProvider for VortexTable {
             .build()
             .await
             .map_err(|e| DataFusionError::External(Box::new(e)))?;
+
         Ok(DataSourceExec::from_data_source(data_source))
     }
 
