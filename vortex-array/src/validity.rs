@@ -28,8 +28,11 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFnArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::sum;
+use crate::expr::Binary;
+use crate::expr::Operator;
 use crate::patches::Patches;
 
 /// Validity information for an array
@@ -263,8 +266,8 @@ impl Validity {
 
     /// Logically & two Validity values of the same length
     #[inline]
-    pub fn and(self, rhs: Validity) -> Validity {
-        match (self, rhs) {
+    pub fn and(self, rhs: Validity) -> VortexResult<Validity> {
+        Ok(match (self, rhs) {
             // Should be pretty clear
             (Validity::NonNullable, Validity::NonNullable) => Validity::NonNullable,
             // Any `AllInvalid` makes the output all invalid values
@@ -280,15 +283,11 @@ impl Validity {
             | (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
             // Here we actually have to do some work
             (Validity::Array(lhs), Validity::Array(rhs)) => {
-                let lhs = lhs.to_bool();
-                let rhs = rhs.to_bool();
+                let conj = Binary.try_new_array(lhs.len(), Operator::And, [lhs, rhs])?;
 
-                let lhs = lhs.to_bit_buffer();
-                let rhs = rhs.to_bit_buffer();
-
-                Validity::from(lhs.bitand(rhs))
+                Validity::from(conj)
             }
-        }
+        })
     }
 
     pub fn patch(
