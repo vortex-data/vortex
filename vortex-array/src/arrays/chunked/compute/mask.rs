@@ -4,16 +4,21 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::ScalarFnArrayExt;
-use crate::compute::MaskReduce;
+use crate::compute::MaskKernel;
 use crate::expr::EmptyOptions;
 use crate::expr::mask::Mask as MaskExpr;
 
-impl MaskReduce for ChunkedVTable {
-    fn mask(array: &ChunkedArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+impl MaskKernel for ChunkedVTable {
+    fn mask(
+        array: &ChunkedArray,
+        mask: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let chunk_offsets = array.chunk_offsets();
         let new_chunks: Vec<ArrayRef> = array
             .chunks()
