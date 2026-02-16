@@ -14,6 +14,7 @@ use crate::expr::exprs::get_item::GetItem;
 use crate::expr::exprs::is_null::IsNull;
 use crate::expr::exprs::like::Like;
 use crate::expr::exprs::list_contains::ListContains;
+use crate::expr::exprs::list_map::ListMap;
 use crate::expr::exprs::literal::Literal;
 use crate::expr::exprs::merge::Merge;
 use crate::expr::exprs::not::Not;
@@ -62,6 +63,7 @@ impl Default for ExprSession {
             ExprVTable::new_static(&IsNull),
             ExprVTable::new_static(&Like),
             ExprVTable::new_static(&ListContains),
+            ExprVTable::new_static(&ListMap),
             ExprVTable::new_static(&Literal),
             ExprVTable::new_static(&Merge),
             ExprVTable::new_static(&Not),

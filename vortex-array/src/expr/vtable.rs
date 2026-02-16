@@ -693,6 +693,7 @@ mod tests {
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::is_null::is_null;
     use crate::expr::exprs::list_contains::list_contains;
+    use crate::expr::exprs::list_map::list_map;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::merge::merge;
     use crate::expr::exprs::not::not;
@@ -746,6 +747,8 @@ mod tests {
     ))]
     // List contains expressions
     #[case(list_contains(col("list_col"), lit("item")))]
+    // List map expressions
+    #[case(list_map(col("list_col"), root()))]
     // Pack expressions - creating struct from fields
     #[case(pack([("field1", col("a")), ("field2", col("b"))], vortex_dtype::Nullability::NonNullable
     ))]
