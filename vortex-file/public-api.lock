@@ -294,6 +294,8 @@ pub fn vortex_file::WriteStrategyBuilder::with_cuda_compatible_encodings(self) -
 
 pub fn vortex_file::WriteStrategyBuilder::with_field_writer(self, field: impl core::convert::Into<vortex_dtype::field::FieldPath>, writer: alloc::sync::Arc<dyn vortex_layout::strategy::LayoutStrategy>) -> Self
 
+pub fn vortex_file::WriteStrategyBuilder::with_flat_strategy(self, flat: alloc::sync::Arc<dyn vortex_layout::strategy::LayoutStrategy>) -> Self
+
 pub fn vortex_file::WriteStrategyBuilder::with_row_block_size(self, row_block_size: usize) -> Self
 
 impl core::default::Default for vortex_file::WriteStrategyBuilder
