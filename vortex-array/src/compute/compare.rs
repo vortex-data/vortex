@@ -176,9 +176,6 @@ mod tests {
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
-    use crate::expr::get_item;
-    use crate::expr::lt;
-    use crate::expr::root;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 
