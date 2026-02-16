@@ -1688,6 +1688,12 @@ pub fn vortex_layout::LayoutStrategy::buffered_bytes(&self) -> u64
 
 pub fn vortex_layout::LayoutStrategy::write_stream<'life0, 'async_trait>(&'life0 self, ctx: vortex_array::context::ArrayContext, segment_sink: vortex_layout::segments::SegmentSinkRef, stream: vortex_layout::sequence::SendableSequentialStream, eof: vortex_layout::sequence::SequencePointer, handle: vortex_io::runtime::handle::Handle) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_layout::LayoutRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 
+impl vortex_layout::LayoutStrategy for alloc::sync::Arc<dyn vortex_layout::LayoutStrategy>
+
+pub fn alloc::sync::Arc<dyn vortex_layout::LayoutStrategy>::buffered_bytes(&self) -> u64
+
+pub fn alloc::sync::Arc<dyn vortex_layout::LayoutStrategy>::write_stream<'life0, 'async_trait>(&'life0 self, ctx: vortex_array::context::ArrayContext, segment_sink: vortex_layout::segments::SegmentSinkRef, stream: vortex_layout::sequence::SendableSequentialStream, eof: vortex_layout::sequence::SequencePointer, handle: vortex_io::runtime::handle::Handle) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_layout::LayoutRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+
 impl vortex_layout::LayoutStrategy for vortex_layout::layouts::buffered::BufferedStrategy
 
 pub fn vortex_layout::layouts::buffered::BufferedStrategy::buffered_bytes(&self) -> u64

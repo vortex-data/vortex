@@ -128,6 +128,7 @@ pub struct WriteStrategyBuilder {
     row_block_size: usize,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     allow_encodings: Option<ArrayRegistry>,
+    flat_strategy: Option<Arc<dyn LayoutStrategy>>,
 }
 
 impl Default for WriteStrategyBuilder {
@@ -139,6 +140,7 @@ impl Default for WriteStrategyBuilder {
             row_block_size: 8192,
             field_writers: HashMap::new(),
             allow_encodings: None,
+            flat_strategy: None,
         }
     }
 }
@@ -173,6 +175,15 @@ impl WriteStrategyBuilder {
     /// Override the allowed array encodings for normalization.
     pub fn with_allow_encodings(mut self, allow_encodings: ArrayRegistry) -> Self {
         self.allow_encodings = Some(allow_encodings);
+        self
+    }
+
+    /// Override the flat layout strategy used for leaf chunks.
+    ///
+    /// By default, this uses [`FlatLayoutStrategy`]. This can be used to substitute a custom
+    /// layout strategy, e.g. one that inlines constant array buffers for GPU reads.
+    pub fn with_flat_strategy(mut self, flat: Arc<dyn LayoutStrategy>) -> Self {
+        self.flat_strategy = Some(flat);
         self
     }
 
@@ -222,10 +233,12 @@ impl WriteStrategyBuilder {
     /// Builds the canonical [`LayoutStrategy`] implementation, with the configured overrides
     /// applied.
     pub fn build(self) -> Arc<dyn LayoutStrategy> {
-        let flat = if let Some(allow_encodings) = self.allow_encodings {
-            FlatLayoutStrategy::default().with_allow_encodings(allow_encodings)
+        let flat: Arc<dyn LayoutStrategy> = if let Some(flat) = self.flat_strategy {
+            flat
+        } else if let Some(allow_encodings) = self.allow_encodings {
+            Arc::new(FlatLayoutStrategy::default().with_allow_encodings(allow_encodings))
         } else {
-            FlatLayoutStrategy::default()
+            Arc::new(FlatLayoutStrategy::default())
         };
 
         // 7. for each chunk create a flat layout
