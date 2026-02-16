@@ -13,7 +13,6 @@ use vortex_array::normalize::Operation;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::session::ArrayRegistry;
 use vortex_array::stats::StatsSetRef;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
