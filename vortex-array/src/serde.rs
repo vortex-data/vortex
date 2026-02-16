@@ -490,6 +490,28 @@ impl ArrayParts {
         })
     }
 
+    /// Create an [`ArrayParts`] from an already-validated flatbuffer and pre-resolved buffer
+    /// handles.
+    ///
+    /// This skips flatbuffer validation, which is useful when the caller has already parsed and
+    /// validated the flatbuffer (e.g., during buffer resolution).
+    ///
+    /// # Safety contract
+    ///
+    /// The caller must ensure that `flatbuffer` and `flatbuffer_loc` were produced by a prior
+    /// call to [`Self::validate_array_tree`] or equivalent validation.
+    pub fn from_validated(
+        flatbuffer: FlatBuffer,
+        flatbuffer_loc: usize,
+        buffers: Vec<BufferHandle>,
+    ) -> Self {
+        ArrayParts {
+            flatbuffer,
+            flatbuffer_loc,
+            buffers: buffers.into(),
+        }
+    }
+
     /// Create an [`ArrayParts`] from a raw array tree flatbuffer (metadata only).
     ///
     /// This constructor creates an `ArrayParts` with no buffer data, useful for
