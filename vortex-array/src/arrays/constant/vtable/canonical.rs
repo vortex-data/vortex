@@ -16,10 +16,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_scalar::DecimalValue;
 use vortex_scalar::Scalar;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::Canonical;
 use crate::IntoArray;
+use crate::arrays::BinaryView;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
