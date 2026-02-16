@@ -13,19 +13,23 @@ use vortex_array::normalize::Operation;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::session::ArrayRegistry;
 use vortex_array::stats::StatsSetRef;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferString;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::Handle;
 use vortex_scalar::Scalar;
+use vortex_scalar::ScalarTruncation;
+use vortex_scalar::lower_bound;
+use vortex_scalar::upper_bound;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::flat::flat_layout_inline_array_node;
-use crate::layouts::zoned::lower_bound;
-use crate::layouts::zoned::upper_bound;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -109,14 +113,16 @@ impl LayoutStrategy for FlatLayoutStrategy {
             DType::Utf8(n) => {
                 truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
                     lower_bound(
-                        v.into_value().map(|v| v.into_utf8()),
+                        BufferString::from_scalar(v)
+                            .vortex_expect("utf8 scalar must be a BufferString"),
                         self.max_variable_length_statistics_size,
                         *n,
                     )
                 });
                 truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
                     upper_bound(
-                        v.into_value().map(|v| v.into_utf8()),
+                        BufferString::from_scalar(v)
+                            .vortex_expect("utf8 scalar must be a BufferString"),
                         self.max_variable_length_statistics_size,
                         *n,
                     )
@@ -125,14 +131,14 @@ impl LayoutStrategy for FlatLayoutStrategy {
             DType::Binary(n) => {
                 truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
                     lower_bound(
-                        v.into_value().map(|v| v.into_binary()),
+                        Buffer::from_scalar(v).vortex_expect("binary scalar must be a Buffer"),
                         self.max_variable_length_statistics_size,
                         *n,
                     )
                 });
                 truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
                     upper_bound(
-                        v.into_value().map(|v| v.into_binary()),
+                        Buffer::from_scalar(v).vortex_expect("binary scalar must be a Buffer"),
                         self.max_variable_length_statistics_size,
                         *n,
                     )
