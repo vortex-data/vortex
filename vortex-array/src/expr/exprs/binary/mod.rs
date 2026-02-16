@@ -29,7 +29,7 @@ use crate::expr::stats::Stat;
 mod boolean;
 pub(crate) use boolean::*;
 mod compare;
-pub(crate) use compare::*;
+pub use compare::*;
 mod numeric;
 pub(crate) use numeric::*;
 
