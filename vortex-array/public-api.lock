@@ -11008,6 +11008,8 @@ pub fn vortex_array::validity::Validity::mask(&self, mask: &vortex_mask::Mask) -
 
 pub fn vortex_array::validity::Validity::maybe_len(&self) -> core::option::Option<usize>
 
+pub fn vortex_array::validity::Validity::not(&self) -> vortex_error::VortexResult<Self>
+
 pub fn vortex_array::validity::Validity::nullability(&self) -> vortex_dtype::nullability::Nullability
 
 pub fn vortex_array::validity::Validity::patch(self, len: usize, indices_offset: usize, indices: &dyn vortex_array::Array, patches: &vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
