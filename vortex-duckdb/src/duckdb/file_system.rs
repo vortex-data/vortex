@@ -214,7 +214,7 @@ unsafe impl Send for DuckDbFsReader {}
 unsafe impl Sync for DuckDbFsReader {}
 
 pub(crate) struct DuckDbFsWriter {
-    handle: FsFileHandle,
+    handle: Arc<FsFileHandle>,
     pos: u64,
 }
 
@@ -231,7 +231,7 @@ impl DuckDbFsWriter {
         }
 
         Ok(Self {
-            handle: unsafe { FsFileHandle::own(handle) },
+            handle: Arc::new(unsafe { FsFileHandle::own(handle) }),
             pos: 0,
         })
     }
@@ -240,36 +240,56 @@ impl DuckDbFsWriter {
 impl VortexWrite for DuckDbFsWriter {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> std::io::Result<B> {
         let len = buffer.bytes_init();
-        let mut err: cpp::duckdb_vx_error = ptr::null_mut();
-        let mut out_len: cpp::idx_t = 0;
         let offset = self.pos;
+        let handle = self.handle.clone();
+        // IoBuf is not bounded by Send, so it cannot be moved into a
+        // spawn_blocking closure. Pass the pointer as usize (which is Send)
+        // and keep `buffer` alive in this async fn until the blocking call
+        // completes.
+        let buf_ptr = buffer.read_ptr() as usize;
 
-        let status = unsafe {
-            cpp::duckdb_vx_fs_write(
-                self.handle.as_ptr(),
-                offset as cpp::idx_t,
-                len as cpp::idx_t,
-                buffer.read_ptr().cast_mut(),
-                &raw mut out_len,
-                &raw mut err,
-            )
-        };
+        let runtime = RUNTIME.handle();
+        runtime
+            .spawn_blocking(move || {
+                let mut err: cpp::duckdb_vx_error = ptr::null_mut();
+                let mut out_len: cpp::idx_t = 0;
+                let status = unsafe {
+                    cpp::duckdb_vx_fs_write(
+                        handle.as_ptr(),
+                        offset as cpp::idx_t,
+                        len as cpp::idx_t,
+                        buf_ptr as *mut u8,
+                        &raw mut out_len,
+                        &raw mut err,
+                    )
+                };
 
-        if status != cpp::duckdb_state::DuckDBSuccess {
-            return Err(std::io::Error::other(fs_error(err).to_string()));
-        }
+                if status != cpp::duckdb_state::DuckDBSuccess {
+                    return Err(std::io::Error::other(fs_error(err).to_string()));
+                }
+
+                Ok(())
+            })
+            .await?;
 
         self.pos = offset + len as u64;
         Ok(buffer)
     }
 
     async fn flush(&mut self) -> std::io::Result<()> {
-        let mut err: cpp::duckdb_vx_error = ptr::null_mut();
-        let status = unsafe { cpp::duckdb_vx_fs_sync(self.handle.as_ptr(), &raw mut err) };
-        if status != cpp::duckdb_state::DuckDBSuccess {
-            return Err(std::io::Error::other(fs_error(err).to_string()));
-        }
-        Ok(())
+        let handle = self.handle.clone();
+
+        let runtime = RUNTIME.handle();
+        runtime
+            .spawn_blocking(move || {
+                let mut err: cpp::duckdb_vx_error = ptr::null_mut();
+                let status = unsafe { cpp::duckdb_vx_fs_sync(handle.as_ptr(), &raw mut err) };
+                if status != cpp::duckdb_state::DuckDBSuccess {
+                    return Err(std::io::Error::other(fs_error(err).to_string()));
+                }
+                Ok(())
+            })
+            .await
     }
 
     async fn shutdown(&mut self) -> std::io::Result<()> {
