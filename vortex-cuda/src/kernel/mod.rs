@@ -59,7 +59,7 @@ pub trait LaunchStrategyExt: LaunchStrategy {
         F: FnMut() -> VortexResult<()>;
 }
 
-impl<S: LaunchStrategy> LaunchStrategyExt for S {
+impl<S: ?Sized + LaunchStrategy> LaunchStrategyExt for S {
     fn with_strategy<F>(&self, stream: &CudaStream, len: usize, mut func: F) -> VortexResult<()>
     where
         F: FnMut() -> VortexResult<()>,
