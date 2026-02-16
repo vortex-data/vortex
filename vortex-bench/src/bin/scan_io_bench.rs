@@ -556,13 +556,15 @@ fn object_store_from_url(
 }
 
 async fn read_all_segments(file: &vortex::file::VortexFile, concurrency: usize) -> Result<()> {
-    let segment_ids = file.footer().layout().segment_ids();
+    let segment_count = file.footer().segment_map().len();
     let segment_source = file.segment_source();
 
-    futures::stream::iter(segment_ids)
-        .map(|segment_id| {
+    futures::stream::iter(0..segment_count)
+        .map(|idx| {
             let segment_source = segment_source.clone();
             async move {
+                let segment_id = vortex::layout::segments::SegmentId::try_from(idx)
+                    .map_err(|_| anyhow::anyhow!("segment index exceeds u32: {idx}"))?;
                 let buffer = segment_source.request(segment_id).await?;
                 drop(buffer);
                 Ok::<_, anyhow::Error>(())
