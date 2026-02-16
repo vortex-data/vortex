@@ -13,13 +13,16 @@ use crate::vtable::ValidityHelper;
 
 impl MaskReduce for FixedSizeListVTable {
     fn mask(array: &FixedSizeListArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        // SAFETY: only changing validity, not data structure
+        // SAFETY: masking the validity does not affect the invariants
         Ok(Some(
             unsafe {
                 FixedSizeListArray::new_unchecked(
                     array.elements().clone(),
                     array.list_size(),
-                    array.validity().clone().and(Validity::Array(mask.clone())),
+                    array
+                        .validity()
+                        .clone()
+                        .and(Validity::Array(mask.clone()))?,
                     array.len(),
                 )
             }

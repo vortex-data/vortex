@@ -13,14 +13,17 @@ use crate::vtable::ValidityHelper;
 
 impl MaskReduce for VarBinViewVTable {
     fn mask(array: &VarBinViewArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        // SAFETY: only changing validity, not data structure
+        // SAFETY: masking the validity does not affect the invariants
         unsafe {
             Ok(Some(
                 VarBinViewArray::new_handle_unchecked(
                     array.views_handle().clone(),
                     array.buffers().clone(),
                     array.dtype().as_nullable(),
-                    array.validity().clone().and(Validity::Array(mask.clone())),
+                    array
+                        .validity()
+                        .clone()
+                        .and(Validity::Array(mask.clone()))?,
                 )
                 .into_array(),
             ))

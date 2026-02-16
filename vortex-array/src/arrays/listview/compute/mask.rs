@@ -13,14 +13,17 @@ use crate::vtable::ValidityHelper;
 
 impl MaskReduce for ListViewVTable {
     fn mask(array: &ListViewArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        // SAFETY: only changing validity, not data structure
+        // SAFETY: masking the validity does not affect the invariants
         Ok(Some(
             unsafe {
                 ListViewArray::new_unchecked(
                     array.elements().clone(),
                     array.offsets().clone(),
                     array.sizes().clone(),
-                    array.validity().clone().and(Validity::Array(mask.clone())),
+                    array
+                        .validity()
+                        .clone()
+                        .and(Validity::Array(mask.clone()))?,
                 )
                 .with_zero_copy_to_list(array.is_zero_copy_to_list())
             }

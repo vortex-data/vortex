@@ -17,12 +17,15 @@ impl MaskReduce for DecimalVTable {
         Ok(Some(match_each_decimal_value_type!(
             array.values_type(),
             |D| {
-                // SAFETY: only changing validity, not data structure
+                // SAFETY: masking the validity does not affect the invariants
                 unsafe {
                     DecimalArray::new_unchecked(
                         array.buffer::<D>(),
                         array.decimal_dtype(),
-                        array.validity().clone().and(Validity::Array(mask.clone())),
+                        array
+                            .validity()
+                            .clone()
+                            .and(Validity::Array(mask.clone()))?,
                     )
                 }
                 .into_array()
