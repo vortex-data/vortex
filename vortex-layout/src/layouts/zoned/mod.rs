@@ -10,8 +10,6 @@ use std::sync::Arc;
 
 pub use builder::MAX_IS_TRUNCATED;
 pub use builder::MIN_IS_TRUNCATED;
-pub use builder::lower_bound;
-pub use builder::upper_bound;
 use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;

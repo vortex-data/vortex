@@ -116,20 +116,21 @@ DEFINE_FILTER_BYTEMASK(f64, double)
 DEFINE_FILTER_BYTEMASK(i128, __int128_t)
 DEFINE_FILTER_BYTEMASK(i256, __int256_t)
 
-// CUB DeviceSelect::Flagged - Execute filter with bit mask (one bit per element)
-//
-// Execute filter is using packed bit mask directly via TransformInputIterator.
-//
-// Args:
-//   d_temp: Temporary storage buffer
-//   temp_bytes: Size of temporary storage
-//   d_in: Input data array
-//   d_bitmask: Packed bit mask (1 bit per element)
-//   bit_offset: Starting bit offset within the packed buffer
-//   d_out: Output array for selected elements
-//   d_num_selected: Output count of selected elements
-//   num_items: Number of input elements
-//   stream: CUDA stream
+/// CUB DeviceSelect::Flagged - Execute filter with bit mask (one bit per element)
+///
+/// Execute filter is using packed bit mask directly via TransformInputIterator.
+///
+/// # Parameters
+///
+/// * `d_temp` - Temporary storage buffer
+/// * `temp_bytes` - Size of temporary storage
+/// * `d_in` - Input data array
+/// * `d_bitmask` - Packed bit mask (1 bit per element)
+/// * `bit_offset` - Starting bit offset within the packed buffer
+/// * `d_out` - Output array for selected elements
+/// * `d_num_selected` - Output count of selected elements
+/// * `num_items` - Number of input elements
+/// * `stream` - CUDA stream
 template <typename T>
 static cudaError_t filter_bitmask_impl(void *d_temp,
                                        size_t temp_bytes,
@@ -140,7 +141,6 @@ static cudaError_t filter_bitmask_impl(void *d_temp,
                                        int64_t *d_num_selected,
                                        int64_t num_items,
                                        cudaStream_t stream) {
-    // Create a transform iterator to read packed bits.
     BitExtractor extractor {d_bitmask, bit_offset};
     thrust::counting_iterator<int64_t> counting_iter(0);
     PackedBitIterator flag_iter(counting_iter, extractor);

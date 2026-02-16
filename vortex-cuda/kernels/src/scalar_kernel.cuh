@@ -30,7 +30,6 @@ scalar_kernel(const InputT *__restrict in, OutputT *__restrict out, uint64_t arr
     for (uint64_t idx = block_start_vec + threadIdx.x; idx < block_end_vec; idx += blockDim.x) {
         uint64_t base_idx = idx * VALUES_PER_LOOP;
 
-        // The loop can be unrolled, as `VALUES_PER_LOOP` is `constexpr`.
         // clang-format off
         #pragma unroll
         // clang-format on

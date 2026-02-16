@@ -12,18 +12,24 @@ use vortex_array::normalize::NormalizeOptions;
 use vortex_array::normalize::Operation;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::session::ArrayRegistry;
+use vortex_array::stats::StatsSetRef;
+use vortex_buffer::BufferString;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::Handle;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarTruncation;
+use vortex_scalar::lower_bound;
+use vortex_scalar::upper_bound;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::flat::flat_layout_inline_array_node;
-use crate::layouts::zoned::lower_bound;
-use crate::layouts::zoned::upper_bound;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -69,6 +75,22 @@ impl FlatLayoutStrategy {
     }
 }
 
+fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
+    statistics: StatsSetRef<'_>,
+    stat: Stat,
+    truncation: F,
+) {
+    if let Some(sv) = statistics.get(stat) {
+        if let Some((truncated_value, truncated)) = truncation(sv.into_inner()) {
+            if truncated && let Some(v) = truncated_value.into_value() {
+                statistics.set(stat, Precision::Inexact(v));
+            }
+        } else {
+            statistics.clear(stat)
+        }
+    }
+}
+
 #[async_trait]
 impl LayoutStrategy for FlatLayoutStrategy {
     async fn write_stream(
@@ -80,7 +102,6 @@ impl LayoutStrategy for FlatLayoutStrategy {
         _handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
-        let options = self.clone();
         let Some(chunk) = stream.next().await else {
             vortex_bail!("flat layout needs a single chunk");
         };
@@ -89,60 +110,46 @@ impl LayoutStrategy for FlatLayoutStrategy {
         let row_count = chunk.len() as u64;
 
         match chunk.dtype() {
-            DType::Utf8(_) => {
-                if let Some(sv) = chunk.statistics().get(Stat::Min) {
-                    let (value, truncated) = lower_bound(
-                        sv.into_inner().as_utf8(),
-                        options.max_variable_length_statistics_size,
-                    );
-                    if truncated && let Some(v) = value.into_value() {
-                        chunk.statistics().set(Stat::Min, Precision::Inexact(v));
-                    }
-                }
-
-                if let Some(sv) = chunk.statistics().get(Stat::Max) {
-                    let (value, truncated) = upper_bound(
-                        sv.into_inner().as_utf8(),
-                        options.max_variable_length_statistics_size,
-                    );
-                    if let Some(upper_bound) = value {
-                        if truncated && let Some(v) = upper_bound.into_value() {
-                            chunk.statistics().set(Stat::Max, Precision::Inexact(v));
-                        }
-                    } else {
-                        chunk.statistics().clear(Stat::Max)
-                    }
-                }
+            DType::Utf8(n) => {
+                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
+                    lower_bound(
+                        BufferString::from_scalar(v)
+                            .vortex_expect("utf8 scalar must be a BufferString"),
+                        self.max_variable_length_statistics_size,
+                        *n,
+                    )
+                });
+                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
+                    upper_bound(
+                        BufferString::from_scalar(v)
+                            .vortex_expect("utf8 scalar must be a BufferString"),
+                        self.max_variable_length_statistics_size,
+                        *n,
+                    )
+                });
             }
-            DType::Binary(_) => {
-                if let Some(sv) = chunk.statistics().get(Stat::Min) {
-                    let (value, truncated) = lower_bound(
-                        sv.into_inner().as_binary(),
-                        options.max_variable_length_statistics_size,
-                    );
-                    if truncated && let Some(v) = value.into_value() {
-                        chunk.statistics().set(Stat::Min, Precision::Inexact(v));
-                    }
-                }
-
-                if let Some(sv) = chunk.statistics().get(Stat::Max) {
-                    let (value, truncated) = upper_bound(
-                        sv.into_inner().as_binary(),
-                        options.max_variable_length_statistics_size,
-                    );
-                    if let Some(upper_bound) = value {
-                        if truncated && let Some(v) = upper_bound.into_value() {
-                            chunk.statistics().set(Stat::Max, Precision::Inexact(v));
-                        }
-                    } else {
-                        chunk.statistics().clear(Stat::Max)
-                    }
-                }
+            DType::Binary(n) => {
+                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
+                    lower_bound(
+                        ByteBuffer::from_scalar(v)
+                            .vortex_expect("binary scalar must be a ByteBuffer"),
+                        self.max_variable_length_statistics_size,
+                        *n,
+                    )
+                });
+                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
+                    upper_bound(
+                        ByteBuffer::from_scalar(v)
+                            .vortex_expect("binary scalar must be a ByteBuffer"),
+                        self.max_variable_length_statistics_size,
+                        *n,
+                    )
+                });
             }
             _ => {}
         }
 
-        let chunk = if let Some(allowed) = &options.allowed_encodings {
+        let chunk = if let Some(allowed) = &self.allowed_encodings {
             chunk.normalize(&mut NormalizeOptions {
                 allowed,
                 operation: Operation::Error,
@@ -155,7 +162,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
             &ctx,
             &SerializeOptions {
                 offset: 0,
-                include_padding: options.include_padding,
+                include_padding: self.include_padding,
             },
         )?;
         // there is at least the flatbuffer and the length
