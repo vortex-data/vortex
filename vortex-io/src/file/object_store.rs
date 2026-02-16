@@ -3,6 +3,7 @@
 
 use std::io;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use async_compat::Compat;
 use futures::FutureExt;
@@ -39,6 +40,11 @@ const DEFAULT_COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
 /// Default number of concurrent requests to allow.
 const DEFAULT_CONCURRENCY: usize = 192;
 const STREAM_READ_ENV: &str = "VORTEX_S3_STREAM_READ_EXACT";
+const READ_CONCURRENCY_ENV: &str = "VORTEX_S3_READ_CONCURRENCY";
+const COALESCE_DISTANCE_ENV: &str = "VORTEX_S3_COALESCE_DISTANCE";
+const COALESCE_MAX_SIZE_ENV: &str = "VORTEX_S3_COALESCE_MAX_SIZE";
+const COALESCE_DISABLE_ENV: &str = "VORTEX_S3_COALESCE_DISABLE";
+const COPY_STATS_ENV: &str = "VORTEX_S3_COPY_STATS";
 
 /// An object store backed I/O source.
 pub struct ObjectStoreSource {
@@ -54,13 +60,25 @@ impl ObjectStoreSource {
     /// Create a new object store source.
     pub fn new(store: Arc<dyn ObjectStore>, path: ObjectPath, handle: Handle) -> Self {
         let uri = Arc::from(path.to_string());
+        let mut coalesce_config = Some(DEFAULT_COALESCING_CONFIG);
+        if read_env_bool(COALESCE_DISABLE_ENV, false) {
+            coalesce_config = None;
+        } else if let Some(defaults) = coalesce_config.as_mut() {
+            if let Some(distance) = read_env_u64(COALESCE_DISTANCE_ENV) {
+                defaults.distance = distance;
+            }
+            if let Some(max_size) = read_env_u64(COALESCE_MAX_SIZE_ENV) {
+                defaults.max_size = max_size;
+            }
+        }
+
         Self {
             store,
             path,
             uri,
             handle,
-            concurrency: DEFAULT_CONCURRENCY,
-            coalesce_config: Some(DEFAULT_COALESCING_CONFIG),
+            concurrency: read_env_usize(READ_CONCURRENCY_ENV).unwrap_or(DEFAULT_CONCURRENCY),
+            coalesce_config,
         }
     }
 
@@ -84,11 +102,28 @@ impl ObjectStoreSource {
 }
 
 fn use_stream_reader() -> bool {
-    std::env::var(STREAM_READ_ENV)
+    read_env_bool(STREAM_READ_ENV, false)
+}
+
+fn copy_stats_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| read_env_bool(COPY_STATS_ENV, true))
+}
+
+fn read_env_u64(key: &str) -> Option<u64> {
+    std::env::var(key).ok()?.parse::<u64>().ok()
+}
+
+fn read_env_usize(key: &str) -> Option<usize> {
+    std::env::var(key).ok()?.parse::<usize>().ok()
+}
+
+fn read_env_bool(key: &str, default: bool) -> bool {
+    std::env::var(key)
         .ok()
         .and_then(|value| value.parse::<u8>().ok())
         .map(|value| value != 0)
-        .unwrap_or(false)
+        .unwrap_or(default)
 }
 
 impl VortexReadAt for ObjectStoreSource {
@@ -139,6 +174,7 @@ impl VortexReadAt for ObjectStoreSource {
         let handle = self.handle.clone();
         let length = target.len();
         let range = offset..(offset + length as u64);
+        let collect_copy_stats = copy_stats_enabled();
 
         Compat::new(async move {
             let response = store
@@ -172,7 +208,9 @@ impl VortexReadAt for ObjectStoreSource {
                         let mut reader = StreamReader::new(byte_stream.map_err(io::Error::other));
                         let copy_start = std::time::Instant::now();
                         reader.read_exact(target.as_mut_slice()).await?;
-                        record_copy(length, copy_start.elapsed());
+                        if collect_copy_stats {
+                            record_copy(length, copy_start.elapsed());
+                        }
                     } else {
                         let mut filled = 0usize;
                         while let Some(bytes) = byte_stream.next().await {
@@ -187,7 +225,9 @@ impl VortexReadAt for ObjectStoreSource {
                             );
                             let copy_start = std::time::Instant::now();
                             target.as_mut_slice()[filled..end].copy_from_slice(&bytes);
-                            record_copy(bytes.len(), copy_start.elapsed());
+                            if collect_copy_stats {
+                                record_copy(bytes.len(), copy_start.elapsed());
+                            }
                             filled = end;
                         }
 

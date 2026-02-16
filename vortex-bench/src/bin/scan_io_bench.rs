@@ -4,6 +4,7 @@
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
@@ -12,6 +13,8 @@ use clap::Parser;
 use clap::ValueEnum;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use object_store::GetOptions;
+use object_store::GetRange;
 use object_store::ObjectStore;
 use object_store::ObjectStoreScheme;
 use object_store::aws::AmazonS3Builder;
@@ -214,6 +217,7 @@ async fn main() -> Result<()> {
 
     let start = Instant::now();
     let bytes_before = total_read_bytes();
+    let manual_io_bytes = std::sync::Arc::new(AtomicU64::new(0));
     let first_seen = std::sync::Arc::new(AtomicBool::new(false));
     let first_info = std::sync::Arc::new(Mutex::new(None::<(f64, u64)>));
     let targets = targets.clone();
@@ -230,6 +234,7 @@ async fn main() -> Result<()> {
             let first_info = first_info.clone();
             let mode = mode.clone();
             let allocator = allocator.clone();
+            let manual_io_bytes = manual_io_bytes.clone();
             async move {
                 let file = match &cached_files {
                     Some(files) => files[idx].clone(),
@@ -246,12 +251,22 @@ async fn main() -> Result<()> {
                 }
 
                 if matches!(mode, ScanMode::Io) {
-                    read_all_segments(&file, args.concurrency).await?;
+                    if io_no_copy_enabled()
+                        && let ScanTarget::ObjectStore { store, path } = &target
+                    {
+                        let io_bytes =
+                            read_all_segments_object_store_no_copy(&file, store, path, args.concurrency)
+                                .await?;
+                        manual_io_bytes.fetch_add(io_bytes, Ordering::Relaxed);
+                    } else {
+                        read_all_segments(&file, args.concurrency).await?;
+                    }
                     if !first_seen.load(Ordering::Relaxed)
                         && !first_seen.swap(true, Ordering::Relaxed)
                     {
                         let latency = start.elapsed().as_secs_f64();
-                        let bytes = total_read_bytes() - bytes_before;
+                        let bytes = (total_read_bytes() - bytes_before)
+                            + manual_io_bytes.load(Ordering::Relaxed);
                         *first_info.lock() = Some((latency, bytes));
                     }
                     let file_rows = usize::try_from(file.row_count())
@@ -298,7 +313,8 @@ async fn main() -> Result<()> {
                         && !first_seen.swap(true, Ordering::Relaxed)
                     {
                         let latency = start.elapsed().as_secs_f64();
-                        let bytes = total_read_bytes() - bytes_before;
+                        let bytes = (total_read_bytes() - bytes_before)
+                            + manual_io_bytes.load(Ordering::Relaxed);
                         *first_info.lock() = Some((latency, bytes));
                     }
                     file_rows += rows;
@@ -323,9 +339,9 @@ async fn main() -> Result<()> {
     } else {
         0.0
     };
-    let bytes = total_read_bytes();
+    let bytes = total_read_bytes() + manual_io_bytes.load(Ordering::Relaxed);
     let (first_latency, first_bytes) =
-        (*first_info.lock()).unwrap_or_else(|| (elapsed, total_read_bytes() - bytes_before));
+        (*first_info.lock()).unwrap_or_else(|| (elapsed, bytes - bytes_before));
 
     let avg_elapsed = elapsed / args.iterations as f64;
     let avg_bytes = bytes as f64 / args.iterations as f64;
@@ -351,6 +367,14 @@ async fn main() -> Result<()> {
     println!("avg_mb_s={:.2}", total_mb_s);
     println!("avg_first_latency_ms={:.2}", avg_first_latency * 1000.0);
     println!("steady_mb_s={:.2}", steady_mb_s);
+    if io_no_copy_enabled() {
+        println!("io_no_copy=1");
+        println!(
+            "io_no_copy_coalesce_distance={} io_no_copy_coalesce_max_size={}",
+            no_copy_coalesce_distance(),
+            no_copy_coalesce_max_size()
+        );
+    }
     if args.gpu {
         println!("gpu_sync_ms={:.2}", gpu_sync_ms);
     }
@@ -575,6 +599,121 @@ async fn read_all_segments(file: &vortex::file::VortexFile, concurrency: usize) 
         .await?;
 
     Ok(())
+}
+
+fn io_no_copy_enabled() -> bool {
+    std::env::var("VORTEX_BENCH_IO_NO_COPY")
+        .ok()
+        .and_then(|v| v.parse::<u8>().ok())
+        .is_some_and(|v| v != 0)
+}
+
+fn read_env_u64(key: &str) -> Option<u64> {
+    std::env::var(key).ok()?.parse::<u64>().ok()
+}
+
+fn no_copy_coalesce_distance() -> u64 {
+    read_env_u64("VORTEX_BENCH_IO_NO_COPY_COALESCE_DISTANCE").unwrap_or(1024 * 1024)
+}
+
+fn no_copy_coalesce_max_size() -> u64 {
+    read_env_u64("VORTEX_BENCH_IO_NO_COPY_COALESCE_MAX_SIZE").unwrap_or(16 * 1024 * 1024)
+}
+
+fn coalesce_ranges(mut ranges: Vec<(u64, usize)>, distance: u64, max_size: u64) -> Vec<(u64, usize)> {
+    if ranges.is_empty() {
+        return ranges;
+    }
+
+    ranges.sort_unstable_by_key(|(offset, _)| *offset);
+
+    let mut out = Vec::with_capacity(ranges.len());
+    let (mut current_start, first_len) = ranges[0];
+    let mut current_end = current_start + first_len as u64;
+
+    for (offset, len) in ranges.into_iter().skip(1) {
+        let end = offset + len as u64;
+        let gap = offset.saturating_sub(current_end);
+        let candidate_end = current_end.max(end);
+        let candidate_size = candidate_end - current_start;
+
+        if gap <= distance && candidate_size <= max_size {
+            current_end = candidate_end;
+        } else {
+            out.push((current_start, (current_end - current_start) as usize));
+            current_start = offset;
+            current_end = end;
+        }
+    }
+    out.push((current_start, (current_end - current_start) as usize));
+    out
+}
+
+async fn read_all_segments_object_store_no_copy(
+    file: &vortex::file::VortexFile,
+    store: &std::sync::Arc<dyn ObjectStore>,
+    path: &ObjectStorePath,
+    concurrency: usize,
+) -> Result<u64> {
+    let segment_ranges: Vec<(u64, usize)> = file
+        .footer()
+        .segment_map()
+        .iter()
+        .map(|segment| (segment.offset, segment.length as usize))
+        .collect();
+    let ranges = coalesce_ranges(
+        segment_ranges,
+        no_copy_coalesce_distance(),
+        no_copy_coalesce_max_size(),
+    );
+    let expected: u64 = ranges.iter().map(|(_, len)| *len as u64).sum();
+    let total_read = std::sync::Arc::new(AtomicU64::new(0));
+
+    futures::stream::iter(ranges)
+        .map(|(offset, len)| {
+            let store = store.clone();
+            let path = path.clone();
+            let total_read = total_read.clone();
+            async move {
+                let result = store
+                    .get_opts(
+                        &path,
+                        GetOptions {
+                            range: Some(GetRange::Bounded(offset..(offset + len as u64))),
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
+
+                let mut stream = result.into_stream();
+                let mut read = 0usize;
+                while let Some(chunk) = stream.next().await {
+                    read += chunk?.len();
+                }
+                anyhow::ensure!(
+                    read == len,
+                    "Object store stream returned {} bytes but expected {} bytes for range {}..{}",
+                    read,
+                    len,
+                    offset,
+                    offset + len as u64
+                );
+                total_read.fetch_add(read as u64, Ordering::Relaxed);
+                Ok::<_, anyhow::Error>(())
+            }
+        })
+        .buffer_unordered(concurrency.max(1))
+        .try_collect::<Vec<_>>()
+        .await?;
+
+    let read = total_read.load(Ordering::Relaxed);
+    anyhow::ensure!(
+        read == expected,
+        "Object store no-copy read {} bytes but expected {} bytes",
+        read,
+        expected
+    );
+    Ok(read)
 }
 
 #[derive(Clone)]
