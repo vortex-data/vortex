@@ -112,10 +112,6 @@ pub fn vortex_array::arrays::DictVTable::is_sorted(&self, array: &vortex_array::
 
 pub fn vortex_array::arrays::DictVTable::is_strict_sorted(&self, array: &vortex_array::arrays::DictArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::LikeKernel for vortex_array::arrays::DictVTable
-
-pub fn vortex_array::arrays::DictVTable::like(&self, array: &vortex_array::arrays::DictArray, pattern: &dyn vortex_array::Array, options: vortex_array::compute::LikeOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::DictVTable
 
 pub fn vortex_array::arrays::DictVTable::min_max(&self, array: &vortex_array::arrays::DictArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
@@ -127,6 +123,10 @@ pub fn vortex_array::arrays::DictVTable::cast(array: &vortex_array::arrays::Dict
 impl vortex_array::expr::FillNullKernel for vortex_array::arrays::DictVTable
 
 pub fn vortex_array::arrays::DictVTable::fill_null(array: &vortex_array::arrays::DictArray, fill_value: &vortex_scalar::scalar::Scalar, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::LikeReduce for vortex_array::arrays::DictVTable
+
+pub fn vortex_array::arrays::DictVTable::like(array: &vortex_array::arrays::DictArray, pattern: &dyn vortex_array::Array, options: vortex_array::expr::LikeOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::DictVTable> for vortex_array::arrays::DictVTable
 
@@ -1128,10 +1128,6 @@ pub fn vortex_array::arrays::DictVTable::is_sorted(&self, array: &vortex_array::
 
 pub fn vortex_array::arrays::DictVTable::is_strict_sorted(&self, array: &vortex_array::arrays::DictArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::LikeKernel for vortex_array::arrays::DictVTable
-
-pub fn vortex_array::arrays::DictVTable::like(&self, array: &vortex_array::arrays::DictArray, pattern: &dyn vortex_array::Array, options: vortex_array::compute::LikeOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::DictVTable
 
 pub fn vortex_array::arrays::DictVTable::min_max(&self, array: &vortex_array::arrays::DictArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
@@ -1143,6 +1139,10 @@ pub fn vortex_array::arrays::DictVTable::cast(array: &vortex_array::arrays::Dict
 impl vortex_array::expr::FillNullKernel for vortex_array::arrays::DictVTable
 
 pub fn vortex_array::arrays::DictVTable::fill_null(array: &vortex_array::arrays::DictArray, fill_value: &vortex_scalar::scalar::Scalar, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::LikeReduce for vortex_array::arrays::DictVTable
+
+pub fn vortex_array::arrays::DictVTable::like(array: &vortex_array::arrays::DictArray, pattern: &dyn vortex_array::Array, options: vortex_array::expr::LikeOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::DictVTable> for vortex_array::arrays::DictVTable
 
@@ -5848,64 +5848,6 @@ pub struct vortex_array::compute::IsSortedKernelRef(_)
 
 impl inventory::Collect for vortex_array::compute::IsSortedKernelRef
 
-pub struct vortex_array::compute::LikeKernelAdapter<V: vortex_array::vtable::VTable>(pub V)
-
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::LikeKernel> vortex_array::compute::LikeKernelAdapter<V>
-
-pub const fn vortex_array::compute::LikeKernelAdapter<V>::lift(&'static self) -> vortex_array::compute::LikeKernelRef
-
-impl<V: core::fmt::Debug + vortex_array::vtable::VTable> core::fmt::Debug for vortex_array::compute::LikeKernelAdapter<V>
-
-pub fn vortex_array::compute::LikeKernelAdapter<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::LikeKernel> vortex_array::compute::Kernel for vortex_array::compute::LikeKernelAdapter<V>
-
-pub fn vortex_array::compute::LikeKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-
-pub struct vortex_array::compute::LikeKernelRef(_)
-
-impl inventory::Collect for vortex_array::compute::LikeKernelRef
-
-pub struct vortex_array::compute::LikeOptions
-
-pub vortex_array::compute::LikeOptions::case_insensitive: bool
-
-pub vortex_array::compute::LikeOptions::negated: bool
-
-impl core::clone::Clone for vortex_array::compute::LikeOptions
-
-pub fn vortex_array::compute::LikeOptions::clone(&self) -> vortex_array::compute::LikeOptions
-
-impl core::cmp::Eq for vortex_array::compute::LikeOptions
-
-impl core::cmp::PartialEq for vortex_array::compute::LikeOptions
-
-pub fn vortex_array::compute::LikeOptions::eq(&self, other: &vortex_array::compute::LikeOptions) -> bool
-
-impl core::default::Default for vortex_array::compute::LikeOptions
-
-pub fn vortex_array::compute::LikeOptions::default() -> vortex_array::compute::LikeOptions
-
-impl core::fmt::Debug for vortex_array::compute::LikeOptions
-
-pub fn vortex_array::compute::LikeOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::fmt::Display for vortex_array::compute::LikeOptions
-
-pub fn vortex_array::compute::LikeOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::compute::LikeOptions
-
-pub fn vortex_array::compute::LikeOptions::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::Copy for vortex_array::compute::LikeOptions
-
-impl core::marker::StructuralPartialEq for vortex_array::compute::LikeOptions
-
-impl vortex_array::compute::Options for vortex_array::compute::LikeOptions
-
-pub fn vortex_array::compute::LikeOptions::as_any(&self) -> &dyn core::any::Any
-
 pub struct vortex_array::compute::ListContains
 
 impl vortex_array::compute::ComputeFnVTable for vortex_array::compute::ListContains
@@ -6418,10 +6360,6 @@ impl<V: vortex_array::vtable::VTable + vortex_array::compute::IsSortedKernel> vo
 
 pub fn vortex_array::compute::IsSortedKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
 
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::LikeKernel> vortex_array::compute::Kernel for vortex_array::compute::LikeKernelAdapter<V>
-
-pub fn vortex_array::compute::LikeKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-
 impl<V: vortex_array::vtable::VTable + vortex_array::compute::ListContainsKernel> vortex_array::compute::Kernel for vortex_array::compute::ListContainsKernelAdapter<V>
 
 pub fn vortex_array::compute::ListContainsKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
@@ -6441,14 +6379,6 @@ pub fn vortex_array::compute::NaNCountKernelAdapter<V>::invoke(&self, args: &vor
 impl<V: vortex_array::vtable::VTable + vortex_array::compute::SumKernel> vortex_array::compute::Kernel for vortex_array::compute::SumKernelAdapter<V>
 
 pub fn vortex_array::compute::SumKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-
-pub trait vortex_array::compute::LikeKernel: vortex_array::vtable::VTable
-
-pub fn vortex_array::compute::LikeKernel::like(&self, array: &Self::Array, pattern: &dyn vortex_array::Array, options: vortex_array::compute::LikeOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::compute::LikeKernel for vortex_array::arrays::DictVTable
-
-pub fn vortex_array::arrays::DictVTable::like(&self, array: &vortex_array::arrays::DictArray, pattern: &dyn vortex_array::Array, options: vortex_array::compute::LikeOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub trait vortex_array::compute::ListContainsKernel: vortex_array::vtable::VTable
 
@@ -6614,10 +6544,6 @@ impl vortex_array::compute::Options for vortex_array::compute::IsConstantOpts
 
 pub fn vortex_array::compute::IsConstantOpts::as_any(&self) -> &dyn core::any::Any
 
-impl vortex_array::compute::Options for vortex_array::compute::LikeOptions
-
-pub fn vortex_array::compute::LikeOptions::as_any(&self) -> &dyn core::any::Any
-
 impl vortex_array::compute::Options for vortex_array::compute::Operator
 
 pub fn vortex_array::compute::Operator::as_any(&self) -> &dyn core::any::Any
@@ -6693,8 +6619,6 @@ pub fn vortex_array::compute::is_sorted(array: &dyn vortex_array::Array) -> vort
 pub fn vortex_array::compute::is_sorted_opts(array: &dyn vortex_array::Array, strict: bool) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::compute::is_strict_sorted(array: &dyn vortex_array::Array) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::compute::like(array: &dyn vortex_array::Array, pattern: &dyn vortex_array::Array, options: vortex_array::compute::LikeOptions) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::compute::list_contains(array: &dyn vortex_array::Array, value: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -8476,7 +8400,7 @@ pub struct vortex_array::expr::Like
 
 impl vortex_array::expr::VTable for vortex_array::expr::Like
 
-pub type vortex_array::expr::Like::Options = vortex_array::compute::LikeOptions
+pub type vortex_array::expr::Like::Options = vortex_array::expr::LikeOptions
 
 pub fn vortex_array::expr::Like::arity(&self, _options: &Self::Options) -> vortex_array::expr::Arity
 
@@ -8496,9 +8420,77 @@ pub fn vortex_array::expr::Like::return_dtype(&self, _options: &Self::Options, a
 
 pub fn vortex_array::expr::Like::serialize(&self, instance: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_array::expr::Like::stat_falsification(&self, like_opts: &vortex_array::compute::LikeOptions, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+pub fn vortex_array::expr::Like::stat_falsification(&self, like_opts: &vortex_array::expr::LikeOptions, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Like::validity(&self, _options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub struct vortex_array::expr::LikeExecuteAdaptor<V>(pub V)
+
+impl<V: core::default::Default> core::default::Default for vortex_array::expr::LikeExecuteAdaptor<V>
+
+pub fn vortex_array::expr::LikeExecuteAdaptor<V>::default() -> vortex_array::expr::LikeExecuteAdaptor<V>
+
+impl<V: core::fmt::Debug> core::fmt::Debug for vortex_array::expr::LikeExecuteAdaptor<V>
+
+pub fn vortex_array::expr::LikeExecuteAdaptor<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::LikeExecuteAdaptor<V> where V: vortex_array::expr::LikeKernel
+
+pub type vortex_array::expr::LikeExecuteAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Like>
+
+pub fn vortex_array::expr::LikeExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::Like>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub struct vortex_array::expr::LikeOptions
+
+pub vortex_array::expr::LikeOptions::case_insensitive: bool
+
+pub vortex_array::expr::LikeOptions::negated: bool
+
+impl core::clone::Clone for vortex_array::expr::LikeOptions
+
+pub fn vortex_array::expr::LikeOptions::clone(&self) -> vortex_array::expr::LikeOptions
+
+impl core::cmp::Eq for vortex_array::expr::LikeOptions
+
+impl core::cmp::PartialEq for vortex_array::expr::LikeOptions
+
+pub fn vortex_array::expr::LikeOptions::eq(&self, other: &vortex_array::expr::LikeOptions) -> bool
+
+impl core::default::Default for vortex_array::expr::LikeOptions
+
+pub fn vortex_array::expr::LikeOptions::default() -> vortex_array::expr::LikeOptions
+
+impl core::fmt::Debug for vortex_array::expr::LikeOptions
+
+pub fn vortex_array::expr::LikeOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::expr::LikeOptions
+
+pub fn vortex_array::expr::LikeOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::expr::LikeOptions
+
+pub fn vortex_array::expr::LikeOptions::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_array::expr::LikeOptions
+
+impl core::marker::StructuralPartialEq for vortex_array::expr::LikeOptions
+
+pub struct vortex_array::expr::LikeReduceAdaptor<V>(pub V)
+
+impl<V: core::default::Default> core::default::Default for vortex_array::expr::LikeReduceAdaptor<V>
+
+pub fn vortex_array::expr::LikeReduceAdaptor<V>::default() -> vortex_array::expr::LikeReduceAdaptor<V>
+
+impl<V: core::fmt::Debug> core::fmt::Debug for vortex_array::expr::LikeReduceAdaptor<V>
+
+pub fn vortex_array::expr::LikeReduceAdaptor<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::expr::LikeReduceAdaptor<V> where V: vortex_array::expr::LikeReduce
+
+pub type vortex_array::expr::LikeReduceAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Like>
+
+pub fn vortex_array::expr::LikeReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::Like>, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub struct vortex_array::expr::ListContains
 
@@ -9148,6 +9140,18 @@ impl vortex_array::expr::FillNullReduce for vortex_array::arrays::ConstantVTable
 
 pub fn vortex_array::arrays::ConstantVTable::fill_null(array: &vortex_array::arrays::ConstantArray, fill_value: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+pub trait vortex_array::expr::LikeKernel: vortex_array::vtable::VTable
+
+pub fn vortex_array::expr::LikeKernel::like(array: &Self::Array, pattern: &dyn vortex_array::Array, options: vortex_array::expr::LikeOptions, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub trait vortex_array::expr::LikeReduce: vortex_array::vtable::VTable
+
+pub fn vortex_array::expr::LikeReduce::like(array: &Self::Array, pattern: &dyn vortex_array::Array, options: vortex_array::expr::LikeOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::LikeReduce for vortex_array::arrays::DictVTable
+
+pub fn vortex_array::arrays::DictVTable::like(array: &vortex_array::arrays::DictArray, pattern: &dyn vortex_array::Array, options: vortex_array::expr::LikeOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 pub trait vortex_array::expr::NotKernel: vortex_array::vtable::VTable
 
 pub fn vortex_array::expr::NotKernel::invert(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -9444,7 +9448,7 @@ pub fn vortex_array::expr::IsNull::stat_falsification(&self, _options: &Self::Op
 
 impl vortex_array::expr::VTable for vortex_array::expr::Like
 
-pub type vortex_array::expr::Like::Options = vortex_array::compute::LikeOptions
+pub type vortex_array::expr::Like::Options = vortex_array::expr::LikeOptions
 
 pub fn vortex_array::expr::Like::arity(&self, _options: &Self::Options) -> vortex_array::expr::Arity
 
@@ -9464,7 +9468,7 @@ pub fn vortex_array::expr::Like::return_dtype(&self, _options: &Self::Options, a
 
 pub fn vortex_array::expr::Like::serialize(&self, instance: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_array::expr::Like::stat_falsification(&self, like_opts: &vortex_array::compute::LikeOptions, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+pub fn vortex_array::expr::Like::stat_falsification(&self, like_opts: &vortex_array::expr::LikeOptions, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Like::validity(&self, _options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
@@ -9954,6 +9958,12 @@ pub type vortex_array::expr::FillNullExecuteAdaptor<V>::Parent = vortex_array::a
 
 pub fn vortex_array::expr::FillNullExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::FillNull>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::LikeExecuteAdaptor<V> where V: vortex_array::expr::LikeKernel
+
+pub type vortex_array::expr::LikeExecuteAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Like>
+
+pub fn vortex_array::expr::LikeExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::Like>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::NotExecuteAdaptor<V> where V: vortex_array::expr::NotKernel
 
 pub type vortex_array::expr::NotExecuteAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Not>
@@ -10135,6 +10145,12 @@ impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_arra
 pub type vortex_array::expr::FillNullReduceAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::FillNull>
 
 pub fn vortex_array::expr::FillNullReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::FillNull>, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::expr::LikeReduceAdaptor<V> where V: vortex_array::expr::LikeReduce
+
+pub type vortex_array::expr::LikeReduceAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Like>
+
+pub fn vortex_array::expr::LikeReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::Like>, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::expr::NotReduceAdaptor<V> where V: vortex_array::expr::NotReduce
 
