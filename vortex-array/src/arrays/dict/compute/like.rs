@@ -72,12 +72,12 @@ mod tests {
         )?
         .into_array();
 
-        let pattern = ConstantArray::new("hel%", 4).into_array();
+        let pattern = ConstantArray::new("hello%", 4).into_array();
         let result = Like
             .try_new_array(4, LikeOptions::default(), [dict, pattern])?
             .optimize()?;
 
-        assert_arrays_eq!(result, BoolArray::from_iter([true, false, true, true]));
+        assert_arrays_eq!(result, BoolArray::from_iter([true, false, true, false]));
         Ok(())
     }
 }
