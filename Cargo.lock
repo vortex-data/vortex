@@ -10171,7 +10171,6 @@ dependencies = [
  "futures",
  "insta",
  "itertools 0.14.0",
- "moka",
  "object_store",
  "rstest",
  "tempfile",

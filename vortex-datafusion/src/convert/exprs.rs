@@ -383,7 +383,9 @@ fn can_be_pushed_down_impl(df_expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> 
     } else if expr.downcast_ref::<df_expr::CastExpr>().is_some()
         || expr.downcast_ref::<df_expr::CastColumnExpr>().is_some()
     {
-        true
+        // Cast can only be pushed into Vortex if it is lossless.
+        // TODO(ngates): check this, and return accordingly.
+        false
     } else if let Some(is_null) = expr.downcast_ref::<df_expr::IsNullExpr>() {
         can_be_pushed_down_impl(is_null.arg(), schema)
     } else if let Some(is_not_null) = expr.downcast_ref::<df_expr::IsNotNullExpr>() {

@@ -9,5 +9,5 @@
 mod source;
 mod table;
 
-pub use source::VortexScanSource;
+pub use source::VortexDataSource;
 pub use table::VortexTable;
