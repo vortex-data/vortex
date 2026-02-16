@@ -73,6 +73,7 @@ where
         let children = scalar_fn_array.children();
 
         // Normalize so `array` is always LHS, swapping the operator if needed
+        // TODO(joe): should be go this here or in the Rule/Kernel
         let (cmp_op, other) = match child_idx {
             0 => (cmp_op, &children[1]),
             1 => (cmp_op.swap(), &children[0]),
