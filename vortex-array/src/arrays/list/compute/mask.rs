@@ -16,7 +16,10 @@ impl MaskReduce for ListVTable {
         ListArray::try_new(
             array.elements().clone(),
             array.offsets().clone(),
-            array.validity().clone().and(Validity::Array(mask.clone())),
+            array
+                .validity()
+                .clone()
+                .and(Validity::Array(mask.clone()))?,
         )
         .map(|a| Some(a.into_array()))
     }

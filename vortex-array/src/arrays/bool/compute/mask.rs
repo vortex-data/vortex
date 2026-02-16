@@ -16,7 +16,10 @@ impl MaskReduce for BoolVTable {
         Ok(Some(
             BoolArray::new(
                 array.to_bit_buffer(),
-                array.validity().clone().and(Validity::Array(mask.clone())),
+                array
+                    .validity()
+                    .clone()
+                    .and(Validity::Array(mask.clone()))?,
             )
             .into_array(),
         ))

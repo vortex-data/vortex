@@ -47,7 +47,10 @@ impl MaskReduce for ByteBoolVTable {
         Ok(Some(
             ByteBoolArray::new(
                 array.buffer().clone(),
-                array.validity().clone().and(Validity::Array(mask.clone())),
+                array
+                    .validity()
+                    .clone()
+                    .and(Validity::Array(mask.clone()))?,
             )
             .into_array(),
         ))

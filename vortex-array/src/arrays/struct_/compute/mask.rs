@@ -17,7 +17,10 @@ impl MaskReduce for StructVTable {
             array.unmasked_fields().clone(),
             array.struct_fields().clone(),
             array.len(),
-            array.validity().clone().and(Validity::Array(mask.clone())),
+            array
+                .validity()
+                .clone()
+                .and(Validity::Array(mask.clone()))?,
         )
         .map(|a| Some(a.into_array()))
     }

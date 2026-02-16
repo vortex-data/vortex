@@ -32,6 +32,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::compute::sum;
 use crate::expr::Binary;
 use crate::expr::Operator;
+use crate::optimizer::ArrayOptimizer;
 use crate::patches::Patches;
 
 /// Validity information for an array
@@ -231,30 +232,6 @@ impl Validity {
         }
     }
 
-    /// Set to false any entries for which the mask is true.
-    ///
-    /// The result is always nullable. The result has the same length as self.
-    #[inline]
-    pub fn mask(&self, mask: &Mask) -> Self {
-        match mask.bit_buffer() {
-            AllOr::All => Validity::AllInvalid,
-            AllOr::None => self.clone().into_nullable(),
-            AllOr::Some(make_invalid) => match self {
-                Validity::NonNullable | Validity::AllValid => {
-                    Validity::from_bit_buffer(!make_invalid, Nullability::Nullable)
-                }
-                Validity::AllInvalid => Validity::AllInvalid,
-                Validity::Array(is_valid) => {
-                    let is_valid = is_valid.to_bool();
-                    Validity::from_bit_buffer(
-                        is_valid.to_bit_buffer() & !make_invalid,
-                        Nullability::Nullable,
-                    )
-                }
-            },
-        }
-    }
-
     #[inline]
     pub fn to_mask(&self, length: usize) -> Mask {
         match self {
@@ -291,9 +268,11 @@ impl Validity {
             | (Validity::AllValid, Validity::NonNullable)
             | (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
             // Here we actually have to do some work
-            (Validity::Array(lhs), Validity::Array(rhs)) => {
-                Validity::Array(Binary.try_new_array(lhs.len(), Operator::And, [lhs, rhs])?)
-            }
+            (Validity::Array(lhs), Validity::Array(rhs)) => Validity::Array(
+                Binary
+                    .try_new_array(lhs.len(), Operator::And, [lhs, rhs])?
+                    .optimize()?,
+            ),
         })
     }
 
@@ -674,13 +653,5 @@ mod tests {
         #[case] expected: Validity,
     ) {
         assert_eq!(validity.take(&indices).unwrap(), expected);
-    }
-
-    #[test]
-    fn mask_non_nullable() {
-        assert_eq!(
-            Validity::AllValid,
-            Validity::NonNullable.mask(&Mask::AllFalse(2))
-        )
     }
 }
