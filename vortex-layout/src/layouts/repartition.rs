@@ -254,7 +254,6 @@ impl ChunksBuffer {
 
     fn pop_front(&mut self) -> Option<(ArrayRef, u64)> {
         let res = self.data.pop_front();
-        // if let Some((chunk, nb)) = res.as_ref() {
         if let Some((chunk, nb)) = res.as_ref() {
             self.row_count -= chunk.len();
             self.nbytes -= nb;
@@ -267,10 +266,13 @@ impl ChunksBuffer {
 mod tests {
     use std::sync::Arc;
 
+    use vortex_array::Array;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::SharedArray;
     use vortex_array::validity::Validity;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
@@ -457,10 +459,6 @@ mod tests {
     /// `pop_front` subtracted the larger Cached-era values.
     #[test]
     fn chunks_buffer_pop_front_no_panic_after_shared_execution() -> VortexResult<()> {
-        use vortex_array::Array;
-        use vortex_array::arrays::ConstantArray;
-        use vortex_array::arrays::SharedArray;
-
         let n = 20_000usize;
         let block_len = 10_000usize;
 
