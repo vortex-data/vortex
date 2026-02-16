@@ -77,9 +77,9 @@ pub(crate) fn find_intersection_scalar(
     intercept: PValue,
 ) -> Option<usize> {
     match_each_integer_ptype!(base.ptype(), |P| {
-        let intercept = intercept.cast::<P>();
-        let base = base.cast::<P>();
-        let multiplier = multiplier.cast::<P>();
+        let intercept = intercept.cast::<P>().ok()?;
+        let base = base.cast::<P>().ok()?;
+        let multiplier = multiplier.cast::<P>().ok()?;
         find_intersection(base, multiplier, len, intercept)
     })
 }

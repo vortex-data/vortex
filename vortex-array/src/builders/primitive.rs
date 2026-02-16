@@ -155,9 +155,10 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
             scalar.dtype()
         );
 
-        match scalar.as_primitive().pvalue() {
-            Some(pv) => self.append_value(pv.cast::<T>()),
-            None => self.append_null(),
+        if let Some(pv) = scalar.as_primitive().pvalue() {
+            self.append_value(pv.cast::<T>()?)
+        } else {
+            self.append_null()
         }
 
         Ok(())

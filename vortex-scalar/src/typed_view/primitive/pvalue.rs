@@ -198,18 +198,11 @@ impl PValue {
 
     /// Converts this value to a specific native primitive type.
     ///
-    /// Panics if the conversion is not supported or would overflow.
+    /// # Errors
+    /// Returns `VortexError` if the conversion is not supported or would overflow.
     #[inline]
-    pub fn cast<T: NativePType>(&self) -> T {
-        self.cast_opt::<T>().vortex_expect("as_primitive")
-    }
-
-    /// Converts this value to a specific native primitive type.
-    ///
-    /// Returns `None` if the conversion is not supported or would overflow.
-    #[inline]
-    pub fn cast_opt<T: NativePType>(&self) -> Option<T> {
-        match *self {
+    pub fn cast<T: NativePType>(&self) -> VortexResult<T> {
+        let res = match *self {
             PValue::U8(u) => T::from_u8(u),
             PValue::U16(u) => T::from_u16(u),
             PValue::U32(u) => T::from_u32(u),
@@ -221,7 +214,9 @@ impl PValue {
             PValue::F16(f) => T::from_f16(f),
             PValue::F32(f) => T::from_f32(f),
             PValue::F64(f) => T::from_f64(f),
-        }
+        };
+        let to = T::PTYPE;
+        res.ok_or_else(|| vortex_err!("Cannot cast {self} to {to}"))
     }
 
     /// Returns true if the value of float type and is NaN.
@@ -322,21 +317,21 @@ macro_rules! int_pvalue {
             type Error = VortexError;
 
             fn try_from(value: PValue) -> Result<Self, Self::Error> {
-                match value {
+                if matches!(
+                    value,
                     PValue::U8(_)
-                    | PValue::U16(_)
-                    | PValue::U32(_)
-                    | PValue::U64(_)
-                    | PValue::I8(_)
-                    | PValue::I16(_)
-                    | PValue::I32(_)
-                    | PValue::I64(_) => Some(value),
-                    _ => None,
+                        | PValue::U16(_)
+                        | PValue::U32(_)
+                        | PValue::U64(_)
+                        | PValue::I8(_)
+                        | PValue::I16(_)
+                        | PValue::I32(_)
+                        | PValue::I64(_)
+                ) {
+                    PValue::cast(&value)
+                } else {
+                    vortex_bail!("Cannot read primitive value {:?} as {}", value, PType::$PT)
                 }
-                .and_then(|v| PValue::cast_opt(&v))
-                .ok_or_else(|| {
-                    vortex_err!("Cannot read primitive value {:?} as {}", value, PType::$PT)
-                })
             }
         }
     };
@@ -349,9 +344,7 @@ macro_rules! float_pvalue {
             type Error = VortexError;
 
             fn try_from(value: PValue) -> Result<Self, Self::Error> {
-                value.cast_opt().ok_or_else(|| {
-                    vortex_err!("Cannot read primitive value {:?} as {}", value, PType::$PT)
-                })
+                value.cast()
             }
         }
     };
@@ -362,8 +355,8 @@ impl TryFrom<PValue> for usize {
 
     fn try_from(value: PValue) -> Result<Self, Self::Error> {
         value
-            .cast_opt::<u64>()
-            .and_then(|v| v.to_usize())
+            .cast::<u64>()?
+            .to_usize()
             .ok_or_else(|| vortex_err!("Cannot read primitive value {:?} as usize", value))
     }
 }

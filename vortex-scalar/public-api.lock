@@ -212,9 +212,7 @@ pub fn vortex_scalar::PValue::as_u64(self) -> core::option::Option<u64>
 
 pub fn vortex_scalar::PValue::as_u8(self) -> core::option::Option<u8>
 
-pub fn vortex_scalar::PValue::cast<T: vortex_dtype::ptype::NativePType>(&self) -> T
-
-pub fn vortex_scalar::PValue::cast_opt<T: vortex_dtype::ptype::NativePType>(&self) -> core::option::Option<T>
+pub fn vortex_scalar::PValue::cast<T: vortex_dtype::ptype::NativePType>(&self) -> vortex_error::VortexResult<T>
 
 pub fn vortex_scalar::PValue::is_instance_of(&self, ptype: &vortex_dtype::ptype::PType) -> bool
 
