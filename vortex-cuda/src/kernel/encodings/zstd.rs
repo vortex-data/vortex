@@ -13,7 +13,6 @@ use cudarc::driver::DevicePtrMut;
 use futures::future::try_join_all;
 use tracing::debug;
 use tracing::instrument;
-use tracing::trace;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::BinaryView;
@@ -254,22 +253,23 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
 
     let stream = ctx.stream();
 
-    ctx.launch_external(n_rows, ||
+    ctx.launch_external(n_rows, || {
         // SAFETY: zstd_kernel_prepare makes sure to return valid kernel params.
         unsafe {
-        nvcomp_zstd::decompress_async(
-            exec.frame_ptrs_ptr as _,
-            exec.frame_sizes_ptr as _,
-            exec.output_sizes_ptr as _,
-            exec.device_actual_sizes.device_ptr_mut(stream).0 as _,
-            exec.num_frames,
-            exec.nvcomp_temp_buffer.device_ptr_mut(stream).0 as _,
-            exec.nvcomp_temp_buffer_size,
-            exec.output_ptrs_ptr as _,
-            exec.device_statuses.device_ptr_mut(stream).0 as _,
-            stream.cu_stream().cast(),
-        )
-        .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))?;
+            nvcomp_zstd::decompress_async(
+                exec.frame_ptrs_ptr as _,
+                exec.frame_sizes_ptr as _,
+                exec.output_sizes_ptr as _,
+                exec.device_actual_sizes.device_ptr_mut(stream).0 as _,
+                exec.num_frames,
+                exec.nvcomp_temp_buffer.device_ptr_mut(stream).0 as _,
+                exec.nvcomp_temp_buffer_size,
+                exec.output_ptrs_ptr as _,
+                exec.device_statuses.device_ptr_mut(stream).0 as _,
+                stream.cu_stream().cast(),
+            )
+            .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))
+        }
     })?;
 
     // Unconditionally copy back to the host as Zstd arrays are fully

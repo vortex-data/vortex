@@ -51,16 +51,18 @@ pub trait LaunchStrategy: Debug + Send + Sync + 'static {
     fn on_complete(&self, events: &CudaKernelEvents, len: usize) -> VortexResult<()>;
 }
 
+/// Extension trait for executing a function which may generate CUDA operations, bracketing them
+/// with CUDA events created using the launch strategy system.
 pub trait LaunchStrategyExt: LaunchStrategy {
-    fn with_strategy<F, R>(&self, stream: &CudaStream, len: usize, func: F) -> VortexResult<R>
+    fn with_strategy<F>(&self, stream: &CudaStream, len: usize, func: F) -> VortexResult<()>
     where
-        F: FnMut() -> R;
+        F: FnMut() -> VortexResult<()>;
 }
 
-impl<S: LaunchStrategyExt> LaunchStrategyExt for S {
-    fn with_strategy<F, R>(&self, stream: &CudaStream, len: usize, func: F) -> VortexResult<R>
+impl<S: LaunchStrategy> LaunchStrategyExt for S {
+    fn with_strategy<F>(&self, stream: &CudaStream, len: usize, mut func: F) -> VortexResult<()>
     where
-        F: FnMut() -> R,
+        F: FnMut() -> VortexResult<()>,
     {
         let flags = self.event_flags();
 
@@ -68,7 +70,7 @@ impl<S: LaunchStrategyExt> LaunchStrategyExt for S {
             .record_event(Some(flags))
             .map_err(|e| vortex_err!("record_event: {e}"))?;
 
-        let result = func();
+        func()?;
 
         let after = stream
             .record_event(Some(flags))
@@ -82,7 +84,7 @@ impl<S: LaunchStrategyExt> LaunchStrategyExt for S {
             len,
         )?;
 
-        Ok(result)
+        Ok(())
     }
 }
 

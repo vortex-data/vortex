@@ -94,8 +94,14 @@ impl CudaExecutionCtx {
     ///
     /// We use CUB and NVCOMP routines, and those don't match the normaal `cudarc` entrypoints, so
     /// to inject the configured launch strategy we need to bracket it ourselves.
-    pub fn launch_external<F: FnMut()>(&self, len: usize, function: F) -> VortexResult<()> {
-        self.strategy.with_strategy(&self.stream.0, len, function)
+    pub fn launch_external<F: FnMut() -> VortexResult<()>>(
+        &self,
+        len: usize,
+        function: F,
+    ) -> VortexResult<()> {
+        self.strategy
+            .as_ref()
+            .with_strategy(&self.stream.0, len, function)
     }
 
     /// Launch a Kernel function with args setup done by the provided `build_args` closure.
