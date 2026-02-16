@@ -39,14 +39,10 @@ impl CompareKernel for DecimalBytePartsVTable {
         let nullability = lhs.dtype.nullability() | rhs.dtype().nullability();
         let scalar_type = lhs.msp.dtype().with_nullability(nullability);
 
-        if rhs_const.is_null() {
-            return Ok(None);
-        }
-
         let rhs_decimal = rhs_const
             .as_decimal()
             .decimal_value()
-            .vortex_expect("RHS is not null");
+            .vortex_expect("checked for null in entry func");
 
         match decimal_value_wrapper_to_primitive(rhs_decimal, lhs.msp.as_primitive_typed().ptype())
         {

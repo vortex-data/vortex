@@ -40,10 +40,6 @@ impl CompareKernel for VarBinVTable {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(rhs_const) = rhs.as_constant() {
-            if rhs_const.is_null() {
-                return Ok(None);
-            }
-
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
             let len = lhs.len();
 

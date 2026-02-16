@@ -33,13 +33,12 @@ impl CompareKernel for FoRVTable {
         if let Some(constant) = rhs.as_constant()
             && let Some(constant) = constant.as_primitive_opt()
         {
-            if constant.pvalue().is_none() {
-                return Ok(None);
-            }
             match_each_integer_ptype!(constant.ptype(), |T| {
                 return compare_constant(
                     lhs,
-                    constant.typed_value::<T>().vortex_expect("RHS is not null"),
+                    constant
+                        .typed_value::<T>()
+                        .vortex_expect("null scalar handled in adaptor"),
                     rhs.dtype().nullability(),
                     operator,
                 );

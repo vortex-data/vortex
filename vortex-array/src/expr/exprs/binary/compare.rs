@@ -79,6 +79,27 @@ where
             _ => return Ok(None),
         };
 
+        let len = array.len();
+        let nullable = array.dtype().is_nullable() || other.dtype().is_nullable();
+
+        // Empty array → empty bool result
+        if len == 0 {
+            return Ok(Some(
+                Canonical::empty(&vortex_dtype::DType::Bool(nullable.into())).into_array(),
+            ));
+        }
+
+        // Null constant on either side → all-null bool result
+        if other.as_constant().is_some_and(|s| s.is_null()) {
+            return Ok(Some(
+                ConstantArray::new(
+                    Scalar::null(vortex_dtype::DType::Bool(nullable.into())),
+                    len,
+                )
+                .into_array(),
+            ));
+        }
+
         V::compare(array, other.as_ref(), cmp_op, ctx)
     }
 }
