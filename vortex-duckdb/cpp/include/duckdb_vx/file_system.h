@@ -45,7 +45,7 @@ duckdb_vx_file_handle duckdb_vx_fs_create(duckdb_vx_client_context ctx, const ch
                                           duckdb_vx_error *error_out);
 
 // Write len bytes at the given offset from buffer.
-duckdb_state duckdb_vx_fs_write(duckdb_vx_file_handle handle, idx_t offset, idx_t len, const uint8_t *buffer,
+duckdb_state duckdb_vx_fs_write(duckdb_vx_file_handle handle, idx_t offset, idx_t len, uint8_t *buffer,
                                 idx_t *out_len, duckdb_vx_error *error_out);
 
 // Flush pending writes to storage.

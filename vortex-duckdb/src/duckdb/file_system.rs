@@ -51,7 +51,7 @@ fn fs_error(err: cpp::duckdb_vx_error) -> VortexError {
     vortex_err!("{message}")
 }
 
-pub fn duckdb_fs_glob(ctx: &ClientContext, pattern: &str) -> VortexResult<Vec<url::Url>> {
+pub(crate) fn duckdb_fs_glob(ctx: &ClientContext, pattern: &str) -> VortexResult<Vec<url::Url>> {
     let c_pattern = CString::new(pattern).map_err(|e| vortex_err!("Invalid glob pattern: {e}"))?;
     let mut err: cpp::duckdb_vx_error = ptr::null_mut();
     let mut list =
@@ -84,7 +84,7 @@ pub fn duckdb_fs_glob(ctx: &ClientContext, pattern: &str) -> VortexResult<Vec<ur
     Ok(urls)
 }
 
-pub unsafe fn duckdb_fs_create_writer(
+pub(crate) unsafe fn duckdb_fs_create_writer(
     ctx: cpp::duckdb_vx_client_context,
     path: &str,
 ) -> VortexResult<DuckDbFsWriter> {
@@ -92,14 +92,14 @@ pub unsafe fn duckdb_fs_create_writer(
 }
 
 /// A VortexReadAt implementation backed by DuckDB's filesystem (e.g., httpfs/s3).
-pub struct DuckDbFsReader {
+pub(crate) struct DuckDbFsReader {
     handle: Arc<FsFileHandle>,
     uri: Arc<str>,
     size: Arc<OnceLock<u64>>,
 }
 
 impl DuckDbFsReader {
-    pub unsafe fn open_url(
+    pub(crate) unsafe fn open_url(
         ctx: cpp::duckdb_vx_client_context,
         url: &url::Url,
     ) -> VortexResult<Self> {
@@ -213,13 +213,16 @@ impl VortexReadAt for DuckDbFsReader {
 unsafe impl Send for DuckDbFsReader {}
 unsafe impl Sync for DuckDbFsReader {}
 
-pub struct DuckDbFsWriter {
+pub(crate) struct DuckDbFsWriter {
     handle: FsFileHandle,
     pos: u64,
 }
 
 impl DuckDbFsWriter {
-    pub unsafe fn create(ctx: cpp::duckdb_vx_client_context, path: &str) -> VortexResult<Self> {
+    pub(crate) unsafe fn create(
+        ctx: cpp::duckdb_vx_client_context,
+        path: &str,
+    ) -> VortexResult<Self> {
         let c_path = CString::new(path).map_err(|e| vortex_err!("Invalid path: {e}"))?;
         let mut err: cpp::duckdb_vx_error = ptr::null_mut();
         let handle = unsafe { cpp::duckdb_vx_fs_create(ctx, c_path.as_ptr(), &raw mut err) };
@@ -246,7 +249,7 @@ impl VortexWrite for DuckDbFsWriter {
                 self.handle.as_ptr(),
                 offset as cpp::idx_t,
                 len as cpp::idx_t,
-                buffer.read_ptr(),
+                buffer.read_ptr().cast_mut(),
                 &raw mut out_len,
                 &raw mut err,
             )

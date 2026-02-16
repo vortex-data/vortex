@@ -107,7 +107,7 @@ extern "C" duckdb_state duckdb_vx_fs_read(duckdb_vx_file_handle handle, idx_t of
 }
 
 extern "C" duckdb_state duckdb_vx_fs_write(duckdb_vx_file_handle handle, idx_t offset, idx_t len,
-                                            const uint8_t *buffer, idx_t *out_len,
+                                            uint8_t *buffer, idx_t *out_len,
                                             duckdb_vx_error *error_out) {
     if (!handle || !buffer || !out_len) {
         SetError(error_out, "Invalid arguments to fs_write");
@@ -116,7 +116,7 @@ extern "C" duckdb_state duckdb_vx_fs_write(duckdb_vx_file_handle handle, idx_t o
 
     try {
         auto *wrapper = reinterpret_cast<FileHandleWrapper *>(handle);
-        wrapper->handle->Write(QueryContext(), const_cast<uint8_t *>(buffer), len, offset);
+        wrapper->handle->Write(QueryContext(), buffer, len, offset);
         *out_len = len;
         return DuckDBSuccess;
     } catch (...) {

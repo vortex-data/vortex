@@ -61,10 +61,3 @@ impl SendableClientContext {
         self.0
     }
 }
-
-// SAFETY: ClientContext is an opaque pointer owned by DuckDB and remains valid for the lifetime of
-// the DuckDB connection. DuckDB guards access to client context state internally (see
-// duckdb/main/client_context.hpp) so passing it across threads for FFI calls is safe when the
-// connection is alive.
-unsafe impl Send for ClientContext {}
-unsafe impl Sync for ClientContext {}
