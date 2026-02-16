@@ -19,7 +19,6 @@ use vortex_array::arrays::list_from_list_view;
 use vortex_array::compute::Cost;
 use vortex_array::compute::IsConstantOpts;
 use vortex_array::compute::is_constant_opts;
-use vortex_array::compute::sum;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
@@ -39,13 +38,6 @@ use crate::compressor::float::FloatScheme;
 use crate::compressor::integer::IntegerScheme;
 use crate::compressor::string::StringScheme;
 use crate::compressor::temporal::compress_temporal;
-use crate::sample::sample;
-use crate::sample::sample_count_approx_one_percent;
-use crate::stats::SAMPLE_SIZE;
-
-/// Maximum ratio of expanded (List) element count to shared (ListView) element count
-/// below which we prefer List encoding over ListView.
-const MAX_LIST_EXPANSION_RATIO: f64 = 1.5;
 
 /// Trait for compressors that can compress canonical arrays.
 ///
@@ -245,32 +237,9 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                 .into_array())
             }
             Canonical::List(list_view_array) => {
-                let elements_len = list_view_array.elements().len();
-                if list_view_array.is_zero_copy_to_list() || elements_len == 0 {
-                    // We can avoid the sizes array.
-                    let list_array = list_from_list_view(list_view_array)?;
-                    return self.compress_list_array(list_array, ctx);
-                }
-
-                // Sample the sizes to estimate the total expanded element
-                // count, then decide List vs ListView with the expansion
-                // threshold.
-                let sampled_sizes = sample(
-                    list_view_array.sizes(),
-                    SAMPLE_SIZE,
-                    sample_count_approx_one_percent(list_view_array.len()),
-                );
-                let sampled_sum = sum(&*sampled_sizes)?
-                    .as_primitive()
-                    .as_::<usize>()
-                    .unwrap_or(0);
-
-                let estimated_expanded_elements_len =
-                    sampled_sum * list_view_array.len() / sampled_sizes.len();
-
-                if estimated_expanded_elements_len as f64
-                    <= elements_len as f64 * MAX_LIST_EXPANSION_RATIO
-                {
+                if list_view_array.is_zero_copy_to_list() || list_view_array.elements().is_empty() {
+                    // Offsets are already monotonic and non-overlapping, so we
+                    // can drop the sizes array and compress as a ListArray.
                     let list_array = list_from_list_view(list_view_array)?;
                     self.compress_list_array(list_array, ctx)
                 } else {
@@ -361,69 +330,37 @@ mod tests {
 
     use crate::BtrBlocksCompressor;
 
-    /// ZCTL: [[1,2,3], [4,5], [6,7,8,9]]. Monotonic offsets, no overlap.
-    fn zctl_listview() -> ListViewArray {
-        let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
-        let offsets = buffer![0i32, 3, 5].into_array();
-        let sizes = buffer![3i32, 2, 4].into_array();
-        unsafe {
-            ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
-                .with_zero_copy_to_list(true)
-        }
-    }
-
-    /// Non-ZCTL, low duplication: [[7,8,9], [1,2,3], [4,5,6]]. Unsorted but disjoint.
-    fn non_zctl_low_dup_listview() -> ListViewArray {
-        let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
-        let offsets = buffer![6i32, 0, 3].into_array();
-        let sizes = buffer![3i32, 3, 3].into_array();
-        ListViewArray::new(elements, offsets, sizes, Validity::NonNullable)
-    }
-
-    /// Non-ZCTL, high duplication: [[1,2,3]] x 4.
-    fn non_zctl_high_dup_listview() -> ListViewArray {
-        let elements = buffer![1i32, 2, 3].into_array();
-        let offsets = buffer![0i32, 0, 0, 0].into_array();
-        let sizes = buffer![3i32, 3, 3, 3].into_array();
-        ListViewArray::new(elements, offsets, sizes, Validity::NonNullable)
-    }
-
-    /// Nullable with overlap: [[1,2,3], null, [1,2,3], [1,2,3]].
-    fn nullable_overlap_listview() -> ListViewArray {
-        let elements = buffer![1i32, 2, 3].into_array();
-        let offsets = buffer![0i32, 0, 0, 0].into_array();
-        let sizes = buffer![3i32, 0, 3, 3].into_array();
-        let validity = Validity::from_iter([true, false, true, true]);
-        ListViewArray::new(elements, offsets, sizes, validity)
-    }
-
-    /// Tests that each ListView variant compresses to the expected encoding and roundtrips.
     #[rstest]
-    #[case::zctl(zctl_listview(), true)]
-    #[case::non_zctl_low_dup(non_zctl_low_dup_listview(), true)]
-    #[case::non_zctl_high_dup(non_zctl_high_dup_listview(), false)]
-    #[case::nullable_overlap(nullable_overlap_listview(), false)]
-    fn list_view_compress_roundtrip(
+    #[case::zctl(
+        unsafe {
+            ListViewArray::new_unchecked(
+                buffer![1i32, 2, 3, 4, 5].into_array(),
+                buffer![0i32, 3].into_array(),
+                buffer![3i32, 2].into_array(),
+                Validity::NonNullable,
+            ).with_zero_copy_to_list(true)
+        },
+        true,
+    )]
+    #[case::overlapping(
+        ListViewArray::new(
+            buffer![1i32, 2, 3].into_array(),
+            buffer![0i32, 0, 0].into_array(),
+            buffer![3i32, 3, 3].into_array(),
+            Validity::NonNullable,
+        ),
+        false,
+    )]
+    fn listview_compress_roundtrip(
         #[case] input: ListViewArray,
         #[case] expect_list: bool,
     ) -> VortexResult<()> {
-        let compressor = BtrBlocksCompressor::default();
-        let result = compressor.compress(input.as_ref())?;
-
+        let result = BtrBlocksCompressor::default().compress(input.as_ref())?;
         if expect_list {
-            assert!(
-                result.as_opt::<ListVTable>().is_some(),
-                "Expected ListArray, got: {}",
-                result.encoding_id()
-            );
+            assert!(result.as_opt::<ListVTable>().is_some());
         } else {
-            assert!(
-                result.as_opt::<ListViewVTable>().is_some(),
-                "Expected ListViewArray, got: {}",
-                result.encoding_id()
-            );
+            assert!(result.as_opt::<ListViewVTable>().is_some());
         }
-
         assert_arrays_eq!(result, input);
         Ok(())
     }
