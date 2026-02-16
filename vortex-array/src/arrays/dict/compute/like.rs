@@ -47,3 +47,37 @@ impl LikeReduce for DictVTable {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+
+    use crate::IntoArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::DictArray;
+    use crate::arrays::ScalarFnArrayExt;
+    use crate::arrays::VarBinArray;
+    use crate::assert_arrays_eq;
+    use crate::expr::Like;
+    use crate::expr::LikeOptions;
+    use crate::optimizer::ArrayOptimizer;
+
+    #[test]
+    fn like_reduce_dict() -> VortexResult<()> {
+        let dict = DictArray::try_new(
+            buffer![0u8, 1, 0, 2].into_array(),
+            VarBinArray::from(vec!["hello", "world", "help"]).into_array(),
+        )?
+        .into_array();
+
+        let pattern = ConstantArray::new("hel%", 4).into_array();
+        let result = Like
+            .try_new_array(4, LikeOptions::default(), [dict, pattern])?
+            .optimize()?;
+
+        assert_arrays_eq!(result, BoolArray::from_iter([true, false, true, true]));
+        Ok(())
+    }
+}
