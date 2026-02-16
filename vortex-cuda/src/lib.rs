@@ -12,6 +12,7 @@ pub mod dynamic_dispatch;
 pub mod executor;
 mod host_to_device_allocator;
 mod kernel;
+pub mod layout;
 mod session;
 mod stream;
 mod stream_pool;

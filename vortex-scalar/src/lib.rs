@@ -36,3 +36,6 @@ pub use typed_view::*;
 
 #[cfg(test)]
 mod tests;
+mod truncation;
+
+pub use truncation::*;

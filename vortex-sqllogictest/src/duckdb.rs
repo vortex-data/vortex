@@ -61,11 +61,14 @@ impl DuckDB {
     /// Turn the DuckDB logical type into a `DFColumnType`, which
     /// tells the runner what types they are. We use the one from DataFusion
     /// as its richer than the default one.
-    fn normalize_column_type(dtype: LogicalType) -> DFColumnType {
-        let type_id = dtype.as_type_id();
+    fn normalize_column_type(logical_type: LogicalType) -> DFColumnType {
+        let type_id = logical_type.as_type_id();
+
         if type_id == LogicalType::int32().as_type_id()
             || type_id == LogicalType::int64().as_type_id()
             || type_id == LogicalType::uint64().as_type_id()
+            || type_id == LogicalType::int128().as_type_id()
+            || type_id == LogicalType::uint128().as_type_id()
         {
             DFColumnType::Integer
         } else if type_id == LogicalType::varchar().as_type_id() {
@@ -76,6 +79,10 @@ impl DuckDB {
             || type_id == LogicalType::float64().as_type_id()
         {
             DFColumnType::Float
+        } else if type_id == LogicalType::timestamp().as_type_id()
+            || type_id == LogicalType::timestamp_tz().as_type_id()
+        {
+            DFColumnType::Timestamp
         } else {
             DFColumnType::Another
         }

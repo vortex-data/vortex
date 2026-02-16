@@ -200,11 +200,6 @@ impl VarBinArray {
             "Offsets must have at least one element"
         );
 
-        // Check offsets are sorted
-        if let Some(is_sorted) = offsets.statistics().compute_is_sorted() {
-            vortex_ensure!(is_sorted, "offsets must be sorted");
-        }
-
         // Skip host-only validation when offsets/bytes are not host-resident.
         if offsets.is_host() && bytes.is_on_host() {
             let last_offset = offsets

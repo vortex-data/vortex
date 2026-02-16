@@ -254,6 +254,10 @@ pub fn vortex_file::VortexOpenOptions::with_metrics_registry(self, metrics: allo
 
 pub fn vortex_file::VortexOpenOptions::with_segment_cache(self, segment_cache: alloc::sync::Arc<dyn vortex_layout::segments::cache::SegmentCache>) -> Self
 
+impl vortex_file::VortexOpenOptions
+
+pub async fn vortex_file::VortexOpenOptions::open_object_store(self, object_store: &alloc::sync::Arc<dyn object_store::ObjectStore>, path: &str) -> vortex_error::VortexResult<vortex_file::VortexFile>
+
 pub struct vortex_file::VortexWriteOptions
 
 impl vortex_file::VortexWriteOptions
@@ -282,9 +286,15 @@ pub fn vortex_file::WriteStrategyBuilder::build(self) -> alloc::sync::Arc<dyn vo
 
 pub fn vortex_file::WriteStrategyBuilder::with_allow_encodings(self, allow_encodings: vortex_array::session::ArrayRegistry) -> Self
 
+pub fn vortex_file::WriteStrategyBuilder::with_compact_encodings(self) -> Self
+
 pub fn vortex_file::WriteStrategyBuilder::with_compressor<C: vortex_layout::layouts::compressed::CompressorPlugin>(self, compressor: C) -> Self
 
+pub fn vortex_file::WriteStrategyBuilder::with_cuda_compatible_encodings(self) -> Self
+
 pub fn vortex_file::WriteStrategyBuilder::with_field_writer(self, field: impl core::convert::Into<vortex_dtype::field::FieldPath>, writer: alloc::sync::Arc<dyn vortex_layout::strategy::LayoutStrategy>) -> Self
+
+pub fn vortex_file::WriteStrategyBuilder::with_flat_strategy(self, flat: alloc::sync::Arc<dyn vortex_layout::strategy::LayoutStrategy>) -> Self
 
 pub fn vortex_file::WriteStrategyBuilder::with_row_block_size(self, row_block_size: usize) -> Self
 

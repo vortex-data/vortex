@@ -14,9 +14,11 @@ DerivePointerAlignment: false
 PointerAlignment: Right
 AlignConsecutiveMacros: true
 AlignTrailingComments: true
-AllowAllArgumentsOnNextLine: true
-AllowAllConstructorInitializersOnNextLine: true
-AllowAllParametersOfDeclarationOnNextLine: true
+AllowAllArgumentsOnNextLine: false
+AllowAllConstructorInitializersOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+BinPackArguments: false
+BinPackParameters: false
 AlignAfterOpenBracket: Align
 SpaceBeforeCpp11BracedList: true
 SpaceBeforeCtorInitializerColon: true
@@ -32,4 +34,3 @@ IncludeBlocks: Regroup
 Language: Cpp
 AccessModifierOffset: -4
 ---
-

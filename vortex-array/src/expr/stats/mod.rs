@@ -44,9 +44,11 @@ pub enum Stat {
     /// Whether all values are the same (nulls are not equal to other non-null values,
     /// so this is true iff all values are null or all values are the same non-null value)
     IsConstant = 0,
-    /// Whether the non-null values in the array are sorted (i.e., we skip nulls)
+    /// Whether the non-null values in the array are sorted in ascending order (i.e., we skip nulls)
+    /// This may later be extended to support descending order, but for now we only support ascending order.
     IsSorted = 1,
-    /// Whether the non-null values in the array are strictly sorted (i.e., sorted with no duplicates)
+    /// Whether the non-null values in the array are strictly sorted in ascending order (i.e., sorted with no duplicates)
+    /// This may later be extended to support descending order, but for now we only support ascending order.
     IsStrictSorted = 2,
     /// The maximum value in the array (ignoring nulls, unless all values are null)
     Max = 3,
