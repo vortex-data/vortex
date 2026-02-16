@@ -16,10 +16,12 @@ constexpr uint32_t ELEMENTS_PER_THREAD = 32;
 // We use `::min` from CUDA's `crt/math_functions.hpp` (declared `__host__ __device__`)
 // rather than `std::min` which is host-only.
 
-__device__ constexpr inline uint32_t start_elem(uint32_t idx, uint32_t len) {
-    return ::min(idx * ELEMENTS_PER_THREAD, len);
+template <typename T>
+__device__ constexpr inline T start_elem(T idx, T len) {
+    return ::min(idx * static_cast<T>(ELEMENTS_PER_THREAD), len);
 }
 
-__device__ constexpr inline uint32_t stop_elem(uint32_t idx, uint32_t len) {
-    return ::min(start_elem(idx, len) + ELEMENTS_PER_THREAD, len);
+template <typename T>
+__device__ constexpr inline T stop_elem(T idx, T len) {
+    return ::min(start_elem(idx, len) + static_cast<T>(ELEMENTS_PER_THREAD), len);
 }
