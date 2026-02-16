@@ -1,24 +1,3 @@
-    Checking vortex-array v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/vortex-array)
-    Checking vortex-runend v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/encodings/runend)
-    Checking vortex-fastlanes v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/encodings/fastlanes)
-    Checking vortex-decimal-byte-parts v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/encodings/decimal-byte-parts)
-    Checking vortex-zigzag v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/encodings/zigzag)
-    Checking vortex-sparse v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/encodings/sparse)
-    Checking vortex-zstd v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/encodings/zstd)
-    Checking vortex-pco v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/encodings/pco)
-    Checking vortex-datetime-parts v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/encodings/datetime-parts)
-    Checking vortex-fsst v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/encodings/fsst)
-    Checking vortex-io v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/vortex-io)
-    Checking vortex-bytebool v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/encodings/bytebool)
-    Checking vortex-ipc v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/vortex-ipc)
-    Checking vortex-sequence v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/encodings/sequence)
-    Checking vortex-alp v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/encodings/alp)
-    Checking vortex-btrblocks v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/vortex-btrblocks)
-    Checking vortex-layout v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/vortex-layout)
-    Checking vortex-scan v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/vortex-scan)
-    Checking vortex-file v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/vortex-file)
- Documenting vortex v0.1.0 (/Users/joeisaacs/git/spiraldb/vortex/vortex)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.33s
 pub mod vortex
 
 pub use vortex::compute
