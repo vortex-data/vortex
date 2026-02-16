@@ -48,8 +48,7 @@ use vortex::io::reset_default_alloc_stats;
 use vortex::layout::LayoutReader;
 use vortex::mask::Mask;
 use vortex::metrics::DefaultMetricsRegistry;
-use vortex::metrics::Label;
-use vortex::metrics::MetricBuilder;
+use vortex::metrics::MetricValue;
 use vortex::metrics::MetricsRegistry;
 use vortex_bench::SESSION;
 use vortex_cuda::CudaSessionExt;
@@ -162,10 +161,20 @@ async fn main() -> Result<()> {
     let (projection, filter) = build_scan_exprs(&args)?;
     let metrics: std::sync::Arc<dyn MetricsRegistry> =
         std::sync::Arc::new(DefaultMetricsRegistry::default());
-    let labels: Vec<Label> = vec![("bench", "scan-io").into()];
-    let read_bytes = MetricBuilder::new(metrics.as_ref())
-        .add_labels(labels.clone())
-        .counter("vortex.io.read.total_size");
+    let total_read_bytes = {
+        let metrics = metrics.clone();
+        move || -> u64 {
+            metrics
+                .snapshot()
+                .iter()
+                .filter(|m| m.name().as_ref() == "vortex.io.read.total_size")
+                .filter_map(|m| match m.value() {
+                    MetricValue::Counter(c) => Some(c.value()),
+                    _ => None,
+                })
+                .sum()
+        }
+    };
 
     #[allow(clippy::if_then_some_else_none)]
     let (gpu_allocator, pinned_pool) = if args.gpu {
@@ -204,7 +213,7 @@ async fn main() -> Result<()> {
     }
 
     let start = Instant::now();
-    let bytes_before = read_bytes.value();
+    let bytes_before = total_read_bytes();
     let first_seen = std::sync::Arc::new(AtomicBool::new(false));
     let first_info = std::sync::Arc::new(Mutex::new(None::<(f64, u64)>));
     let targets = targets.clone();
@@ -216,7 +225,7 @@ async fn main() -> Result<()> {
             let projection = projection.clone();
             let filter = filter.clone();
             let metrics = metrics.clone();
-            let read_bytes = read_bytes.clone();
+            let total_read_bytes = total_read_bytes.clone();
             let first_seen = first_seen.clone();
             let first_info = first_info.clone();
             let mode = mode.clone();
@@ -242,7 +251,7 @@ async fn main() -> Result<()> {
                         && !first_seen.swap(true, Ordering::Relaxed)
                     {
                         let latency = start.elapsed().as_secs_f64();
-                        let bytes = read_bytes.value() - bytes_before;
+                        let bytes = total_read_bytes() - bytes_before;
                         *first_info.lock() = Some((latency, bytes));
                     }
                     let file_rows = usize::try_from(file.row_count())
@@ -289,7 +298,7 @@ async fn main() -> Result<()> {
                         && !first_seen.swap(true, Ordering::Relaxed)
                     {
                         let latency = start.elapsed().as_secs_f64();
-                        let bytes = read_bytes.value() - bytes_before;
+                        let bytes = total_read_bytes() - bytes_before;
                         *first_info.lock() = Some((latency, bytes));
                     }
                     file_rows += rows;
@@ -314,9 +323,9 @@ async fn main() -> Result<()> {
     } else {
         0.0
     };
-    let bytes = read_bytes.value();
+    let bytes = total_read_bytes();
     let (first_latency, first_bytes) =
-        (*first_info.lock()).unwrap_or_else(|| (elapsed, read_bytes.value() - bytes_before));
+        (*first_info.lock()).unwrap_or_else(|| (elapsed, total_read_bytes() - bytes_before));
 
     let avg_elapsed = elapsed / args.iterations as f64;
     let avg_bytes = bytes as f64 / args.iterations as f64;
