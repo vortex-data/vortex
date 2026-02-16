@@ -17,9 +17,9 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_error::VortexError;
-    use vortex_vector::binaryview::BinaryView;
 
     use crate::IntoArray;
+    use crate::arrays::BinaryView;
     use crate::arrays::*;
     use crate::validity::Validity;
 

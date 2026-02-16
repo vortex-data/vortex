@@ -48,7 +48,7 @@ impl ArrayParentReduceRule<BoolVTable> for BoolMaskedValidityRule {
         Ok(Some(
             BoolArray::new(
                 array.to_bit_buffer(),
-                array.validity().clone().and(parent.validity().clone()),
+                array.validity().clone().and(parent.validity().clone())?,
             )
             .into_array(),
         ))

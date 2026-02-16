@@ -157,6 +157,18 @@ impl CudaExecutionCtx {
         self.stream.move_to_device(handle)
     }
 
+    /// Ensures a buffer is resident on the device, copying from host if necessary.
+    ///
+    /// If the buffer is already on the device it is returned as-is. Otherwise it
+    /// is asynchronously copied to device memory.
+    pub async fn ensure_on_device(&self, handle: BufferHandle) -> VortexResult<BufferHandle> {
+        if handle.is_on_device() {
+            Ok(handle)
+        } else {
+            self.move_to_device(handle)?.await
+        }
+    }
+
     /// Returns a reference to the underlying CUDA stream.
     pub fn stream(&self) -> &Arc<CudaStream> {
         &self.stream.0

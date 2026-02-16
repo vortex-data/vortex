@@ -225,14 +225,3 @@ pub(crate) fn check_validity_empty(validity: &Validity) -> VortexResult<()> {
 
     Ok(())
 }
-
-pub(crate) async fn ensure_device_resident(
-    buffer_handle: BufferHandle,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<BufferHandle> {
-    if buffer_handle.is_on_device() {
-        Ok(buffer_handle)
-    } else {
-        ctx.move_to_device(buffer_handle)?.await
-    }
-}

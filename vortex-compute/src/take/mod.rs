@@ -7,10 +7,6 @@ mod bit_buffer;
 mod buffer;
 mod mask;
 pub mod slice;
-mod vector;
-
-pub use vector::default_take;
-pub use vector::optimized_take;
 
 /// The size of a page in Linux.
 const LINUX_PAGE_SIZE: usize = 4096;

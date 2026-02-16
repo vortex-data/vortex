@@ -9,12 +9,12 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
+use crate::arrays::BinaryView;
 use crate::arrays::TakeExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;

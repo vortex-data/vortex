@@ -11,7 +11,6 @@ members = [
     "vortex-io",
     "vortex-proto",
     "vortex-dtype",
-    "vortex-vector",
     "vortex-scalar",
     "vortex-compute",
     "vortex-array",
@@ -278,7 +277,6 @@ vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-feat
 vortex-session = { version = "0.1.0", path = "./vortex-session", default-features = false }
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
 vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }
-vortex-vector = { version = "0.1.0", path = "./vortex-vector", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
 vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features = false }
 # END crates published by this project

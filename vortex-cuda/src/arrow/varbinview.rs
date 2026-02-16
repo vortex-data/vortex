@@ -19,7 +19,6 @@ use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
 use crate::arrow::check_validity_empty;
-use crate::arrow::ensure_device_resident;
 
 /// Parts of a binary array (VarBin).
 ///
@@ -45,11 +44,11 @@ pub(crate) async fn copy_varbinview_to_varbin(
     check_validity_empty(&validity)?;
 
     // copy all buffers over to device.
-    let views = ensure_device_resident(views, ctx).await?;
+    let views = ctx.ensure_on_device(views).await?;
     // before string copying, we must copy all string data buffers to the device.
     let mut device_buffers = vec![];
     for buffer in buffers.iter() {
-        device_buffers.push(ensure_device_resident(buffer.clone(), ctx).await?);
+        device_buffers.push(ctx.ensure_on_device(buffer.clone()).await?);
     }
 
     let buffer_ptrs = device_buffers
@@ -89,8 +88,8 @@ pub(crate) async fn copy_varbinview_to_varbin(
     };
 
     // Launch the kernel
-    // SAFETY: we do not access any of the buffers we passed in until after the kernel completes
-    //  and we synchronize the stream.s
+    // SAFETY: we do not access any of the buffers we passed in until after the
+    // kernel completes and we synchronize the stream.
     unsafe {
         kernel
             .launch(single_threaded_cfg)
