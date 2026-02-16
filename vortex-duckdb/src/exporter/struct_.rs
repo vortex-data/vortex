@@ -10,6 +10,8 @@ use vortex::array::arrays::StructArrayParts;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
+use vortex_array::ArrayRef;
+use vortex_array::arrays::BoolArray;
 
 use crate::LogicalType;
 use crate::duckdb::Vector;
@@ -35,31 +37,28 @@ pub(crate) fn new_exporter(
         fields,
         ..
     } = array.into_parts();
-    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
+    let validity = validity.to_array(len).execute::<BoolArray>(ctx)?;
 
-    if validity.all_false() {
+    if validity.to_bit_buffer().true_count() == 0 {
         return Ok(all_invalid::new_exporter(
             len,
             &LogicalType::try_from(struct_fields)?,
         ));
     }
 
-    let array_validity =
-        matches!(validity, Mask::Values(_)).then(|| validity.clone().not().into_array());
-
     let children = fields
         .iter()
         .map(|child| {
-            if let Some(validity) = &array_validity {
+            if validity.to_bit_buffer().true_count() != validity.len() {
                 // TODO(joe): use new mask.
-                new_array_exporter(child.clone().mask(validity.clone())?, cache, ctx)
+                new_array_exporter(child.clone().mask(validity.to_array())?, cache, ctx)
             } else {
                 new_array_exporter(child.clone().into_array(), cache, ctx)
             }
         })
         .collect::<VortexResult<Vec<_>>>()?;
     Ok(validity::new_exporter(
-        validity,
+        validity.to_mask(),
         Box::new(StructExporter { children }),
     ))
 }
