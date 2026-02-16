@@ -9,9 +9,11 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFnArrayExt;
+use crate::expr::Like;
 use crate::expr::LikeOptions;
 use crate::expr::LikeReduce;
-use crate::expr::like::arrow_like;
+use crate::optimizer::ArrayOptimizer;
 
 impl LikeReduce for DictVTable {
     fn like(
@@ -25,7 +27,10 @@ impl LikeReduce for DictVTable {
         }
         if let Some(pattern) = pattern.as_constant() {
             let pattern = ConstantArray::new(pattern, array.values().len()).into_array();
-            let values = arrow_like(array.values(), &pattern, options)?;
+
+            let values = Like
+                .try_new_array(array.len(), options, [array.values().clone(), pattern])?
+                .optimize()?;
 
             // SAFETY: LIKE preserves the len of the values, so codes are still pointing at
             //  valid positions.
