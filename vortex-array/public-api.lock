@@ -28,23 +28,69 @@ pub fn vortex_array::arrays::PrimitiveArray::with_iterator<F, R>(&self, f: F) ->
 
 pub mod vortex_array::arrays
 
-pub use vortex_array::arrays::BinaryView
-
-pub use vortex_array::arrays::Inlined
-
-pub use vortex_array::arrays::Ref
-
 pub mod vortex_array::arrays::build_views
 
-pub use vortex_array::arrays::build_views::BinaryView
+#[repr(C, align(16))] pub union vortex_array::arrays::build_views::BinaryView
 
-pub use vortex_array::arrays::build_views::Inlined
+impl vortex_array::arrays::BinaryView
 
-pub use vortex_array::arrays::build_views::Ref
+pub const vortex_array::arrays::BinaryView::MAX_INLINED_SIZE: usize
+
+pub fn vortex_array::arrays::BinaryView::as_inlined(&self) -> &vortex_array::arrays::Inlined
+
+pub fn vortex_array::arrays::BinaryView::as_u128(&self) -> u128
+
+pub fn vortex_array::arrays::BinaryView::as_view(&self) -> &vortex_array::arrays::Ref
+
+pub fn vortex_array::arrays::BinaryView::as_view_mut(&mut self) -> &mut vortex_array::arrays::Ref
+
+pub fn vortex_array::arrays::BinaryView::empty_view() -> Self
+
+pub fn vortex_array::arrays::BinaryView::is_empty(&self) -> bool
+
+pub fn vortex_array::arrays::BinaryView::is_inlined(&self) -> bool
+
+pub fn vortex_array::arrays::BinaryView::len(&self) -> u32
+
+pub fn vortex_array::arrays::BinaryView::make_view(value: &[u8], block: u32, offset: u32) -> Self
+
+pub fn vortex_array::arrays::BinaryView::new_inlined(value: &[u8]) -> Self
+
+impl core::clone::Clone for vortex_array::arrays::BinaryView
+
+pub fn vortex_array::arrays::BinaryView::clone(&self) -> vortex_array::arrays::BinaryView
+
+impl core::cmp::Eq for vortex_array::arrays::BinaryView
+
+impl core::cmp::PartialEq for vortex_array::arrays::BinaryView
+
+pub fn vortex_array::arrays::BinaryView::eq(&self, other: &Self) -> bool
+
+impl core::convert::From<u128> for vortex_array::arrays::BinaryView
+
+pub fn vortex_array::arrays::BinaryView::from(value: u128) -> Self
+
+impl core::convert::From<vortex_array::arrays::Ref> for vortex_array::arrays::BinaryView
+
+pub fn vortex_array::arrays::BinaryView::from(value: vortex_array::arrays::Ref) -> Self
+
+impl core::default::Default for vortex_array::arrays::BinaryView
+
+pub fn vortex_array::arrays::BinaryView::default() -> Self
+
+impl core::fmt::Debug for vortex_array::arrays::BinaryView
+
+pub fn vortex_array::arrays::BinaryView::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::arrays::BinaryView
+
+pub fn vortex_array::arrays::BinaryView::hash<H: core::hash::Hasher>(&self, state: &mut H)
+
+impl core::marker::Copy for vortex_array::arrays::BinaryView
 
 pub const vortex_array::arrays::build_views::MAX_BUFFER_LEN: usize
 
-pub fn vortex_array::arrays::build_views::build_views<P: vortex_dtype::ptype::NativePType + num_traits::cast::AsPrimitive<usize>>(start_buf_index: u32, max_buffer_len: usize, bytes: vortex_buffer::ByteBufferMut, lens: &[P]) -> (alloc::vec::Vec<vortex_buffer::ByteBuffer>, vortex_buffer::buffer::Buffer<vortex_vector::binaryview::view::BinaryView>)
+pub fn vortex_array::arrays::build_views::build_views<P: vortex_dtype::ptype::NativePType + num_traits::cast::AsPrimitive<usize>>(start_buf_index: u32, max_buffer_len: usize, bytes: vortex_buffer::ByteBufferMut, lens: &[P]) -> (alloc::vec::Vec<vortex_buffer::ByteBuffer>, vortex_buffer::buffer::Buffer<vortex_array::arrays::BinaryView>)
 
 pub fn vortex_array::arrays::build_views::offsets_to_lengths<P: vortex_dtype::ptype::NativePType>(offsets: &[P]) -> vortex_buffer::buffer::Buffer<P>
 
@@ -202,6 +248,64 @@ pub vortex_array::arrays::ListViewRebuildMode::OverlapCompression
 
 pub vortex_array::arrays::ListViewRebuildMode::TrimElements
 
+#[repr(C, align(16))] pub union vortex_array::arrays::BinaryView
+
+impl vortex_array::arrays::BinaryView
+
+pub const vortex_array::arrays::BinaryView::MAX_INLINED_SIZE: usize
+
+pub fn vortex_array::arrays::BinaryView::as_inlined(&self) -> &vortex_array::arrays::Inlined
+
+pub fn vortex_array::arrays::BinaryView::as_u128(&self) -> u128
+
+pub fn vortex_array::arrays::BinaryView::as_view(&self) -> &vortex_array::arrays::Ref
+
+pub fn vortex_array::arrays::BinaryView::as_view_mut(&mut self) -> &mut vortex_array::arrays::Ref
+
+pub fn vortex_array::arrays::BinaryView::empty_view() -> Self
+
+pub fn vortex_array::arrays::BinaryView::is_empty(&self) -> bool
+
+pub fn vortex_array::arrays::BinaryView::is_inlined(&self) -> bool
+
+pub fn vortex_array::arrays::BinaryView::len(&self) -> u32
+
+pub fn vortex_array::arrays::BinaryView::make_view(value: &[u8], block: u32, offset: u32) -> Self
+
+pub fn vortex_array::arrays::BinaryView::new_inlined(value: &[u8]) -> Self
+
+impl core::clone::Clone for vortex_array::arrays::BinaryView
+
+pub fn vortex_array::arrays::BinaryView::clone(&self) -> vortex_array::arrays::BinaryView
+
+impl core::cmp::Eq for vortex_array::arrays::BinaryView
+
+impl core::cmp::PartialEq for vortex_array::arrays::BinaryView
+
+pub fn vortex_array::arrays::BinaryView::eq(&self, other: &Self) -> bool
+
+impl core::convert::From<u128> for vortex_array::arrays::BinaryView
+
+pub fn vortex_array::arrays::BinaryView::from(value: u128) -> Self
+
+impl core::convert::From<vortex_array::arrays::Ref> for vortex_array::arrays::BinaryView
+
+pub fn vortex_array::arrays::BinaryView::from(value: vortex_array::arrays::Ref) -> Self
+
+impl core::default::Default for vortex_array::arrays::BinaryView
+
+pub fn vortex_array::arrays::BinaryView::default() -> Self
+
+impl core::fmt::Debug for vortex_array::arrays::BinaryView
+
+pub fn vortex_array::arrays::BinaryView::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::arrays::BinaryView
+
+pub fn vortex_array::arrays::BinaryView::hash<H: core::hash::Hasher>(&self, state: &mut H)
+
+impl core::marker::Copy for vortex_array::arrays::BinaryView
+
 pub struct vortex_array::arrays::AnyScalarFn
 
 impl core::fmt::Debug for vortex_array::arrays::AnyScalarFn
@@ -289,10 +393,6 @@ pub fn vortex_array::arrays::BoolArray::execute(array: vortex_array::ArrayRef, c
 impl vortex_array::IntoArray for vortex_array::arrays::BoolArray
 
 pub fn vortex_array::arrays::BoolArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vectors::VectorIntoArray<vortex_array::arrays::BoolArray> for vortex_vector::bool::vector::BoolVector
-
-pub fn vortex_vector::bool::vector::BoolVector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::BoolArray
 
 impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::BoolArray
 
@@ -848,17 +948,9 @@ impl vortex_array::IntoArray for vortex_array::arrays::DecimalArray
 
 pub fn vortex_array::arrays::DecimalArray::into_array(self) -> vortex_array::ArrayRef
 
-impl vortex_array::vectors::VectorIntoArray<vortex_array::arrays::DecimalArray> for vortex_vector::decimal::vector::DecimalVector
-
-pub fn vortex_vector::decimal::vector::DecimalVector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::DecimalArray
-
 impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::DecimalArray
 
 pub fn vortex_array::arrays::DecimalArray::validity(&self) -> &vortex_array::validity::Validity
-
-impl<D: vortex_dtype::decimal::types::NativeDecimalType> vortex_array::vectors::VectorIntoArray<vortex_array::arrays::DecimalArray> for vortex_vector::decimal::generic::DVector<D>
-
-pub fn vortex_vector::decimal::generic::DVector<D>::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::DecimalArray
 
 pub struct vortex_array::arrays::DecimalArrayParts
 
@@ -1598,10 +1690,6 @@ impl vortex_array::IntoArray for vortex_array::arrays::FixedSizeListArray
 
 pub fn vortex_array::arrays::FixedSizeListArray::into_array(self) -> vortex_array::ArrayRef
 
-impl vortex_array::vectors::VectorIntoArray<vortex_array::arrays::FixedSizeListArray> for vortex_vector::fixed_size_list::vector::FixedSizeListVector
-
-pub fn vortex_vector::fixed_size_list::vector::FixedSizeListVector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::FixedSizeListArray
-
 impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::FixedSizeListArray
 
 pub fn vortex_array::arrays::FixedSizeListArray::validity(&self) -> &vortex_array::validity::Validity
@@ -1705,6 +1793,34 @@ pub fn vortex_array::arrays::FixedSizeListVTable::nth_child(array: &vortex_array
 pub fn vortex_array::arrays::FixedSizeListVTable::visit_buffers(_array: &vortex_array::arrays::FixedSizeListArray, _visitor: &mut dyn vortex_array::ArrayBufferVisitor)
 
 pub fn vortex_array::arrays::FixedSizeListVTable::visit_children(array: &vortex_array::arrays::FixedSizeListArray, visitor: &mut dyn vortex_array::ArrayChildVisitor)
+
+#[repr(C, align(8))] pub struct vortex_array::arrays::Inlined
+
+pub vortex_array::arrays::Inlined::data: [u8; 12]
+
+pub vortex_array::arrays::Inlined::size: u32
+
+impl vortex_array::arrays::Inlined
+
+pub fn vortex_array::arrays::Inlined::value(&self) -> &[u8]
+
+impl core::clone::Clone for vortex_array::arrays::Inlined
+
+pub fn vortex_array::arrays::Inlined::clone(&self) -> vortex_array::arrays::Inlined
+
+impl core::cmp::Eq for vortex_array::arrays::Inlined
+
+impl core::cmp::PartialEq for vortex_array::arrays::Inlined
+
+pub fn vortex_array::arrays::Inlined::eq(&self, other: &vortex_array::arrays::Inlined) -> bool
+
+impl core::fmt::Debug for vortex_array::arrays::Inlined
+
+pub fn vortex_array::arrays::Inlined::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_array::arrays::Inlined
+
+impl core::marker::StructuralPartialEq for vortex_array::arrays::Inlined
 
 pub struct vortex_array::arrays::ListArray
 
@@ -1943,10 +2059,6 @@ pub fn vortex_array::arrays::ListViewArray::execute(array: vortex_array::ArrayRe
 impl vortex_array::IntoArray for vortex_array::arrays::ListViewArray
 
 pub fn vortex_array::arrays::ListViewArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vectors::VectorIntoArray<vortex_array::arrays::ListViewArray> for vortex_vector::listview::vector::ListViewVector
-
-pub fn vortex_vector::listview::vector::ListViewVector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::ListViewArray
 
 impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::ListViewArray
 
@@ -2292,10 +2404,6 @@ impl vortex_array::IntoArray for vortex_array::arrays::NullArray
 
 pub fn vortex_array::arrays::NullArray::into_array(self) -> vortex_array::ArrayRef
 
-impl vortex_array::vectors::VectorIntoArray<vortex_array::arrays::NullArray> for vortex_vector::null::vector::NullVector
-
-pub fn vortex_vector::null::vector::NullVector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::NullArray
-
 pub struct vortex_array::arrays::NullVTable
 
 impl vortex_array::arrays::NullVTable
@@ -2444,8 +2552,6 @@ pub fn vortex_array::arrays::PrimitiveArray::into_buffer_mut<T: vortex_dtype::pt
 
 pub fn vortex_array::arrays::PrimitiveArray::to_buffer<T: vortex_dtype::ptype::NativePType>(&self) -> vortex_buffer::buffer::Buffer<T>
 
-pub fn vortex_array::arrays::PrimitiveArray::try_from_vector(primitive_vector: vortex_vector::primitive::vector::PrimitiveVector, nullability: vortex_dtype::nullability::Nullability) -> vortex_error::VortexResult<Self>
-
 pub fn vortex_array::arrays::PrimitiveArray::try_into_buffer_mut<T: vortex_dtype::ptype::NativePType>(self) -> core::result::Result<vortex_buffer::buffer_mut::BufferMut<T>, vortex_buffer::buffer::Buffer<T>>
 
 impl vortex_array::arrays::PrimitiveArray
@@ -2490,10 +2596,6 @@ impl vortex_array::IntoArray for vortex_array::arrays::PrimitiveArray
 
 pub fn vortex_array::arrays::PrimitiveArray::into_array(self) -> vortex_array::ArrayRef
 
-impl vortex_array::vectors::VectorIntoArray<vortex_array::arrays::PrimitiveArray> for vortex_vector::primitive::vector::PrimitiveVector
-
-pub fn vortex_vector::primitive::vector::PrimitiveVector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::PrimitiveArray
-
 impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::PrimitiveArray
 
 pub fn vortex_array::arrays::PrimitiveArray::validity(&self) -> &vortex_array::validity::Validity
@@ -2505,10 +2607,6 @@ pub fn vortex_array::arrays::PrimitiveArray::from_iter<I: core::iter::traits::co
 impl<T: vortex_dtype::ptype::NativePType> vortex_array::accessor::ArrayAccessor<T> for vortex_array::arrays::PrimitiveArray
 
 pub fn vortex_array::arrays::PrimitiveArray::with_iterator<F, R>(&self, f: F) -> R where F: for<'a> core::ops::function::FnOnce(&mut dyn core::iter::traits::iterator::Iterator<Item = core::option::Option<&'a T>>) -> R
-
-impl<T: vortex_dtype::ptype::NativePType> vortex_array::vectors::VectorIntoArray<vortex_array::arrays::PrimitiveArray> for vortex_vector::primitive::generic::PVector<T>
-
-pub fn vortex_vector::primitive::generic::PVector<T>::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::PrimitiveArray
 
 pub struct vortex_array::arrays::PrimitiveArrayParts
 
@@ -2655,6 +2753,36 @@ pub fn vortex_array::arrays::PrimitiveVTable::nth_child(array: &vortex_array::ar
 pub fn vortex_array::arrays::PrimitiveVTable::visit_buffers(array: &vortex_array::arrays::PrimitiveArray, visitor: &mut dyn vortex_array::ArrayBufferVisitor)
 
 pub fn vortex_array::arrays::PrimitiveVTable::visit_children(array: &vortex_array::arrays::PrimitiveArray, visitor: &mut dyn vortex_array::ArrayChildVisitor)
+
+#[repr(C, align(8))] pub struct vortex_array::arrays::Ref
+
+pub vortex_array::arrays::Ref::buffer_index: u32
+
+pub vortex_array::arrays::Ref::offset: u32
+
+pub vortex_array::arrays::Ref::prefix: [u8; 4]
+
+pub vortex_array::arrays::Ref::size: u32
+
+impl vortex_array::arrays::Ref
+
+pub fn vortex_array::arrays::Ref::as_range(&self) -> core::ops::range::Range<usize>
+
+pub fn vortex_array::arrays::Ref::with_buffer_and_offset(&self, buffer_index: u32, offset: u32) -> vortex_array::arrays::Ref
+
+impl core::clone::Clone for vortex_array::arrays::Ref
+
+pub fn vortex_array::arrays::Ref::clone(&self) -> vortex_array::arrays::Ref
+
+impl core::convert::From<vortex_array::arrays::Ref> for vortex_array::arrays::BinaryView
+
+pub fn vortex_array::arrays::BinaryView::from(value: vortex_array::arrays::Ref) -> Self
+
+impl core::fmt::Debug for vortex_array::arrays::Ref
+
+pub fn vortex_array::arrays::Ref::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_array::arrays::Ref
 
 pub struct vortex_array::arrays::ScalarFnArray
 
@@ -3134,10 +3262,6 @@ impl vortex_array::IntoArray for vortex_array::arrays::StructArray
 
 pub fn vortex_array::arrays::StructArray::into_array(self) -> vortex_array::ArrayRef
 
-impl vortex_array::vectors::VectorIntoArray<vortex_array::arrays::StructArray> for vortex_vector::struct_::vector::StructVector
-
-pub fn vortex_vector::struct_::vector::StructVector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::StructArray
-
 impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::StructArray
 
 pub fn vortex_array::arrays::StructArray::validity(&self) -> &vortex_array::validity::Validity
@@ -3602,21 +3726,21 @@ pub fn vortex_array::arrays::VarBinViewArray::into_parts(self) -> vortex_array::
 
 pub fn vortex_array::arrays::VarBinViewArray::nbuffers(&self) -> usize
 
-pub fn vortex_array::arrays::VarBinViewArray::new(views: vortex_buffer::buffer::Buffer<vortex_vector::binaryview::view::BinaryView>, buffers: alloc::sync::Arc<[vortex_buffer::ByteBuffer]>, dtype: vortex_dtype::dtype::DType, validity: vortex_array::validity::Validity) -> Self
+pub fn vortex_array::arrays::VarBinViewArray::new(views: vortex_buffer::buffer::Buffer<vortex_array::arrays::BinaryView>, buffers: alloc::sync::Arc<[vortex_buffer::ByteBuffer]>, dtype: vortex_dtype::dtype::DType, validity: vortex_array::validity::Validity) -> Self
 
 pub fn vortex_array::arrays::VarBinViewArray::new_handle(views: vortex_array::buffer::BufferHandle, buffers: alloc::sync::Arc<[vortex_array::buffer::BufferHandle]>, dtype: vortex_dtype::dtype::DType, validity: vortex_array::validity::Validity) -> Self
 
 pub unsafe fn vortex_array::arrays::VarBinViewArray::new_handle_unchecked(views: vortex_array::buffer::BufferHandle, buffers: alloc::sync::Arc<[vortex_array::buffer::BufferHandle]>, dtype: vortex_dtype::dtype::DType, validity: vortex_array::validity::Validity) -> Self
 
-pub unsafe fn vortex_array::arrays::VarBinViewArray::new_unchecked(views: vortex_buffer::buffer::Buffer<vortex_vector::binaryview::view::BinaryView>, buffers: alloc::sync::Arc<[vortex_buffer::ByteBuffer]>, dtype: vortex_dtype::dtype::DType, validity: vortex_array::validity::Validity) -> Self
+pub unsafe fn vortex_array::arrays::VarBinViewArray::new_unchecked(views: vortex_buffer::buffer::Buffer<vortex_array::arrays::BinaryView>, buffers: alloc::sync::Arc<[vortex_buffer::ByteBuffer]>, dtype: vortex_dtype::dtype::DType, validity: vortex_array::validity::Validity) -> Self
 
-pub fn vortex_array::arrays::VarBinViewArray::try_new(views: vortex_buffer::buffer::Buffer<vortex_vector::binaryview::view::BinaryView>, buffers: alloc::sync::Arc<[vortex_buffer::ByteBuffer]>, dtype: vortex_dtype::dtype::DType, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::arrays::VarBinViewArray::try_new(views: vortex_buffer::buffer::Buffer<vortex_array::arrays::BinaryView>, buffers: alloc::sync::Arc<[vortex_buffer::ByteBuffer]>, dtype: vortex_dtype::dtype::DType, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::VarBinViewArray::try_new_handle(views: vortex_array::buffer::BufferHandle, buffers: alloc::sync::Arc<[vortex_array::buffer::BufferHandle]>, dtype: vortex_dtype::dtype::DType, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_array::arrays::VarBinViewArray::validate(views: &vortex_buffer::buffer::Buffer<vortex_vector::binaryview::view::BinaryView>, buffers: &alloc::sync::Arc<[vortex_buffer::ByteBuffer]>, dtype: &vortex_dtype::dtype::DType, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::VarBinViewArray::validate(views: &vortex_buffer::buffer::Buffer<vortex_array::arrays::BinaryView>, buffers: &alloc::sync::Arc<[vortex_buffer::ByteBuffer]>, dtype: &vortex_dtype::dtype::DType, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::VarBinViewArray::views(&self) -> &[vortex_vector::binaryview::view::BinaryView]
+pub fn vortex_array::arrays::VarBinViewArray::views(&self) -> &[vortex_array::arrays::BinaryView]
 
 pub fn vortex_array::arrays::VarBinViewArray::views_handle(&self) -> &vortex_array::buffer::BufferHandle
 
@@ -3683,10 +3807,6 @@ pub fn vortex_array::arrays::VarBinViewArray::from_iter<T: core::iter::traits::c
 impl<'a> core::iter::traits::collect::FromIterator<core::option::Option<&'a str>> for vortex_array::arrays::VarBinViewArray
 
 pub fn vortex_array::arrays::VarBinViewArray::from_iter<T: core::iter::traits::collect::IntoIterator<Item = core::option::Option<&'a str>>>(iter: T) -> Self
-
-impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_array::vectors::VectorIntoArray<vortex_array::arrays::VarBinViewArray> for vortex_vector::binaryview::vector::BinaryViewVector<T>
-
-pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::VarBinViewArray
 
 pub struct vortex_array::arrays::VarBinViewArrayParts
 
@@ -4952,7 +5072,7 @@ pub fn vortex_array::builders::VarBinViewBuilder::finish_into_varbinview(&mut se
 
 pub fn vortex_array::builders::VarBinViewBuilder::new(dtype: vortex_dtype::dtype::DType, capacity: usize, completed: vortex_array::builders::CompletedBuffers, growth_strategy: vortex_array::builders::BufferGrowthStrategy, compaction_threshold: f64) -> Self
 
-pub fn vortex_array::builders::VarBinViewBuilder::push_buffer_and_adjusted_views(&mut self, buffers: &[vortex_buffer::ByteBuffer], views: &vortex_buffer::buffer::Buffer<vortex_vector::binaryview::view::BinaryView>, validity_mask: vortex_mask::Mask)
+pub fn vortex_array::builders::VarBinViewBuilder::push_buffer_and_adjusted_views(&mut self, buffers: &[vortex_buffer::ByteBuffer], views: &vortex_buffer::buffer::Buffer<vortex_array::arrays::BinaryView>, validity_mask: vortex_mask::Mask)
 
 pub fn vortex_array::builders::VarBinViewBuilder::with_buffer_deduplication(dtype: vortex_dtype::dtype::DType, capacity: usize) -> Self
 
@@ -10200,10 +10320,6 @@ impl vortex_array::patches::Patches
 
 pub unsafe fn vortex_array::patches::Patches::apply_to_buffer<P: vortex_dtype::ptype::NativePType>(&self, buffer: &mut [P], validity: &mut vortex_mask::mask_mut::MaskMut)
 
-pub fn vortex_array::patches::Patches::apply_to_primitive_vector(&self, vector: vortex_vector::primitive::vector_mut::PrimitiveVectorMut) -> vortex_vector::primitive::vector_mut::PrimitiveVectorMut
-
-pub fn vortex_array::patches::Patches::apply_to_pvector<T: vortex_dtype::ptype::NativePType>(&self, pvector: vortex_vector::primitive::generic_mut::PVectorMut<T>) -> vortex_vector::primitive::generic_mut::PVectorMut<T>
-
 pub fn vortex_array::patches::Patches::array_len(&self) -> usize
 
 pub fn vortex_array::patches::Patches::cast_values(self, values_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<Self>
@@ -10995,60 +11111,6 @@ pub fn vortex_array::variants::StructTyped<'_>::names(&self) -> &vortex_dtype::f
 pub fn vortex_array::variants::StructTyped<'_>::nfields(&self) -> usize
 
 pub struct vortex_array::variants::Utf8Typed<'a>(_)
-
-pub mod vortex_array::vectors
-
-pub trait vortex_array::vectors::VectorIntoArray<T>
-
-pub fn vortex_array::vectors::VectorIntoArray::into_array(self, dtype: &vortex_dtype::dtype::DType) -> T
-
-impl vortex_array::vectors::VectorIntoArray<alloc::sync::Arc<dyn vortex_array::Array>> for vortex_vector::vector::Vector
-
-pub fn vortex_vector::vector::Vector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::ArrayRef
-
-impl vortex_array::vectors::VectorIntoArray<vortex_array::Canonical> for vortex_vector::vector::Vector
-
-pub fn vortex_vector::vector::Vector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::Canonical
-
-impl vortex_array::vectors::VectorIntoArray<vortex_array::arrays::BoolArray> for vortex_vector::bool::vector::BoolVector
-
-pub fn vortex_vector::bool::vector::BoolVector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::BoolArray
-
-impl vortex_array::vectors::VectorIntoArray<vortex_array::arrays::DecimalArray> for vortex_vector::decimal::vector::DecimalVector
-
-pub fn vortex_vector::decimal::vector::DecimalVector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::DecimalArray
-
-impl vortex_array::vectors::VectorIntoArray<vortex_array::arrays::FixedSizeListArray> for vortex_vector::fixed_size_list::vector::FixedSizeListVector
-
-pub fn vortex_vector::fixed_size_list::vector::FixedSizeListVector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::FixedSizeListArray
-
-impl vortex_array::vectors::VectorIntoArray<vortex_array::arrays::ListViewArray> for vortex_vector::listview::vector::ListViewVector
-
-pub fn vortex_vector::listview::vector::ListViewVector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::ListViewArray
-
-impl vortex_array::vectors::VectorIntoArray<vortex_array::arrays::NullArray> for vortex_vector::null::vector::NullVector
-
-pub fn vortex_vector::null::vector::NullVector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::NullArray
-
-impl vortex_array::vectors::VectorIntoArray<vortex_array::arrays::PrimitiveArray> for vortex_vector::primitive::vector::PrimitiveVector
-
-pub fn vortex_vector::primitive::vector::PrimitiveVector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::PrimitiveArray
-
-impl vortex_array::vectors::VectorIntoArray<vortex_array::arrays::StructArray> for vortex_vector::struct_::vector::StructVector
-
-pub fn vortex_vector::struct_::vector::StructVector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::StructArray
-
-impl<D: vortex_dtype::decimal::types::NativeDecimalType> vortex_array::vectors::VectorIntoArray<vortex_array::arrays::DecimalArray> for vortex_vector::decimal::generic::DVector<D>
-
-pub fn vortex_vector::decimal::generic::DVector<D>::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::DecimalArray
-
-impl<T: vortex_dtype::ptype::NativePType> vortex_array::vectors::VectorIntoArray<vortex_array::arrays::PrimitiveArray> for vortex_vector::primitive::generic::PVector<T>
-
-pub fn vortex_vector::primitive::generic::PVector<T>::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::PrimitiveArray
-
-impl<T: vortex_vector::binaryview::types::BinaryViewType> vortex_array::vectors::VectorIntoArray<vortex_array::arrays::VarBinViewArray> for vortex_vector::binaryview::vector::BinaryViewVector<T>
-
-pub fn vortex_vector::binaryview::vector::BinaryViewVector<T>::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::arrays::VarBinViewArray
 
 pub mod vortex_array::vtable
 
@@ -12562,10 +12624,6 @@ pub fn vortex_array::Canonical::is_empty(&self) -> bool
 
 pub fn vortex_array::Canonical::len(&self) -> usize
 
-impl vortex_array::Canonical
-
-pub fn vortex_array::Canonical::to_vector(self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_vector::vector::Vector>
-
 impl core::clone::Clone for vortex_array::Canonical
 
 pub fn vortex_array::Canonical::clone(&self) -> vortex_array::Canonical
@@ -12593,10 +12651,6 @@ pub fn vortex_array::Canonical::execute(array: vortex_array::ArrayRef, ctx: &mut
 impl vortex_array::IntoArray for vortex_array::Canonical
 
 pub fn vortex_array::Canonical::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vectors::VectorIntoArray<vortex_array::Canonical> for vortex_vector::vector::Vector
-
-pub fn vortex_vector::vector::Vector::into_array(self, dtype: &vortex_dtype::dtype::DType) -> vortex_array::Canonical
 
 pub enum vortex_array::CanonicalView<'a>
 
@@ -13371,10 +13425,6 @@ pub fn vortex_array::arrays::VarBinViewArray::execute(array: vortex_array::Array
 impl vortex_array::Executable for vortex_mask::Mask
 
 pub fn vortex_mask::Mask::execute(array: vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
-
-impl vortex_array::Executable for vortex_vector::vector::Vector
-
-pub fn vortex_vector::vector::Vector::execute(array: vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 impl<T: vortex_dtype::ptype::NativePType> vortex_array::Executable for vortex_buffer::buffer::Buffer<T>
 

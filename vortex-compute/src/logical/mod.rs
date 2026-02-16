@@ -15,7 +15,6 @@
 
 mod binary;
 mod kleene;
-mod not;
 
 pub use binary::And;
 pub use binary::AndNot;
