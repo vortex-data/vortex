@@ -150,21 +150,17 @@ impl VTable for Mask {
 fn execute_constant(input: &ArrayRef, mask_array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
     let len = input.len();
 
-    // Constant mask: avoid materializing the bool array entirely.
     if let Some(constant_mask) = mask_array.as_opt::<ConstantVTable>() {
         let mask_value = constant_mask.scalar().as_bool().value().unwrap_or(false);
         return if mask_value {
-            // Mask is all true (keep everything), just cast input to nullable.
             input.cast(input.dtype().as_nullable()).map(Some)
         } else {
-            // Mask is all false (mask everything out), return all nulls.
             Ok(Some(
                 ConstantArray::new(Scalar::null(input.dtype().as_nullable()), len).into_array(),
             ))
         };
     }
 
-    // Constant null input: masking changes nothing, result is still all-null.
     if let Some(constant_input) = input.as_opt::<ConstantVTable>()
         && constant_input.scalar().is_null()
     {
