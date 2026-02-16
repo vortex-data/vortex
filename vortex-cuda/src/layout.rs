@@ -33,7 +33,9 @@ use vortex_array::normalize::Operation;
 use vortex_array::serde::ArrayParts;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::session::ArrayRegistry;
+use vortex_array::stats::StatsSetRef;
 use vortex_buffer::Alignment;
+use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
@@ -54,8 +56,6 @@ use vortex_layout::LayoutRef;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::VTable;
 use vortex_layout::layouts::SharedArrayFuture;
-use vortex_layout::layouts::zoned::lower_bound;
-use vortex_layout::layouts::zoned::upper_bound;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SegmentSinkRef;
 use vortex_layout::segments::SegmentSource;
@@ -63,6 +63,10 @@ use vortex_layout::sequence::SendableSequentialStream;
 use vortex_layout::sequence::SequencePointer;
 use vortex_layout::vtable;
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarTruncation;
+use vortex_scalar::lower_bound;
+use vortex_scalar::upper_bound;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -456,6 +460,22 @@ impl CudaFlatLayoutStrategy {
     }
 }
 
+fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
+    statistics: StatsSetRef<'_>,
+    stat: Stat,
+    truncation: F,
+) {
+    if let Some(sv) = statistics.get(stat) {
+        if let Some((truncated_value, truncated)) = truncation(sv.into_inner()) {
+            if truncated && let Some(v) = truncated_value.into_value() {
+                statistics.set(stat, Precision::Inexact(v));
+            }
+        } else {
+            statistics.clear(stat)
+        }
+    }
+}
+
 #[async_trait]
 impl LayoutStrategy for CudaFlatLayoutStrategy {
     async fn write_stream(
@@ -474,55 +494,42 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
         let (sequence_id, chunk) = chunk?;
         let row_count = chunk.len() as u64;
 
-        // Truncate variable-length statistics.
         match chunk.dtype() {
-            DType::Utf8(_) => {
-                if let Some(sv) = chunk.statistics().get(Stat::Min) {
-                    let (value, truncated) = lower_bound(
-                        sv.into_inner().as_utf8(),
-                        options.max_variable_length_statistics_size,
-                    );
-                    if truncated && let Some(v) = value.into_value() {
-                        chunk.statistics().set(Stat::Min, Precision::Inexact(v));
-                    }
-                }
-                if let Some(sv) = chunk.statistics().get(Stat::Max) {
-                    let (value, truncated) = upper_bound(
-                        sv.into_inner().as_utf8(),
-                        options.max_variable_length_statistics_size,
-                    );
-                    if let Some(upper_bound) = value {
-                        if truncated && let Some(v) = upper_bound.into_value() {
-                            chunk.statistics().set(Stat::Max, Precision::Inexact(v));
-                        }
-                    } else {
-                        chunk.statistics().clear(Stat::Max)
-                    }
-                }
+            DType::Utf8(n) => {
+                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
+                    lower_bound(
+                        BufferString::from_scalar(v)
+                            .vortex_expect("utf8 scalar must be a BufferString"),
+                        self.max_variable_length_statistics_size,
+                        *n,
+                    )
+                });
+                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
+                    upper_bound(
+                        BufferString::from_scalar(v)
+                            .vortex_expect("utf8 scalar must be a BufferString"),
+                        self.max_variable_length_statistics_size,
+                        *n,
+                    )
+                });
             }
-            DType::Binary(_) => {
-                if let Some(sv) = chunk.statistics().get(Stat::Min) {
-                    let (value, truncated) = lower_bound(
-                        sv.into_inner().as_binary(),
-                        options.max_variable_length_statistics_size,
-                    );
-                    if truncated && let Some(v) = value.into_value() {
-                        chunk.statistics().set(Stat::Min, Precision::Inexact(v));
-                    }
-                }
-                if let Some(sv) = chunk.statistics().get(Stat::Max) {
-                    let (value, truncated) = upper_bound(
-                        sv.into_inner().as_binary(),
-                        options.max_variable_length_statistics_size,
-                    );
-                    if let Some(upper_bound) = value {
-                        if truncated && let Some(v) = upper_bound.into_value() {
-                            chunk.statistics().set(Stat::Max, Precision::Inexact(v));
-                        }
-                    } else {
-                        chunk.statistics().clear(Stat::Max)
-                    }
-                }
+            DType::Binary(n) => {
+                truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
+                    lower_bound(
+                        ByteBuffer::from_scalar(v)
+                            .vortex_expect("binary scalar must be a ByteBuffer"),
+                        self.max_variable_length_statistics_size,
+                        *n,
+                    )
+                });
+                truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
+                    upper_bound(
+                        ByteBuffer::from_scalar(v)
+                            .vortex_expect("binary scalar must be a ByteBuffer"),
+                        self.max_variable_length_statistics_size,
+                        *n,
+                    )
+                });
             }
             _ => {}
         }
