@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod cast;
+mod compare;
 mod filter;
 
 use vortex_array::Array;

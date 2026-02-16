@@ -30,6 +30,9 @@ mod boolean;
 pub(crate) use boolean::*;
 mod compare;
 pub(crate) use compare::*;
+mod kernel;
+pub use kernel::CompareExecuteAdaptor;
+pub use kernel::CompareKernel;
 mod numeric;
 pub(crate) use numeric::*;
 

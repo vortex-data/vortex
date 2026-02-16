@@ -3,6 +3,7 @@
 
 mod between;
 mod cast;
+mod compare;
 mod filter;
 mod mask;
 mod nan_count;
