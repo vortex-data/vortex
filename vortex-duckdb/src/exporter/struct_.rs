@@ -5,13 +5,11 @@ use std::ops::Not;
 
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
+use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::StructArrayParts;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::error::VortexResult;
-use vortex::mask::Mask;
-use vortex_array::ArrayRef;
-use vortex_array::arrays::BoolArray;
 
 use crate::LogicalType;
 use crate::duckdb::Vector;
