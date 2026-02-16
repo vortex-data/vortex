@@ -3,49 +3,19 @@
 
 #![allow(unused_imports)]
 
-use std::env::args;
-use std::path::Path;
-use std::path::PathBuf;
-use std::sync::Arc;
-
-use futures::StreamExt;
-use tracing::Instrument;
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::fmt::format::FmtSpan;
-use vortex::VortexSessionDefault;
-use vortex::array::ToCanonical;
-use vortex::array::arrays::DictVTable;
-use vortex::buffer::ByteBuffer;
-use vortex::buffer::ByteBufferMut;
-use vortex::compressor::BtrBlocksCompressorBuilder;
-use vortex::compressor::FloatCode;
-use vortex::compressor::IntCode;
-use vortex::compressor::StringCode;
-use vortex::error::VortexResult;
-use vortex::file::Footer;
-use vortex::file::OpenOptionsSessionExt;
-use vortex::file::WriteOptionsSessionExt;
-use vortex::file::WriteStrategyBuilder;
-use vortex::session::VortexSession;
-#[cfg(feature = "cuda")]
+#[cuda_available]
 use vortex_cuda::CopyDeviceReadAt;
-#[cfg(feature = "cuda")]
+#[cuda_available]
 use vortex_cuda::CudaSession;
-#[cfg(feature = "cuda")]
+#[cuda_available]
 use vortex_cuda::TracingLaunchStrategy;
-#[cfg(feature = "cuda")]
+#[cuda_available]
 use vortex_cuda::VortexCudaStreamPool;
-#[cfg(feature = "cuda")]
+#[cuda_available]
 use vortex_cuda::executor::CudaArrayExt;
+use vortex_cuda_macros::cuda_available;
 
-#[cfg(not(feature = "cuda"))]
-#[allow(clippy::exit)]
-fn main() {
-    eprintln!("this CLI requires being built with the `cuda` feature enabled");
-    std::process::exit(1);
-}
-
-#[cfg(feature = "cuda")]
+#[cuda_available]
 #[tokio::main]
 async fn main() -> VortexResult<()> {
     let args: Vec<String> = args().collect();
@@ -135,7 +105,7 @@ async fn main() -> VortexResult<()> {
 
 /// Recompress the input file using only GPU-executable encodings, returning the file as an
 /// in-memory byte array.
-#[cfg(feature = "cuda")]
+#[cuda_available]
 async fn recompress_for_gpu(
     input_path: impl AsRef<Path>,
     session: &VortexSession,

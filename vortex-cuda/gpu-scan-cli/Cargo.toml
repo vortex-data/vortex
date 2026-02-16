@@ -15,9 +15,6 @@ version = { workspace = true }
 [lints]
 workspace = true
 
-[features]
-cuda = ["dep:vortex-cuda"]
-
 [dependencies]
 futures = { workspace = true, features = ["executor"] }
 tokio = { workspace = true, features = ["macros", "full"] }
@@ -27,4 +24,5 @@ vortex = { workspace = true }
 vortex-cuda = { workspace = true, features = [
     "_test-harness",
     "tracing",
-], optional = true }
+] }
+vortex-cuda-macros = { workspace = true }

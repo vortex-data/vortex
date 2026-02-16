@@ -261,7 +261,9 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
     #[cfg(feature = "tracing")]
     {
         let before = stream
-            .record_event(Some(cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT))
+            .record_event(Some(
+                cudarc::driver::sys::CUevent_flags::CU_EVENT_BLOCKING_SYNC,
+            ))
             .map_err(|e| vortex_err!("recording event: {e}"))?;
         unsafe {
             nvcomp_zstd::decompress_async(
@@ -280,7 +282,9 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
         }
 
         let after = stream
-            .record_event(Some(cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT))
+            .record_event(Some(
+                cudarc::driver::sys::CUevent_flags::CU_EVENT_BLOCKING_SYNC,
+            ))
             .map_err(|e| vortex_err!("recording event: {e}"))?;
 
         // measure timing. note: this forces a sync
