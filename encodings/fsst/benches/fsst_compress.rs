@@ -10,6 +10,8 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
@@ -87,9 +89,18 @@ fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (us
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
 
     bencher
-        .with_inputs(|| (&fsst_array, &constant))
-        .bench_refs(|(fsst_array, constant)| {
-            compare(fsst_array.as_ref(), constant.as_ref(), Operator::Eq).unwrap();
+        .with_inputs(|| {
+            (
+                &fsst_array,
+                &constant,
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(fsst_array, constant, mut ctx)| {
+            compare(fsst_array.as_ref(), constant.as_ref(), Operator::Eq)
+                .unwrap()
+                .execute::<RecursiveCanonical>(&mut ctx)
+                .unwrap();
         })
 }
 
@@ -104,14 +115,22 @@ fn canonicalize_compare(
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
 
     bencher
-        .with_inputs(|| (&fsst_array, &constant))
-        .bench_refs(|(fsst_array, constant)| {
+        .with_inputs(|| {
+            (
+                &fsst_array,
+                &constant,
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(fsst_array, constant, mut ctx)| {
             compare(
                 fsst_array.to_canonical().unwrap().as_ref(),
                 constant.as_ref(),
                 Operator::Eq,
             )
             .unwrap()
+            .execute::<RecursiveCanonical>(&mut ctx)
+            .unwrap();
         });
 }
 
