@@ -96,6 +96,7 @@ impl TableProvider for VortexTable {
             .with_arrow_schema(self.arrow_schema.clone())
             .with_some_projection(projection.cloned())
             .build()
+            .await
             .map_err(|e| DataFusionError::External(Box::new(e)))?;
         Ok(DataSourceExec::from_data_source(data_source))
     }

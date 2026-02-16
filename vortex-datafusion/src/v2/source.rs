@@ -91,7 +91,15 @@ impl VortexDataSourceBuilder {
     }
 
     /// Build the [`VortexDataSource`].
-    pub fn build(self) -> VortexResult<VortexDataSource> {
+    ///
+    /// FIXME(ngates): Note that due to the DataFusion API, this function eagerly resolves
+    ///   statistics for all projected columns. That said.. we only need to do this for aggregation
+    ///   reductions. Any stats used for pruning are handled internally. We could possibly look
+    ///   at the plan ourselves and decide whether there is any need for the stats?
+    pub async fn build(self) -> VortexResult<VortexDataSource> {
+        // The projection expression
+        let mut projection = root();
+
         // Resolve the Arrow schema
         let mut arrow_schema = match self.arrow_schema {
             Some(schema) => schema,
@@ -104,34 +112,38 @@ impl VortexDataSourceBuilder {
             }
         };
 
+        let mut column_statistics =
+            vec![ColumnStatistics::new_unknown(); arrow_schema.fields.len()];
+
         // Apply any selection and create a projection expression.
-        let projection = match self.projection {
-            Some(indices) => {
-                let fields = indices.iter().map(|&i| {
-                    let name = arrow_schema.field(i).name().clone();
-                    let expr = get_item(name.as_str(), root());
-                    (name, expr)
-                });
-                let projection = pack(fields, Nullability::NonNullable);
+        if let Some(indices) = self.projection {
+            let fields = indices.iter().map(|&i| {
+                let name = arrow_schema.field(i).name().clone();
+                let expr = get_item(name.as_str(), root());
+                (name, expr)
+            });
 
-                // Update the arrow schema
-                arrow_schema = Arc::new(Schema::new(
-                    indices
-                        .iter()
-                        .map(|&i| arrow_schema.field(i).clone())
-                        .collect::<Vec<_>>(),
-                ));
+            // Update the projection expression
+            projection = pack(fields, Nullability::NonNullable);
 
-                projection
-            }
-            None => root(),
-        };
+            // Update the arrow schema
+            arrow_schema = Arc::new(Schema::new(
+                indices
+                    .iter()
+                    .map(|&i| arrow_schema.field(i).clone())
+                    .collect::<Vec<_>>(),
+            ));
+
+            // Update the column statistics.
+            column_statistics = column_statistics.into_iter().take(indices.len()).collect();
+        }
 
         Ok(VortexDataSource {
             data_source: self.data_source,
             session: self.session,
             initial_schema: arrow_schema.clone(),
             initial_projection: projection.clone(),
+            initial_column_stats: column_statistics,
             final_projection: projection,
             final_schema: arrow_schema,
             filter: None,
@@ -170,6 +182,7 @@ pub struct VortexDataSource {
     /// The initial Arrow schema of the scan.
     initial_schema: SchemaRef,
     initial_projection: Expression,
+    initial_column_stats: Vec<ColumnStatistics>,
 
     /// The projection expression pushed down by [`DataSource::try_swapping_with_projection`]
     /// This projection has already been evaluated against the initial_projection.
@@ -294,13 +307,17 @@ impl DataSource for VortexDataSource {
     }
 
     fn partition_statistics(&self, _partition: Option<usize>) -> DFResult<Statistics> {
+        // FIXME(ngates): this should be adjusted based on filters. See DuckDB for heuristics,
+        //  and in the future, store the selectivity stats in the session.
         let num_rows = estimate_to_df_precision(&self.data_source.row_count_estimate());
+
+        // FIXME(ngates): byte size should be adjusted for the initial projection...
         let total_byte_size = estimate_to_df_precision(&self.data_source.byte_size_estimate());
 
-        // FIXME(ngates): we do actually need to compute statistics here... although it forces us
-        //  to open all the files?
-        let column_statistics =
-            vec![ColumnStatistics::new_unknown(); self.final_schema.fields().len()];
+        // FIXME(ngates): are column statistics after the projection expression? Or before?
+        // let column_statistics =
+        //     vec![ColumnStatistics::new_unknown(); self.final_schema.fields().len()];
+        let column_statistics = self.initial_column_stats.clone();
 
         Ok(Statistics {
             num_rows,
