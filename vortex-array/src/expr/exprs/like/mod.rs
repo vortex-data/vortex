@@ -143,12 +143,6 @@ impl VTable for Like {
             .try_into()
             .map_err(|_| vortex_err!("Wrong argument count"))?;
 
-        if !child.is_canonical() || !pattern.is_canonical() {
-            let child = child.execute::<ArrayRef>(args.ctx)?;
-            let pattern = pattern.execute::<ArrayRef>(args.ctx)?;
-            return arrow_like(&child, &pattern, *options);
-        }
-
         arrow_like(&child, &pattern, *options)
     }
 
