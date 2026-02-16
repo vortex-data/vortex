@@ -14,7 +14,6 @@ use crate::arrays::ConstantVTable;
 use crate::arrays::ScalarFnArray;
 use crate::compute::CastReduceAdaptor;
 use crate::expr::FillNullReduceAdaptor;
-use crate::expr::MaskReduceAdaptor;
 use crate::expr::ZipReduceAdaptor;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -25,7 +24,6 @@ pub(crate) const PARENT_RULES: ParentRuleSet<ChunkedVTable> = ParentRuleSet::new
     ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule),
     ParentRuleSet::lift(&ChunkedConstantScalarFnPushDownRule),
     ParentRuleSet::lift(&FillNullReduceAdaptor(ChunkedVTable)),
-    ParentRuleSet::lift(&MaskReduceAdaptor(ChunkedVTable)),
     ParentRuleSet::lift(&ZipReduceAdaptor(ChunkedVTable)),
 ]);
 

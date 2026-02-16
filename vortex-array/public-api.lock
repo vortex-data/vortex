@@ -128,6 +128,10 @@ impl vortex_array::expr::LikeReduce for vortex_array::arrays::DictVTable
 
 pub fn vortex_array::arrays::DictVTable::like(array: &vortex_array::arrays::DictArray, pattern: &dyn vortex_array::Array, options: vortex_array::expr::LikeOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::DictVTable
+
+pub fn vortex_array::arrays::DictVTable::mask(array: &vortex_array::arrays::DictArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::DictVTable> for vortex_array::arrays::DictVTable
 
 pub fn vortex_array::arrays::DictVTable::array_eq(array: &vortex_array::arrays::DictArray, other: &vortex_array::arrays::DictArray, precision: vortex_array::Precision) -> bool
@@ -356,10 +360,6 @@ pub fn vortex_array::arrays::BoolVTable::is_sorted(&self, array: &vortex_array::
 
 pub fn vortex_array::arrays::BoolVTable::is_strict_sorted(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::BoolVTable
-
-pub fn vortex_array::arrays::BoolVTable::mask(&self, array: &vortex_array::arrays::BoolArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::BoolVTable
 
 pub fn vortex_array::arrays::BoolVTable::min_max(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
@@ -375,6 +375,10 @@ pub fn vortex_array::arrays::BoolVTable::cast(array: &vortex_array::arrays::Bool
 impl vortex_array::expr::FillNullKernel for vortex_array::arrays::BoolVTable
 
 pub fn vortex_array::arrays::BoolVTable::fill_null(array: &vortex_array::arrays::BoolArray, fill_value: &vortex_scalar::scalar::Scalar, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::BoolVTable
+
+pub fn vortex_array::arrays::BoolVTable::mask(array: &vortex_array::arrays::BoolArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::BoolVTable> for vortex_array::arrays::BoolMaskedValidityRule
 
@@ -534,10 +538,6 @@ pub fn vortex_array::arrays::ChunkedVTable::is_sorted(&self, array: &vortex_arra
 
 pub fn vortex_array::arrays::ChunkedVTable::is_strict_sorted(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::ChunkedVTable
-
-pub fn vortex_array::arrays::ChunkedVTable::mask(&self, array: &vortex_array::arrays::ChunkedArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ChunkedVTable
 
 pub fn vortex_array::arrays::ChunkedVTable::min_max(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
@@ -553,6 +553,10 @@ pub fn vortex_array::arrays::ChunkedVTable::cast(array: &vortex_array::arrays::C
 impl vortex_array::expr::FillNullReduce for vortex_array::arrays::ChunkedVTable
 
 pub fn vortex_array::arrays::ChunkedVTable::fill_null(array: &vortex_array::arrays::ChunkedArray, fill_value: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskKernel for vortex_array::arrays::ChunkedVTable
+
+pub fn vortex_array::arrays::ChunkedVTable::mask(array: &vortex_array::arrays::ChunkedArray, mask: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::expr::ZipReduce for vortex_array::arrays::ChunkedVTable
 
@@ -694,10 +698,6 @@ impl vortex_array::compute::CompareKernel for vortex_array::arrays::ConstantVTab
 
 pub fn vortex_array::arrays::ConstantVTable::compare(&self, lhs: &vortex_array::arrays::ConstantArray, rhs: &dyn vortex_array::Array, operator: vortex_array::compute::Operator) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::ConstantVTable
-
-pub fn vortex_array::arrays::ConstantVTable::mask(&self, array: &vortex_array::arrays::ConstantArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ConstantVTable
 
 pub fn vortex_array::arrays::ConstantVTable::min_max(&self, array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
@@ -713,6 +713,10 @@ pub fn vortex_array::arrays::ConstantVTable::cast(array: &vortex_array::arrays::
 impl vortex_array::expr::FillNullReduce for vortex_array::arrays::ConstantVTable
 
 pub fn vortex_array::arrays::ConstantVTable::fill_null(array: &vortex_array::arrays::ConstantArray, fill_value: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::ConstantVTable
+
+pub fn vortex_array::arrays::ConstantVTable::mask(array: &vortex_array::arrays::ConstantArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::expr::NotReduce for vortex_array::arrays::ConstantVTable
 
@@ -934,6 +938,10 @@ impl vortex_array::expr::FillNullKernel for vortex_array::arrays::DecimalVTable
 
 pub fn vortex_array::arrays::DecimalVTable::fill_null(array: &vortex_array::arrays::DecimalArray, fill_value: &vortex_scalar::scalar::Scalar, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::DecimalVTable
+
+pub fn vortex_array::arrays::DecimalVTable::mask(array: &vortex_array::arrays::DecimalArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::DecimalVTable> for vortex_array::arrays::DecimalMaskedValidityRule
 
 pub type vortex_array::arrays::DecimalMaskedValidityRule::Parent = vortex_array::arrays::MaskedVTable
@@ -1144,6 +1152,10 @@ impl vortex_array::expr::LikeReduce for vortex_array::arrays::DictVTable
 
 pub fn vortex_array::arrays::DictVTable::like(array: &vortex_array::arrays::DictArray, pattern: &dyn vortex_array::Array, options: vortex_array::expr::LikeOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::DictVTable
+
+pub fn vortex_array::arrays::DictVTable::mask(array: &vortex_array::arrays::DictArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::DictVTable> for vortex_array::arrays::DictVTable
 
 pub fn vortex_array::arrays::DictVTable::array_eq(array: &vortex_array::arrays::DictArray, other: &vortex_array::arrays::DictArray, precision: vortex_array::Precision) -> bool
@@ -1318,10 +1330,6 @@ pub fn vortex_array::arrays::ExtensionVTable::is_sorted(&self, array: &vortex_ar
 
 pub fn vortex_array::arrays::ExtensionVTable::is_strict_sorted(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::ExtensionVTable
-
-pub fn vortex_array::arrays::ExtensionVTable::mask(&self, array: &vortex_array::arrays::ExtensionArray, mask_array: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ExtensionVTable
 
 pub fn vortex_array::arrays::ExtensionVTable::min_max(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
@@ -1333,6 +1341,10 @@ pub fn vortex_array::arrays::ExtensionVTable::sum(&self, array: &vortex_array::a
 impl vortex_array::expr::CastReduce for vortex_array::arrays::ExtensionVTable
 
 pub fn vortex_array::arrays::ExtensionVTable::cast(array: &vortex_array::arrays::ExtensionArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::ExtensionVTable
+
+pub fn vortex_array::arrays::ExtensionVTable::mask(array: &vortex_array::arrays::ExtensionArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::ExtensionVTable> for vortex_array::arrays::ExtensionVTable
 
@@ -1634,10 +1646,6 @@ pub fn vortex_array::arrays::FixedSizeListVTable::is_sorted(&self, _array: &vort
 
 pub fn vortex_array::arrays::FixedSizeListVTable::is_strict_sorted(&self, _array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::FixedSizeListVTable
-
-pub fn vortex_array::arrays::FixedSizeListVTable::mask(&self, array: &vortex_array::arrays::FixedSizeListArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::FixedSizeListVTable
 
 pub fn vortex_array::arrays::FixedSizeListVTable::min_max(&self, _array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
@@ -1645,6 +1653,10 @@ pub fn vortex_array::arrays::FixedSizeListVTable::min_max(&self, _array: &vortex
 impl vortex_array::expr::CastReduce for vortex_array::arrays::FixedSizeListVTable
 
 pub fn vortex_array::arrays::FixedSizeListVTable::cast(array: &vortex_array::arrays::FixedSizeListArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::FixedSizeListVTable
+
+pub fn vortex_array::arrays::FixedSizeListVTable::mask(array: &vortex_array::arrays::FixedSizeListArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::FixedSizeListVTable> for vortex_array::arrays::FixedSizeListVTable
 
@@ -1806,10 +1818,6 @@ pub fn vortex_array::arrays::ListVTable::is_sorted(&self, _array: &vortex_array:
 
 pub fn vortex_array::arrays::ListVTable::is_strict_sorted(&self, _array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::ListVTable
-
-pub fn vortex_array::arrays::ListVTable::mask(&self, array: &vortex_array::arrays::ListArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ListVTable
 
 pub fn vortex_array::arrays::ListVTable::min_max(&self, _array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
@@ -1817,6 +1825,10 @@ pub fn vortex_array::arrays::ListVTable::min_max(&self, _array: &vortex_array::a
 impl vortex_array::expr::CastReduce for vortex_array::arrays::ListVTable
 
 pub fn vortex_array::arrays::ListVTable::cast(array: &vortex_array::arrays::ListArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::ListVTable
+
+pub fn vortex_array::arrays::ListVTable::mask(array: &vortex_array::arrays::ListArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::ListVTable> for vortex_array::arrays::ListVTable
 
@@ -1992,10 +2004,6 @@ pub fn vortex_array::arrays::ListViewVTable::is_sorted(&self, _array: &vortex_ar
 
 pub fn vortex_array::arrays::ListViewVTable::is_strict_sorted(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::ListViewVTable
-
-pub fn vortex_array::arrays::ListViewVTable::mask(&self, array: &vortex_array::arrays::ListViewArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ListViewVTable
 
 pub fn vortex_array::arrays::ListViewVTable::min_max(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
@@ -2003,6 +2011,10 @@ pub fn vortex_array::arrays::ListViewVTable::min_max(&self, _array: &vortex_arra
 impl vortex_array::expr::CastReduce for vortex_array::arrays::ListViewVTable
 
 pub fn vortex_array::arrays::ListViewVTable::cast(array: &vortex_array::arrays::ListViewArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::ListViewVTable
+
+pub fn vortex_array::arrays::ListViewVTable::mask(array: &vortex_array::arrays::ListViewArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::ListViewVTable> for vortex_array::arrays::ListViewVTable
 
@@ -2128,9 +2140,9 @@ impl vortex_array::compute::CompareKernel for vortex_array::arrays::MaskedVTable
 
 pub fn vortex_array::arrays::MaskedVTable::compare(&self, lhs: &vortex_array::arrays::MaskedArray, rhs: &dyn vortex_array::Array, operator: vortex_array::compute::Operator) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::MaskedVTable
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::MaskedVTable
 
-pub fn vortex_array::arrays::MaskedVTable::mask(&self, array: &vortex_array::arrays::MaskedArray, mask_arg: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::MaskedVTable::mask(array: &vortex_array::arrays::MaskedArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::MaskedVTable> for vortex_array::arrays::MaskedVTable
 
@@ -2322,10 +2334,6 @@ impl vortex_array::arrays::TakeReduce for vortex_array::arrays::NullVTable
 
 pub fn vortex_array::arrays::NullVTable::take(array: &vortex_array::arrays::NullArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::NullVTable
-
-pub fn vortex_array::arrays::NullVTable::mask(&self, array: &vortex_array::arrays::NullArray, _mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::NullVTable
 
 pub fn vortex_array::arrays::NullVTable::min_max(&self, _array: &vortex_array::arrays::NullArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
@@ -2333,6 +2341,10 @@ pub fn vortex_array::arrays::NullVTable::min_max(&self, _array: &vortex_array::a
 impl vortex_array::expr::CastReduce for vortex_array::arrays::NullVTable
 
 pub fn vortex_array::arrays::NullVTable::cast(array: &vortex_array::arrays::NullArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::NullVTable
+
+pub fn vortex_array::arrays::NullVTable::mask(array: &vortex_array::arrays::NullArray, _mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::NullVTable> for vortex_array::arrays::NullVTable
 
@@ -2566,10 +2578,6 @@ pub fn vortex_array::arrays::PrimitiveVTable::is_sorted(&self, array: &vortex_ar
 
 pub fn vortex_array::arrays::PrimitiveVTable::is_strict_sorted(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::PrimitiveVTable
-
-pub fn vortex_array::arrays::PrimitiveVTable::mask(&self, array: &vortex_array::arrays::PrimitiveArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::PrimitiveVTable
 
 pub fn vortex_array::arrays::PrimitiveVTable::min_max(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
@@ -2589,6 +2597,10 @@ pub fn vortex_array::arrays::PrimitiveVTable::cast(array: &vortex_array::arrays:
 impl vortex_array::expr::FillNullKernel for vortex_array::arrays::PrimitiveVTable
 
 pub fn vortex_array::arrays::PrimitiveVTable::fill_null(array: &vortex_array::arrays::PrimitiveArray, fill_value: &vortex_scalar::scalar::Scalar, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::PrimitiveVTable
+
+pub fn vortex_array::arrays::PrimitiveVTable::mask(array: &vortex_array::arrays::PrimitiveArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::PrimitiveVTable> for vortex_array::arrays::PrimitiveMaskedValidityRule
 
@@ -3172,10 +3184,6 @@ impl vortex_array::compute::IsConstantKernel for vortex_array::arrays::StructVTa
 
 pub fn vortex_array::arrays::StructVTable::is_constant(&self, array: &vortex_array::arrays::StructArray, opts: &vortex_array::compute::IsConstantOpts) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::StructVTable
-
-pub fn vortex_array::arrays::StructVTable::mask(&self, array: &vortex_array::arrays::StructArray, filter_mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::StructVTable
 
 pub fn vortex_array::arrays::StructVTable::min_max(&self, _array: &vortex_array::arrays::StructArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
@@ -3183,6 +3191,10 @@ pub fn vortex_array::arrays::StructVTable::min_max(&self, _array: &vortex_array:
 impl vortex_array::expr::CastKernel for vortex_array::arrays::StructVTable
 
 pub fn vortex_array::arrays::StructVTable::cast(array: &vortex_array::arrays::StructArray, dtype: &vortex_dtype::dtype::DType, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::StructVTable
+
+pub fn vortex_array::arrays::StructVTable::mask(array: &vortex_array::arrays::StructArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::expr::ZipKernel for vortex_array::arrays::StructVTable
 
@@ -3506,10 +3518,6 @@ pub fn vortex_array::arrays::VarBinVTable::is_sorted(&self, array: &vortex_array
 
 pub fn vortex_array::arrays::VarBinVTable::is_strict_sorted(&self, array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::VarBinVTable
-
-pub fn vortex_array::arrays::VarBinVTable::mask(&self, array: &vortex_array::arrays::VarBinArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::VarBinVTable
 
 pub fn vortex_array::arrays::VarBinVTable::min_max(&self, array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
@@ -3517,6 +3525,10 @@ pub fn vortex_array::arrays::VarBinVTable::min_max(&self, array: &vortex_array::
 impl vortex_array::expr::CastReduce for vortex_array::arrays::VarBinVTable
 
 pub fn vortex_array::arrays::VarBinVTable::cast(array: &vortex_array::arrays::VarBinArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::VarBinVTable
+
+pub fn vortex_array::arrays::VarBinVTable::mask(array: &vortex_array::arrays::VarBinArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::VarBinVTable> for vortex_array::arrays::VarBinVTable
 
@@ -3726,10 +3738,6 @@ pub fn vortex_array::arrays::VarBinViewVTable::is_sorted(&self, array: &vortex_a
 
 pub fn vortex_array::arrays::VarBinViewVTable::is_strict_sorted(&self, array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::VarBinViewVTable
-
-pub fn vortex_array::arrays::VarBinViewVTable::mask(&self, array: &vortex_array::arrays::VarBinViewArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::VarBinViewVTable
 
 pub fn vortex_array::arrays::VarBinViewVTable::min_max(&self, array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
@@ -3737,6 +3745,10 @@ pub fn vortex_array::arrays::VarBinViewVTable::min_max(&self, array: &vortex_arr
 impl vortex_array::expr::CastReduce for vortex_array::arrays::VarBinViewVTable
 
 pub fn vortex_array::arrays::VarBinViewVTable::cast(array: &vortex_array::arrays::VarBinViewArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::VarBinViewVTable
+
+pub fn vortex_array::arrays::VarBinViewVTable::mask(array: &vortex_array::arrays::VarBinViewArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::expr::ZipKernel for vortex_array::arrays::VarBinViewVTable
 
@@ -5878,23 +5890,37 @@ pub struct vortex_array::compute::ListContainsKernelRef(_)
 
 impl inventory::Collect for vortex_array::compute::ListContainsKernelRef
 
-pub struct vortex_array::compute::MaskKernelAdapter<V: vortex_array::vtable::VTable>(pub V)
+pub struct vortex_array::compute::MaskExecuteAdaptor<V>(pub V)
 
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::MaskKernel> vortex_array::compute::MaskKernelAdapter<V>
+impl<V: core::default::Default> core::default::Default for vortex_array::expr::MaskExecuteAdaptor<V>
 
-pub const fn vortex_array::compute::MaskKernelAdapter<V>::lift(&'static self) -> vortex_array::compute::MaskKernelRef
+pub fn vortex_array::expr::MaskExecuteAdaptor<V>::default() -> vortex_array::expr::MaskExecuteAdaptor<V>
 
-impl<V: core::fmt::Debug + vortex_array::vtable::VTable> core::fmt::Debug for vortex_array::compute::MaskKernelAdapter<V>
+impl<V: core::fmt::Debug> core::fmt::Debug for vortex_array::expr::MaskExecuteAdaptor<V>
 
-pub fn vortex_array::compute::MaskKernelAdapter<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::expr::MaskExecuteAdaptor<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::MaskKernel> vortex_array::compute::Kernel for vortex_array::compute::MaskKernelAdapter<V>
+impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::MaskExecuteAdaptor<V> where V: vortex_array::expr::MaskKernel
 
-pub fn vortex_array::compute::MaskKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
+pub type vortex_array::expr::MaskExecuteAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Mask>
 
-pub struct vortex_array::compute::MaskKernelRef(_)
+pub fn vortex_array::expr::MaskExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::Mask>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl inventory::Collect for vortex_array::compute::MaskKernelRef
+pub struct vortex_array::compute::MaskReduceAdaptor<V>(pub V)
+
+impl<V: core::default::Default> core::default::Default for vortex_array::expr::MaskReduceAdaptor<V>
+
+pub fn vortex_array::expr::MaskReduceAdaptor<V>::default() -> vortex_array::expr::MaskReduceAdaptor<V>
+
+impl<V: core::fmt::Debug> core::fmt::Debug for vortex_array::expr::MaskReduceAdaptor<V>
+
+pub fn vortex_array::expr::MaskReduceAdaptor<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::expr::MaskReduceAdaptor<V> where V: vortex_array::expr::MaskReduce
+
+pub type vortex_array::expr::MaskReduceAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Mask>
+
+pub fn vortex_array::expr::MaskReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::Mask>, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub struct vortex_array::compute::MinMax
 
@@ -6364,10 +6390,6 @@ impl<V: vortex_array::vtable::VTable + vortex_array::compute::ListContainsKernel
 
 pub fn vortex_array::compute::ListContainsKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
 
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::MaskKernel> vortex_array::compute::Kernel for vortex_array::compute::MaskKernelAdapter<V>
-
-pub fn vortex_array::compute::MaskKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-
 impl<V: vortex_array::vtable::VTable + vortex_array::compute::MinMaxKernel> vortex_array::compute::Kernel for vortex_array::compute::MinMaxKernelAdapter<V>
 
 pub fn vortex_array::compute::MinMaxKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
@@ -6386,59 +6408,71 @@ pub fn vortex_array::compute::ListContainsKernel::list_contains(&self, list: &dy
 
 pub trait vortex_array::compute::MaskKernel: vortex_array::vtable::VTable
 
-pub fn vortex_array::compute::MaskKernel::mask(&self, array: &Self::Array, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::compute::MaskKernel::mask(array: &Self::Array, mask: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::BoolVTable
+impl vortex_array::expr::MaskKernel for vortex_array::arrays::ChunkedVTable
 
-pub fn vortex_array::arrays::BoolVTable::mask(&self, array: &vortex_array::arrays::BoolArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ChunkedVTable::mask(array: &vortex_array::arrays::ChunkedArray, mask: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::ChunkedVTable
+pub trait vortex_array::compute::MaskReduce: vortex_array::vtable::VTable
 
-pub fn vortex_array::arrays::ChunkedVTable::mask(&self, array: &vortex_array::arrays::ChunkedArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::compute::MaskReduce::mask(array: &Self::Array, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::ConstantVTable
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::BoolVTable
 
-pub fn vortex_array::arrays::ConstantVTable::mask(&self, array: &vortex_array::arrays::ConstantArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::BoolVTable::mask(array: &vortex_array::arrays::BoolArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::ExtensionVTable
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::ConstantVTable
 
-pub fn vortex_array::arrays::ExtensionVTable::mask(&self, array: &vortex_array::arrays::ExtensionArray, mask_array: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ConstantVTable::mask(array: &vortex_array::arrays::ConstantArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::FixedSizeListVTable
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::DecimalVTable
 
-pub fn vortex_array::arrays::FixedSizeListVTable::mask(&self, array: &vortex_array::arrays::FixedSizeListArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::DecimalVTable::mask(array: &vortex_array::arrays::DecimalArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::ListVTable
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::DictVTable
 
-pub fn vortex_array::arrays::ListVTable::mask(&self, array: &vortex_array::arrays::ListArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::DictVTable::mask(array: &vortex_array::arrays::DictArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::ListViewVTable
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::ExtensionVTable
 
-pub fn vortex_array::arrays::ListViewVTable::mask(&self, array: &vortex_array::arrays::ListViewArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ExtensionVTable::mask(array: &vortex_array::arrays::ExtensionArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::MaskedVTable
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::FixedSizeListVTable
 
-pub fn vortex_array::arrays::MaskedVTable::mask(&self, array: &vortex_array::arrays::MaskedArray, mask_arg: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::FixedSizeListVTable::mask(array: &vortex_array::arrays::FixedSizeListArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::NullVTable
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::ListVTable
 
-pub fn vortex_array::arrays::NullVTable::mask(&self, array: &vortex_array::arrays::NullArray, _mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ListVTable::mask(array: &vortex_array::arrays::ListArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::PrimitiveVTable
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::ListViewVTable
 
-pub fn vortex_array::arrays::PrimitiveVTable::mask(&self, array: &vortex_array::arrays::PrimitiveArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ListViewVTable::mask(array: &vortex_array::arrays::ListViewArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::StructVTable
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::MaskedVTable
 
-pub fn vortex_array::arrays::StructVTable::mask(&self, array: &vortex_array::arrays::StructArray, filter_mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::MaskedVTable::mask(array: &vortex_array::arrays::MaskedArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::VarBinVTable
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::NullVTable
 
-pub fn vortex_array::arrays::VarBinVTable::mask(&self, array: &vortex_array::arrays::VarBinArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::NullVTable::mask(array: &vortex_array::arrays::NullArray, _mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::compute::MaskKernel for vortex_array::arrays::VarBinViewVTable
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::PrimitiveVTable
 
-pub fn vortex_array::arrays::VarBinViewVTable::mask(&self, array: &vortex_array::arrays::VarBinViewArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::PrimitiveVTable::mask(array: &vortex_array::arrays::PrimitiveArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::StructVTable
+
+pub fn vortex_array::arrays::StructVTable::mask(array: &vortex_array::arrays::StructArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::VarBinVTable
+
+pub fn vortex_array::arrays::VarBinVTable::mask(array: &vortex_array::arrays::VarBinArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::VarBinViewVTable
+
+pub fn vortex_array::arrays::VarBinViewVTable::mask(array: &vortex_array::arrays::VarBinViewArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub trait vortex_array::compute::MinMaxKernel: vortex_array::vtable::VTable
 
@@ -8576,6 +8610,38 @@ pub fn vortex_array::expr::Mask::simplify(&self, _options: &Self::Options, expr:
 
 pub fn vortex_array::expr::Mask::validity(&self, _options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
+pub struct vortex_array::expr::MaskExecuteAdaptor<V>(pub V)
+
+impl<V: core::default::Default> core::default::Default for vortex_array::expr::MaskExecuteAdaptor<V>
+
+pub fn vortex_array::expr::MaskExecuteAdaptor<V>::default() -> vortex_array::expr::MaskExecuteAdaptor<V>
+
+impl<V: core::fmt::Debug> core::fmt::Debug for vortex_array::expr::MaskExecuteAdaptor<V>
+
+pub fn vortex_array::expr::MaskExecuteAdaptor<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::MaskExecuteAdaptor<V> where V: vortex_array::expr::MaskKernel
+
+pub type vortex_array::expr::MaskExecuteAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Mask>
+
+pub fn vortex_array::expr::MaskExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::Mask>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub struct vortex_array::expr::MaskReduceAdaptor<V>(pub V)
+
+impl<V: core::default::Default> core::default::Default for vortex_array::expr::MaskReduceAdaptor<V>
+
+pub fn vortex_array::expr::MaskReduceAdaptor<V>::default() -> vortex_array::expr::MaskReduceAdaptor<V>
+
+impl<V: core::fmt::Debug> core::fmt::Debug for vortex_array::expr::MaskReduceAdaptor<V>
+
+pub fn vortex_array::expr::MaskReduceAdaptor<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::expr::MaskReduceAdaptor<V> where V: vortex_array::expr::MaskReduce
+
+pub type vortex_array::expr::MaskReduceAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Mask>
+
+pub fn vortex_array::expr::MaskReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::Mask>, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 pub struct vortex_array::expr::Merge
 
 impl vortex_array::expr::VTable for vortex_array::expr::Merge
@@ -9151,6 +9217,74 @@ pub fn vortex_array::expr::LikeReduce::like(array: &Self::Array, pattern: &dyn v
 impl vortex_array::expr::LikeReduce for vortex_array::arrays::DictVTable
 
 pub fn vortex_array::arrays::DictVTable::like(array: &vortex_array::arrays::DictArray, pattern: &dyn vortex_array::Array, options: vortex_array::expr::LikeOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub trait vortex_array::expr::MaskKernel: vortex_array::vtable::VTable
+
+pub fn vortex_array::expr::MaskKernel::mask(array: &Self::Array, mask: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskKernel for vortex_array::arrays::ChunkedVTable
+
+pub fn vortex_array::arrays::ChunkedVTable::mask(array: &vortex_array::arrays::ChunkedArray, mask: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub trait vortex_array::expr::MaskReduce: vortex_array::vtable::VTable
+
+pub fn vortex_array::expr::MaskReduce::mask(array: &Self::Array, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::BoolVTable
+
+pub fn vortex_array::arrays::BoolVTable::mask(array: &vortex_array::arrays::BoolArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::ConstantVTable
+
+pub fn vortex_array::arrays::ConstantVTable::mask(array: &vortex_array::arrays::ConstantArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::DecimalVTable
+
+pub fn vortex_array::arrays::DecimalVTable::mask(array: &vortex_array::arrays::DecimalArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::DictVTable
+
+pub fn vortex_array::arrays::DictVTable::mask(array: &vortex_array::arrays::DictArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::ExtensionVTable
+
+pub fn vortex_array::arrays::ExtensionVTable::mask(array: &vortex_array::arrays::ExtensionArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::FixedSizeListVTable
+
+pub fn vortex_array::arrays::FixedSizeListVTable::mask(array: &vortex_array::arrays::FixedSizeListArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::ListVTable
+
+pub fn vortex_array::arrays::ListVTable::mask(array: &vortex_array::arrays::ListArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::ListViewVTable
+
+pub fn vortex_array::arrays::ListViewVTable::mask(array: &vortex_array::arrays::ListViewArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::MaskedVTable
+
+pub fn vortex_array::arrays::MaskedVTable::mask(array: &vortex_array::arrays::MaskedArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::NullVTable
+
+pub fn vortex_array::arrays::NullVTable::mask(array: &vortex_array::arrays::NullArray, _mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::PrimitiveVTable
+
+pub fn vortex_array::arrays::PrimitiveVTable::mask(array: &vortex_array::arrays::PrimitiveArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::StructVTable
+
+pub fn vortex_array::arrays::StructVTable::mask(array: &vortex_array::arrays::StructArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::VarBinVTable
+
+pub fn vortex_array::arrays::VarBinVTable::mask(array: &vortex_array::arrays::VarBinArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::expr::MaskReduce for vortex_array::arrays::VarBinViewVTable
+
+pub fn vortex_array::arrays::VarBinViewVTable::mask(array: &vortex_array::arrays::VarBinViewArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub trait vortex_array::expr::NotKernel: vortex_array::vtable::VTable
 
@@ -9964,6 +10098,12 @@ pub type vortex_array::expr::LikeExecuteAdaptor<V>::Parent = vortex_array::array
 
 pub fn vortex_array::expr::LikeExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::Like>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::MaskExecuteAdaptor<V> where V: vortex_array::expr::MaskKernel
+
+pub type vortex_array::expr::MaskExecuteAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Mask>
+
+pub fn vortex_array::expr::MaskExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::Mask>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::NotExecuteAdaptor<V> where V: vortex_array::expr::NotKernel
 
 pub type vortex_array::expr::NotExecuteAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Not>
@@ -10151,6 +10291,12 @@ impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_arra
 pub type vortex_array::expr::LikeReduceAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Like>
 
 pub fn vortex_array::expr::LikeReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::Like>, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::expr::MaskReduceAdaptor<V> where V: vortex_array::expr::MaskReduce
+
+pub type vortex_array::expr::MaskReduceAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Mask>
+
+pub fn vortex_array::expr::MaskReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::Mask>, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::expr::NotReduceAdaptor<V> where V: vortex_array::expr::NotReduce
 
