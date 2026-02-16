@@ -9,20 +9,21 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
 use crate::DateTimePartsArray;
+use crate::DateTimePartsArrayParts;
 use crate::DateTimePartsVTable;
 
 impl MaskReduce for DateTimePartsVTable {
     fn mask(array: &DateTimePartsArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
-        let masked_days =
-            MaskedArray::try_new(array.days().clone(), validity.clone())?.into_array();
+        let DateTimePartsArrayParts {
+            dtype,
+            days,
+            seconds,
+            subseconds,
+        } = array.clone();
+        let masked_days = MaskedArray::try_new(days, validity.clone())?.into_array();
         Ok(Some(
-            DateTimePartsArray::try_new(
-                array.dtype().as_nullable(),
-                masked_days,
-                array.seconds().clone(),
-                array.subseconds().clone(),
-            )?
-            .into_array(),
+            DateTimePartsArray::try_new(dtype.as_nullable(), masked_days, seconds, subseconds)?
+                .into_array(),
         ))
     }
 }
