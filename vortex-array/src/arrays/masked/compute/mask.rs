@@ -12,8 +12,8 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl MaskReduce for MaskedVTable {
-    fn mask(array: &MaskedArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
-        let combined_validity = array.validity().clone().and(validity.clone());
+    fn mask(array: &MaskedArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let combined_validity = array.validity().clone().and(Validity::Array(mask.clone()));
         Ok(Some(
             MaskedArray::try_new(array.child.clone(), combined_validity)?.into_array(),
         ))

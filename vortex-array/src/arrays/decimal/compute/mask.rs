@@ -13,7 +13,7 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl MaskReduce for DecimalVTable {
-    fn mask(array: &DecimalArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &DecimalArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(match_each_decimal_value_type!(
             array.values_type(),
             |D| {
@@ -22,7 +22,7 @@ impl MaskReduce for DecimalVTable {
                     DecimalArray::new_unchecked(
                         array.buffer::<D>(),
                         array.decimal_dtype(),
-                        array.validity().clone().and(validity.clone()),
+                        array.validity().clone().and(Validity::Array(mask.clone())),
                     )
                 }
                 .into_array()

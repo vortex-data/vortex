@@ -37,9 +37,10 @@ impl TakeExecute for ZigZagVTable {
 }
 
 impl MaskReduce for ZigZagVTable {
-    fn mask(array: &ZigZagArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &ZigZagArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let masked_encoded =
-            MaskedArray::try_new(array.encoded().clone(), validity.clone())?.into_array();
+            MaskedArray::try_new(array.encoded().clone(), Validity::Array(mask.clone()))?
+                .into_array();
         Ok(Some(ZigZagArray::try_new(masked_encoded)?.into_array()))
     }
 }

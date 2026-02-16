@@ -11,17 +11,13 @@ use crate::arrays::ScalarFnArrayExt;
 use crate::compute::MaskReduce;
 use crate::expr::EmptyOptions;
 use crate::expr::mask::Mask as MaskExpr;
-use crate::validity::Validity;
 
 impl MaskReduce for ExtensionVTable {
-    fn mask(array: &ExtensionArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
-        let Validity::Array(keep_mask) = validity else {
-            return Ok(None);
-        };
+    fn mask(array: &ExtensionArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let masked_storage = MaskExpr.try_new_array(
             array.storage().len(),
             EmptyOptions,
-            [array.storage().clone(), keep_mask.clone()],
+            [array.storage().clone(), mask.clone()],
         )?;
         Ok(Some(
             ExtensionArray::new(

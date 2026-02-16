@@ -12,7 +12,6 @@ use crate::arrays::ScalarFnArrayView;
 use crate::expr::Mask as MaskExpr;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::validity::Validity;
 use crate::vtable::VTable;
 
 /// Mask an array without reading buffers.
@@ -21,15 +20,14 @@ use crate::vtable::VTable;
 /// structure without needing to read or execute on the underlying buffers. Implementations
 /// should return `None` if masking requires buffer access.
 ///
-/// The validity represents the mask to intersect with the array's existing validity
-/// (true=valid/keep, false=invalid/null-out).
+/// The `mask` parameter is a boolean array where true=keep/valid, false=null-out.
 ///
 /// # Preconditions
 ///
-/// The validity is guaranteed to have the same length as the array and is guaranteed to
-/// be a `Validity::Array` variant (i.e., neither `AllValid`, `AllInvalid`, nor `NonNullable`).
+/// The mask is guaranteed to have the same length as the array. Trivial cases
+/// (`AllValid`, `AllInvalid`, `NonNullable`) are handled by the caller before dispatch.
 pub trait MaskReduce: VTable {
-    fn mask(array: &Self::Array, validity: &Validity) -> VortexResult<Option<ArrayRef>>;
+    fn mask(array: &Self::Array, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
 }
 
 /// Mask an array, potentially reading buffers.
@@ -37,14 +35,16 @@ pub trait MaskReduce: VTable {
 /// Unlike [`MaskReduce`], this trait is for mask implementations that may need to read
 /// and execute on the underlying buffers to produce the masked result.
 ///
+/// The `mask` parameter is a boolean array where true=keep/valid, false=null-out.
+///
 /// # Preconditions
 ///
-/// The validity is guaranteed to have the same length as the array and is guaranteed to
-/// be a `Validity::Array` variant (i.e., neither `AllValid`, `AllInvalid`, nor `NonNullable`).
+/// The mask is guaranteed to have the same length as the array. Trivial cases
+/// (`AllValid`, `AllInvalid`, `NonNullable`) are handled by the caller before dispatch.
 pub trait MaskKernel: VTable {
     fn mask(
         array: &Self::Array,
-        validity: &Validity,
+        mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
 }
@@ -74,11 +74,10 @@ where
         let mask_child = parent
             .nth_child(1)
             .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
-        let Some(mask_bool) = mask_child.as_opt::<BoolVTable>() else {
+        if mask_child.as_opt::<BoolVTable>().is_none() {
             return Ok(None);
         };
-        let validity = Validity::Array(mask_bool.to_array());
-        <V as MaskReduce>::mask(array, &validity)
+        <V as MaskReduce>::mask(array, &mask_child)
     }
 }
 
@@ -106,7 +105,6 @@ where
         let mask_child = parent
             .nth_child(1)
             .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
-        let validity = Validity::Array(mask_child);
-        <V as MaskKernel>::mask(array, &validity, ctx)
+        <V as MaskKernel>::mask(array, &mask_child, ctx)
     }
 }

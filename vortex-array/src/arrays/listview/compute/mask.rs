@@ -12,7 +12,7 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl MaskReduce for ListViewVTable {
-    fn mask(array: &ListViewArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &ListViewArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: only changing validity, not data structure
         Ok(Some(
             unsafe {
@@ -20,7 +20,7 @@ impl MaskReduce for ListViewVTable {
                     array.elements().clone(),
                     array.offsets().clone(),
                     array.sizes().clone(),
-                    array.validity().clone().and(validity.clone()),
+                    array.validity().clone().and(Validity::Array(mask.clone())),
                 )
                 .with_zero_copy_to_list(array.is_zero_copy_to_list())
             }

@@ -12,13 +12,13 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl MaskReduce for PrimitiveVTable {
-    fn mask(array: &PrimitiveArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &PrimitiveArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: validity and data buffer still have same length
         Ok(Some(unsafe {
             PrimitiveArray::new_unchecked_from_handle(
                 array.buffer_handle().clone(),
                 array.ptype(),
-                array.validity().clone().and(validity.clone()),
+                array.validity().clone().and(Validity::Array(mask.clone())),
             )
             .into_array()
         }))

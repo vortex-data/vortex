@@ -12,11 +12,11 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl MaskReduce for BoolVTable {
-    fn mask(array: &BoolArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &BoolArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             BoolArray::new(
                 array.to_bit_buffer(),
-                array.validity().clone().and(validity.clone()),
+                array.validity().clone().and(Validity::Array(mask.clone())),
             )
             .into_array(),
         ))

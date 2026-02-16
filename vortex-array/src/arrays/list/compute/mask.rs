@@ -12,11 +12,11 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl MaskReduce for ListVTable {
-    fn mask(array: &ListArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &ListArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         ListArray::try_new(
             array.elements().clone(),
             array.offsets().clone(),
-            array.validity().clone().and(validity.clone()),
+            array.validity().clone().and(Validity::Array(mask.clone())),
         )
         .map(|a| Some(a.into_array()))
     }

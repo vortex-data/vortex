@@ -12,9 +12,10 @@ use crate::ALPRDArray;
 use crate::ALPRDVTable;
 
 impl MaskReduce for ALPRDVTable {
-    fn mask(array: &ALPRDArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &ALPRDArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let masked_left_parts =
-            MaskedArray::try_new(array.left_parts().clone(), validity.clone())?.into_array();
+            MaskedArray::try_new(array.left_parts().clone(), Validity::Array(mask.clone()))?
+                .into_array();
         Ok(Some(
             ALPRDArray::try_new(
                 array.dtype().as_nullable(),

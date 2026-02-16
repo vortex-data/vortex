@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Not;
+
 use vortex_array::ArrayRef;
-use vortex_array::IntoArray;
-use vortex_array::arrays::MaskedArray;
 use vortex_array::compute::MaskReduce;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
@@ -12,11 +12,15 @@ use crate::ALPArray;
 use crate::ALPVTable;
 
 impl MaskReduce for ALPVTable {
-    fn mask(array: &ALPArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
-        let masked_encoded =
-            MaskedArray::try_new(array.encoded().clone(), validity.clone())?.into_array();
+    fn mask(array: &ALPArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        // Masking sparse patches requires reading indices, fall back to kernel.
+        if array.patches().is_some() {
+            return Ok(None);
+        }
+        let vortex_mask = Validity::Array(mask.clone()).to_mask(array.len()).not();
+        let masked_encoded = array.encoded().mask(&vortex_mask)?;
         Ok(Some(
-            ALPArray::new(masked_encoded, array.exponents(), array.patches().cloned()).to_array(),
+            ALPArray::new(masked_encoded, array.exponents(), None).to_array(),
         ))
     }
 }

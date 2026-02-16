@@ -43,11 +43,11 @@ impl CastReduce for ByteBoolVTable {
 }
 
 impl MaskReduce for ByteBoolVTable {
-    fn mask(array: &ByteBoolArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &ByteBoolArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ByteBoolArray::new(
                 array.buffer().clone(),
-                array.validity().clone().and(validity.clone()),
+                array.validity().clone().and(Validity::Array(mask.clone())),
             )
             .into_array(),
         ))

@@ -12,13 +12,13 @@ use crate::compute::MaskReduce;
 use crate::validity::Validity;
 
 impl MaskReduce for ConstantVTable {
-    fn mask(array: &ConstantArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &ConstantArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         if array.scalar.is_null() {
             // Already all nulls, masking has no effect.
             return Ok(Some(array.to_array()));
         }
         Ok(Some(
-            MaskedArray::try_new(array.to_array(), validity.clone())?.into_array(),
+            MaskedArray::try_new(array.to_array(), Validity::Array(mask.clone()))?.into_array(),
         ))
     }
 }

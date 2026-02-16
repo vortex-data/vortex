@@ -12,13 +12,13 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl MaskReduce for VarBinVTable {
-    fn mask(array: &VarBinArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &VarBinArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             VarBinArray::try_new(
                 array.offsets().clone(),
                 array.bytes().clone(),
                 array.dtype().as_nullable(),
-                array.validity().clone().and(validity.clone()),
+                array.validity().clone().and(Validity::Array(mask.clone())),
             )?
             .into_array(),
         ))

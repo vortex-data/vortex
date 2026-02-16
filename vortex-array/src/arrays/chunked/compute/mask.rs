@@ -11,15 +11,9 @@ use crate::arrays::ScalarFnArrayExt;
 use crate::compute::MaskReduce;
 use crate::expr::EmptyOptions;
 use crate::expr::mask::Mask as MaskExpr;
-use crate::validity::Validity;
 
 impl MaskReduce for ChunkedVTable {
-    fn mask(array: &ChunkedArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
-        let Validity::Array(validity_array) = validity else {
-            // Precondition guarantees Array variant, but handle gracefully
-            return Ok(None);
-        };
-
+    fn mask(array: &ChunkedArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let chunk_offsets = array.chunk_offsets();
         let new_chunks: Vec<ArrayRef> = array
             .chunks()
@@ -28,7 +22,7 @@ impl MaskReduce for ChunkedVTable {
             .map(|(i, chunk)| {
                 let start: usize = chunk_offsets[i].try_into()?;
                 let end: usize = chunk_offsets[i + 1].try_into()?;
-                let chunk_mask = validity_array.slice(start..end)?;
+                let chunk_mask = mask.slice(start..end)?;
                 MaskExpr.try_new_array(chunk.len(), EmptyOptions, [chunk.clone(), chunk_mask])
             })
             .collect::<VortexResult<_>>()?;

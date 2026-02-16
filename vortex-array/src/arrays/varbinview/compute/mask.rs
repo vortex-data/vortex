@@ -12,7 +12,7 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl MaskReduce for VarBinViewVTable {
-    fn mask(array: &VarBinViewArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &VarBinViewArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: only changing validity, not data structure
         unsafe {
             Ok(Some(
@@ -20,7 +20,7 @@ impl MaskReduce for VarBinViewVTable {
                     array.views_handle().clone(),
                     array.buffers().clone(),
                     array.dtype().as_nullable(),
-                    array.validity().clone().and(validity.clone()),
+                    array.validity().clone().and(Validity::Array(mask.clone())),
                 )
                 .into_array(),
             ))

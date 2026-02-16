@@ -12,8 +12,9 @@ use crate::DecimalBytePartsArray;
 use crate::DecimalBytePartsVTable;
 
 impl MaskReduce for DecimalBytePartsVTable {
-    fn mask(array: &DecimalBytePartsArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
-        let masked_msp = MaskedArray::try_new(array.msp.clone(), validity.clone())?.into_array();
+    fn mask(array: &DecimalBytePartsArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let masked_msp =
+            MaskedArray::try_new(array.msp.clone(), Validity::Array(mask.clone()))?.into_array();
         Ok(Some(
             DecimalBytePartsArray::try_new(masked_msp, *array.decimal_dtype())?.into_array(),
         ))
