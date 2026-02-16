@@ -13,8 +13,8 @@ __device__ void patches(ValueT *const values,
                         const ValueT *const patchValues,
                         uint64_t patchesLen) {
     const uint64_t worker = blockIdx.x * blockDim.x + threadIdx.x;
-    const uint64_t startElem = START_ELEM(worker, patchesLen);
-    const uint64_t stopElem = STOP_ELEM(worker, patchesLen);
+    const uint64_t startElem = start_elem(worker, patchesLen);
+    const uint64_t stopElem = stop_elem(worker, patchesLen);
 
     if (startElem >= patchesLen) {
         return;
