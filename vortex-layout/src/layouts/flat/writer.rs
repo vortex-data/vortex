@@ -15,6 +15,7 @@ use vortex_array::session::ArrayRegistry;
 use vortex_array::stats::StatsSetRef;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferString;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -131,14 +132,16 @@ impl LayoutStrategy for FlatLayoutStrategy {
             DType::Binary(n) => {
                 truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
                     lower_bound(
-                        Buffer::from_scalar(v).vortex_expect("binary scalar must be a Buffer"),
+                        ByteBuffer::from_scalar(v)
+                            .vortex_expect("binary scalar must be a ByteBuffer"),
                         self.max_variable_length_statistics_size,
                         *n,
                     )
                 });
                 truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
                     upper_bound(
-                        Buffer::from_scalar(v).vortex_expect("binary scalar must be a Buffer"),
+                        ByteBuffer::from_scalar(v)
+                            .vortex_expect("binary scalar must be a ByteBuffer"),
                         self.max_variable_length_statistics_size,
                         *n,
                     )
