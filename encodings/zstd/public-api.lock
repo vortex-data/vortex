@@ -224,4 +224,4 @@ pub fn vortex_zstd::ZstdVTable::visit_buffers(array: &vortex_zstd::ZstdArray, vi
 
 pub fn vortex_zstd::ZstdVTable::visit_children(array: &vortex_zstd::ZstdArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
 
-pub fn vortex_zstd::reconstruct_views(buffer: &vortex_buffer::ByteBuffer) -> vortex_buffer::buffer::Buffer<vortex_vector::binaryview::view::BinaryView>
+pub fn vortex_zstd::reconstruct_views(buffer: &vortex_buffer::ByteBuffer) -> vortex_buffer::buffer::Buffer<vortex_array::arrays::varbinview::view::BinaryView>

@@ -103,3 +103,7 @@ harness = false
 [[bench]]
 name = "dynamic_dispatch_cuda"
 harness = false
+
+[[bench]]
+name = "throughput_cuda"
+harness = false

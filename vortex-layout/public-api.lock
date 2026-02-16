@@ -960,10 +960,6 @@ pub const vortex_layout::layouts::zoned::MAX_IS_TRUNCATED: &str
 
 pub const vortex_layout::layouts::zoned::MIN_IS_TRUNCATED: &str
 
-pub fn vortex_layout::layouts::zoned::lower_bound(value: impl vortex_layout::layouts::zoned::builder::ScalarTruncation, max_length: usize) -> (vortex_scalar::scalar::Scalar, bool)
-
-pub fn vortex_layout::layouts::zoned::upper_bound(value: impl vortex_layout::layouts::zoned::builder::ScalarTruncation, max_length: usize) -> (core::option::Option<vortex_scalar::scalar::Scalar>, bool)
-
 pub type vortex_layout::layouts::SharedArrayFuture = futures_util::future::future::shared::Shared<futures_core::future::BoxFuture<'static, vortex_error::SharedVortexResult<vortex_array::array::ArrayRef>>>
 
 pub mod vortex_layout::segments
