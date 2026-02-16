@@ -40,6 +40,7 @@ use vortex_dtype::FieldMask;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::array as fba;
@@ -250,9 +251,7 @@ impl CudaFlatReader {
             let parts = if host_buffers.is_empty() {
                 ArrayParts::from_flatbuffer_and_segment(array_tree, segment)?
             } else {
-                let buffers =
-                    resolve_buffers_with_host_overrides(&array_tree, &segment, &host_buffers)?;
-                ArrayParts::from_flatbuffer_with_buffers(array_tree, buffers)?
+                resolve_array_parts_with_host_overrides(array_tree, &segment, &host_buffers)?
             };
             parts
                 .decode(&dtype, row_count, &ctx, &session)
@@ -380,18 +379,22 @@ impl LayoutReader for CudaFlatReader {
 }
 
 /// Resolve buffers from the array tree flatbuffer, substituting host overrides for specific
-/// buffer indices.
-fn resolve_buffers_with_host_overrides(
-    array_tree: &ByteBuffer,
+/// buffer indices, and return a fully constructed [`ArrayParts`].
+///
+/// This avoids a redundant flatbuffer validation pass by reusing the validated flatbuffer
+/// from buffer resolution to construct the [`ArrayParts`] directly.
+fn resolve_array_parts_with_host_overrides(
+    array_tree: ByteBuffer,
     segment: &BufferHandle,
     host_overrides: &HashMap<u32, ByteBuffer>,
-) -> VortexResult<Vec<BufferHandle>> {
+) -> VortexResult<ArrayParts> {
     let segment = segment.clone().ensure_aligned(Alignment::none())?;
-    let fb_buffer = FlatBuffer::align_from(array_tree.clone());
+
+    let fb_buffer = FlatBuffer::align_from(array_tree);
     let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
 
     let mut offset = 0usize;
-    fb_array
+    let buffers: Vec<BufferHandle> = fb_array
         .buffers()
         .unwrap_or_default()
         .iter()
@@ -414,7 +417,20 @@ fn resolve_buffers_with_host_overrides(
             offset += buffer_len;
             Ok(handle)
         })
-        .collect()
+        .collect::<VortexResult<_>>()?;
+
+    // Reuse the already-validated flatbuffer to construct ArrayParts directly, avoiding
+    // a second validation pass through validate_array_tree.
+    let fb_root = fb_array
+        .root()
+        .ok_or_else(|| vortex_err!("Array must have a root node"))?;
+    let flatbuffer_loc = fb_root._tab.loc();
+
+    Ok(ArrayParts::from_validated(
+        fb_buffer,
+        flatbuffer_loc,
+        buffers,
+    ))
 }
 
 /// A [`LayoutStrategy`] that writes a [`CudaFlatLayout`] with constant array buffers inlined

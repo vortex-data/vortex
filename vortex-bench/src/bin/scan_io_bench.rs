@@ -254,9 +254,13 @@ async fn main() -> Result<()> {
                     if io_no_copy_enabled()
                         && let ScanTarget::ObjectStore { store, path } = &target
                     {
-                        let io_bytes =
-                            read_all_segments_object_store_no_copy(&file, store, path, args.concurrency)
-                                .await?;
+                        let io_bytes = read_all_segments_object_store_no_copy(
+                            &file,
+                            store,
+                            path,
+                            args.concurrency,
+                        )
+                        .await?;
                         manual_io_bytes.fetch_add(io_bytes, Ordering::Relaxed);
                     } else {
                         read_all_segments(&file, args.concurrency).await?;
@@ -620,7 +624,12 @@ fn no_copy_coalesce_max_size() -> u64 {
     read_env_u64("VORTEX_BENCH_IO_NO_COPY_COALESCE_MAX_SIZE").unwrap_or(16 * 1024 * 1024)
 }
 
-fn coalesce_ranges(mut ranges: Vec<(u64, usize)>, distance: u64, max_size: u64) -> Vec<(u64, usize)> {
+#[allow(clippy::cast_possible_truncation)]
+fn coalesce_ranges(
+    mut ranges: Vec<(u64, usize)>,
+    distance: u64,
+    max_size: u64,
+) -> Vec<(u64, usize)> {
     if ranges.is_empty() {
         return ranges;
     }
