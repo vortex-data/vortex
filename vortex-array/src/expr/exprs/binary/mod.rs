@@ -105,20 +105,6 @@ impl VTable for Binary {
             && !lhs.is_extension()
             && !rhs.is_extension()
         {
-            if lhs.is_float() && rhs.is_float() {
-                vortex_bail!(
-                    "Cannot compare different floating-point types ({}, {}). Consider using cast.",
-                    lhs,
-                    rhs,
-                );
-            }
-            if lhs.is_int() && rhs.is_int() {
-                vortex_bail!(
-                    "Cannot compare different fixed-width types ({}, {}). Consider using cast.",
-                    lhs,
-                    rhs,
-                );
-            }
             vortex_bail!("Cannot compare different DTypes {} and {}", lhs, rhs);
         }
 

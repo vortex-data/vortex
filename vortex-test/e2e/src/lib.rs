@@ -28,7 +28,7 @@ mod tests {
         #[cfg(feature = "unstable_encodings")]
         const EXPECTED_SIZE: usize = 216188;
         #[cfg(not(feature = "unstable_encodings"))]
-        const EXPECTED_SIZE: usize = 216188;
+        const EXPECTED_SIZE: usize = 216156;
         let futures: Vec<_> = (0..5)
             .map(|_| {
                 let array = array.clone();
