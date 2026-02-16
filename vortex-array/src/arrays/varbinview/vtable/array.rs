@@ -4,9 +4,9 @@
 use std::hash::Hash;
 
 use vortex_dtype::DType;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::Precision;
+use crate::arrays::BinaryView;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::arrays::varbinview::VarBinViewVTable;
 use crate::hash::ArrayEq;

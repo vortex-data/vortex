@@ -17,7 +17,6 @@ use vortex_utils::aliases::hash_map::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashTable;
 use vortex_utils::aliases::hash_map::HashTableEntry;
 use vortex_utils::aliases::hash_map::RandomState;
-use vortex_vector::binaryview::BinaryView;
 
 use super::DictConstraints;
 use super::DictEncoder;
@@ -25,6 +24,7 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::accessor::ArrayAccessor;
+use crate::arrays::BinaryView;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewArray;

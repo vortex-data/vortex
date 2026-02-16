@@ -11,14 +11,16 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::BoolBuilder;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::expr::stats::Stat;
+use vortex_buffer::BufferString;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
-use vortex_scalar::BinaryScalar;
 use vortex_scalar::Scalar;
-use vortex_scalar::Utf8Scalar;
+use vortex_scalar::ScalarTruncation;
+use vortex_scalar::lower_bound;
+use vortex_scalar::upper_bound;
 
 pub const MAX_IS_TRUNCATED: &str = "max_is_truncated";
 pub const MIN_IS_TRUNCATED: &str = "min_is_truncated";
@@ -32,12 +34,12 @@ pub fn stats_builder_with_capacity(
     let values_builder = builder_with_capacity(dtype, capacity);
     match stat {
         Stat::Max => match dtype {
-            DType::Utf8(_) => Box::new(TruncatedMaxBinaryStatsBuilder::<Utf8Scalar>::new(
+            DType::Utf8(_) => Box::new(TruncatedMaxBinaryStatsBuilder::<BufferString>::new(
                 values_builder,
                 BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
                 max_length,
             )),
-            DType::Binary(_) => Box::new(TruncatedMaxBinaryStatsBuilder::<BinaryScalar>::new(
+            DType::Binary(_) => Box::new(TruncatedMaxBinaryStatsBuilder::<ByteBuffer>::new(
                 values_builder,
                 BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
                 max_length,
@@ -45,12 +47,12 @@ pub fn stats_builder_with_capacity(
             _ => Box::new(StatNameArrayBuilder::new(stat, values_builder)),
         },
         Stat::Min => match dtype {
-            DType::Utf8(_) => Box::new(TruncatedMinBinaryStatsBuilder::<Utf8Scalar>::new(
+            DType::Utf8(_) => Box::new(TruncatedMinBinaryStatsBuilder::<BufferString>::new(
                 values_builder,
                 BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
                 max_length,
             )),
-            DType::Binary(_) => Box::new(TruncatedMinBinaryStatsBuilder::<BinaryScalar>::new(
+            DType::Binary(_) => Box::new(TruncatedMinBinaryStatsBuilder::<ByteBuffer>::new(
                 values_builder,
                 BoolBuilder::with_capacity(Nullability::NonNullable, capacity),
                 max_length,
@@ -173,81 +175,16 @@ impl<T: ScalarTruncation> TruncatedMinBinaryStatsBuilder<T> {
     }
 }
 
-pub trait ScalarTruncation: Send + Sized {
-    fn from_scalar(value: &Scalar) -> VortexResult<impl ScalarTruncation>;
-
-    fn len(&self) -> Option<usize>;
-
-    fn into_scalar(self) -> Scalar;
-
-    fn upper_bound(self, max_length: usize) -> Option<Scalar>;
-
-    fn lower_bound(self, max_length: usize) -> Scalar;
-}
-
-impl ScalarTruncation for BinaryScalar<'_> {
-    fn from_scalar(value: &Scalar) -> VortexResult<impl ScalarTruncation> {
-        value
-            .as_binary_opt()
-            .ok_or_else(|| vortex_err!("Expected binary scalar, found {}", value.dtype()))
-    }
-
-    fn len(&self) -> Option<usize> {
-        self.len()
-    }
-
-    fn into_scalar(self) -> Scalar {
-        self.value()
-            .cloned()
-            .map(|b| Scalar::binary(b, self.dtype().nullability()))
-            .unwrap_or_else(|| Scalar::null(self.dtype().clone()))
-    }
-
-    fn upper_bound(self, max_length: usize) -> Option<Scalar> {
-        BinaryScalar::upper_bound(&self, max_length)
-    }
-
-    fn lower_bound(self, max_length: usize) -> Scalar {
-        BinaryScalar::lower_bound(&self, max_length)
-    }
-}
-
-impl ScalarTruncation for Utf8Scalar<'_> {
-    fn from_scalar(value: &Scalar) -> VortexResult<impl ScalarTruncation> {
-        value
-            .as_utf8_opt()
-            .ok_or_else(|| vortex_err!("Expected utf8 scalar, found {}", value.dtype()))
-    }
-
-    fn len(&self) -> Option<usize> {
-        self.len()
-    }
-
-    fn into_scalar(self) -> Scalar {
-        self.value()
-            .cloned()
-            .map(|b| Scalar::utf8(b, self.dtype().nullability()))
-            .unwrap_or_else(|| Scalar::null(self.dtype().clone()))
-    }
-
-    fn upper_bound(self, max_length: usize) -> Option<Scalar> {
-        Utf8Scalar::upper_bound(&self, max_length)
-    }
-
-    fn lower_bound(self, max_length: usize) -> Scalar {
-        Utf8Scalar::lower_bound(&self, max_length)
-    }
-}
-
 impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMaxBinaryStatsBuilder<T> {
     fn stat(&self) -> Stat {
         Stat::Max
     }
 
     fn append_scalar(&mut self, value: Scalar) -> VortexResult<()> {
-        let (value, truncated) = upper_bound(T::from_scalar(&value)?, self.max_value_length);
-
-        if let Some(upper_bound) = value {
+        let nullability = value.dtype().nullability();
+        if let Some((upper_bound, truncated)) =
+            upper_bound(T::from_scalar(value)?, self.max_value_length, nullability)
+        {
             self.values.append_scalar(&upper_bound)?;
             self.is_truncated.append_value(truncated);
         } else {
@@ -256,6 +193,7 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMaxBinaryStatsBuilder<T
         Ok(())
     }
 
+    #[inline]
     fn append_null(&mut self) {
         ArrayBuilder::append_null(self.values.as_mut());
         self.is_truncated.append_value(false);
@@ -278,12 +216,19 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMinBinaryStatsBuilder<T
     }
 
     fn append_scalar(&mut self, value: Scalar) -> VortexResult<()> {
-        let (value, truncated) = lower_bound(T::from_scalar(&value)?, self.max_value_length);
-        self.values.append_scalar(&value)?;
-        self.is_truncated.append_value(truncated);
+        let nullability = value.dtype().nullability();
+        if let Some((lower_bound, truncated)) =
+            lower_bound(T::from_scalar(value)?, self.max_value_length, nullability)
+        {
+            self.values.append_scalar(&lower_bound)?;
+            self.is_truncated.append_value(truncated);
+        } else {
+            self.append_null()
+        }
         Ok(())
     }
 
+    #[inline]
     fn append_null(&mut self) {
         ArrayBuilder::append_null(self.values.as_mut());
         self.is_truncated.append_value(false);
@@ -297,21 +242,5 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMinBinaryStatsBuilder<T
                 ArrayBuilder::finish(&mut self.is_truncated),
             ],
         }
-    }
-}
-
-pub fn lower_bound(value: impl ScalarTruncation, max_length: usize) -> (Scalar, bool) {
-    if value.len().unwrap_or(0) > max_length {
-        (value.lower_bound(max_length), true)
-    } else {
-        (value.into_scalar(), false)
-    }
-}
-
-pub fn upper_bound(value: impl ScalarTruncation, max_length: usize) -> (Option<Scalar>, bool) {
-    if value.len().unwrap_or(0) > max_length {
-        (value.upper_bound(max_length), true)
-    } else {
-        (Some(value.into_scalar()), false)
     }
 }

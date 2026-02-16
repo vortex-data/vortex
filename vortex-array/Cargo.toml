@@ -54,6 +54,7 @@ rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
 simdutf8 = { workspace = true }
+static_assertions = { workspace = true }
 tabled = { workspace = true, optional = true, default-features = false, features = [
     "std",
 ] }
@@ -69,7 +70,6 @@ vortex-proto = { workspace = true, features = ["expr"] }
 vortex-scalar = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dyn-traits"] }
-vortex-vector = { workspace = true }
 
 [features]
 arbitrary = [
