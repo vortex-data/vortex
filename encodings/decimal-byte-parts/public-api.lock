@@ -72,13 +72,13 @@ impl vortex_array::compute::is_constant::IsConstantKernel for vortex_decimal_byt
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::is_constant(&self, array: &vortex_decimal_byte_parts::DecimalBytePartsArray, opts: &vortex_array::compute::is_constant::IsConstantOpts) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::mask::MaskKernel for vortex_decimal_byte_parts::DecimalBytePartsVTable
-
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::mask(&self, array: &vortex_decimal_byte_parts::DecimalBytePartsArray, mask_array: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
-
 impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_decimal_byte_parts::DecimalBytePartsVTable
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::cast(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+
+impl vortex_array::expr::exprs::mask::kernel::MaskReduce for vortex_decimal_byte_parts::DecimalBytePartsVTable
+
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::mask(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_decimal_byte_parts::DecimalBytePartsVTable
 
