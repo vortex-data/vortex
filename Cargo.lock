@@ -10858,6 +10858,7 @@ dependencies = [
  "taffy",
  "tokio",
  "vortex",
+ "vortex-cuda",
  "vortex-datafusion",
 ]
 
