@@ -714,10 +714,6 @@ impl vortex_array::expr::FillNullReduce for vortex_array::arrays::ConstantVTable
 
 pub fn vortex_array::arrays::ConstantVTable::fill_null(array: &vortex_array::arrays::ConstantArray, fill_value: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::expr::MaskReduce for vortex_array::arrays::ConstantVTable
-
-pub fn vortex_array::arrays::ConstantVTable::mask(array: &vortex_array::arrays::ConstantArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
 impl vortex_array::expr::NotReduce for vortex_array::arrays::ConstantVTable
 
 pub fn vortex_array::arrays::ConstantVTable::invert(array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6422,10 +6418,6 @@ impl vortex_array::expr::MaskReduce for vortex_array::arrays::BoolVTable
 
 pub fn vortex_array::arrays::BoolVTable::mask(array: &vortex_array::arrays::BoolArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::expr::MaskReduce for vortex_array::arrays::ConstantVTable
-
-pub fn vortex_array::arrays::ConstantVTable::mask(array: &vortex_array::arrays::ConstantArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
 impl vortex_array::expr::MaskReduce for vortex_array::arrays::DecimalVTable
 
 pub fn vortex_array::arrays::DecimalVTable::mask(array: &vortex_array::arrays::DecimalArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -9233,10 +9225,6 @@ pub fn vortex_array::expr::MaskReduce::mask(array: &Self::Array, mask: &vortex_a
 impl vortex_array::expr::MaskReduce for vortex_array::arrays::BoolVTable
 
 pub fn vortex_array::arrays::BoolVTable::mask(array: &vortex_array::arrays::BoolArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::expr::MaskReduce for vortex_array::arrays::ConstantVTable
-
-pub fn vortex_array::arrays::ConstantVTable::mask(array: &vortex_array::arrays::ConstantArray, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::expr::MaskReduce for vortex_array::arrays::DecimalVTable
 
