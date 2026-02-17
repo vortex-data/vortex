@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+#![expect(clippy::unwrap_used)]
 
 use num_traits::NumCast;
 use rand::Rng;
@@ -14,8 +15,6 @@ use vortex_array::compute::warm_up_vtables;
 use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
-
-#[expect(clippy::unwrapused)]
 
 fn main() {
     warm_up_vtables();
