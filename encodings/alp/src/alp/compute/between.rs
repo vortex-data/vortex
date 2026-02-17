@@ -6,11 +6,12 @@ use std::fmt::Debug;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::BetweenKernel;
 use vortex_array::compute::BetweenOptions;
 use vortex_array::compute::StrictComparison;
-use vortex_array::compute::between;
 use vortex_dtype::NativeDType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
@@ -87,11 +88,10 @@ where
         upper_strict,
     };
 
-    between(
-        array.encoded(),
-        ConstantArray::new(Scalar::primitive(lower_enc, nullability), array.len()).as_ref(),
-        ConstantArray::new(Scalar::primitive(upper_enc, nullability), array.len()).as_ref(),
-        &options,
+    array.encoded().clone().between(
+        ConstantArray::new(Scalar::primitive(lower_enc, nullability), array.len()).into_array(),
+        ConstantArray::new(Scalar::primitive(upper_enc, nullability), array.len()).into_array(),
+        options,
     )
 }
 

@@ -21,6 +21,8 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArrayExt;
+use crate::expr::Between;
+use crate::expr::BetweenOptions;
 use crate::expr::Cast;
 use crate::expr::EmptyOptions;
 use crate::expr::Expression;
@@ -112,6 +114,14 @@ pub trait ArrayBuiltins: Sized {
 
     /// Conditional selection: `result[i] = if mask[i] then self[i] else if_false[i]`.
     fn zip(&self, if_false: ArrayRef, mask: ArrayRef) -> VortexResult<ArrayRef>;
+
+    /// Compare a values between lower </<= value </<= upper
+    fn between(
+        self,
+        lower: ArrayRef,
+        upper: ArrayRef,
+        options: BetweenOptions,
+    ) -> VortexResult<ArrayRef>;
 }
 
 impl ArrayBuiltins for ArrayRef {
@@ -163,5 +173,16 @@ impl ArrayBuiltins for ArrayRef {
             Zip.try_new_array(self.len(), EmptyOptions, [self.clone(), if_false, mask])?;
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
         scalar_fn.execute::<ArrayRef>(&mut ctx)
+    }
+
+    fn between(
+        self,
+        lower: ArrayRef,
+        upper: ArrayRef,
+        options: BetweenOptions,
+    ) -> VortexResult<ArrayRef> {
+        Between
+            .try_new_array(self.len(), options, [self, lower, upper])?
+            .optimize()
     }
 }
