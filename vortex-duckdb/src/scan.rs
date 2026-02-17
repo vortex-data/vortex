@@ -287,7 +287,10 @@ impl TableFunction for VortexTableFunction {
 
         tracing::trace!("running scan with max_threads {max_threads}");
 
-        let glob_pattern = glob_url.path().strip_prefix("/").unwrap_or(glob_url.path());
+        let glob_pattern = glob_url
+            .path()
+            .strip_prefix("/")
+            .unwrap_or_else(|| glob_url.path());
         let files: Vec<FileListing> = RUNTIME
             .block_on_stream(fs.glob(glob_pattern)?)
             .try_collect()?;

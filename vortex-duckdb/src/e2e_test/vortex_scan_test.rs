@@ -51,8 +51,7 @@ fn database_connection() -> Connection {
     let db = Database::open_in_memory().unwrap();
     db.register_vortex_scan_replacement().unwrap();
     crate::initialize(&db).unwrap();
-    let connection = db.connect().unwrap();
-    connection
+    db.connect().unwrap()
 }
 
 fn create_temp_file() -> NamedTempFile {
