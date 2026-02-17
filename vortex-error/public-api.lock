@@ -12,31 +12,27 @@ pub macro vortex_error::vortex_panic!
 
 #[non_exhaustive] pub enum vortex_error::VortexError
 
-pub vortex_error::VortexError::ArrowError(arrow_schema::error::ArrowError, alloc::boxed::Box<std::backtrace::Backtrace>)
+pub vortex_error::VortexError::Arrow(arrow_schema::error::ArrowError, alloc::boxed::Box<std::backtrace::Backtrace>)
 
 pub vortex_error::VortexError::AssertionFailed(vortex_error::ErrString, alloc::boxed::Box<std::backtrace::Backtrace>)
 
-pub vortex_error::VortexError::ComputeError(vortex_error::ErrString, alloc::boxed::Box<std::backtrace::Backtrace>)
+pub vortex_error::VortexError::Compute(vortex_error::ErrString, alloc::boxed::Box<std::backtrace::Backtrace>)
 
 pub vortex_error::VortexError::Context(vortex_error::ErrString, alloc::boxed::Box<vortex_error::VortexError>)
 
-pub vortex_error::VortexError::FlatBuffersError(flatbuffers::verifier::InvalidFlatbuffer, alloc::boxed::Box<std::backtrace::Backtrace>)
+pub vortex_error::VortexError::External(alloc::boxed::Box<(dyn core::error::Error + core::marker::Send + core::marker::Sync + 'static)>, alloc::boxed::Box<std::backtrace::Backtrace>)
 
-pub vortex_error::VortexError::FmtError(core::fmt::Error, alloc::boxed::Box<std::backtrace::Backtrace>)
+pub vortex_error::VortexError::FlatBuffers(flatbuffers::verifier::InvalidFlatbuffer, alloc::boxed::Box<std::backtrace::Backtrace>)
 
-pub vortex_error::VortexError::Generic(alloc::boxed::Box<(dyn core::error::Error + core::marker::Send + core::marker::Sync + 'static)>, alloc::boxed::Box<std::backtrace::Backtrace>)
-
-pub vortex_error::VortexError::IOError(std::io::error::Error, alloc::boxed::Box<std::backtrace::Backtrace>)
+pub vortex_error::VortexError::Fmt(core::fmt::Error, alloc::boxed::Box<std::backtrace::Backtrace>)
 
 pub vortex_error::VortexError::InvalidArgument(vortex_error::ErrString, alloc::boxed::Box<std::backtrace::Backtrace>)
 
-pub vortex_error::VortexError::InvalidSerde(vortex_error::ErrString, alloc::boxed::Box<std::backtrace::Backtrace>)
+pub vortex_error::VortexError::Io(std::io::error::Error, alloc::boxed::Box<std::backtrace::Backtrace>)
 
-pub vortex_error::VortexError::InvalidState(vortex_error::ErrString, alloc::boxed::Box<std::backtrace::Backtrace>)
+pub vortex_error::VortexError::Jiff(jiff::error::Error, alloc::boxed::Box<std::backtrace::Backtrace>)
 
-pub vortex_error::VortexError::JiffError(jiff::error::Error, alloc::boxed::Box<std::backtrace::Backtrace>)
-
-pub vortex_error::VortexError::JoinError(tokio::runtime::task::error::JoinError, alloc::boxed::Box<std::backtrace::Backtrace>)
+pub vortex_error::VortexError::Join(tokio::runtime::task::error::JoinError, alloc::boxed::Box<std::backtrace::Backtrace>)
 
 pub vortex_error::VortexError::MismatchedTypes(vortex_error::ErrString, vortex_error::ErrString, alloc::boxed::Box<std::backtrace::Backtrace>)
 
@@ -44,21 +40,19 @@ pub vortex_error::VortexError::NotImplemented(vortex_error::ErrString, vortex_er
 
 pub vortex_error::VortexError::ObjectStore(object_store::Error, alloc::boxed::Box<std::backtrace::Backtrace>)
 
+pub vortex_error::VortexError::Other(vortex_error::ErrString, alloc::boxed::Box<std::backtrace::Backtrace>)
+
 pub vortex_error::VortexError::OutOfBounds(usize, usize, usize, alloc::boxed::Box<std::backtrace::Backtrace>)
 
 pub vortex_error::VortexError::Prost(alloc::boxed::Box<(dyn core::error::Error + core::marker::Send + core::marker::Sync + 'static)>, alloc::boxed::Box<std::backtrace::Backtrace>)
+
+pub vortex_error::VortexError::Serde(vortex_error::ErrString, alloc::boxed::Box<std::backtrace::Backtrace>)
 
 pub vortex_error::VortexError::Shared(alloc::sync::Arc<vortex_error::VortexError>)
 
 pub vortex_error::VortexError::TryFromInt(core::num::error::TryFromIntError, alloc::boxed::Box<std::backtrace::Backtrace>)
 
-pub vortex_error::VortexError::TryFromSliceError(core::array::TryFromSliceError, alloc::boxed::Box<std::backtrace::Backtrace>)
-
-pub vortex_error::VortexError::UrlError(url::parser::ParseError, alloc::boxed::Box<std::backtrace::Backtrace>)
-
 impl vortex_error::VortexError
-
-pub fn vortex_error::VortexError::generic(err: alloc::boxed::Box<(dyn core::error::Error + core::marker::Send + core::marker::Sync + 'static)>) -> Self
 
 pub fn vortex_error::VortexError::with_context<T: core::convert::Into<vortex_error::ErrString>>(self, msg: T) -> Self
 
@@ -73,10 +67,6 @@ pub fn vortex_error::VortexError::from(value: alloc::sync::Arc<vortex_error::Vor
 impl core::convert::From<arrow_schema::error::ArrowError> for vortex_error::VortexError
 
 pub fn vortex_error::VortexError::from(value: arrow_schema::error::ArrowError) -> Self
-
-impl core::convert::From<core::array::TryFromSliceError> for vortex_error::VortexError
-
-pub fn vortex_error::VortexError::from(value: core::array::TryFromSliceError) -> Self
 
 impl core::convert::From<core::convert::Infallible> for vortex_error::VortexError
 
@@ -118,10 +108,6 @@ impl core::convert::From<tokio::runtime::task::error::JoinError> for vortex_erro
 
 pub fn vortex_error::VortexError::from(value: tokio::runtime::task::error::JoinError) -> Self
 
-impl core::convert::From<url::parser::ParseError> for vortex_error::VortexError
-
-pub fn vortex_error::VortexError::from(value: url::parser::ParseError) -> Self
-
 impl core::error::Error for vortex_error::VortexError
 
 pub fn vortex_error::VortexError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
@@ -133,10 +119,6 @@ pub fn vortex_error::VortexError::fmt(&self, f: &mut core::fmt::Formatter<'_>) -
 impl core::fmt::Display for vortex_error::VortexError
 
 pub fn vortex_error::VortexError::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl<T> core::convert::From<std::sync::poison::PoisonError<T>> for vortex_error::VortexError
-
-pub fn vortex_error::VortexError::from(_value: std::sync::poison::PoisonError<T>) -> Self
 
 pub struct vortex_error::ErrString(_)
 
