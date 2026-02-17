@@ -30,6 +30,8 @@ vortex-session = { workspace = true }
 workspace = true
 
 [dev-dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
 divan = { workspace = true }
 itertools = { workspace = true }
 rand = { workspace = true }
