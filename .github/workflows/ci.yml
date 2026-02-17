@@ -341,9 +341,9 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
       - name: Regenerate public API lock files
-        run: cargo +nightly xtask public-api
+        run: cargo +$NIGHTLY_TOOLCHAIN xtask public-api
       - name: Verify lock files are up to date
         run: |
           if ! git diff --quiet '**/public-api.lock'; then
