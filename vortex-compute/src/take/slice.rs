@@ -10,17 +10,11 @@ use vortex_buffer::BufferMut;
 
 use crate::take::Take;
 
-// TODO(connor): At some point we need to bring this back. But since this code depends on
-// `vortex-dtype` it has to be modified heavily. For now, this is dead code.
-// #[doc(hidden)]
-// #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-// pub mod avx2;
-// pub mod portable;
-
 /// Specialized implementation for non-nullable indices.
 impl<T: Copy, I: Unsigned + AsPrimitive<usize>> Take<[I]> for &[T] {
     type Output = Buffer<T>;
 
+    #[inline]
     fn take(self, indices: &[I]) -> Buffer<T> {
         // TODO(connor): Make the SIMD implementations bound by `Copy` instead of `NativePType`.
         /*

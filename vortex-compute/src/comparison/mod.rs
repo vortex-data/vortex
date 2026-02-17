@@ -3,7 +3,6 @@
 
 //! Comparison operations for Vortex vectors.
 
-use arrow_buffer::i256;
 use half::f16;
 
 mod collection;
@@ -107,7 +106,6 @@ impl_integer!(u16);
 impl_integer!(u32);
 impl_integer!(u64);
 impl_integer!(u128);
-impl_integer!(i256);
 
 macro_rules! impl_float {
     ($T:ty) => {
