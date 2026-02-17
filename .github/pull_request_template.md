@@ -10,7 +10,7 @@ include.
 
 <!--
 If this PR is related to a tracked effort, please link to the relevant issue
-here (e.g., `Closes #123`). Otherwise, feel free to ignore / delete this.
+here (e.g., `Closes: #123`). Otherwise, feel free to ignore / delete this.
 
 In this section, please:
 
@@ -25,7 +25,7 @@ If there is an issue or discussion attached, there is no need to duplicate all
 the details, but clarity is always preferred over brevity.
 -->
 
-- Closes #000
+Closes: #000
 
 <!--
 ## API Changes
