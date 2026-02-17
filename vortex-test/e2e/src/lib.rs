@@ -47,7 +47,10 @@ mod tests {
 
         let sizes = futures::future::try_join_all(futures).await?;
         for (i, size) in sizes.iter().enumerate() {
-            assert_eq!(*size, EXPECTED_SIZE, "Run {i} produced size {size}");
+            assert_eq!(
+                *size, EXPECTED_SIZE,
+                "Run {i} compressed the array to {size} bytes instead of the expected {EXPECTED_SIZE}."
+            );
         }
 
         Ok(())
