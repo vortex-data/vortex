@@ -10334,6 +10334,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-fs",
+ "async-trait",
  "bindgen",
  "bitvec",
  "cbindgen",
@@ -10426,6 +10427,7 @@ dependencies = [
  "flatbuffers",
  "futures",
  "getrandom 0.3.4",
+ "glob",
  "itertools 0.14.0",
  "kanal",
  "object_store",

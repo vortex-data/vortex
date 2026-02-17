@@ -13,11 +13,6 @@ extern "C" {
 
 typedef struct duckdb_vx_file_handle_ *duckdb_vx_file_handle;
 
-typedef struct {
-    const char **entries;
-    size_t count;
-} duckdb_vx_uri_list;
-
 // Open a file using DuckDB's filesystem (supports httpfs, s3, etc.).
 duckdb_vx_file_handle
 duckdb_vx_fs_open(duckdb_vx_client_context ctx, const char *path, duckdb_vx_error *error_out);
@@ -36,12 +31,23 @@ duckdb_state duckdb_vx_fs_read(duckdb_vx_file_handle handle,
                                idx_t *out_len,
                                duckdb_vx_error *error_out);
 
-// Expand a glob using DuckDB's filesystem.
-duckdb_vx_uri_list
-duckdb_vx_fs_glob(duckdb_vx_client_context ctx, const char *pattern, duckdb_vx_error *error_out);
+/// Callback invoked for each entry returned by `duckdb_vx_fs_list_files`.
+///
+/// @param name  The entry name (not a full path).
+/// @param is_dir  Whether the entry is a directory.
+/// @param user_data  Opaque pointer forwarded from the caller.
+typedef void (*duckdb_vx_list_files_callback)(const char *name, bool is_dir, void *user_data);
 
-// Free a string list allocated by duckdb_vx_fs_glob.
-void duckdb_vx_uri_list_free(duckdb_vx_uri_list *list);
+/// Non-recursively list entries in a directory using DuckDB's filesystem.
+///
+/// Invokes `callback` once for each entry (file or subdirectory) found directly
+/// inside `directory`.  The caller is responsible for recursing into subdirectories
+/// if a recursive listing is desired.
+duckdb_state duckdb_vx_fs_list_files(duckdb_vx_client_context ctx,
+                                     const char *directory,
+                                     duckdb_vx_list_files_callback callback,
+                                     void *user_data,
+                                     duckdb_vx_error *error_out);
 
 // Create/truncate a file for writing using DuckDB's filesystem.
 duckdb_vx_file_handle

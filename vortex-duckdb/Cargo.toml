@@ -26,6 +26,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [dependencies]
 anyhow = { workspace = true }
 async-fs = { workspace = true }
+async-trait = { workspace = true }
 bitvec = { workspace = true }
 custom-labels = { workspace = true }
 futures = { workspace = true }

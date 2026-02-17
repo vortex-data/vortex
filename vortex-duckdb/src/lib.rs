@@ -16,15 +16,16 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
 use crate::copy::VortexCopyFunction;
-pub use crate::duckdb::Connection;
-pub use crate::duckdb::Database;
-pub use crate::duckdb::LogicalType;
-pub use crate::duckdb::Value;
+use crate::duckdb::Connection;
+use crate::duckdb::Database;
+use crate::duckdb::LogicalType;
+use crate::duckdb::Value;
 use crate::scan::VortexTableFunction;
 
-pub mod convert;
-pub mod duckdb;
-pub mod exporter;
+mod convert;
+mod duckdb;
+mod exporter;
+mod filesystem;
 mod scan;
 
 #[rustfmt::skip]

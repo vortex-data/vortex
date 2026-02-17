@@ -92,6 +92,7 @@
 
 mod counting;
 mod file;
+pub mod filesystem;
 mod footer;
 mod open;
 mod pruning;

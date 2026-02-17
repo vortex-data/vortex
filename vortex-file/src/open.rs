@@ -100,6 +100,15 @@ impl VortexOpenOptions {
         self
     }
 
+    /// Configure a known file size.
+    ///
+    /// This helps to prevent an I/O request to discover the size of the file.
+    /// Of course, all bets are off if you pass an incorrect value.
+    pub fn with_some_file_size(mut self, file_size: Option<u64>) -> Self {
+        self.file_size = file_size;
+        self
+    }
+
     /// Configure a known DType.
     ///
     /// If this is provided, then the Vortex file may be opened with fewer I/O requests.
