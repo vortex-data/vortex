@@ -11,15 +11,13 @@ use custom_labels::CURRENT_LABELSET;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use itertools::Itertools;
+use url::Url;
 use vortex::VortexSessionDefault;
 use vortex::array::ExecutionCtx;
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::stats::Precision;
-use vortex::file::filesystem::FileSystemRef;
-use vortex::file::filesystem::object_store::ObjectStoreFileSystem;
 use vortex::file::multi::MultiFileDataSource;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::metrics::tracing::get_global_labels;
@@ -110,20 +108,21 @@ impl TableFunction for VortexScanApiTableFunction {
         input: &BindInput,
         result: &mut BindResult,
     ) -> VortexResult<Self::BindData> {
-        let fs = DuckDbFileSystem::new();
-
-        let file_glob_string = input
+        let glob_url_parameter = input
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
-        let glob_str = file_glob_string.as_ref().as_string();
+
+        // Parse the URL and separate the base URL (keep scheme, host, etc.) from the path.
+        let glob_url = Url::parse(glob_url_parameter.as_ref().as_string().as_str())?;
+        let mut base_url = glob_url.clone();
+        base_url.set_path("");
+
+        let fs = Arc::new(DuckDbFileSystem::new(base_url, ctx.clone()));
 
         let data_source: DataSourceRef = RUNTIME.block_on(async {
-            let mut builder = MultiFileDataSource::new(SESSION.clone());
-            if let Some((fs, glob_pattern)) = create_s3_filesystem_and_glob(&glob_str)? {
-                builder = builder.with_filesystem(fs).with_glob_url(glob_pattern);
-            } else {
-                builder = builder.with_glob_url(glob_str.to_string());
-            }
+            let builder = MultiFileDataSource::new(SESSION.clone())
+                .with_filesystem(fs)
+                .with_glob_url(glob_url);
             let ds = builder.build().await?;
             VortexResult::Ok(Arc::new(ds))
         })?;

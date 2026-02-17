@@ -55,12 +55,10 @@ use crate::duckdb::BindResult;
 use crate::duckdb::Cardinality;
 use crate::duckdb::ClientContext;
 use crate::duckdb::DataChunk;
-use crate::duckdb::DuckDbFsReader;
 use crate::duckdb::Expression;
 use crate::duckdb::ExtractedValue;
 use crate::duckdb::LogicalType;
 use crate::duckdb::ObjectCacheRef;
-use crate::duckdb::SendableClientContext;
 use crate::duckdb::TableFilterSet;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
@@ -69,6 +67,7 @@ use crate::duckdb::duckdb_fs_glob;
 use crate::duckdb::footer_cache::FooterCache;
 use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
+use crate::filesystem::DuckDbFsReader;
 
 pub struct VortexBindData {
     first_file: VortexFile,
@@ -296,11 +295,11 @@ impl TableFunction for VortexTableFunction {
         };
 
         let footer_cache = FooterCache::new(ctx.object_cache());
-        let client_ctx = ctx.as_sendable();
+        let client_ctx = ctx.clone();
         let entry = footer_cache.entry(first_file_url.as_ref());
         let first_file = RUNTIME.block_on(async move {
             let options = entry.apply_to_file(SESSION.open_options());
-            let file = open_file(client_ctx, first_file_url.clone(), options).await?;
+            let file = open_file(&client_ctx, first_file_url.clone(), options).await?;
             entry.put_if_absent(|| file.footer().clone());
             VortexResult::Ok(file)
         })?;
@@ -345,7 +344,6 @@ impl TableFunction for VortexTableFunction {
         );
 
         let client_context = init_input.client_context()?;
-        let client_ctx_ptr = client_context.as_sendable();
         let object_cache = client_context.object_cache();
 
         let num_workers = std::thread::available_parallelism()
@@ -357,6 +355,7 @@ impl TableFunction for VortexTableFunction {
             filter_expr,
             num_workers,
             object_cache,
+            client_context.clone(),
         )?;
 
         Ok(VortexGlobalData {
@@ -530,6 +529,7 @@ fn init_global_direct(
     filter_expr: Option<VortexExpression>,
     num_workers: usize,
     object_cache: ObjectCacheRef<'static>,
+    client_ctx: ClientContext,
 ) -> VortexResult<ScanIterator> {
     let handle = RUNTIME.handle();
     let first_file = bind_data.first_file.clone();
@@ -541,6 +541,7 @@ fn init_global_direct(
             let projection_expr = projection_expr.clone();
             let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
             let object_cache = object_cache;
+            let client_ctx = client_ctx.clone();
 
             handle
                 .spawn(async move {
@@ -552,7 +553,7 @@ fn init_global_direct(
                         let cache = FooterCache::new(object_cache);
                         let entry = cache.entry(url.as_ref());
                         let options = entry.apply_to_file(SESSION.open_options());
-                        let file = open_file(url.clone(), options).await?;
+                        let file = open_file(&client_ctx, url.clone(), options).await?;
                         entry.put_if_absent(|| file.footer().clone());
                         VortexResult::Ok(file)
                     }?;

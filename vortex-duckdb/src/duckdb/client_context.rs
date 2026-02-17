@@ -26,6 +26,14 @@ wrapper!(
 unsafe impl Send for ClientContext {}
 unsafe impl Sync for ClientContext {}
 
+impl Clone for ClientContext {
+    fn clone(&self) -> Self {
+        // ClientContext is a lightweight wrapper around an opaque pointer owned by the connection.
+        // Cloning just creates another wrapper around the same pointer.
+        unsafe { Self::borrow(self.as_ptr()) }
+    }
+}
+
 impl ClientContext {
     /// Get the object cache for this client context.
     pub fn object_cache(&self) -> ObjectCacheRef<'static> {

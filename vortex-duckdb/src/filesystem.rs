@@ -7,11 +7,13 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use async_trait::async_trait;
+use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::stream;
 use futures::stream::BoxStream;
 use url::Url;
+use vortex::array::buffer::BufferHandle;
 use vortex::buffer::Alignment;
 use vortex::buffer::ByteBufferMut;
 use vortex::error::VortexError;
@@ -22,27 +24,30 @@ use vortex::file::filesystem::FileSystem;
 use vortex::io::CoalesceConfig;
 use vortex::io::VortexReadAt;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::io::runtime::Handle;
 
 use crate::RUNTIME;
 use crate::cpp;
 use crate::duckdb::ClientContext;
 use crate::duckdb::FsFileHandle;
 use crate::duckdb::duckdb_fs_glob;
+use crate::duckdb::fs_error;
+
+// NOTE(ngates): this is not at all tuned, but taken from the ObjectStore defaults until we
+//  can investigate how better to configure these numbers.
+const DEFAULT_COALESCE: CoalesceConfig = CoalesceConfig {
+    distance: 1024 * 1024,      // 1 MB
+    max_size: 16 * 1024 * 1024, // 16 MB
+};
+const DEFAULT_CONCURRENCY: usize = 192;
 
 pub struct DuckDbFileSystem {
     base_url: Url,
     ctx: ClientContext,
-    handle: Handle,
 }
 
 impl DuckDbFileSystem {
     pub fn new(base_url: Url, ctx: ClientContext) -> Self {
-        Self {
-            base_url,
-            ctx,
-            handle: RUNTIME.handle(),
-        }
+        Self { base_url, ctx }
     }
 }
 
@@ -50,32 +55,47 @@ impl DuckDbFileSystem {
 impl FileSystem for DuckDbFileSystem {
     fn list(&self, prefix: Option<&str>) -> BoxStream<'_, VortexResult<FileListing>> {
         let pattern = if let Some(prefix) = prefix {
-            // Ensure the prefix is properly joined to the base URL
             let mut joined_url = self.base_url.clone();
             joined_url.set_path(&format!("{}/{}", joined_url.path(), prefix));
+            joined_url.to_string()
         } else {
-            self.base_url.to_string();
+            self.base_url.to_string()
         };
-        stream::iter(
-            duckdb_fs_glob(&self.ctx, prefix.unwrap_or(""))?
-                .into_iter()
-                .map(|url| {
-                    // Create path relative to the base URL.
+
+        let ctx = self.ctx.clone();
+        let base_path = self.base_url.path().to_string();
+
+        stream::once(async move {
+            RUNTIME
+                .handle()
+                .spawn_blocking(move || duckdb_fs_glob(&ctx, &pattern))
+                .await
+        })
+        .flat_map(move |result| match result {
+            Ok(urls) => stream::iter(urls.into_iter().map({
+                let base_path = base_path.clone();
+                move |url| {
                     let relative_path = url
                         .path()
-                        .strip_prefix(self.base_url.path())
-                        .unwrap_or(url.path());
+                        .strip_prefix(base_path.as_str())
+                        .unwrap_or_else(|| url.path());
                     Ok(FileListing {
                         path: relative_path.to_string(),
                         size: None,
                     })
-                }),
-        )
+                }
+            }))
+            .boxed(),
+            Err(e) => stream::once(async move { Err(e) }).boxed(),
+        })
         .boxed()
     }
 
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
-        todo!()
+        let mut url = self.base_url.clone();
+        url.set_path(&format!("{}/{}", url.path(), path));
+        let reader = unsafe { DuckDbFsReader::open_url(self.ctx.as_ptr(), &url)? };
+        Ok(Arc::new(reader))
     }
 }
 
@@ -89,13 +109,13 @@ pub(crate) struct DuckDbFsReader {
 impl DuckDbFsReader {
     pub(crate) unsafe fn open_url(
         ctx: cpp::duckdb_vx_client_context,
-        url: &url::Url,
+        url: &Url,
     ) -> VortexResult<Self> {
         let c_path = CString::new(url.as_str()).map_err(|e| vortex_err!("Invalid URL: {e}"))?;
         let mut err: cpp::duckdb_vx_error = ptr::null_mut();
         let handle = unsafe { cpp::duckdb_vx_fs_open(ctx, c_path.as_ptr(), &raw mut err) };
         if handle.is_null() {
-            return Err(crate::duckdb::file_system::fs_error(err));
+            return Err(fs_error(err));
         }
 
         Ok(Self {
@@ -112,11 +132,11 @@ impl VortexReadAt for DuckDbFsReader {
     }
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
-        Some(crate::duckdb::file_system::DEFAULT_COALESCE)
+        Some(DEFAULT_COALESCE)
     }
 
     fn concurrency(&self) -> usize {
-        crate::duckdb::file_system::DEFAULT_CONCURRENCY
+        DEFAULT_CONCURRENCY
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
@@ -137,7 +157,7 @@ impl VortexReadAt for DuckDbFsReader {
                         cpp::duckdb_vx_fs_get_size(handle.as_ptr(), &raw mut size_out, &raw mut err)
                     };
                     if status != cpp::duckdb_state::DuckDBSuccess {
-                        return Err(crate::duckdb::file_system::fs_error(err));
+                        return Err(fs_error(err));
                     }
                     Ok::<_, VortexError>(size_out as u64)
                 })
@@ -178,7 +198,7 @@ impl VortexReadAt for DuckDbFsReader {
                     };
 
                     if status != cpp::duckdb_state::DuckDBSuccess {
-                        return Err(crate::duckdb::file_system::fs_error(err));
+                        return Err(fs_error(err));
                     }
 
                     let used = usize::try_from(out_len)

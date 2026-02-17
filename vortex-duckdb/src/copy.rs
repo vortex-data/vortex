@@ -129,7 +129,7 @@ impl CopyFunction for VortexCopyFunction {
         let array_stream = ArrayStreamAdapter::new(bind_data.dtype.clone(), rx.into_stream());
 
         let handle = SESSION.handle();
-        let ctx_ptr = client_context.as_sendable();
+        let ctx_ptr = client_context;
         let write_task = handle.spawn(async move {
             // Use DuckDB FS exclusively to match the DuckDB client context configuration.
             let writer =

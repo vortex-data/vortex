@@ -5,19 +5,12 @@ use std::ffi::CStr;
 use std::ffi::CString;
 use std::ptr;
 use std::sync::Arc;
-use std::sync::OnceLock;
 
-use futures::FutureExt;
-use futures::future::BoxFuture;
-use vortex::array::buffer::BufferHandle;
-use vortex::buffer::Alignment;
-use vortex::buffer::ByteBufferMut;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::io::CoalesceConfig;
 use vortex::io::IoBuf;
-use vortex::io::VortexReadAt;
 use vortex::io::VortexWrite;
 use vortex::io::runtime::BlockingRuntime;
 
@@ -26,22 +19,11 @@ use crate::cpp;
 use crate::duckdb::ClientContext;
 use crate::lifetime_wrapper;
 
-const DEFAULT_COALESCE: CoalesceConfig = CoalesceConfig {
-    distance: 1024 * 1024,     // 1 MB
-    max_size: 8 * 1024 * 1024, // 8 MB
-};
-
-// Local cap to keep remote reads parallel without overwhelming typical per-host connection limits.
-// The DuckDB httpfs extension does not expose a fixed default concurrency in the vendored sources;
-// 64 is a conservative ceiling that stays well below common cloud limits while keeping range reads
-// busy.
-const DEFAULT_CONCURRENCY: usize = 64;
-
 lifetime_wrapper!(FsFileHandle, cpp::duckdb_vx_file_handle, cpp::duckdb_vx_fs_close, [owned, ref]);
 unsafe impl Send for FsFileHandle {}
 unsafe impl Sync for FsFileHandle {}
 
-fn fs_error(err: cpp::duckdb_vx_error) -> VortexError {
+pub(crate) fn fs_error(err: cpp::duckdb_vx_error) -> VortexError {
     if err.is_null() {
         return vortex_err!("DuckDB filesystem error (unknown)");
     }
