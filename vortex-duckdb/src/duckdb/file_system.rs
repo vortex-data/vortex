@@ -97,15 +97,15 @@ impl DuckDbFsReader {
     ) -> VortexResult<Self> {
         let c_path = CString::new(url.as_str()).map_err(|e| vortex_err!("Invalid URL: {e}"))?;
         let mut err: cpp::duckdb_vx_error = ptr::null_mut();
-        let handle = unsafe { cpp::duckdb_vx_fs_open(ctx, c_path.as_ptr(), &raw mut err) };
-        if handle.is_null() {
+        let file_handle = unsafe { cpp::duckdb_vx_fs_open(ctx, c_path.as_ptr(), &raw mut err) };
+        if file_handle.is_null() {
             return Err(fs_error(err));
         }
 
         let is_local = url.scheme() == "file";
 
         Ok(Self {
-            handle: Arc::new(unsafe { FsFileHandle::own(handle) }),
+            handle: Arc::new(unsafe { FsFileHandle::own(file_handle) }),
             uri: Arc::from(url.as_str()),
             size: Arc::new(OnceLock::new()),
             is_local,
@@ -135,7 +135,7 @@ impl VortexReadAt for DuckDbFsReader {
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        let handle = self.handle.clone();
+        let file_handle = self.handle.clone();
         let size_cell = self.size.clone();
 
         async move {
@@ -149,7 +149,11 @@ impl VortexReadAt for DuckDbFsReader {
                     let mut err: cpp::duckdb_vx_error = ptr::null_mut();
                     let mut size_out: cpp::idx_t = 0;
                     let status = unsafe {
-                        cpp::duckdb_vx_fs_get_size(handle.as_ptr(), &raw mut size_out, &raw mut err)
+                        cpp::duckdb_vx_fs_get_size(
+                            file_handle.as_ptr(),
+                            &raw mut size_out,
+                            &raw mut err,
+                        )
                     };
                     if status != cpp::duckdb_state::DuckDBSuccess {
                         return Err(fs_error(err));
@@ -170,7 +174,7 @@ impl VortexReadAt for DuckDbFsReader {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        let handle = self.handle.clone();
+        let file_handle = self.handle.clone();
 
         async move {
             let runtime = RUNTIME.handle();
@@ -183,7 +187,7 @@ impl VortexReadAt for DuckDbFsReader {
                     let mut out_len: cpp::idx_t = 0;
                     let status = unsafe {
                         cpp::duckdb_vx_fs_read(
-                            handle.as_ptr(),
+                            file_handle.as_ptr(),
                             offset as cpp::idx_t,
                             length as cpp::idx_t,
                             buffer.as_mut_slice().as_mut_ptr(),
@@ -228,13 +232,13 @@ impl DuckDbFsWriter {
     ) -> VortexResult<Self> {
         let c_path = CString::new(path).map_err(|e| vortex_err!("Invalid path: {e}"))?;
         let mut err: cpp::duckdb_vx_error = ptr::null_mut();
-        let handle = unsafe { cpp::duckdb_vx_fs_create(ctx, c_path.as_ptr(), &raw mut err) };
-        if handle.is_null() {
+        let file_handle = unsafe { cpp::duckdb_vx_fs_create(ctx, c_path.as_ptr(), &raw mut err) };
+        if file_handle.is_null() {
             return Err(fs_error(err));
         }
 
         Ok(Self {
-            handle: Arc::new(unsafe { FsFileHandle::own(handle) }),
+            handle: Arc::new(unsafe { FsFileHandle::own(file_handle) }),
             pos: 0,
         })
     }
@@ -245,14 +249,9 @@ impl VortexWrite for DuckDbFsWriter {
         let len = buffer.bytes_init();
         let offset = self.pos;
         let handle = self.handle.clone();
-        // IoBuf is not bounded by Send, so it cannot be moved into a
-        // spawn_blocking closure. Pass the pointer as usize (which is Send)
-        // and keep `buffer` alive in this async fn until the blocking call
-        // completes.
-        let buf_ptr = buffer.read_ptr() as usize;
 
         let runtime = RUNTIME.handle();
-        runtime
+        let buffer = runtime
             .spawn_blocking(move || {
                 let mut err: cpp::duckdb_vx_error = ptr::null_mut();
                 let mut out_len: cpp::idx_t = 0;
@@ -261,7 +260,7 @@ impl VortexWrite for DuckDbFsWriter {
                         handle.as_ptr(),
                         offset as cpp::idx_t,
                         len as cpp::idx_t,
-                        buf_ptr as *mut u8,
+                        buffer.read_ptr() as *mut u8,
                         &raw mut out_len,
                         &raw mut err,
                     )
@@ -271,7 +270,7 @@ impl VortexWrite for DuckDbFsWriter {
                     return Err(std::io::Error::other(fs_error(err).to_string()));
                 }
 
-                Ok(())
+                Ok(buffer)
             })
             .await?;
 
