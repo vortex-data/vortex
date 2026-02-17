@@ -23,11 +23,14 @@ use crate::arrays::NullArray;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
+mod bitbuffer;
 mod bool;
+mod buffer;
 mod decimal;
 mod fixed_size_list;
 mod listview;
 mod primitive;
+mod slice;
 mod struct_;
 mod varbinview;
 

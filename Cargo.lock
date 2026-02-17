@@ -9933,7 +9933,6 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
- "vortex-compute",
  "vortex-cuda",
  "vortex-cuda-macros",
  "vortex-datetime-parts",
@@ -10030,7 +10029,6 @@ dependencies = [
  "tracing",
  "vortex-array",
  "vortex-buffer",
- "vortex-compute",
  "vortex-dtype",
  "vortex-error",
  "vortex-flatbuffers",
@@ -10149,27 +10147,6 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-session",
-]
-
-[[package]]
-name = "vortex-compute"
-version = "0.1.0"
-dependencies = [
- "arrow-array",
- "arrow-buffer",
- "arrow-schema",
- "codspeed-divan-compat",
- "half",
- "itertools 0.14.0",
- "multiversion",
- "num-traits",
- "paste",
- "rstest",
- "tracing",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-mask",
 ]
 
 [[package]]
@@ -10414,7 +10391,6 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
- "vortex-compute",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",

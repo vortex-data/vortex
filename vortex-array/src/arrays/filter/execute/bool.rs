@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use vortex_compute::filter::Filter;
 use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
@@ -15,7 +14,7 @@ pub fn filter_bool(array: &BoolArray, mask: &Arc<MaskValues>) -> BoolArray {
     let filtered_validity = filter_validity(validity, mask);
 
     let bit_buffer = array.to_bit_buffer();
-    let filtered_buffer = bit_buffer.filter(mask.as_ref());
+    let filtered_buffer = super::bitbuffer::filter_bit_buffer(&bit_buffer, mask.as_ref());
 
     BoolArray::new(filtered_buffer, filtered_validity)
 }

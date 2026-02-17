@@ -24,10 +24,6 @@ pub use vortex::compressor::IntCode
 
 pub use vortex::compressor::StringCode
 
-pub mod vortex::compute2
-
-pub use vortex::compute2::<<vortex_compute::*>>
-
 pub mod vortex::dtype
 
 pub use vortex::dtype::<<vortex_dtype::*>>

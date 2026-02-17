@@ -124,10 +124,6 @@ impl core::convert::From<vortex_buffer::bit::buf::BitBuffer> for vortex_mask::Ma
 
 pub fn vortex_mask::Mask::from(value: vortex_buffer::bit::buf::BitBuffer) -> Self
 
-impl core::convert::From<vortex_mask::Mask> for core::option::Option<arrow_buffer::buffer::null::NullBuffer>
-
-pub fn core::option::Option<arrow_buffer::buffer::null::NullBuffer>::from(value: vortex_mask::Mask) -> Self
-
 impl core::default::Default for vortex_mask::Mask
 
 pub fn vortex_mask::Mask::default() -> Self
