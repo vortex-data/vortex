@@ -100,9 +100,10 @@ config_namespace! {
         /// the scan. When disabled, Vortex reads only the referenced columns and
         /// all expressions are evaluated after the scan.
         pub projection_pushdown: bool, default = false
-        /// The per-file Vortex scan concurrency.
         /// The intra-partition scan concurrency, controlling the number of row splits to process
-        /// concurrently per-thread within each file. This does not affect the overall parallelism
+        /// concurrently per-thread within each file.
+        ///
+        /// This does not affect the overall parallelism
         /// across partitions, which is controlled by DataFusion's execution configuration.
         pub scan_concurrency: Option<usize>, default = None
     }
