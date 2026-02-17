@@ -17,10 +17,9 @@ use std::time::Instant;
 use anyhow::Result;
 use clap::Parser;
 use clap::ValueEnum;
+use futures::future::BoxFuture;
 use futures::StreamExt;
 use futures::TryStreamExt;
-#[cfg(target_os = "linux")]
-use futures::future::BoxFuture;
 use object_store::GetOptions;
 use object_store::GetRange;
 use object_store::ObjectStore;
@@ -1223,7 +1222,7 @@ impl LayoutReader for BenchLayoutReader {
         row_range: &std::ops::Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
-    ) -> VortexResult<futures::future::BoxFuture<'static, VortexResult<vortex::array::ArrayRef>>>
+    ) -> VortexResult<BoxFuture<'static, VortexResult<vortex::array::ArrayRef>>>
     {
         self.inner.projection_evaluation(row_range, expr, mask)
     }
