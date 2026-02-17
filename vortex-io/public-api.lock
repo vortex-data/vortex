@@ -50,6 +50,8 @@ pub fn vortex_io::file::std_file::FileReadAdapter::size(&self) -> futures_core::
 
 pub fn vortex_io::file::std_file::FileReadAdapter::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
 
+pub const vortex_io::file::std_file::DEFAULT_CONCURRENCY: usize
+
 pub mod vortex_io::kanal_ext
 
 pub trait vortex_io::kanal_ext::KanalExt<T>

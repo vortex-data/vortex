@@ -20,6 +20,7 @@ use vortex::io::IoBuf;
 use vortex::io::VortexReadAt;
 use vortex::io::VortexWrite;
 use vortex::io::file::object_store;
+use vortex::io::file::std_file;
 use vortex::io::runtime::BlockingRuntime;
 
 use crate::RUNTIME;
@@ -86,6 +87,7 @@ pub(crate) struct DuckDbFsReader {
     handle: Arc<FsFileHandle>,
     uri: Arc<str>,
     size: Arc<OnceLock<u64>>,
+    is_local: bool,
 }
 
 impl DuckDbFsReader {
@@ -100,10 +102,13 @@ impl DuckDbFsReader {
             return Err(fs_error(err));
         }
 
+        let is_local = url.scheme() == "file";
+
         Ok(Self {
             handle: Arc::new(unsafe { FsFileHandle::own(handle) }),
             uri: Arc::from(url.as_str()),
             size: Arc::new(OnceLock::new()),
+            is_local,
         })
     }
 }
@@ -114,11 +119,19 @@ impl VortexReadAt for DuckDbFsReader {
     }
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
-        Some(CoalesceConfig::object_storage())
+        if self.is_local {
+            Some(CoalesceConfig::local())
+        } else {
+            Some(CoalesceConfig::object_storage())
+        }
     }
 
     fn concurrency(&self) -> usize {
-        object_store::DEFAULT_CONCURRENCY
+        if self.is_local {
+            std_file::DEFAULT_CONCURRENCY
+        } else {
+            object_store::DEFAULT_CONCURRENCY
+        }
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {

@@ -62,7 +62,8 @@ const COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
     distance: 8 * 1024, // KB
     max_size: 8 * 1024, // KB
 };
-const CONCURRENCY: usize = 32;
+/// Default number of concurrent requests to allow for local file I/O.
+pub const DEFAULT_CONCURRENCY: usize = 32;
 
 /// An adapter type wrapping a [`File`] to implement [`VortexReadAt`].
 pub struct FileReadAdapter {
@@ -91,7 +92,7 @@ impl VortexReadAt for FileReadAdapter {
     }
 
     fn concurrency(&self) -> usize {
-        CONCURRENCY
+        DEFAULT_CONCURRENCY
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
