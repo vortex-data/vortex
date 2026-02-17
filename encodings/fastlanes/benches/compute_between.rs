@@ -15,6 +15,8 @@ use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 
+#[expect(clippy::unwrapused)]
+
 fn main() {
     warm_up_vtables();
     divan::main();
