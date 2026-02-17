@@ -11,10 +11,10 @@ use indicatif::ProgressBar;
 use sqllogictest::DBOutput;
 use sqllogictest::runner::AsyncDB;
 use vortex::error::VortexError;
-use vortex_duckdb::LogicalType;
-use vortex_duckdb::Value;
 use vortex_duckdb::duckdb::Connection;
 use vortex_duckdb::duckdb::Database;
+use vortex_duckdb::duckdb::LogicalType;
+use vortex_duckdb::duckdb::Value;
 use vortex_duckdb::initialize;
 
 #[derive(Debug, thiserror::Error)]
@@ -49,9 +49,10 @@ impl DuckDB {
     pub fn try_new(pb: ProgressBar) -> Result<Self, DuckDBTestError> {
         let db = Database::open_in_memory()?;
         db.register_vortex_scan_replacement()?;
+        initialize(&db)?;
+
         let conn = db.connect()?;
 
-        initialize(&conn)?;
         Ok(Self {
             pb,
             inner: Arc::new(Inner { conn, _db: db }),
