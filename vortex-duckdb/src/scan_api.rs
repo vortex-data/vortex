@@ -4,6 +4,7 @@
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
@@ -113,9 +114,17 @@ impl TableFunction for VortexScanApiTableFunction {
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
         // Parse the URL and separate the base URL (keep scheme, host, etc.) from the path.
-        let glob_url = Url::parse(glob_url_parameter.as_ref().as_string().as_str())?;
+        let glob_url_str = glob_url_parameter.as_ref().as_string();
+        let glob_url = match Url::parse(glob_url_str.as_str()) {
+            Ok(url) => Ok(url),
+            Err(_) => Url::from_file_path(Path::new(glob_url_str.as_str()))
+                .map_err(|_| url::ParseError::RelativeUrlWithoutBase),
+        }?;
+
         let mut base_url = glob_url.clone();
         base_url.set_path("");
+        tracing::warn!("GLOB: {}", glob_url);
+        tracing::warn!("BASE: {}", base_url);
 
         let fs = Arc::new(DuckDbFileSystem::new(base_url, ctx.clone()));
 
