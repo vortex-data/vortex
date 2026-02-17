@@ -89,7 +89,7 @@ unsafe extern "C-unwind" fn list_files_callback(
 }
 
 pub(crate) unsafe fn duckdb_fs_create_writer(
-    ctx: cpp::duckdb_vx_client_context,
+    ctx: cpp::duckdb_client_context,
     path: &str,
 ) -> VortexResult<DuckDbFsWriter> {
     unsafe { DuckDbFsWriter::create(ctx, path) }
@@ -101,10 +101,7 @@ pub(crate) struct DuckDbFsWriter {
 }
 
 impl DuckDbFsWriter {
-    pub(crate) unsafe fn create(
-        ctx: cpp::duckdb_vx_client_context,
-        path: &str,
-    ) -> VortexResult<Self> {
+    pub(crate) unsafe fn create(ctx: cpp::duckdb_client_context, path: &str) -> VortexResult<Self> {
         let c_path = CString::new(path).map_err(|e| vortex_err!("Invalid path: {e}"))?;
         let mut err: cpp::duckdb_vx_error = ptr::null_mut();
         let file_handle = unsafe { cpp::duckdb_vx_fs_create(ctx, c_path.as_ptr(), &raw mut err) };

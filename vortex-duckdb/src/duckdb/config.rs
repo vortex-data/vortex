@@ -10,6 +10,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
 use crate::cpp;
+use crate::duckdb::Database;
 use crate::duckdb::LogicalType;
 use crate::duckdb::Value;
 use crate::duckdb_try;
@@ -154,6 +155,12 @@ impl Config {
             )
         });
         Ok(())
+    }
+}
+
+impl Database {
+    pub fn config(&self) -> Config {
+        unsafe { Config::borrow(cpp::duckdb_vx_database_get_config(self.as_ptr())) }
     }
 }
 

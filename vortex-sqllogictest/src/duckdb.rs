@@ -15,7 +15,7 @@ use vortex_duckdb::LogicalType;
 use vortex_duckdb::Value;
 use vortex_duckdb::duckdb::Connection;
 use vortex_duckdb::duckdb::Database;
-use vortex_duckdb::register_table_functions;
+use vortex_duckdb::initialize;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DuckDBTestError {
@@ -51,7 +51,7 @@ impl DuckDB {
         db.register_vortex_scan_replacement()?;
         let conn = db.connect()?;
 
-        register_table_functions(&conn)?;
+        initialize(&conn)?;
         Ok(Self {
             pb,
             inner: Arc::new(Inner { conn, _db: db }),

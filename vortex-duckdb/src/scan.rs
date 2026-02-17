@@ -71,7 +71,7 @@ use crate::duckdb::VirtualColumnsResult;
 use crate::duckdb::footer_cache::FooterCache;
 use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
-use crate::filesystem::DuckDbFileSystem;
+use crate::filesystem::resolve_filesystem;
 
 pub struct VortexBindData {
     file_system: FileSystemRef,
@@ -267,7 +267,7 @@ impl TableFunction for VortexTableFunction {
         let mut base_url = glob_url.clone();
         base_url.set_path("");
 
-        let fs: FileSystemRef = Arc::new(DuckDbFileSystem::new(base_url, ctx.clone()));
+        let fs: FileSystemRef = resolve_filesystem(&base_url, ctx)?;
 
         // Read the vortex_max_threads setting from DuckDB configuration
         let max_threads_cstr = CString::new("vortex_max_threads")

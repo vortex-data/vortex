@@ -21,7 +21,7 @@ pub use init::*;
 pub use virtual_columns::VirtualColumnsResult;
 
 use crate::cpp;
-use crate::cpp::duckdb_vx_client_context;
+use crate::cpp::duckdb_client_context;
 use crate::duckdb::Database;
 use crate::duckdb::LogicalType;
 use crate::duckdb::client_context::ClientContext;
@@ -234,7 +234,7 @@ unsafe extern "C-unwind" fn to_string_callback<T: TableFunction>(
 
 /// The native function callback for a table function.
 unsafe extern "C-unwind" fn function<T: TableFunction>(
-    duckdb_client_context: duckdb_vx_client_context,
+    duckdb_client_context: duckdb_client_context,
     bind_data: *const c_void,
     global_init_data: *mut c_void,
     local_init_data: *mut c_void,

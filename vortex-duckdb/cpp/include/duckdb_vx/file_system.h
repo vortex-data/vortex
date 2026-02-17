@@ -15,7 +15,7 @@ typedef struct duckdb_vx_file_handle_ *duckdb_vx_file_handle;
 
 // Open a file using DuckDB's filesystem (supports httpfs, s3, etc.).
 duckdb_vx_file_handle
-duckdb_vx_fs_open(duckdb_vx_client_context ctx, const char *path, duckdb_vx_error *error_out);
+duckdb_vx_fs_open(duckdb_client_context ctx, const char *path, duckdb_vx_error *error_out);
 
 // Close a previously opened file handle.
 void duckdb_vx_fs_close(duckdb_vx_file_handle *handle);
@@ -43,7 +43,7 @@ typedef void (*duckdb_vx_list_files_callback)(const char *name, bool is_dir, voi
 /// Invokes `callback` once for each entry (file or subdirectory) found directly
 /// inside `directory`.  The caller is responsible for recursing into subdirectories
 /// if a recursive listing is desired.
-duckdb_state duckdb_vx_fs_list_files(duckdb_vx_client_context ctx,
+duckdb_state duckdb_vx_fs_list_files(duckdb_client_context ctx,
                                      const char *directory,
                                      duckdb_vx_list_files_callback callback,
                                      void *user_data,
@@ -51,7 +51,7 @@ duckdb_state duckdb_vx_fs_list_files(duckdb_vx_client_context ctx,
 
 // Create/truncate a file for writing using DuckDB's filesystem.
 duckdb_vx_file_handle
-duckdb_vx_fs_create(duckdb_vx_client_context ctx, const char *path, duckdb_vx_error *error_out);
+duckdb_vx_fs_create(duckdb_client_context ctx, const char *path, duckdb_vx_error *error_out);
 
 // Write len bytes at the given offset from buffer.
 duckdb_state duckdb_vx_fs_write(duckdb_vx_file_handle handle,

@@ -26,7 +26,7 @@ using vortex::HandleException;
 using vortex::SetError;
 
 extern "C" duckdb_vx_file_handle
-duckdb_vx_fs_open(duckdb_vx_client_context ctx, const char *path, duckdb_vx_error *error_out) {
+duckdb_vx_fs_open(duckdb_client_context ctx, const char *path, duckdb_vx_error *error_out) {
     if (!ctx || !path) {
         SetError(error_out, "Invalid filesystem open arguments");
         return nullptr;
@@ -44,7 +44,7 @@ duckdb_vx_fs_open(duckdb_vx_client_context ctx, const char *path, duckdb_vx_erro
 }
 
 extern "C" duckdb_vx_file_handle
-duckdb_vx_fs_create(duckdb_vx_client_context ctx, const char *path, duckdb_vx_error *error_out) {
+duckdb_vx_fs_create(duckdb_client_context ctx, const char *path, duckdb_vx_error *error_out) {
     if (!ctx || !path) {
         SetError(error_out, "Invalid filesystem create arguments");
         return nullptr;
@@ -131,7 +131,7 @@ extern "C" duckdb_state duckdb_vx_fs_write(duckdb_vx_file_handle handle,
     }
 }
 
-extern "C" duckdb_state duckdb_vx_fs_list_files(duckdb_vx_client_context ctx,
+extern "C" duckdb_state duckdb_vx_fs_list_files(duckdb_client_context ctx,
                                                 const char *directory,
                                                 duckdb_vx_list_files_callback callback,
                                                 void *user_data,

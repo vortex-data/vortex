@@ -87,7 +87,7 @@ unique_ptr<FunctionData> c_bind(ClientContext &context,
     };
 
     duckdb_vx_error error_out = nullptr;
-    auto ctx = reinterpret_cast<duckdb_vx_client_context>(&context);
+    auto ctx = reinterpret_cast<duckdb_client_context>(&context);
     auto ffi_bind_data = info.vtab.bind(ctx,
                                         reinterpret_cast<duckdb_vx_tfunc_bind_input>(&input),
                                         reinterpret_cast<duckdb_vx_tfunc_bind_result>(&result),
@@ -110,7 +110,7 @@ unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, Table
         .projection_ids = input.projection_ids.data(),
         .projection_ids_count = input.projection_ids.size(),
         .filters = reinterpret_cast<duckdb_vx_table_filter_set>(input.filters.get()),
-        .client_context = reinterpret_cast<duckdb_vx_client_context>(&context),
+        .client_context = reinterpret_cast<duckdb_client_context>(&context),
     };
 
     duckdb_vx_error error_out = nullptr;
@@ -137,7 +137,7 @@ unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context,
         .projection_ids = input.projection_ids.data(),
         .projection_ids_count = input.projection_ids.size(),
         .filters = reinterpret_cast<duckdb_vx_table_filter_set>(input.filters.get()),
-        .client_context = reinterpret_cast<duckdb_vx_client_context>(&context),
+        .client_context = reinterpret_cast<duckdb_client_context>(&context),
     };
 
     duckdb_vx_error error_out = nullptr;
@@ -153,7 +153,7 @@ unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context,
 void c_function(ClientContext &context, TableFunctionInput &input, DataChunk &output) {
     const auto &bind = input.bind_data->Cast<CTableBindData>();
 
-    auto ctx = reinterpret_cast<duckdb_vx_client_context>(&context);
+    auto ctx = reinterpret_cast<duckdb_client_context>(&context);
     const auto bind_data = bind.ffi_data->DataPtr();
     auto global_data = input.global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
     auto local_data = input.local_state->Cast<CTableLocalData>().ffi_data->DataPtr();
@@ -330,8 +330,7 @@ InsertionOrderPreservingMap<string> c_to_string(TableFunctionToStringInput &inpu
     return result;
 }
 
-extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db,
-                                                 const duckdb_vx_tfunc_vtab_t *vtab) {
+extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const duckdb_vx_tfunc_vtab_t *vtab) {
     if (!ffi_db || !vtab) {
         return DuckDBError;
     }
@@ -397,5 +396,4 @@ extern "C" void duckdb_vx_string_map_free(duckdb_vx_string_map map) {
     auto *cpp_map = reinterpret_cast<InsertionOrderPreservingMap<string> *>(map);
     delete cpp_map;
 }
-
 } // namespace vortex

@@ -42,6 +42,15 @@ impl ObjectStoreFileSystem {
     pub fn new(store: Arc<dyn ObjectStore>, handle: Handle) -> Self {
         Self { store, handle }
     }
+
+    /// Create a new filesystem backed by a local file system object store and the given runtime
+    /// handle.
+    pub fn local(handle: Handle) -> Self {
+        Self::new(
+            Arc::new(object_store::local::LocalFileSystem::new()),
+            handle,
+        )
+    }
 }
 
 #[async_trait]

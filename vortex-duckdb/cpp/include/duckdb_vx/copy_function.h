@@ -48,7 +48,7 @@ typedef struct {
                            unsigned long column_type_count,
                            duckdb_vx_error *error_out);
 
-    duckdb_vx_data (*init_global)(duckdb_vx_client_context ctx,
+    duckdb_vx_data (*init_global)(duckdb_client_context ctx,
                                   const void *bind_data,
                                   const char *file_path,
                                   duckdb_vx_error *error_out);
