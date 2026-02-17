@@ -135,7 +135,7 @@ pub(super) fn precondition(
 /// Between on a canonical array by directly dispatching to the appropriate kernel.
 ///
 /// Falls back to compare + boolean and if no kernel handles the input.
-pub(crate) fn between_canonical(
+fn between_canonical(
     arr: &dyn Array,
     lower: &dyn Array,
     upper: &dyn Array,

@@ -16,9 +16,9 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
-use crate::compute::BetweenOptions;
-use crate::compute::StrictComparison;
 use crate::expr::BetweenKernel;
+use crate::expr::BetweenOptions;
+use crate::expr::StrictComparison;
 use crate::vtable::ValidityHelper;
 
 impl BetweenKernel for DecimalVTable {

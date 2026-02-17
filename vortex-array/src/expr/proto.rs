@@ -73,9 +73,9 @@ mod tests {
 
     use super::ExprSerializeProtoExt;
     use crate::LEGACY_SESSION;
-    use crate::compute::BetweenOptions;
-    use crate::compute::StrictComparison;
+    use crate::expr::BetweenOptions;
     use crate::expr::Expression;
+    use crate::expr::StrictComparison;
     use crate::expr::exprs::between::between;
     use crate::expr::exprs::binary::and;
     use crate::expr::exprs::binary::eq;

@@ -5674,40 +5674,6 @@ impl core::fmt::Debug for vortex_array::compute::Output
 
 pub fn vortex_array::compute::Output::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub enum vortex_array::compute::StrictComparison
-
-pub vortex_array::compute::StrictComparison::NonStrict
-
-pub vortex_array::compute::StrictComparison::Strict
-
-impl vortex_array::expr::StrictComparison
-
-pub const fn vortex_array::expr::StrictComparison::is_strict(&self) -> bool
-
-pub const fn vortex_array::expr::StrictComparison::to_operator(&self) -> vortex_array::compute::Operator
-
-impl core::clone::Clone for vortex_array::expr::StrictComparison
-
-pub fn vortex_array::expr::StrictComparison::clone(&self) -> vortex_array::expr::StrictComparison
-
-impl core::cmp::Eq for vortex_array::expr::StrictComparison
-
-impl core::cmp::PartialEq for vortex_array::expr::StrictComparison
-
-pub fn vortex_array::expr::StrictComparison::eq(&self, other: &vortex_array::expr::StrictComparison) -> bool
-
-impl core::fmt::Debug for vortex_array::expr::StrictComparison
-
-pub fn vortex_array::expr::StrictComparison::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::expr::StrictComparison
-
-pub fn vortex_array::expr::StrictComparison::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::Copy for vortex_array::expr::StrictComparison
-
-impl core::marker::StructuralPartialEq for vortex_array::expr::StrictComparison
-
 pub struct vortex_array::compute::BetweenExecuteAdaptor<V>(pub V)
 
 impl<V: core::default::Default> core::default::Default for vortex_array::expr::BetweenExecuteAdaptor<V>
@@ -5723,40 +5689,6 @@ impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::Bet
 pub type vortex_array::expr::BetweenExecuteAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Between>
 
 pub fn vortex_array::expr::BetweenExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::Between>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-pub struct vortex_array::compute::BetweenOptions
-
-pub vortex_array::compute::BetweenOptions::lower_strict: vortex_array::expr::StrictComparison
-
-pub vortex_array::compute::BetweenOptions::upper_strict: vortex_array::expr::StrictComparison
-
-impl core::clone::Clone for vortex_array::expr::BetweenOptions
-
-pub fn vortex_array::expr::BetweenOptions::clone(&self) -> vortex_array::expr::BetweenOptions
-
-impl core::cmp::Eq for vortex_array::expr::BetweenOptions
-
-impl core::cmp::PartialEq for vortex_array::expr::BetweenOptions
-
-pub fn vortex_array::expr::BetweenOptions::eq(&self, other: &vortex_array::expr::BetweenOptions) -> bool
-
-impl core::fmt::Debug for vortex_array::expr::BetweenOptions
-
-pub fn vortex_array::expr::BetweenOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::fmt::Display for vortex_array::expr::BetweenOptions
-
-pub fn vortex_array::expr::BetweenOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::expr::BetweenOptions
-
-pub fn vortex_array::expr::BetweenOptions::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::StructuralPartialEq for vortex_array::expr::BetweenOptions
-
-impl vortex_array::compute::Options for vortex_array::expr::BetweenOptions
-
-pub fn vortex_array::expr::BetweenOptions::as_any(&self) -> &dyn core::any::Any
 
 pub struct vortex_array::compute::BetweenReduceAdaptor<V>(pub V)
 
@@ -6683,8 +6615,6 @@ pub fn vortex_array::compute::and(lhs: &dyn vortex_array::Array, rhs: &dyn vorte
 pub fn vortex_array::compute::and_kleene(lhs: &dyn vortex_array::Array, rhs: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::compute::arrow_filter_fn(array: &dyn vortex_array::Array, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::between(arr: &dyn vortex_array::Array, lower: &dyn vortex_array::Array, upper: &dyn vortex_array::Array, options: &vortex_array::expr::BetweenOptions) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::compute::boolean(lhs: &dyn vortex_array::Array, rhs: &dyn vortex_array::Array, op: vortex_array::compute::BooleanOperator) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 

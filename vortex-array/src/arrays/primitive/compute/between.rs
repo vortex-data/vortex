@@ -14,9 +14,9 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
-use crate::compute::BetweenOptions;
-use crate::compute::StrictComparison;
 use crate::expr::BetweenKernel;
+use crate::expr::BetweenOptions;
+use crate::expr::StrictComparison;
 use crate::vtable::ValidityHelper;
 
 impl BetweenKernel for PrimitiveVTable {

@@ -15,7 +15,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 
 use arcref::ArcRef;
-pub use between::*;
 pub use boolean::*;
 #[expect(deprecated)]
 pub use cast::cast;
@@ -69,7 +68,6 @@ pub use crate::expr::NotReduceAdaptor;
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
-mod between;
 mod boolean;
 mod cast;
 mod compare;
