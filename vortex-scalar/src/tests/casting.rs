@@ -103,7 +103,7 @@ mod tests {
         assert!(
             result
                 .as_ref()
-                .is_err_and(|err| { err.to_string().contains("Cannot cast u16 to u8") }),
+                .is_err_and(|err| { err.to_string().contains("Cannot cast 1000u16 to u8") }),
             "{result:?}"
         );
     }

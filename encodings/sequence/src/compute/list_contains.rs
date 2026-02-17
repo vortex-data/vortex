@@ -28,19 +28,20 @@ impl ListContainsKernel for SequenceVTable {
             .elements()
             .vortex_expect("non-null element (checked in entry)");
 
-        let set_indices = list_elements
-            .iter()
-            .flat_map(|elem| {
-                elem.as_primitive().pvalue().and_then(|intercept| {
-                    find_intersection_scalar(
-                        element.base(),
-                        element.multiplier(),
-                        element.len(),
-                        intercept,
-                    )
-                })
-            })
-            .collect::<Vec<_>>();
+        let mut set_indices: Vec<usize> = Vec::new();
+        for intercept in list_elements.iter() {
+            let Some(intercept) = intercept.as_primitive().pvalue() else {
+                continue;
+            };
+            if let Ok(intersection) = find_intersection_scalar(
+                element.base(),
+                element.multiplier(),
+                element.len(),
+                intercept,
+            ) {
+                set_indices.push(intersection)
+            }
+        }
 
         let nullability = list.dtype().nullability() | element.dtype().nullability();
 

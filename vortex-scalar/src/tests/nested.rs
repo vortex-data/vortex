@@ -369,7 +369,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("Cannot cast u16 to u8")
+                .contains("Cannot cast 256u16 to u8")
         );
     }
 
