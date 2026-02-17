@@ -29,7 +29,6 @@ use crate::arrays::DecimalVTable;
 use crate::arrays::PrimitiveVTable;
 use crate::compute::BooleanOperator;
 use crate::compute::Options;
-use crate::compute::arrow_boolean;
 use crate::compute::compare;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -38,6 +37,7 @@ use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::expr::execute_boolean;
 use crate::expr::expression::Expression;
 use crate::expr::exprs::binary::Binary;
 use crate::expr::exprs::operators::Operator;
@@ -159,10 +159,11 @@ pub(crate) fn between_canonical(
         return Ok(result);
     }
 
+    // TODO(joe): return lazy compare once the executor supports this
     // Fall back to compare + boolean and
-    arrow_boolean(
-        compare(lower, arr, options.lower_strict.to_operator())?,
-        compare(arr, upper, options.upper_strict.to_operator())?,
+    execute_boolean(
+        &compare(lower, arr, options.lower_strict.to_operator())?,
+        &compare(arr, upper, options.upper_strict.to_operator())?,
         BooleanOperator::AndKleene,
     )
 }
