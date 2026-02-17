@@ -9,7 +9,6 @@ use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::StructFields;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::IntoArray;
@@ -19,6 +18,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

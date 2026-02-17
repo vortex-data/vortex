@@ -4,7 +4,6 @@
 use arrow_array::BooleanArray;
 use arrow_ord::cmp;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -24,6 +23,7 @@ use crate::compute::compare_nested_arrow_arrays;
 use crate::compute::scalar_cmp;
 use crate::expr::Binary;
 use crate::kernel::ExecuteParentKernel;
+use crate::scalar::Scalar;
 use crate::vtable::VTable;
 
 /// Trait for encoding-specific comparison kernels that operate in encoded space.

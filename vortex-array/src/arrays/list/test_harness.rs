@@ -7,12 +7,12 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::arrays::ListArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
+use crate::scalar::Scalar;
 
 impl ListArray {
     /// This is a convenience method to create a list array from an iterator of iterators.

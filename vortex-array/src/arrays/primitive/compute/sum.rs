@@ -12,13 +12,13 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
-use vortex_scalar::Scalar;
 
 use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::register_kernel;
+use crate::scalar::Scalar;
 
 impl SumKernel for PrimitiveVTable {
     fn sum(&self, array: &PrimitiveArray, accumulator: &Scalar) -> VortexResult<Scalar> {

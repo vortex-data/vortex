@@ -403,7 +403,7 @@ mod tests {
 
             let filter = eq(
                 root(),
-                lit(vortex_scalar::Scalar::utf8(
+                lit(vortex_array::scalar::Scalar::utf8(
                     filter_value,
                     Nullability::Nullable,
                 )),

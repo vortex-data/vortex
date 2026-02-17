@@ -11,7 +11,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::arrays::ConstantVTable;
@@ -25,6 +24,7 @@ use crate::compute::Output;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
+use crate::scalar::Scalar;
 use crate::vtable::VTable;
 
 static IS_SORTED_FN: LazyLock<ComputeFn> = LazyLock::new(|| {

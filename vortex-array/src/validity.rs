@@ -17,7 +17,6 @@ use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -34,6 +33,7 @@ use crate::expr::Binary;
 use crate::expr::Operator;
 use crate::optimizer::ArrayOptimizer;
 use crate::patches::Patches;
+use crate::scalar::Scalar;
 
 /// Validity information for an array
 #[derive(Clone, Debug)]

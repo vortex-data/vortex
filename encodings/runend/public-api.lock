@@ -146,7 +146,7 @@ pub fn vortex_runend::RunEndVTable::cast(array: &vortex_runend::RunEndArray, dty
 
 impl vortex_array::expr::exprs::fill_null::kernel::FillNullReduce for vortex_runend::RunEndVTable
 
-pub fn vortex_runend::RunEndVTable::fill_null(array: &vortex_runend::RunEndArray, fill_value: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEndVTable::fill_null(array: &vortex_runend::RunEndArray, fill_value: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_runend::RunEndVTable
 
@@ -194,7 +194,7 @@ pub fn vortex_runend::RunEndVTable::stats(array: &vortex_runend::RunEndArray) ->
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_runend::RunEndVTable> for vortex_runend::RunEndVTable
 
-pub fn vortex_runend::RunEndVTable::scalar_at(array: &vortex_runend::RunEndArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
+pub fn vortex_runend::RunEndVTable::scalar_at(array: &vortex_runend::RunEndArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityVTable<vortex_runend::RunEndVTable> for vortex_runend::RunEndVTable
 

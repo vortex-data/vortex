@@ -11,11 +11,11 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::BetweenOptions;
 use vortex_array::expr::BetweenReduce;
 use vortex_array::expr::StrictComparison;
+use vortex_array::scalar::Scalar;
 use vortex_dtype::NativeDType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::ALPArray;
 use crate::ALPFloat;

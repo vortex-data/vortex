@@ -34,7 +34,6 @@ vortex-fsst = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-pco = { workspace = true, optional = true }
 vortex-runend = { workspace = true }
-vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }

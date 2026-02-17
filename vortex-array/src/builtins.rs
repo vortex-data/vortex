@@ -12,7 +12,6 @@
 use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::Array;
@@ -34,6 +33,7 @@ use crate::expr::Not;
 use crate::expr::VTableExt;
 use crate::expr::Zip;
 use crate::optimizer::ArrayOptimizer;
+use crate::scalar::Scalar;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
 pub trait ExprBuiltins: Sized {

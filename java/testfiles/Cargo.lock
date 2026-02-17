@@ -2189,7 +2189,6 @@ dependencies = [
  "vortex-pco",
  "vortex-proto",
  "vortex-runend",
- "vortex-scalar",
  "vortex-scan",
  "vortex-sequence",
  "vortex-session",
@@ -2213,7 +2212,6 @@ dependencies = [
  "vortex-error",
  "vortex-fastlanes",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
  "vortex-utils",
 ]
@@ -2233,6 +2231,7 @@ dependencies = [
  "arrow-select",
  "arrow-string",
  "async-lock",
+ "bytes",
  "cfg-if",
  "enum-iterator",
  "flatbuffers",
@@ -2261,7 +2260,6 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-mask",
  "vortex-proto",
- "vortex-scalar",
  "vortex-session",
  "vortex-utils",
 ]
@@ -2290,7 +2288,6 @@ dependencies = [
  "vortex-mask",
  "vortex-pco",
  "vortex-runend",
- "vortex-scalar",
  "vortex-sequence",
  "vortex-sparse",
  "vortex-utils",
@@ -2320,7 +2317,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -2363,7 +2359,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -2378,7 +2373,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -2434,7 +2428,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -2471,7 +2464,6 @@ dependencies = [
  "vortex-metrics",
  "vortex-pco",
  "vortex-runend",
- "vortex-scalar",
  "vortex-scan",
  "vortex-sequence",
  "vortex-session",
@@ -2502,7 +2494,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -2583,7 +2574,6 @@ dependencies = [
  "vortex-io",
  "vortex-mask",
  "vortex-metrics",
- "vortex-scalar",
  "vortex-sequence",
  "vortex-session",
  "vortex-utils",
@@ -2620,7 +2610,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -2645,27 +2634,7 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
-]
-
-[[package]]
-name = "vortex-scalar"
-version = "0.1.0"
-dependencies = [
- "arrow-array",
- "bytes",
- "itertools 0.14.0",
- "num-traits",
- "paste",
- "prost",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-mask",
- "vortex-proto",
- "vortex-session",
- "vortex-utils",
 ]
 
 [[package]]
@@ -2705,7 +2674,6 @@ dependencies = [
  "vortex-mask",
  "vortex-proto",
  "vortex-runend",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -2732,7 +2700,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -2754,7 +2721,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
  "zigzag",
 ]
@@ -2770,7 +2736,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
  "zstd",
 ]

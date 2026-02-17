@@ -39,7 +39,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 pub use zip::*;
 
 use crate::Array;
@@ -65,6 +64,7 @@ pub use crate::expr::NotExecuteAdaptor;
 pub use crate::expr::NotKernel;
 pub use crate::expr::NotReduce;
 pub use crate::expr::NotReduceAdaptor;
+use crate::scalar::Scalar;
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;

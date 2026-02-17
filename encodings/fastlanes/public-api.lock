@@ -30,7 +30,7 @@ pub fn vortex_fastlanes::bitpack_decompress::unpack_array(array: &vortex_fastlan
 
 pub fn vortex_fastlanes::bitpack_decompress::unpack_primitive_array<T: vortex_fastlanes::unpack_iter::BitPacked>(array: &vortex_fastlanes::BitPackedArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::primitive::array::PrimitiveArray>
 
-pub fn vortex_fastlanes::bitpack_decompress::unpack_single(array: &vortex_fastlanes::BitPackedArray, index: usize) -> vortex_scalar::scalar::Scalar
+pub fn vortex_fastlanes::bitpack_decompress::unpack_single(array: &vortex_fastlanes::BitPackedArray, index: usize) -> vortex_array::scalar::Scalar
 
 pub unsafe fn vortex_fastlanes::bitpack_decompress::unpack_single_primitive<T: vortex_dtype::ptype::NativePType + fastlanes::bitpacking::BitPacking>(packed: &[T], bit_width: usize, index_to_decode: usize) -> T
 
@@ -256,7 +256,7 @@ pub fn vortex_fastlanes::BitPackedVTable::stats(array: &vortex_fastlanes::BitPac
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fastlanes::BitPackedVTable> for vortex_fastlanes::BitPackedVTable
 
-pub fn vortex_fastlanes::BitPackedVTable::scalar_at(array: &vortex_fastlanes::BitPackedArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
+pub fn vortex_fastlanes::BitPackedVTable::scalar_at(array: &vortex_fastlanes::BitPackedArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::visitor::VisitorVTable<vortex_fastlanes::BitPackedVTable> for vortex_fastlanes::BitPackedVTable
 
@@ -384,7 +384,7 @@ pub fn vortex_fastlanes::DeltaVTable::stats(array: &vortex_fastlanes::DeltaArray
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fastlanes::DeltaVTable> for vortex_fastlanes::DeltaVTable
 
-pub fn vortex_fastlanes::DeltaVTable::scalar_at(array: &vortex_fastlanes::DeltaArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
+pub fn vortex_fastlanes::DeltaVTable::scalar_at(array: &vortex_fastlanes::DeltaArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::visitor::VisitorVTable<vortex_fastlanes::DeltaVTable> for vortex_fastlanes::DeltaVTable
 
@@ -408,9 +408,9 @@ pub fn vortex_fastlanes::FoRArray::encoded(&self) -> &vortex_array::array::Array
 
 pub fn vortex_fastlanes::FoRArray::ptype(&self) -> vortex_dtype::ptype::PType
 
-pub fn vortex_fastlanes::FoRArray::reference_scalar(&self) -> &vortex_scalar::scalar::Scalar
+pub fn vortex_fastlanes::FoRArray::reference_scalar(&self) -> &vortex_array::scalar::Scalar
 
-pub fn vortex_fastlanes::FoRArray::try_new(encoded: vortex_array::array::ArrayRef, reference: vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<Self>
+pub fn vortex_fastlanes::FoRArray::try_new(encoded: vortex_array::array::ArrayRef, reference: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_fastlanes::FoRArray
 
@@ -484,7 +484,7 @@ pub type vortex_fastlanes::FoRVTable::Array = vortex_fastlanes::FoRArray
 
 pub type vortex_fastlanes::FoRVTable::ArrayVTable = vortex_fastlanes::FoRVTable
 
-pub type vortex_fastlanes::FoRVTable::Metadata = vortex_scalar::scalar::Scalar
+pub type vortex_fastlanes::FoRVTable::Metadata = vortex_array::scalar::Scalar
 
 pub type vortex_fastlanes::FoRVTable::OperationsVTable = vortex_fastlanes::FoRVTable
 
@@ -524,7 +524,7 @@ pub fn vortex_fastlanes::FoRVTable::stats(array: &vortex_fastlanes::FoRArray) ->
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fastlanes::FoRVTable> for vortex_fastlanes::FoRVTable
 
-pub fn vortex_fastlanes::FoRVTable::scalar_at(array: &vortex_fastlanes::FoRArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
+pub fn vortex_fastlanes::FoRVTable::scalar_at(array: &vortex_fastlanes::FoRArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityChild<vortex_fastlanes::FoRVTable> for vortex_fastlanes::FoRVTable
 
@@ -660,7 +660,7 @@ pub fn vortex_fastlanes::RLEVTable::stats(array: &vortex_fastlanes::RLEArray) ->
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fastlanes::RLEVTable> for vortex_fastlanes::RLEVTable
 
-pub fn vortex_fastlanes::RLEVTable::scalar_at(array: &vortex_fastlanes::RLEArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
+pub fn vortex_fastlanes::RLEVTable::scalar_at(array: &vortex_fastlanes::RLEArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityChild<vortex_fastlanes::RLEVTable> for vortex_fastlanes::RLEVTable
 

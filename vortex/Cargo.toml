@@ -44,7 +44,6 @@ vortex-metrics = { workspace = true }
 vortex-pco = { workspace = true }
 vortex-proto = { workspace = true, default-features = true }
 vortex-runend = { workspace = true, features = ["arrow"] }
-vortex-scalar = { workspace = true }
 vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }

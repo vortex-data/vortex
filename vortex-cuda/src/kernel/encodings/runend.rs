@@ -13,6 +13,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
@@ -26,7 +27,6 @@ use vortex_error::vortex_err;
 use vortex_runend::RunEndArray;
 use vortex_runend::RunEndArrayParts;
 use vortex_runend::RunEndVTable;
-use vortex_scalar::Scalar;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;

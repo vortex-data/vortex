@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -14,6 +13,7 @@ use crate::arrays::MaskedArray;
 use crate::arrays::TakeReduce;
 use crate::arrays::TakeReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 impl TakeReduce for ConstantVTable {
@@ -63,7 +63,6 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_mask::AllOr;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::IntoArray;
@@ -72,6 +71,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]

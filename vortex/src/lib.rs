@@ -77,7 +77,7 @@ pub mod proto {
 }
 
 pub mod scalar {
-    pub use vortex_scalar::*;
+    pub use vortex_array::scalar::*;
 }
 
 pub mod scan {

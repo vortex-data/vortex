@@ -214,7 +214,7 @@ pub fn vortex_alp::ALPRDVTable::stats(array: &vortex_alp::ALPRDArray) -> vortex_
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_alp::ALPRDVTable> for vortex_alp::ALPRDVTable
 
-pub fn vortex_alp::ALPRDVTable::scalar_at(array: &vortex_alp::ALPRDArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
+pub fn vortex_alp::ALPRDVTable::scalar_at(array: &vortex_alp::ALPRDArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityChild<vortex_alp::ALPRDVTable> for vortex_alp::ALPRDVTable
 
@@ -322,7 +322,7 @@ pub fn vortex_alp::ALPVTable::stats(array: &vortex_alp::ALPArray) -> vortex_arra
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_alp::ALPVTable> for vortex_alp::ALPVTable
 
-pub fn vortex_alp::ALPVTable::scalar_at(array: &vortex_alp::ALPArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
+pub fn vortex_alp::ALPVTable::scalar_at(array: &vortex_alp::ALPArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityChild<vortex_alp::ALPVTable> for vortex_alp::ALPVTable
 
@@ -382,7 +382,7 @@ pub fn vortex_alp::RDEncoder::new<T>(sample: &[T]) -> Self where T: vortex_alp::
 
 pub trait vortex_alp::ALPFloat: vortex_alp::alp::private::Sealed + num_traits::float::Float + core::fmt::Display + vortex_dtype::ptype::NativePType
 
-pub type vortex_alp::ALPFloat::ALPInt: num_traits::int::PrimInt + core::fmt::Display + num_traits::cast::ToPrimitive + core::marker::Copy + vortex_dtype::ptype::NativePType + core::convert::Into<vortex_scalar::typed_view::primitive::pvalue::PValue>
+pub type vortex_alp::ALPFloat::ALPInt: num_traits::int::PrimInt + core::fmt::Display + num_traits::cast::ToPrimitive + core::marker::Copy + vortex_dtype::ptype::NativePType + core::convert::Into<vortex_array::scalar::typed_view::primitive::pvalue::PValue>
 
 pub const vortex_alp::ALPFloat::F10: &'static [Self]
 

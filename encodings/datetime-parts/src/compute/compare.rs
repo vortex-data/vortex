@@ -12,11 +12,11 @@ use vortex_array::compute::and_kleene;
 use vortex_array::compute::compare;
 use vortex_array::compute::or_kleene;
 use vortex_array::expr::CompareKernel;
+use vortex_array::scalar::Scalar;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::datetime::Timestamp;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::array::DateTimePartsArray;
 use crate::array::DateTimePartsVTable;

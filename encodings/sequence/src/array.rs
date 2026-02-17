@@ -17,6 +17,9 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::expr::stats::Precision as StatPrecision;
 use vortex_array::expr::stats::Stat;
+use vortex_array::scalar::PValue;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSet;
@@ -42,9 +45,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 use vortex_session::VortexSession;
 
 use crate::kernel::PARENT_KERNELS;
@@ -421,10 +421,10 @@ mod tests {
     use vortex_array::expr::stats::Precision as StatPrecision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::expr::stats::StatsProviderExt;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar::ScalarValue;
     use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
-    use vortex_scalar::Scalar;
-    use vortex_scalar::ScalarValue;
 
     use crate::array::SequenceArray;
 

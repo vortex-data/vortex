@@ -18,8 +18,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -30,6 +28,8 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
+use crate::scalar::DecimalValue;
+use crate::scalar::Scalar;
 
 /// The builder for building a [`DecimalArray`].
 ///
@@ -323,7 +323,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        use vortex_scalar::Scalar;
+        use crate::scalar::Scalar;
 
         // Simply test that the builder accepts its own finish output via scalar.
         let mut builder = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), true.into());

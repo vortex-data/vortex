@@ -61,7 +61,6 @@ mod tests {
     use vortex_dtype::extension::ExtDTypeVTable;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::IntoArray;
@@ -75,6 +74,7 @@ mod tests {
     use crate::expr::Binary;
     use crate::expr::Operator;
     use crate::optimizer::ArrayOptimizer;
+    use crate::scalar::Scalar;
 
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct TestExt;

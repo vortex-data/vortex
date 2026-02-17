@@ -7,13 +7,13 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrow::FromArrowArray;
+use vortex_array::scalar::PValue;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
-use vortex_scalar::PValue;
 
 use crate::RunEndArray;
 use crate::ops::find_slice_end_index;

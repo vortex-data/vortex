@@ -13,10 +13,10 @@ use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::Timestamp;
 use vortex_dtype::half::f16;
 use vortex_error::VortexExpect;
-use vortex_scalar::Scalar;
 
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
+use crate::scalar::Scalar;
 
 /// Test that `append_zeros` produces the same result as manually appending `Scalar::default_value`.
 ///
@@ -573,7 +573,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
             DType::Binary(n) => Scalar::binary(format!("bytes_{}", i).into_bytes(), *n),
             DType::Decimal(dec_dtype, n) => {
                 // Create decimal scalars based on the decimal dtype.
-                use vortex_scalar::DecimalValue;
+                use crate::scalar::DecimalValue;
                 let value = DecimalValue::I128((i as i128 + 1) * 100); // Simple decimal values.
                 Scalar::decimal(value, *dec_dtype, *n)
             }

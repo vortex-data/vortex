@@ -160,7 +160,7 @@ pub fn vortex_fsst::FSSTVTable::stats(array: &vortex_fsst::FSSTArray) -> vortex_
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fsst::FSSTVTable> for vortex_fsst::FSSTVTable
 
-pub fn vortex_fsst::FSSTVTable::scalar_at(array: &vortex_fsst::FSSTArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
+pub fn vortex_fsst::FSSTVTable::scalar_at(array: &vortex_fsst::FSSTArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityChild<vortex_fsst::FSSTVTable> for vortex_fsst::FSSTVTable
 

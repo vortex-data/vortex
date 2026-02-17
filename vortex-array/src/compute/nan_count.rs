@@ -9,8 +9,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use crate::Array;
 use crate::compute::ComputeFn;
@@ -22,6 +20,8 @@ use crate::compute::UnaryArgs;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
+use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 use crate::vtable::VTable;
 
 static NAN_COUNT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {

@@ -134,7 +134,6 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_dtype::StructFields;
-    use vortex_scalar::Scalar;
 
     use super::*;
     use crate::expr::exprs::binary::and;
@@ -152,6 +151,7 @@ mod tests {
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::select;
     use crate::expr::exprs::select::select_exclude;
+    use crate::scalar::Scalar;
 
     #[test]
     fn basic_expr_split_test() {

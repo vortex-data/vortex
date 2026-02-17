@@ -8,7 +8,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -30,6 +29,7 @@ use crate::expr::exprs::binary::lt;
 use crate::expr::exprs::binary::or;
 use crate::expr::exprs::literal::Literal;
 use crate::expr::exprs::literal::lit;
+use crate::scalar::Scalar;
 
 pub struct ListContains;
 
@@ -201,7 +201,6 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
     use vortex_dtype::StructFields;
-    use vortex_scalar::Scalar;
     use vortex_utils::aliases::hash_map::HashMap;
     use vortex_utils::aliases::hash_set::HashSet;
 
@@ -222,6 +221,7 @@ mod tests {
     use crate::expr::exprs::root::root;
     use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::stats::Stat;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     fn test_array() -> ArrayRef {

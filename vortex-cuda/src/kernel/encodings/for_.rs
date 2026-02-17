@@ -104,12 +104,12 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity::NonNullable;
     use vortex_buffer::Buffer;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
     use vortex_fastlanes::FoRArray;
-    use vortex_scalar::Scalar;
     use vortex_session::VortexSession;
 
     use super::*;

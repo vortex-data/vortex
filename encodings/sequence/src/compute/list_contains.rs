@@ -61,9 +61,9 @@ mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::list_contains;
+    use vortex_array::scalar::Scalar;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
-    use vortex_scalar::Scalar;
 
     use crate::SequenceArray;
 

@@ -8,6 +8,8 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::Operator;
 use vortex_array::expr::CompareKernel;
+use vortex_array::scalar::PValue;
+use vortex_array::scalar::Scalar;
 use vortex_buffer::BitBuffer;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
@@ -16,8 +18,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
 
 use crate::SequenceArray;
 use crate::array::SequenceVTable;

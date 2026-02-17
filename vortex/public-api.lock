@@ -114,7 +114,7 @@ pub use vortex::proto::<<vortex_proto::*>>
 
 pub mod vortex::scalar
 
-pub use vortex::scalar::<<vortex_scalar::*>>
+pub use vortex::scalar::<<vortex_array::scalar::*>>
 
 pub mod vortex::scan
 

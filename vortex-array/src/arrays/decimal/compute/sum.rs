@@ -15,8 +15,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::Scalar;
 
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
@@ -24,6 +22,8 @@ use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::expr::stats::Stat;
 use crate::register_kernel;
+use crate::scalar::DecimalValue;
+use crate::scalar::Scalar;
 
 impl SumKernel for DecimalVTable {
     fn sum(&self, array: &DecimalArray, accumulator: &Scalar) -> VortexResult<Scalar> {
@@ -134,12 +134,12 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::i256;
     use vortex_error::VortexExpect;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
-    use vortex_scalar::ScalarValue;
 
     use crate::arrays::DecimalArray;
     use crate::compute::sum;
+    use crate::scalar::DecimalValue;
+    use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
     #[test]

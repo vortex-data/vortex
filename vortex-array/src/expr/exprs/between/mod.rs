@@ -16,7 +16,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::Array;
@@ -42,6 +41,7 @@ use crate::expr::execute_boolean;
 use crate::expr::expression::Expression;
 use crate::expr::exprs::binary::Binary;
 use crate::expr::exprs::operators::Operator;
+use crate::scalar::Scalar;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BetweenOptions {
@@ -372,8 +372,6 @@ mod tests {
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
 
     use super::*;
     use crate::IntoArray;
@@ -386,6 +384,8 @@ mod tests {
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;
+    use crate::scalar::DecimalValue;
+    use crate::scalar::Scalar;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 

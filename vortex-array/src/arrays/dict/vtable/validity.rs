@@ -3,13 +3,13 @@
 
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use super::DictVTable;
 use crate::Array;
 use crate::IntoArray;
 use crate::arrays::dict::DictArray;
 use crate::builtins::ArrayBuiltins;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
 

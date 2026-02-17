@@ -32,6 +32,7 @@ arrow-schema = { workspace = true }
 arrow-select = { workspace = true }
 arrow-string = { workspace = true }
 async-lock = { workspace = true }
+bytes = { workspace = true }
 cfg-if = { workspace = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
@@ -66,17 +67,12 @@ vortex-dtype = { workspace = true, features = ["serde"] }
 vortex-error = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
 vortex-mask = { workspace = true }
-vortex-proto = { workspace = true, features = ["expr"] }
-vortex-scalar = { workspace = true }
+vortex-proto = { workspace = true, features = ["expr", "scalar"] }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dyn-traits"] }
 
 [features]
-arbitrary = [
-    "dep:arbitrary",
-    "vortex-dtype/arbitrary",
-    "vortex-scalar/arbitrary",
-]
+arbitrary = ["dep:arbitrary", "vortex-dtype/arbitrary"]
 canonical_counter = []
 table-display = ["dep:tabled"]
 _test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]

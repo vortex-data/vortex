@@ -91,7 +91,7 @@ mod primitive {
     fn old_raw_prim_test_between<T>(bencher: Bencher, len: usize)
     where
         T: NumCast + NativePType,
-        vortex_scalar::Scalar: From<T>,
+        vortex_array::scalar::Scalar: From<T>,
     {
         let min = T::from_usize(5561).vortex_expect("");
         let max = T::from_usize(6032).vortex_expect("");
@@ -125,7 +125,7 @@ mod primitive {
     fn new_raw_prim_test_between<T>(bencher: Bencher, len: usize)
     where
         T: NumCast + NativePType,
-        vortex_scalar::Scalar: From<T>,
+        vortex_array::scalar::Scalar: From<T>,
     {
         let min = T::from_usize(5561).vortex_expect("");
         let max = T::from_usize(6032).vortex_expect("");
@@ -181,7 +181,7 @@ mod bitpack {
     fn old_bp_prim_test_between<T>(bencher: Bencher, len: usize)
     where
         T: NumCast + NativePType,
-        vortex_scalar::Scalar: From<T>,
+        vortex_array::scalar::Scalar: From<T>,
     {
         let min = T::from_usize(5561).vortex_expect("");
         let max = T::from_usize(6032).vortex_expect("");
@@ -214,7 +214,7 @@ mod bitpack {
     fn new_bp_prim_test_between<T>(bencher: Bencher, len: usize)
     where
         T: NumCast + NativePType,
-        vortex_scalar::Scalar: From<T>,
+        vortex_array::scalar::Scalar: From<T>,
     {
         let min = T::from_usize(5561).vortex_expect("");
         let max = T::from_usize(6032).vortex_expect("");
@@ -270,7 +270,7 @@ mod alp {
     fn old_alp_prim_test_between<T>(bencher: Bencher, len: usize)
     where
         T: NumCast + NativePType,
-        vortex_scalar::Scalar: From<T>,
+        vortex_array::scalar::Scalar: From<T>,
     {
         let min = T::from_usize(5561).vortex_expect("");
         let max = T::from_usize(6032).vortex_expect("");
@@ -303,7 +303,7 @@ mod alp {
     fn new_alp_prim_test_between<T>(bencher: Bencher, len: usize)
     where
         T: NumCast + NativePType,
-        vortex_scalar::Scalar: From<T>,
+        vortex_array::scalar::Scalar: From<T>,
     {
         let min = T::from_usize(5561).vortex_expect("");
         let max = T::from_usize(6032).vortex_expect("");

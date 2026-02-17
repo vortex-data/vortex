@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use super::DictArray;
 use super::DictVTable;
@@ -19,6 +18,7 @@ use crate::expr::stats::StatsProviderExt;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::scalar::Scalar;
 use crate::stats::StatsSet;
 use crate::vtable::VTable;
 

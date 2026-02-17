@@ -187,11 +187,11 @@ mod tests {
     use vortex_array::expr::Operator;
     use vortex_array::expr::StrictComparison;
     use vortex_array::optimizer::ArrayOptimizer;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_dtype::datetime::TimeUnit;
     use vortex_dtype::datetime::TimestampOptions;
-    use vortex_scalar::Scalar;
 
     use super::*;
 

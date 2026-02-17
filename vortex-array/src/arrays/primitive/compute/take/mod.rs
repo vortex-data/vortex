@@ -121,7 +121,6 @@ mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::IntoArray;
@@ -129,6 +128,7 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::primitive::compute::take::take_primitive_scalar;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]

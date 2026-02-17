@@ -19,6 +19,7 @@ use futures::executor::block_on;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_cuda::CudaBufferExt;
@@ -29,7 +30,6 @@ use vortex_cuda_macros::cuda_not_available;
 use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::FoRArray;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M")];

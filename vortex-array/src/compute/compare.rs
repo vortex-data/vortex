@@ -15,7 +15,6 @@ use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -24,6 +23,7 @@ use crate::arrays::ScalarFnArray;
 use crate::expr::Binary;
 use crate::expr::ScalarFn;
 use crate::expr::operators;
+use crate::scalar::Scalar;
 
 /// Compares two arrays and returns a new boolean array with the result of the comparison.
 ///

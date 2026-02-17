@@ -12,7 +12,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -23,6 +22,7 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::scalar::Scalar;
 
 /// The builder for building a [`PrimitiveArray`], parametrized by the `PType`.
 pub struct PrimitiveBuilder<T> {
@@ -580,7 +580,8 @@ mod tests {
     #[test]
     fn test_append_scalar() {
         use vortex_dtype::DType;
-        use vortex_scalar::Scalar;
+
+        use crate::scalar::Scalar;
 
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::Nullable, 10);
 

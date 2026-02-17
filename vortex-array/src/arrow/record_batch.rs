@@ -63,11 +63,11 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_scalar::Scalar;
 
     use crate::arrays::StructArray;
     use crate::builders::ArrayBuilder;
     use crate::builders::ListBuilder;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_into_rb_with_schema() {

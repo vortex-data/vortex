@@ -21,12 +21,12 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::DictArrayParts;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
 use vortex_sparse::SparseVTable;
 

@@ -2,13 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::expr::FillNullReduce;
 use crate::expr::fill_null_constant;
+use crate::scalar::Scalar;
 
 impl FillNullReduce for ConstantVTable {
     fn fill_null(array: &ConstantArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
@@ -18,12 +18,11 @@ impl FillNullReduce for ConstantVTable {
 
 #[cfg(test)]
 mod test {
-    use vortex_scalar::Scalar;
-
     use crate::IntoArray as _;
     use crate::arrays::ConstantArray;
     use crate::arrow::IntoArrowArray as _;
     use crate::builtins::ArrayBuiltins;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_null() {

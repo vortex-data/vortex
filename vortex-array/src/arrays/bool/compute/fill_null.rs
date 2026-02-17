@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -12,6 +11,7 @@ use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::expr::FillNullKernel;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -47,11 +47,11 @@ mod tests {
     use vortex_buffer::bitbuffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
 
     use crate::arrays::BoolArray;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[rstest]

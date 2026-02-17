@@ -114,7 +114,7 @@ pub fn vortex_zigzag::ZigZagVTable::stats(array: &vortex_zigzag::ZigZagArray) ->
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_zigzag::ZigZagVTable> for vortex_zigzag::ZigZagVTable
 
-pub fn vortex_zigzag::ZigZagVTable::scalar_at(array: &vortex_zigzag::ZigZagArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
+pub fn vortex_zigzag::ZigZagVTable::scalar_at(array: &vortex_zigzag::ZigZagArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityChild<vortex_zigzag::ZigZagVTable> for vortex_zigzag::ZigZagVTable
 

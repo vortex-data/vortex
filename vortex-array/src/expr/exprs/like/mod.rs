@@ -13,7 +13,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_scalar::StringLike;
 use vortex_session::VortexSession;
 
 use crate::Array;
@@ -35,6 +34,7 @@ use crate::expr::gt_eq;
 use crate::expr::lit;
 use crate::expr::lt;
 use crate::expr::or;
+use crate::scalar::StringLike;
 
 /// Options for SQL LIKE function
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -15,6 +15,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_cuda_macros::cuda_tests;
 use vortex_datetime_parts::DateTimePartsVTable;
@@ -28,7 +29,6 @@ use vortex_dtype::match_each_signed_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;

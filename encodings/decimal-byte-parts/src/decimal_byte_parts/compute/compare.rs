@@ -10,6 +10,9 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::expr::CompareKernel;
+use vortex_array::scalar::DecimalValue;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -18,9 +21,6 @@ use vortex_dtype::match_each_decimal_value;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use crate::DecimalBytePartsVTable;
 use crate::decimal_byte_parts::compute::compare::Sign::Positive;
@@ -141,14 +141,14 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
+    use vortex_array::scalar::DecimalValue;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
 
     use crate::DecimalBytePartsArray;
 

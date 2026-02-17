@@ -36,11 +36,11 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_scalar::Scalar;
 
     use crate::FoRArray;
 

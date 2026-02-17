@@ -51,7 +51,6 @@ vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-nvcomp = { path = "nvcomp" }
 vortex-runend = { workspace = true }
-vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
@@ -66,7 +65,6 @@ tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-cuda = { path = ".", features = ["_test-harness"] }
 vortex-dtype = { workspace = true, features = ["cudarc"] }
-vortex-scalar = { workspace = true }
 
 [build-dependencies]
 bindgen = { workspace = true }

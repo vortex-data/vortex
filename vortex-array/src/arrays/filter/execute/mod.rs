@@ -11,7 +11,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
-use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -21,6 +20,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FilterArray;
 use crate::arrays::NullArray;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 mod bool;

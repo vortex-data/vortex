@@ -83,7 +83,6 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_mask::Mask;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::IntoArray;
@@ -97,6 +96,7 @@ mod tests {
     use crate::builders::BufferGrowthStrategy;
     use crate::builders::VarBinViewBuilder;
     use crate::compute::zip;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_zip_basic() {

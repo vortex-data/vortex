@@ -3,11 +3,11 @@
 
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexResult;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::Scalar;
 
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
+use crate::scalar::DecimalValue;
+use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<DecimalVTable> for DecimalVTable {
@@ -27,12 +27,12 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::arrays::DecimalArray;
     use crate::arrays::DecimalVTable;
+    use crate::scalar::DecimalValue;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]

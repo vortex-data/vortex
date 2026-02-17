@@ -90,9 +90,9 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::scalar::PValue;
     use vortex_dtype::NativePType;
     use vortex_dtype::Nullability;
-    use vortex_scalar::PValue;
     use vortex_sequence::SequenceArray;
     use vortex_session::VortexSession;
 

@@ -63,10 +63,10 @@ mod test {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
 
     use crate::SparseArray;
 
