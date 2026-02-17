@@ -38,21 +38,6 @@ pub(crate) fn fs_error(err: cpp::duckdb_vx_error) -> VortexError {
     vortex_err!("{message}")
 }
 
-/// Convert a path string to a [`url::Url`], canonicalizing local paths.
-fn path_to_url(path: &str) -> VortexResult<url::Url> {
-    match url::Url::parse(path) {
-        Ok(url) => Ok(url),
-        Err(_) => {
-            let p = std::path::Path::new(path);
-            let canonical = p
-                .canonicalize()
-                .map_err(|e| vortex_err!("Cannot canonicalize file path {p:?}: {e}"))?;
-            url::Url::from_file_path(&canonical)
-                .map_err(|_| vortex_err!("Cannot convert path to URL: {path}"))
-        }
-    }
-}
-
 /// An entry returned by [`duckdb_fs_list_dir`].
 pub(crate) struct DirEntry {
     pub name: String,

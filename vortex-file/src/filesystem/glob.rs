@@ -22,6 +22,16 @@ impl dyn FileSystem + '_ {
     pub fn glob(&self, pattern: &str) -> VortexResult<BoxStream<'_, VortexResult<FileListing>>> {
         validate_glob(pattern)?;
 
+        // If there are no glob characters, the pattern is an exact file path.
+        // Return it directly without listing the filesystem.
+        if !pattern.contains(['*', '?', '[']) {
+            let listing = FileListing {
+                path: pattern.to_string(),
+                size: None,
+            };
+            return Ok(futures::stream::once(async { Ok(listing) }).boxed());
+        }
+
         let glob_pattern = glob::Pattern::new(pattern)
             .map_err(|e| vortex_err!("Invalid glob pattern '{}': {}", pattern, e))?;
 
@@ -73,7 +83,40 @@ fn validate_glob(pattern: &str) -> VortexResult<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use futures::TryStreamExt;
+    use vortex_error::vortex_panic;
+    use vortex_io::VortexReadAt;
+
     use super::*;
+    use crate::filesystem::FileSystem;
+
+    /// A mock filesystem that panics if `list` is called.
+    #[derive(Debug)]
+    struct NoListFileSystem;
+
+    #[async_trait]
+    impl FileSystem for NoListFileSystem {
+        fn list(&self, _prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
+            vortex_panic!("list() should not be called for exact paths")
+        }
+
+        async fn open_read(&self, _path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+            vortex_panic!("open_read() should not be called")
+        }
+    }
+
+    #[tokio::test]
+    async fn test_glob_exact_path_skips_list() -> VortexResult<()> {
+        let fs: &dyn FileSystem = &NoListFileSystem;
+        let results: Vec<FileListing> = fs.glob("data/file.vortex")?.try_collect().await?;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].path, "data/file.vortex");
+        assert_eq!(results[0].size, None);
+        Ok(())
+    }
 
     #[test]
     fn test_glob_list_prefix_with_wildcard_in_filename() {

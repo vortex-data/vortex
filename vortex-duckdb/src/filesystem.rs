@@ -62,12 +62,18 @@ impl FileSystem for DuckDbFileSystem {
         if !prefix.is_empty() {
             directory_url.set_path(&format!("{}/{}", directory_url.path(), prefix));
         }
-        let directory = directory_url.to_string();
+
+        // DuckDB's ListFiles expects bare paths for local files, but full URLs
+        // for remote schemes (s3://, etc.).
+        let directory = if directory_url.scheme() == "file" {
+            directory_url.path().to_string()
+        } else {
+            directory_url.to_string()
+        };
 
         tracing::debug!(
-            "Listing files from {} with prefix {:?} using directory {}",
+            "Listing files from {} with prefix {}",
             self.base_url,
-            prefix,
             directory
         );
 
@@ -111,21 +117,9 @@ fn list_recursive(
             if entry.is_dir {
                 stack.push(full_path);
             } else {
-                let url = match Url::parse(&full_path) {
-                    Ok(url) => url,
-                    Err(_) => {
-                        let path = std::path::Path::new(&full_path);
-                        let canonical = path.canonicalize().map_err(|e| {
-                            vortex_err!("Cannot canonicalize file path {path:?}: {e}")
-                        })?;
-                        Url::from_file_path(&canonical)
-                            .map_err(|_| vortex_err!("Cannot convert path to URL: {full_path}"))?
-                    }
-                };
-                let relative_path = url
-                    .path()
+                let relative_path = full_path
                     .strip_prefix(base_path)
-                    .unwrap_or_else(|| url.path())
+                    .unwrap_or_else(|| &full_path)
                     .to_string();
                 results.push(FileListing {
                     path: relative_path,

@@ -22,7 +22,7 @@ use crate::duckdb::Value;
 use crate::scan::VortexTableFunction;
 
 mod convert;
-mod duckdb;
+pub mod duckdb;
 mod exporter;
 mod filesystem;
 mod scan;

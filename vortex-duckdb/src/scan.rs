@@ -242,9 +242,26 @@ impl TableFunction for VortexTableFunction {
         let glob_url_str = glob_url_parameter.as_ref().as_string();
         let glob_url = match Url::parse(glob_url_str.as_str()) {
             Ok(url) => url,
-            Err(_) => Url::from_file_path(Path::new(glob_url_str.as_str())).map_err(|_| {
-                vortex_err!("Cannot convert path to URL: {}", glob_url_str.as_str())
-            })?,
+            Err(_) => {
+                // Otherwise, we assume it's a file path.
+                let path = if !glob_url_str.as_str().starts_with("/") {
+                    // We cannot use Path::canonicalize to resolve relative paths since it requires the file to exist, and the glob may contain wildcards. Instead, we resolve relative paths against the current working directory.
+                    let current_dir = std::env::current_dir().map_err(|e| {
+                        vortex_err!(
+                            "Cannot get current working directory to resolve relative path {}: {}",
+                            glob_url_str.as_str(),
+                            e
+                        )
+                    })?;
+                    current_dir.join(glob_url_str.as_str())
+                } else {
+                    Path::new(glob_url_str.as_str()).to_path_buf()
+                };
+
+                Url::from_file_path(path).map_err(|_| {
+                    vortex_err!("Cannot convert path to URL: {}", glob_url_str.as_str())
+                })?
+            }
         };
 
         let mut base_url = glob_url.clone();
@@ -270,8 +287,9 @@ impl TableFunction for VortexTableFunction {
 
         tracing::trace!("running scan with max_threads {max_threads}");
 
+        let glob_pattern = glob_url.path().strip_prefix("/").unwrap_or(glob_url.path());
         let files: Vec<FileListing> = RUNTIME
-            .block_on_stream(fs.glob(glob_url.path())?)
+            .block_on_stream(fs.glob(glob_pattern)?)
             .try_collect()?;
 
         // The first file is skipped in `create_file_paths_queue`.
