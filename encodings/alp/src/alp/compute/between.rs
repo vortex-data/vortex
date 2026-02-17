@@ -41,7 +41,6 @@ impl BetweenKernel for ALPVTable {
 
         let nullability =
             array.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
-
         match_each_alp_float_ptype!(array.ptype(), |F| {
             between_impl::<F>(
                 array,

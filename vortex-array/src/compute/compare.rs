@@ -21,14 +21,14 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ScalarFnArray;
-use crate::expr::Binary;
 use crate::expr::ScalarFn;
+use crate::expr::{Binary, operators};
 
 /// Compares two arrays and returns a new boolean array with the result of the comparison.
 ///
 /// The returned array is lazy (a [`ScalarFnArray`]) and will be evaluated on demand.
 pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> VortexResult<ArrayRef> {
-    let expr_op: crate::expr::operators::Operator = operator.into();
+    let expr_op: operators::Operator = operator.into();
     Ok(ScalarFnArray::try_new(
         ScalarFn::new(Binary, expr_op),
         vec![left.to_array(), right.to_array()],
