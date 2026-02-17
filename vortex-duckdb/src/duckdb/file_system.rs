@@ -9,7 +9,6 @@ use std::sync::Arc;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::io::CoalesceConfig;
 use vortex::io::IoBuf;
 use vortex::io::VortexWrite;
 use vortex::io::runtime::BlockingRuntime;
