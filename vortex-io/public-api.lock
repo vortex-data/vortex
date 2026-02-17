@@ -28,6 +28,8 @@ pub fn vortex_io::file::object_store::ObjectStoreSource::size(&self) -> futures_
 
 pub fn vortex_io::file::object_store::ObjectStoreSource::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
 
+pub const vortex_io::file::object_store::DEFAULT_CONCURRENCY: usize
+
 pub mod vortex_io::file::std_file
 
 pub struct vortex_io::file::std_file::FileReadAdapter
@@ -308,11 +310,11 @@ pub vortex_io::CoalesceConfig::max_size: u64
 
 impl vortex_io::CoalesceConfig
 
-pub fn vortex_io::CoalesceConfig::local() -> Self
+pub const fn vortex_io::CoalesceConfig::local() -> Self
 
-pub fn vortex_io::CoalesceConfig::new(distance: u64, max_size: u64) -> Self
+pub const fn vortex_io::CoalesceConfig::new(distance: u64, max_size: u64) -> Self
 
-pub fn vortex_io::CoalesceConfig::object_storage() -> Self
+pub const fn vortex_io::CoalesceConfig::object_storage() -> Self
 
 impl core::clone::Clone for vortex_io::CoalesceConfig
 
