@@ -139,7 +139,7 @@ impl SequenceArray {
             multiplier,
             uint: |v| { (true, v> 0) },
             int: |v| { (v >= 0, v > 0) },
-            float: |v| { (!v.is_sign_negative(), v.is_sign_positive()) }
+            float: |_v| { unreachable!("float multiplier not supported") }
         );
 
         // SAFETY: we don't have duplicate stats
