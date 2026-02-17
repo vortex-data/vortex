@@ -9949,6 +9949,7 @@ dependencies = [
  "rustc-hash",
  "serde",
  "simdutf8",
+ "static_assertions",
  "tabled",
  "termtree",
  "tracing",
@@ -9963,7 +9964,6 @@ dependencies = [
  "vortex-scalar",
  "vortex-session",
  "vortex-utils",
- "vortex-vector",
 ]
 
 [[package]]
@@ -10098,7 +10098,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-vector",
 ]
 
 [[package]]
@@ -10288,7 +10287,6 @@ name = "vortex-duckdb"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-compat",
  "async-fs",
  "bindgen",
  "bitvec",
@@ -10296,11 +10294,9 @@ dependencies = [
  "cc",
  "custom-labels",
  "futures",
- "glob",
  "itertools 0.14.0",
  "jiff",
  "num-traits",
- "object_store",
  "once_cell",
  "parking_lot",
  "paste",
@@ -10870,19 +10866,6 @@ dependencies = [
  "hashbrown 0.16.1",
  "parking_lot",
  "vortex-error",
-]
-
-[[package]]
-name = "vortex-vector"
-version = "0.1.0"
-dependencies = [
- "num-traits",
- "paste",
- "static_assertions",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-mask",
 ]
 
 [[package]]

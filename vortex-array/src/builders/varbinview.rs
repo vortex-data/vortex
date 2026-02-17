@@ -19,11 +19,11 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::BinaryView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::compact::BufferUtilization;
 use crate::builders::ArrayBuilder;

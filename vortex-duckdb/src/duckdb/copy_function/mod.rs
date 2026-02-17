@@ -11,6 +11,7 @@ use vortex::error::VortexResult;
 
 use crate::Connection;
 use crate::cpp;
+use crate::duckdb::ClientContext;
 use crate::duckdb::DataChunk;
 use crate::duckdb::LogicalType;
 use crate::duckdb::copy_function::callback::bind_callback;
@@ -49,6 +50,7 @@ pub trait CopyFunction: Sized + Debug {
     /// The global operator state is used to keep track of the progress in the copy function and
     /// is shared between all threads working on the copy function.
     fn init_global(
+        client_context: ClientContext,
         bind_data: &Self::BindData,
         file_path: String,
     ) -> VortexResult<Self::GlobalState>;

@@ -10,6 +10,8 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
@@ -87,9 +89,18 @@ fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (us
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
 
     bencher
-        .with_inputs(|| (&fsst_array, &constant))
-        .bench_refs(|(fsst_array, constant)| {
-            compare(fsst_array.as_ref(), constant.as_ref(), Operator::Eq).unwrap();
+        .with_inputs(|| {
+            (
+                &fsst_array,
+                &constant,
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(fsst_array, constant, ctx)| {
+            compare(fsst_array.as_ref(), constant.as_ref(), Operator::Eq)
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap();
         })
 }
 
@@ -104,14 +115,22 @@ fn canonicalize_compare(
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
 
     bencher
-        .with_inputs(|| (&fsst_array, &constant))
-        .bench_refs(|(fsst_array, constant)| {
+        .with_inputs(|| {
+            (
+                &fsst_array,
+                &constant,
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(fsst_array, constant, ctx)| {
             compare(
                 fsst_array.to_canonical().unwrap().as_ref(),
                 constant.as_ref(),
                 Operator::Eq,
             )
             .unwrap()
+            .execute::<RecursiveCanonical>(ctx)
+            .unwrap();
         });
 }
 
@@ -135,14 +154,16 @@ fn chunked_canonicalize_into(
 ) {
     let array = generate_chunked_test_data(chunk_size, string_count, avg_len, unique_chars);
 
-    bencher.with_inputs(|| &array).bench_refs(|array| {
-        let mut builder =
-            VarBinViewBuilder::with_capacity(DType::Binary(Nullability::NonNullable), array.len());
-        array
-            .append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())
-            .unwrap();
-        builder.finish()
-    });
+    bencher
+        .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+        .bench_refs(|(array, ctx)| {
+            let mut builder = VarBinViewBuilder::with_capacity(
+                DType::Binary(Nullability::NonNullable),
+                array.len(),
+            );
+            array.append_to_builder(&mut builder, ctx).unwrap();
+            builder.finish()
+        });
 }
 
 #[divan::bench(args = CHUNKED_BENCH_ARGS)]

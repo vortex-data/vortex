@@ -14,6 +14,7 @@ use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::CastReduceAdaptor;
+use vortex_array::compute::MaskReduceAdaptor;
 use vortex_array::expr::Between;
 use vortex_array::expr::Binary;
 use vortex_array::optimizer::ArrayOptimizer;
@@ -33,6 +34,7 @@ pub(crate) const PARENT_RULES: ParentRuleSet<DateTimePartsVTable> = ParentRuleSe
     ParentRuleSet::lift(&DTPComparisonPushDownRule),
     ParentRuleSet::lift(&CastReduceAdaptor(DateTimePartsVTable)),
     ParentRuleSet::lift(&FilterReduceAdaptor(DateTimePartsVTable)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(DateTimePartsVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(DateTimePartsVTable)),
 ]);
 

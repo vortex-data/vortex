@@ -26,7 +26,6 @@ pub mod convert;
 pub mod duckdb;
 pub mod exporter;
 mod scan;
-mod utils;
 
 #[rustfmt::skip]
 #[path = "./cpp.rs"]

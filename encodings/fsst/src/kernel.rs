@@ -3,11 +3,13 @@
 
 use vortex_array::arrays::FilterExecuteAdaptor;
 use vortex_array::arrays::TakeExecuteAdaptor;
+use vortex_array::expr::CompareExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
 
 use crate::FSSTVTable;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<FSSTVTable> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&CompareExecuteAdaptor(FSSTVTable)),
     ParentKernelSet::lift(&FilterExecuteAdaptor(FSSTVTable)),
     ParentKernelSet::lift(&TakeExecuteAdaptor(FSSTVTable)),
 ]);

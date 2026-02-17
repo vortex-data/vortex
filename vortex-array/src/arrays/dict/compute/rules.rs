@@ -20,6 +20,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::compute::CastReduceAdaptor;
 use crate::expr::Cast;
 use crate::expr::LikeReduceAdaptor;
+use crate::expr::MaskReduceAdaptor;
 use crate::expr::Pack;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -28,6 +29,7 @@ use crate::optimizer::rules::ParentRuleSet;
 pub(crate) const PARENT_RULES: ParentRuleSet<DictVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FilterReduceAdaptor(DictVTable)),
     ParentRuleSet::lift(&CastReduceAdaptor(DictVTable)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(DictVTable)),
     ParentRuleSet::lift(&LikeReduceAdaptor(DictVTable)),
     ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
     ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
