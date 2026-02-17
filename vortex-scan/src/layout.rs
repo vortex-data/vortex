@@ -12,7 +12,6 @@ use vortex_array::ArrayRef;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_layout::LayoutReaderRef;
@@ -107,7 +106,7 @@ impl DataSourceScan for LayoutReaderScan {
             let fut = self
                 .splits
                 .pop_front()
-                .vortex_expect("Checked length above ensures we have enough splits");
+                .expect("Checked length above ensures we have enough splits");
             splits.push(Box::new(LayoutReaderSplit {
                 dtype: self.dtype.clone(),
                 fut,

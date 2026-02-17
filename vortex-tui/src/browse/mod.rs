@@ -17,7 +17,6 @@ use ratatui::DefaultTerminal;
 use ui::QueryFocus;
 use ui::SortDirection;
 use ui::render_app;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::session::VortexSession;
@@ -339,7 +338,7 @@ fn handle_search_mode(app: &mut AppState, event: Event) -> HandleResult {
                                 .enumerate()
                                 .filter_map(|(idx, show)| show.then_some(idx))
                                 .nth(selected)
-                                .vortex_expect("There must be a selected item in the filter");
+                                .expect("There must be a selected item in the filter");
 
                             app.cursor.child(child_idx)
                         }

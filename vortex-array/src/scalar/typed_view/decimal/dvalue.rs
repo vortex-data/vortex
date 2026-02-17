@@ -17,7 +17,6 @@ use vortex_dtype::NativeDecimalType;
 use vortex_dtype::ToI256;
 use vortex_dtype::i256;
 use vortex_dtype::match_each_decimal_value;
-use vortex_error::VortexExpect;
 
 /// A decimal value that can be stored in various integer widths.
 ///
@@ -110,8 +109,7 @@ impl DecimalValue {
     pub fn fits_in_precision(&self, decimal_type: DecimalDType) -> bool {
         // Convert to i256 for comparison
         let value_i256 = match_each_decimal_value!(self, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
+            v.to_i256().expect("upcast to i256 must always succeed")
         });
 
         // Calculate the maximum stored value that can be represented with this precision
@@ -120,7 +118,7 @@ impl DecimalValue {
         let ten = i256::from_i128(10);
         let max_value = ten
             .checked_pow(decimal_type.precision() as _)
-            .vortex_expect("precision must exist in i256");
+            .expect("precision must exist in i256");
         let min_value = -max_value;
 
         value_i256 > min_value && value_i256 < max_value
@@ -134,12 +132,10 @@ impl DecimalValue {
         F: FnOnce(i256, i256) -> Option<i256>,
     {
         let self_upcast = match_each_decimal_value!(self, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
+            v.to_i256().expect("upcast to i256 must always succeed")
         });
         let other_upcast = match_each_decimal_value!(other, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
+            v.to_i256().expect("upcast to i256 must always succeed")
         });
 
         op(self_upcast, other_upcast).map(DecimalValue::I256)
@@ -175,12 +171,10 @@ impl DecimalValue {
 impl PartialEq for DecimalValue {
     fn eq(&self, other: &Self) -> bool {
         let self_upcast = match_each_decimal_value!(self, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
+            v.to_i256().expect("upcast to i256 must always succeed")
         });
         let other_upcast = match_each_decimal_value!(other, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
+            v.to_i256().expect("upcast to i256 must always succeed")
         });
 
         self_upcast == other_upcast
@@ -192,12 +186,10 @@ impl Eq for DecimalValue {}
 impl PartialOrd for DecimalValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         let self_upcast = match_each_decimal_value!(self, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
+            v.to_i256().expect("upcast to i256 must always succeed")
         });
         let other_upcast = match_each_decimal_value!(other, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
+            v.to_i256().expect("upcast to i256 must always succeed")
         });
 
         self_upcast.partial_cmp(&other_upcast)
@@ -208,8 +200,7 @@ impl PartialOrd for DecimalValue {
 impl Hash for DecimalValue {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         let self_upcast = match_each_decimal_value!(self, |v| {
-            v.to_i256()
-                .vortex_expect("upcast to i256 must always succeed")
+            v.to_i256().expect("upcast to i256 must always succeed")
         });
         self_upcast.hash(state);
     }

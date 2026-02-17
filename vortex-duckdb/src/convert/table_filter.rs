@@ -7,7 +7,6 @@ use itertools::Itertools;
 use vortex::compute::Operator;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::Binary;
@@ -106,7 +105,7 @@ pub fn try_from_table_filter(
                 move || {
                     let value = data.latest()?;
                     let scalar = Scalar::try_from(value.as_ref())
-                        .vortex_expect("failed to convert dynamic filter value to scalar");
+                        .expect("failed to convert dynamic filter value to scalar");
                     scalar.into_value()
                 },
                 col.return_dtype(scope_dtype)?,

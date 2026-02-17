@@ -9,7 +9,6 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
 use vortex_dtype::StructFields;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -198,7 +197,7 @@ impl StructArray {
             len,
             Validity::NonNullable,
         )
-        .vortex_expect("StructArray::new_with_len should not fail")
+        .expect("StructArray::new_with_len should not fail")
     }
 
     /// Creates a new [`StructArray`].
@@ -213,8 +212,7 @@ impl StructArray {
         length: usize,
         validity: Validity,
     ) -> Self {
-        Self::try_new(names, fields, length, validity)
-            .vortex_expect("StructArray construction failed")
+        Self::try_new(names, fields, length, validity).expect("StructArray construction failed")
     }
 
     /// Constructs a new `StructArray`.
@@ -276,7 +274,7 @@ impl StructArray {
 
         #[cfg(debug_assertions)]
         Self::validate(&fields, &dtype, length, &validity)
-            .vortex_expect("[Debug Assertion]: Invalid `StructArray` parameters");
+            .expect("[Debug Assertion]: Invalid `StructArray` parameters");
 
         Self {
             len: length,

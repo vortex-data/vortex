@@ -3,7 +3,6 @@
 
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
-use vortex_error::VortexExpect;
 
 use crate::expr::Expression;
 use crate::expr::exprs::get_item::col;
@@ -27,7 +26,7 @@ pub fn replace(expr: Expression, needle: &Expression, replacement: Expression) -
             Ok(Transformed::no(node))
         }
     })
-    .vortex_expect("ReplaceVisitor should not fail")
+    .expect("ReplaceVisitor should not fail")
     .into_inner()
 }
 

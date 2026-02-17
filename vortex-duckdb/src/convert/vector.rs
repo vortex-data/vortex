@@ -26,7 +26,6 @@ use vortex::dtype::FieldNames;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::dtype::datetime::TimeUnit;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 
@@ -120,13 +119,13 @@ fn convert_valid_list_entry(
     child_min_length: &mut usize,
     previous_end: &mut i64,
 ) -> (i64, i64) {
-    let offset = i64::try_from(entry.offset).vortex_expect("list offset must fit i64");
+    let offset = i64::try_from(entry.offset).expect("list offset must fit i64");
     assert!(offset >= 0, "list offset must be non-negative");
-    let size = i64::try_from(entry.length).vortex_expect("list size must fit i64");
+    let size = i64::try_from(entry.length).expect("list size must fit i64");
     assert!(size >= 0, "list size must be non-negative");
 
     let end = usize::try_from(offset + size)
-        .vortex_expect("child vector length did not fit into a 32-bit `usize` type");
+        .expect("child vector length did not fit into a 32-bit `usize` type");
 
     *child_min_length = (*child_min_length).max(end);
     *previous_end = offset + size;
@@ -280,7 +279,8 @@ pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<Ar
         DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
             let logical_type = vector.logical_type();
             let (precision, scale) = logical_type.as_decimal();
-            let decimal_dtype = DecimalDType::try_new(precision, scale.try_into()?)?;
+            let scale = scale.try_into().expect("decimal scale must fit i8");
+            let decimal_dtype = DecimalDType::try_new(precision, scale)?;
             let validity = vector.validity_ref(len).to_validity();
 
             // https://duckdb.org/docs/stable/sql/data_types/numeric.html#fixed-point-decimals
@@ -377,7 +377,6 @@ mod tests {
 
     use vortex::array::ToCanonical;
     use vortex::array::arrays::BoolArray;
-    use vortex::error::VortexExpect;
     use vortex::mask::Mask;
     use vortex_array::assert_arrays_eq;
 
@@ -620,7 +619,7 @@ mod tests {
 
         let logical_type =
             LogicalType::list_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
-                .vortex_expect("LogicalType creation should succeed for test data");
+                .expect("LogicalType creation should succeed for test data");
         let mut vector = Vector::with_capacity(logical_type, len);
 
         // Populate with data
@@ -653,7 +652,7 @@ mod tests {
 
         let logical_type =
             LogicalType::array_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER), 4)
-                .vortex_expect("LogicalType creation should succeed for test data");
+                .expect("LogicalType creation should succeed for test data");
         let mut vector = Vector::with_capacity(logical_type, len);
 
         // Populate with data
@@ -678,7 +677,7 @@ mod tests {
     fn test_empty_struct() {
         let len = 4;
         let logical_type = LogicalType::struct_type([], [])
-            .vortex_expect("LogicalType creation should succeed for test data");
+            .expect("LogicalType creation should succeed for test data");
         let mut vector = Vector::with_capacity(logical_type, len);
 
         // Test conversion
@@ -702,7 +701,7 @@ mod tests {
             ],
             [CString::new("a").unwrap(), CString::new("b").unwrap()],
         )
-        .vortex_expect("LogicalType creation should succeed for test data");
+        .expect("LogicalType creation should succeed for test data");
         let mut vector = Vector::with_capacity(logical_type, len);
 
         // Populate with data

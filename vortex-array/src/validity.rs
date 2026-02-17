@@ -9,7 +9,6 @@ use std::ops::Range;
 use vortex_buffer::BitBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -118,8 +117,8 @@ impl Validity {
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
             Validity::Array(array) => {
-                usize::try_from(&sum(array).vortex_expect("must have sum for bool array"))
-                    .vortex_expect("sum must be a usize")
+                usize::try_from(&sum(array).expect("must have sum for bool array"))
+                    .expect("sum must be a usize")
                     == array.len()
             }
         })
@@ -132,8 +131,8 @@ impl Validity {
             Validity::NonNullable | Validity::AllValid => false,
             Validity::AllInvalid => true,
             Validity::Array(array) => {
-                usize::try_from(&sum(array).vortex_expect("must have sum for bool array"))
-                    .vortex_expect("sum must be a usize")
+                usize::try_from(&sum(array).expect("must have sum for bool array"))
+                    .expect("sum must be a usize")
                     == 0
             }
         })
@@ -147,10 +146,10 @@ impl Validity {
             Self::AllInvalid => false,
             Self::Array(a) => a
                 .scalar_at(index)
-                .vortex_expect("Validity array must support scalar_at")
+                .expect("Validity array must support scalar_at")
                 .as_bool()
                 .value()
-                .vortex_expect("Validity must be non-nullable"),
+                .expect("Validity must be non-nullable"),
         })
     }
 
@@ -352,7 +351,7 @@ impl Validity {
                 is_valid
                     .statistics()
                     .compute_min::<bool>()
-                    .vortex_expect("validity array must support min")
+                    .expect("validity array must support min")
                     .then(|| {
                         // min true => all true
                         Self::NonNullable

@@ -51,7 +51,6 @@ use vortex_array::search_sorted::SearchSortedSide;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -186,7 +185,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let start = u.choose_index(current_array.len())?;
                     let stop = u.int_in_range(start..=current_array.len())?;
                     current_array = slice_canonical_array(&current_array, start, stop)
-                        .vortex_expect("slice_canonical_array should succeed in fuzz test");
+                        .expect("slice_canonical_array should succeed in fuzz test");
 
                     (
                         Action::Slice(start..stop),
@@ -202,7 +201,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let nullable = indices.contains(&None);
 
                     current_array = take_canonical_array(&current_array, &indices)
-                        .vortex_expect("take_canonical_array should succeed in fuzz test");
+                        .expect("take_canonical_array should succeed in fuzz test");
                     let indices_array = if nullable {
                         PrimitiveArray::from_option_iter(
                             indices.iter().map(|i| i.map(|i| i as u64)),
@@ -212,7 +211,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         PrimitiveArray::from_iter(
                             indices
                                 .iter()
-                                .map(|i| i.vortex_expect("must be present"))
+                                .map(|i| i.expect("must be present"))
                                 .map(|i| i as u64),
                         )
                         .into_array()
@@ -220,7 +219,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
 
                     let compressed = BtrBlocksCompressor::default()
                         .compress(&indices_array)
-                        .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test");
+                        .expect("BtrBlocksCompressor compress should succeed in fuzz test");
                     (
                         Action::Take(compressed),
                         ExpectedValue::Array(current_array.to_array()),
@@ -234,7 +233,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let scalar = if u.arbitrary()? {
                         current_array
                             .scalar_at(u.choose_index(current_array.len())?)
-                            .vortex_expect("scalar_at")
+                            .expect("scalar_at")
                     } else {
                         random_scalar(u, current_array.dtype())?
                     };
@@ -244,7 +243,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     let sorted = sort_canonical_array(&current_array)
-                        .vortex_expect("sort_canonical_array should succeed in fuzz test");
+                        .expect("sort_canonical_array should succeed in fuzz test");
 
                     let side = if u.arbitrary()? {
                         SearchSortedSide::Left
@@ -254,7 +253,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     (
                         Action::SearchSorted(scalar.clone(), side),
                         ExpectedValue::Search(
-                            search_sorted_canonical_array(&sorted, &scalar, side).vortex_expect(
+                            search_sorted_canonical_array(&sorted, &scalar, side).expect(
                                 "search_sorted_canonical_array should succeed in fuzz test",
                             ),
                         ),
@@ -265,7 +264,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         .map(|_| bool::arbitrary(u))
                         .collect::<arbitrary::Result<Vec<_>>>()?;
                     current_array = filter_canonical_array(&current_array, &mask)
-                        .vortex_expect("filter_canonical_array should succeed in fuzz test");
+                        .expect("filter_canonical_array should succeed in fuzz test");
                     (
                         Action::Filter(Mask::from_iter(mask)),
                         ExpectedValue::Array(current_array.to_array()),
@@ -275,7 +274,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let scalar = if u.arbitrary()? {
                         current_array
                             .scalar_at(u.choose_index(current_array.len())?)
-                            .vortex_expect("scalar_at")
+                            .expect("scalar_at")
                     } else {
                         // We can compare arrays with different nullability
                         let null: Nullability = u.arbitrary()?;
@@ -296,7 +295,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         return Err(EmptyChoose);
                     }
                     let Some(result) = cast_canonical_array(&current_array, &to)
-                        .vortex_expect("should fail to create array")
+                        .expect("should fail to create array")
                     else {
                         return Err(EmptyChoose);
                     };
@@ -313,9 +312,9 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let sum_result = sum_canonical_array(
                         current_array
                             .to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
+                            .expect("to_canonical should succeed in fuzz test"),
                     )
-                    .vortex_expect("sum_canonical_array should succeed in fuzz test");
+                    .expect("sum_canonical_array should succeed in fuzz test");
                     (Action::Sum, ExpectedValue::Scalar(sum_result))
                 }
                 ActionType::MinMax => {
@@ -323,9 +322,9 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let min_max_result = min_max_canonical_array(
                         current_array
                             .to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
+                            .expect("to_canonical should succeed in fuzz test"),
                     )
-                    .vortex_expect("min_max_canonical_array should succeed in fuzz test");
+                    .expect("min_max_canonical_array should succeed in fuzz test");
                     (Action::MinMax, ExpectedValue::MinMax(min_max_result))
                 }
                 ActionType::FillNull => {
@@ -336,7 +335,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let fill_value = if u.arbitrary()? && !current_array.is_empty() {
                         current_array
                             .scalar_at(u.choose_index(current_array.len())?)
-                            .vortex_expect("scalar_at")
+                            .expect("scalar_at")
                     } else {
                         random_scalar(
                             u,
@@ -354,10 +353,10 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let expected_result = fill_null_canonical_array(
                         current_array
                             .to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
+                            .expect("to_canonical should succeed in fuzz test"),
                         &fill_value,
                     )
-                    .vortex_expect("fill_null_canonical_array should succeed in fuzz test");
+                    .expect("fill_null_canonical_array should succeed in fuzz test");
                     // Update current_array to the result for chaining
                     current_array = expected_result.clone();
                     (
@@ -375,10 +374,10 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let expected_result = mask_canonical_array(
                         current_array
                             .to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
+                            .expect("to_canonical should succeed in fuzz test"),
                         &Mask::from_iter(mask.clone()),
                     )
-                    .vortex_expect("mask_canonical_array should succeed in fuzz test");
+                    .expect("mask_canonical_array should succeed in fuzz test");
                     // Update current_array to the result for chaining
                     current_array = expected_result.clone();
                     (
@@ -393,11 +392,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
 
                     let num_indices = u.int_in_range(1..=5.min(current_array.len()))?;
                     let indices_vec = (0..num_indices)
-                        .map(|_| {
-                            u.choose_index(current_array.len())
-                                .ok()
-                                .vortex_expect("cannot pick")
-                        })
+                        .map(|_| u.choose_index(current_array.len()).expect("cannot pick"))
                         .unique()
                         .collect::<Vec<_>>();
 
@@ -408,10 +403,10 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                             scalar_at_canonical_array(
                                 current_array
                                     .to_canonical()
-                                    .vortex_expect("to_canonical should succeed in fuzz test"),
+                                    .expect("to_canonical should succeed in fuzz test"),
                                 idx,
                             )
-                            .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
+                            .expect("scalar_at_canonical_array should succeed in fuzz test")
                         })
                         .collect();
 
@@ -525,14 +520,14 @@ pub fn compress_array(array: &dyn Array, strategy: CompressorStrategy) -> ArrayR
     match strategy {
         CompressorStrategy::Default => BtrBlocksCompressor::default()
             .compress(array)
-            .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test"),
+            .expect("BtrBlocksCompressor compress should succeed in fuzz test"),
         CompressorStrategy::Compact => BtrBlocksCompressorBuilder::default()
             .include_string([StringCode::Zstd])
             .include_int([IntCode::Pco])
             .include_float([FloatCode::Pco])
             .build()
             .compress(array)
-            .vortex_expect("Compact compress should succeed in fuzz test"),
+            .expect("Compact compress should succeed in fuzz test"),
     }
 }
 
@@ -541,7 +536,7 @@ pub fn compress_array(array: &dyn Array, strategy: CompressorStrategy) -> ArrayR
 pub fn compress_array(array: &dyn Array, _strategy: CompressorStrategy) -> ArrayRef {
     BtrBlocksCompressor::default()
         .compress(array)
-        .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test")
+        .expect("BtrBlocksCompressor compress should succeed in fuzz test")
 }
 
 /// Run a fuzz action and return whether to keep it in the corpus.
@@ -565,14 +560,14 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
             Action::Compress(strategy) => {
                 let canonical = current_array
                     .to_canonical()
-                    .vortex_expect("to_canonical should succeed in fuzz test");
+                    .expect("to_canonical should succeed in fuzz test");
                 current_array = compress_array(canonical.as_ref(), strategy);
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Slice(range) => {
                 current_array = current_array
                     .slice(range)
-                    .vortex_expect("slice operation should succeed in fuzz test");
+                    .expect("slice operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Take(indices) => {
@@ -581,12 +576,12 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 }
                 current_array = current_array
                     .take(indices)
-                    .vortex_expect("take operation should succeed in fuzz test");
+                    .expect("take operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::SearchSorted(s, side) => {
                 let mut sorted = sort_canonical_array(&current_array)
-                    .vortex_expect("sort_canonical_array should succeed in fuzz test");
+                    .expect("sort_canonical_array should succeed in fuzz test");
 
                 if !current_array.is_canonical() {
                     sorted = compress_array(&sorted, CompressorStrategy::Default);
@@ -596,7 +591,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
             Action::Filter(mask_val) => {
                 current_array = current_array
                     .filter(mask_val)
-                    .vortex_expect("filter operation should succeed in fuzz test");
+                    .expect("filter operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Compare(v, op) => {
@@ -605,7 +600,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                     &ConstantArray::new(v.clone(), current_array.len()).into_array(),
                     op,
                 )
-                .vortex_expect("compare operation should succeed in fuzz test");
+                .expect("compare operation should succeed in fuzz test");
                 if let Err(e) = assert_array_eq(&expected.array(), &compare_result, i) {
                     vortex_panic!(
                         "Failed to compare {}with {op} {v}\nError: {e}",
@@ -617,7 +612,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
             Action::Cast(to) => {
                 let cast_result = current_array
                     .cast(to.clone())
-                    .vortex_expect("cast operation should succeed in fuzz test");
+                    .expect("cast operation should succeed in fuzz test");
                 if let Err(e) = assert_array_eq(&expected.array(), &cast_result, i) {
                     vortex_panic!(
                         "Failed to cast {} to dtype {to}\nError: {e}",
@@ -628,30 +623,30 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
             }
             Action::Sum => {
                 let sum_result =
-                    sum(&current_array).vortex_expect("sum operation should succeed in fuzz test");
+                    sum(&current_array).expect("sum operation should succeed in fuzz test");
                 assert_scalar_eq(&expected.scalar(), &sum_result, i)?;
             }
             Action::MinMax => {
-                let min_max_result = min_max(&current_array)
-                    .vortex_expect("min_max operation should succeed in fuzz test");
+                let min_max_result =
+                    min_max(&current_array).expect("min_max operation should succeed in fuzz test");
                 assert_min_max_eq(&expected.min_max(), &min_max_result, i)?;
             }
             Action::FillNull(fill_value) => {
                 current_array = current_array
                     .fill_null(fill_value.clone())
-                    .vortex_expect("fill_null operation should succeed in fuzz test");
+                    .expect("fill_null operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Mask(mask_val) => {
                 current_array = current_array
                     .mask(mask_val.into_array())
-                    .vortex_expect("mask operation should succeed in fuzz test");
+                    .expect("mask operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::ScalarAt(indices) => {
                 let expected_scalars = expected.scalar_vec();
                 for (j, &idx) in indices.iter().enumerate() {
-                    let scalar = current_array.scalar_at(idx).vortex_expect("scalar_at");
+                    let scalar = current_array.scalar_at(idx).expect("scalar_at");
                     assert_scalar_eq(&expected_scalars[j], &scalar, i)?;
                 }
             }
@@ -721,8 +716,8 @@ pub fn assert_array_eq(
         ));
     }
     for idx in 0..lhs.len() {
-        let l = lhs.scalar_at(idx).vortex_expect("scalar_at");
-        let r = rhs.scalar_at(idx).vortex_expect("scalar_at");
+        let l = lhs.scalar_at(idx).expect("scalar_at");
+        let r = rhs.scalar_at(idx).expect("scalar_at");
 
         if l != r {
             return Err(VortexFuzzError::ArrayNotEqual(

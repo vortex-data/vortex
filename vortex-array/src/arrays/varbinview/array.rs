@@ -8,7 +8,6 @@ use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -110,8 +109,7 @@ impl VarBinViewArray {
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        Self::try_new(views, buffers, dtype, validity)
-            .vortex_expect("VarBinViewArray construction failed")
+        Self::try_new(views, buffers, dtype, validity).expect("VarBinViewArray construction failed")
     }
 
     /// Creates a new [`VarBinViewArray`] with device or host memory.
@@ -127,7 +125,7 @@ impl VarBinViewArray {
         validity: Validity,
     ) -> Self {
         Self::try_new_handle(views, buffers, dtype, validity)
-            .vortex_expect("VarbinViewArray construction failed")
+            .expect("VarbinViewArray construction failed")
     }
 
     /// Constructs a new `VarBinViewArray`.
@@ -220,7 +218,7 @@ impl VarBinViewArray {
     ) -> Self {
         #[cfg(debug_assertions)]
         Self::validate(&views, &buffers, &dtype, &validity)
-            .vortex_expect("[Debug Assertion]: Invalid `VarBinViewArray` parameters");
+            .expect("[Debug Assertion]: Invalid `VarBinViewArray` parameters");
 
         let handles: Vec<BufferHandle> = buffers
             .iter()

@@ -6,7 +6,6 @@ use std::hash::Hash;
 use rustc_hash::FxBuildHasher;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -60,6 +59,6 @@ where
     let (&top_value, &top_count) = distinct_values
         .iter()
         .max_by_key(|&(_, &count)| count)
-        .vortex_expect("non-empty");
+        .expect("non-empty");
     (top_value.0, top_count)
 }

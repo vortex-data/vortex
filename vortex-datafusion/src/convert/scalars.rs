@@ -14,7 +14,6 @@ use vortex::dtype::datetime::TemporalMetadata;
 use vortex::dtype::datetime::TimeUnit;
 use vortex::dtype::half::f16;
 use vortex::dtype::i256;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::scalar::DecimalValue;
@@ -220,7 +219,7 @@ impl FromDataFusion<ScalarValue> for Scalar {
             | ScalarValue::Time32Millisecond(v) => {
                 let dtype = DType::from_arrow((&value.data_type(), Nullability::Nullable));
                 Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))
-                    .vortex_expect("unable to create a time `Scalar`")
+                    .expect("unable to create a time `Scalar`")
             }
             ScalarValue::Date64(v)
             | ScalarValue::Time64Microsecond(v)
@@ -231,7 +230,7 @@ impl FromDataFusion<ScalarValue> for Scalar {
             | ScalarValue::TimestampNanosecond(v, _) => {
                 let dtype = DType::from_arrow((&value.data_type(), Nullability::Nullable));
                 Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))
-                    .vortex_expect("unable to create a time `Scalar`")
+                    .expect("unable to create a time `Scalar`")
             }
             ScalarValue::Decimal32(decimal, precision, scale) => {
                 let decimal_dtype = DecimalDType::new(*precision, *scale);

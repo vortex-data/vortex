@@ -21,7 +21,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
@@ -165,9 +164,7 @@ impl<'a> PrimitiveScalar<'a> {
     /// Casts this scalar to the given `dtype`.
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         let ptype = PType::try_from(dtype)?;
-        let pvalue = self
-            .pvalue
-            .vortex_expect("nullness handled in Scalar::cast");
+        let pvalue = self.pvalue.expect("nullness handled in Scalar::cast");
         Ok(match_each_native_ptype!(ptype, |Q| {
             Scalar::primitive(pvalue.cast::<Q>()?, dtype.nullability())
         }))
@@ -272,7 +269,7 @@ impl Sub for PrimitiveScalar<'_> {
 
     fn sub(self, rhs: Self) -> Self::Output {
         self.checked_sub(&rhs)
-            .vortex_expect("PrimitiveScalar subtract: overflow or underflow")
+            .expect("PrimitiveScalar subtract: overflow or underflow")
     }
 }
 
@@ -287,7 +284,7 @@ impl Add for PrimitiveScalar<'_> {
 
     fn add(self, rhs: Self) -> Self::Output {
         self.checked_add(&rhs)
-            .vortex_expect("PrimitiveScalar add: overflow or underflow")
+            .expect("PrimitiveScalar add: overflow or underflow")
     }
 }
 

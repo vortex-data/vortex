@@ -10,7 +10,6 @@ use futures::channel::mpsc;
 use futures::channel::mpsc::Sender;
 use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamAdapter;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -88,7 +87,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
 ) {
     let array = vx_array::as_ref(array);
     // TODO(joe): propagate this error up instead of expecting
-    let sink = unsafe { sink.as_mut().vortex_expect("null array stream") };
+    let sink = unsafe { sink.as_mut().expect("null array stream") };
     try_or_default(error_out, || {
         RUNTIME
             .block_on(sink.sink.send(Ok(array.clone())))

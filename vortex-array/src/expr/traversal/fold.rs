@@ -140,7 +140,7 @@ impl<T: NodeFolder> NodeFolderContext for NodeFolderContextWrapper<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_error::VortexExpect;
+
     use vortex_error::vortex_bail;
 
     use super::*;
@@ -160,10 +160,7 @@ mod tests {
 
         fn visit_down(&mut self, node: &'_ Self::NodeTy) -> VortexResult<FoldDown<Self::Result>> {
             if let Some(scalar) = node.as_opt::<Literal>() {
-                let v = scalar
-                    .as_primitive()
-                    .typed_value::<i32>()
-                    .vortex_expect("i32");
+                let v = scalar.as_primitive().typed_value::<i32>().expect("i32");
 
                 if v == 5 {
                     return Ok(FoldDown::Stop(5));
@@ -185,10 +182,7 @@ mod tests {
             children: Vec<Self::Result>,
         ) -> VortexResult<FoldUp<Self::Result>> {
             if let Some(scalar) = node.as_opt::<Literal>() {
-                let v = scalar
-                    .as_primitive()
-                    .typed_value::<i32>()
-                    .vortex_expect("i32");
+                let v = scalar.as_primitive().typed_value::<i32>().expect("i32");
                 Ok(FoldUp::Continue(v))
             } else if let Some(operator) = node.as_opt::<Binary>() {
                 if *operator == Operator::Add {

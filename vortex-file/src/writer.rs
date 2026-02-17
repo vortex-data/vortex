@@ -29,7 +29,6 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -271,7 +270,7 @@ pub struct Writer<'w> {
 impl Writer<'_> {
     /// Push a new chunk into the writer.
     pub async fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
-        let arrays = self.arrays.clone().vortex_expect("missing arrays sender");
+        let arrays = self.arrays.clone().expect("missing arrays sender");
         let send_fut = async move { arrays.send(Ok(chunk)).await }.fuse();
         pin_mut!(send_fut);
 
@@ -303,7 +302,7 @@ impl Writer<'_> {
     /// A task is spawned to consume the stream and push it into the writer, with the current
     /// thread being used to write buffers to the output.
     pub async fn push_stream(&mut self, mut stream: SendableArrayStream) -> VortexResult<()> {
-        let arrays = self.arrays.clone().vortex_expect("missing arrays sender");
+        let arrays = self.arrays.clone().expect("missing arrays sender");
         let stream_fut = async move {
             while let Some(chunk) = stream.next().await {
                 arrays.send(chunk).await?;

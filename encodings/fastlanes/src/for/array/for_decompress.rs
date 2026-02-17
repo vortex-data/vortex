@@ -15,7 +15,6 @@ use vortex_dtype::PhysicalPType;
 use vortex_dtype::UnsignedPType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::BitPackedArray;
@@ -66,7 +65,7 @@ pub fn decompress(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<Prim
             .reference_scalar()
             .as_primitive()
             .typed_value::<T>()
-            .vortex_expect("reference must be non-null");
+            .expect("reference must be non-null");
         if min == 0 {
             encoded
         } else {
@@ -89,7 +88,7 @@ pub(crate) fn fused_decompress<
         .reference_scalar()
         .as_primitive()
         .as_::<T>()
-        .vortex_expect("cannot be null");
+        .expect("cannot be null");
 
     let strategy = FoRStrategy { reference: ref_ };
 

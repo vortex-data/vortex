@@ -31,7 +31,6 @@ use vortex_array::vtable::ValidityVTable;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -72,7 +71,7 @@ impl VTable for RunEndVTable {
 
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(RunEndMetadata {
-            ends_ptype: PType::try_from(array.ends().dtype()).vortex_expect("Must be a valid PType")
+            ends_ptype: PType::try_from(array.ends().dtype()).expect("Must be a valid PType")
                 as i32,
             num_runs: array.ends().len() as u64,
             offset: array.offset() as u64,
@@ -102,7 +101,7 @@ impl VTable for RunEndVTable {
         children: &dyn ArrayChildren,
     ) -> VortexResult<RunEndArray> {
         let ends_dtype = DType::Primitive(metadata.ends_ptype(), Nullability::NonNullable);
-        let runs = usize::try_from(metadata.num_runs).vortex_expect("Must be a valid usize");
+        let runs = usize::try_from(metadata.num_runs).expect("Must be a valid usize");
         let ends = children.get(0, &ends_dtype, runs)?;
 
         let values = children.get(1, dtype, runs)?;
@@ -110,7 +109,7 @@ impl VTable for RunEndVTable {
         RunEndArray::try_new_offset_length(
             ends,
             values,
-            usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize"),
+            usize::try_from(metadata.offset).expect("Offset must be a valid usize"),
             len,
         )
     }
@@ -123,8 +122,8 @@ impl VTable for RunEndVTable {
         );
 
         let mut children_iter = children.into_iter();
-        array.ends = children_iter.next().vortex_expect("ends child");
-        array.values = children_iter.next().vortex_expect("values child");
+        array.ends = children_iter.next().expect("ends child");
+        array.values = children_iter.next().expect("values child");
 
         Ok(())
     }
@@ -281,7 +280,7 @@ impl RunEndArray {
     /// # }
     /// ```
     pub fn new(ends: ArrayRef, values: ArrayRef) -> Self {
-        Self::try_new(ends, values).vortex_expect("RunEndArray new")
+        Self::try_new(ends, values).expect("RunEndArray new")
     }
 
     /// Build a new `RunEndArray` from components.

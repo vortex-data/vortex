@@ -19,7 +19,6 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::StructFields;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -251,7 +250,7 @@ impl StatsAccumulator {
 
         Ok(Some(ZoneMap {
             array: StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)
-                .vortex_expect("Failed to create zone map"),
+                .expect("Failed to create zone map"),
             stats: stats.into(),
         }))
     }
@@ -285,7 +284,6 @@ mod tests {
     use vortex_dtype::FieldPathSet;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_error::VortexExpect;
 
     use crate::layouts::zoned::MAX_IS_TRUNCATED;
     use crate::layouts::zoned::MIN_IS_TRUNCATED;
@@ -306,9 +304,9 @@ mod tests {
         let mut acc =
             StatsAccumulator::new(builder.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
         acc.push_chunk(&builder.finish())
-            .vortex_expect("push_chunk should succeed for test data");
+            .expect("push_chunk should succeed for test data");
         acc.push_chunk(&builder2.finish())
-            .vortex_expect("push_chunk should succeed for test data");
+            .expect("push_chunk should succeed for test data");
         let stats_table = acc
             .as_stats_table()
             .unwrap()
@@ -341,7 +339,7 @@ mod tests {
         let array = buffer![0, 1, 2].into_array();
         let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
         acc.push_chunk(&array)
-            .vortex_expect("push_chunk should succeed for test array");
+            .expect("push_chunk should succeed for test array");
         let stats_table = acc
             .as_stats_table()
             .unwrap()

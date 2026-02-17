@@ -6,7 +6,6 @@ use std::fmt::{self};
 
 use humansize::DECIMAL;
 use humansize::format_size;
-use vortex_error::VortexExpect as _;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -262,7 +261,7 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
             let _ = self
                 .ancestor_sizes
                 .pop()
-                .vortex_expect("pushes and pops are matched");
+                .expect("pushes and pops are matched");
         }
 
         Ok(())

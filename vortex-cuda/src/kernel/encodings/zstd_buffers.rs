@@ -206,7 +206,6 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
     use vortex_zstd::ZstdBuffersArray;
@@ -218,7 +217,7 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_zstd_buffers_decompression_primitive() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let input = PrimitiveArray::from_iter(0i64..1024).into_array();
         let compressed = ZstdBuffersArray::compress(&input, 3)?;
@@ -237,7 +236,7 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_zstd_buffers_decompression_varbinview() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let input = VarBinViewArray::from_iter_str([
             "hello",

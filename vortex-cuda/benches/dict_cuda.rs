@@ -28,7 +28,6 @@ use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 use vortex_dtype::NativePType;
-use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
 use crate::common::TimedLaunchStrategy;
@@ -62,7 +61,7 @@ where
     let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
 
     DictArray::try_new(codes_array.into_array(), values_array.into_array())
-        .vortex_expect("failed to create Dict array")
+        .expect("failed to create Dict array")
 }
 
 /// Benchmark Dict decompression for specific value and code types.
@@ -96,12 +95,12 @@ where
                     let timer = Arc::clone(&timed.total_time_ns);
 
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                        .vortex_expect("failed to create execution context")
+                        .expect("failed to create execution context")
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {
                         block_on(dict_array.to_array().execute_cuda(&mut cuda_ctx))
-                            .vortex_expect("execute");
+                            .expect("execute");
                     }
 
                     Duration::from_nanos(timer.load(Ordering::Relaxed))

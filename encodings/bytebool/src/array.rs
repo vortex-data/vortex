@@ -32,7 +32,6 @@ use vortex_array::vtable::validity_nchildren;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -109,7 +108,7 @@ impl VTable for ByteBoolVTable {
         array.validity = if children.is_empty() {
             Validity::from(array.dtype.nullability())
         } else {
-            Validity::Array(children.into_iter().next().vortex_expect("checked"))
+            Validity::Array(children.into_iter().next().expect("checked"))
         };
 
         Ok(())

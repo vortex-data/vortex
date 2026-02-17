@@ -3,7 +3,6 @@
 
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::RLEVTable;
@@ -18,7 +17,7 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
         let chunk_relative_idx = chunk_relative_idx
             .as_primitive()
             .as_::<usize>()
-            .vortex_expect("Index must not be null");
+            .expect("Index must not be null");
 
         let chunk_id = (offset_in_chunk + index) / FL_CHUNK_SIZE;
         let value_idx_offset = array.values_idx_offset(chunk_id);

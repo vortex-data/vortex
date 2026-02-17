@@ -4,7 +4,6 @@
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::FoRVTable;
@@ -24,7 +23,7 @@ impl OperationsVTable<FoRVTable> for FoRVTable {
                     v.wrapping_add(
                         reference
                             .typed_value::<P>()
-                            .vortex_expect("FoRArray Reference value cannot be null"),
+                            .expect("FoRArray Reference value cannot be null"),
                     )
                 })
                 .map(|v| Scalar::primitive::<P>(v, array.reference_scalar().dtype().nullability()))

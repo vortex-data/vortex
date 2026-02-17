@@ -5,7 +5,6 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -46,7 +45,7 @@ pub fn nan_count(array: &dyn Array) -> VortexResult<usize> {
         .unwrap_scalar()?
         .as_primitive()
         .as_::<usize>()
-        .vortex_expect("NaN count should not return null"))
+        .expect("NaN count should not return null"))
 }
 
 struct NaNCount;

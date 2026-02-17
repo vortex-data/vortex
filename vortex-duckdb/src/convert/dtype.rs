@@ -92,9 +92,12 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR => DType::Utf8(nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_BLOB => DType::Binary(nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_DECIMAL => {
-                let (width, scale) = logical_type.as_decimal();
+                let (precision, scale) = logical_type.as_decimal();
                 DType::Decimal(
-                    DecimalDType::try_new(width, scale.try_into()?)?,
+                    DecimalDType::try_new(
+                        precision,
+                        scale.try_into().expect("scale must fit into i8"),
+                    )?,
                     nullability,
                 )
             }
@@ -218,7 +221,10 @@ impl TryFrom<&DType> for LogicalType {
             DType::Decimal(decimal_dtype, _) => {
                 return LogicalType::decimal_type(
                     decimal_dtype.precision(),
-                    decimal_dtype.scale().try_into()?,
+                    decimal_dtype
+                        .scale()
+                        .try_into()
+                        .expect("scale must fit into i8"),
                 );
             }
             DType::List(element_dtype, _) => {

@@ -12,7 +12,6 @@ use itertools::Itertools;
 use vortex_array::SerializeMetadata;
 use vortex_dtype::DType;
 use vortex_dtype::FieldName;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
@@ -146,7 +145,7 @@ impl dyn Layout + '_ {
 
     /// Downcast a layout to a specific type.
     pub fn as_<V: VTable>(&self) -> &V::Layout {
-        self.as_opt::<V>().vortex_expect("Failed to downcast")
+        self.as_opt::<V>().expect("Failed to downcast")
     }
 
     /// Downcast a layout to a specific type.
@@ -162,7 +161,7 @@ impl dyn Layout + '_ {
             .as_any_arc()
             .downcast::<LayoutAdapter<V>>()
             .map_err(|_| vortex_err!("Invalid layout type"))
-            .vortex_expect("Invalid layout type");
+            .expect("Invalid layout type");
 
         // SAFETY: LayoutAdapter<V> is #[repr(transparent)] (see line 192) which guarantees
         // it has the same memory layout as V::Layout. The downcast above ensures we have
@@ -485,9 +484,13 @@ mod tests {
         let ctx = ArrayContext::empty();
 
         // Create a flat layout for dict values (utf8 strings)
-        let dict_values =
-            FlatLayout::new(3, DType::Utf8(NonNullable), SegmentId::from(0), ctx.clone())
-                .into_layout();
+        let dict_values = FlatLayout::new(
+            3,
+            DType::Utf8(NonNullable),
+            SegmentId::from(0_u32),
+            ctx.clone(),
+        )
+        .into_layout();
 
         // Test flat layout display shows segment
         assert_eq!(
@@ -499,7 +502,7 @@ mod tests {
         let dict_codes = FlatLayout::new(
             10,
             DType::Primitive(PType::U16, NonNullable),
-            SegmentId::from(1),
+            SegmentId::from(1_u32),
             ctx.clone(),
         )
         .into_layout();
@@ -520,7 +523,7 @@ mod tests {
         let chunk1 = FlatLayout::new(
             5,
             DType::Primitive(PType::I64, NonNullable),
-            SegmentId::from(2),
+            SegmentId::from(2_u32),
             ctx.clone(),
         )
         .into_layout();
@@ -528,7 +531,7 @@ mod tests {
         let chunk2 = FlatLayout::new(
             5,
             DType::Primitive(PType::I64, NonNullable),
-            SegmentId::from(3),
+            SegmentId::from(3_u32),
             ctx,
         )
         .into_layout();

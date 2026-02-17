@@ -8,7 +8,6 @@ use std::hash::Hasher;
 use std::ops::Range;
 
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -104,7 +103,7 @@ impl VTable for SliceVTable {
         array.child = children
             .into_iter()
             .next()
-            .vortex_expect("children length already validated");
+            .expect("children length already validated");
         Ok(())
     }
 

@@ -14,7 +14,6 @@ use pin_project_lite::pin_project;
 use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::Semaphore;
 use tokio::sync::TryAcquireError;
-use vortex_error::VortexExpect;
 
 pin_project! {
     /// [`Future`] that carries the amount of memory it will require to hold the completed value.
@@ -84,7 +83,7 @@ where
         let permits = self
             .bytes_available
             .clone()
-            .acquire_many_owned(bytes.try_into().vortex_expect("bytes must fit in u32"))
+            .acquire_many_owned(bytes.try_into().expect("bytes must fit in u32"))
             .await
             .unwrap_or_else(|_| unreachable!("pushing to closed semaphore"));
 
@@ -105,7 +104,7 @@ where
         match self
             .bytes_available
             .clone()
-            .try_acquire_many_owned(bytes.try_into().vortex_expect("bytes must fit in u32"))
+            .try_acquire_many_owned(bytes.try_into().expect("bytes must fit in u32"))
         {
             Ok(permits) => {
                 let sized_fut = SizedFut {

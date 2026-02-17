@@ -145,7 +145,8 @@ pub(crate) fn launch_cuda_kernel_impl(
     const ELEMENTS_PER_THREAD: u32 = 32;
     const ELEMENTS_PER_BLOCK: usize = (THREADS_PER_BLOCK * ELEMENTS_PER_THREAD) as usize; // 2048
 
-    let num_blocks = u32::try_from(array_len.div_ceil(ELEMENTS_PER_BLOCK))?;
+    let num_blocks = u32::try_from(array_len.div_ceil(ELEMENTS_PER_BLOCK))
+        .expect("number of blocks must fit u32");
 
     let config = LaunchConfig {
         grid_dim: (num_blocks, 1, 1),
@@ -287,7 +288,6 @@ mod tests {
 
     use cudarc::driver::CudaContext;
     use cudarc::driver::PushKernelArg;
-    use vortex_error::VortexExpect;
 
     use super::KernelLoader;
 
@@ -318,7 +318,7 @@ mod tests {
         let kernel_loader = KernelLoader::new();
         let function = kernel_loader
             .load_function("config_check", &[], &ctx)
-            .vortex_expect("failed to load config_check kernel");
+            .expect("failed to load config_check kernel");
 
         let config = cudarc::driver::LaunchConfig {
             grid_dim: (1, 1, 1),

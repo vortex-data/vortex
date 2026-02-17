@@ -4,7 +4,6 @@
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -61,8 +60,8 @@ impl VTable for VarBinVTable {
 
     fn metadata(array: &VarBinArray) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(VarBinMetadata {
-            offsets_ptype: PType::try_from(array.offsets().dtype())
-                .vortex_expect("Must be a valid PType") as i32,
+            offsets_ptype: PType::try_from(array.offsets().dtype()).expect("Must be a valid PType")
+                as i32,
         }))
     }
 

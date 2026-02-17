@@ -18,7 +18,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
@@ -284,7 +283,7 @@ where
         if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize
             && validity_mask.value(idx)
         {
-            indices.push(P::from(idx).vortex_expect("cast index from usize"));
+            indices.push(P::from(idx).expect("cast index from usize"));
             values.push(*value);
         }
     }

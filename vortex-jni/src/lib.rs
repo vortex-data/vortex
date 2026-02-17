@@ -7,7 +7,6 @@ use std::sync::LazyLock;
 use tokio::runtime::Builder;
 use tokio::runtime::Runtime;
 use vortex::VortexSessionDefault;
-use vortex::error::VortexExpect;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::tokio::TokioRuntime;
 use vortex::io::session::RuntimeSessionExt;
@@ -34,7 +33,7 @@ static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     Builder::new_multi_thread()
         .enable_all()
         .build()
-        .vortex_expect("Failed to build Tokio runtime")
+        .expect("Failed to build Tokio runtime")
 });
 static RUNTIME: LazyLock<TokioRuntime> =
     LazyLock::new(|| TokioRuntime::from(TOKIO_RUNTIME.handle().clone()));

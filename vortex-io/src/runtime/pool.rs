@@ -8,7 +8,6 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 use smol::block_on;
-use vortex_error::VortexExpect;
 
 #[derive(Clone)]
 pub struct CurrentThreadWorkerPool {
@@ -57,7 +56,7 @@ impl CurrentThreadWorkerPool {
                             }
                         }))
                     })
-                    .vortex_expect("Failed to spawn current thread worker");
+                    .expect("Failed to spawn current thread worker");
 
                 state.workers.push(WorkerHandle { shutdown });
             }

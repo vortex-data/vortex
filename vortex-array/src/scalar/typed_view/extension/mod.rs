@@ -10,7 +10,6 @@ use std::hash::Hash;
 use vortex_dtype::DType;
 use vortex_dtype::datetime::AnyTemporal;
 use vortex_dtype::extension::ExtDTypeRef;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -104,7 +103,7 @@ impl<'a> ExtScalar<'a> {
     /// Returns the storage scalar of the extension scalar.
     pub fn to_storage_scalar(&self) -> Scalar {
         Scalar::try_new(self.ext_dtype.storage_dtype().clone(), self.value.cloned())
-            .vortex_expect("ExtScalar is invalid")
+            .expect("ExtScalar is invalid")
     }
 
     /// Return the [`DType`] of the extension scalar.

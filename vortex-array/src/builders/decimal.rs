@@ -12,7 +12,6 @@ use vortex_dtype::Nullability;
 use vortex_dtype::i256;
 use vortex_dtype::match_each_decimal_value;
 use vortex_dtype::match_each_decimal_value_type;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -200,7 +199,7 @@ impl ArrayBuilder for DecimalBuilder {
         self.nulls.append_validity_mask(
             decimal_array
                 .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .expect("validity_mask in extend_from_array_unchecked"),
         );
     }
 
@@ -236,7 +235,7 @@ impl DecimalBuffer {
                             T::DECIMAL_TYPE,
                         )
                     })
-                    .vortex_expect("operation should succeed in builder"),
+                    .expect("operation should succeed in builder"),
             )
         });
     }
@@ -244,7 +243,7 @@ impl DecimalBuffer {
     fn push_n<V: NativeDecimalType>(&mut self, value: V, n: usize) {
         delegate_fn!(self, |T, buffer| {
             buffer.push_n(
-                <T as BigCast>::from(value).vortex_expect("decimal conversion failure"),
+                <T as BigCast>::from(value).expect("decimal conversion failure"),
                 n,
             )
         });
@@ -263,9 +262,8 @@ impl DecimalBuffer {
         I: Iterator<Item = V>,
     {
         delegate_fn!(self, |T, buffer| {
-            buffer.extend(
-                iter.map(|x| <T as BigCast>::from(x).vortex_expect("decimal conversion failure")),
-            )
+            buffer
+                .extend(iter.map(|x| <T as BigCast>::from(x).expect("decimal conversion failure")))
         })
     }
 }

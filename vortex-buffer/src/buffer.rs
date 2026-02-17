@@ -14,7 +14,6 @@ use std::ops::RangeBounds;
 
 use bytes::Buf;
 use bytes::Bytes;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::Alignment;
@@ -201,9 +200,8 @@ impl<T> Buffer<T> {
     /// Should be preferred over `from_iter` when the iterator is known to be `TrustedLen`.
     pub fn from_trusted_len_iter<I: TrustedLen<Item = T>>(iter: I) -> Self {
         let (_, upper_bound) = iter.size_hint();
-        let mut buffer = BufferMut::with_capacity(
-            upper_bound.vortex_expect("TrustedLen iterator has no upper bound"),
-        );
+        let mut buffer =
+            BufferMut::with_capacity(upper_bound.expect("TrustedLen iterator has no upper bound"));
         buffer.extend_trusted(iter);
         buffer.freeze()
     }
@@ -289,11 +287,11 @@ impl<T> Buffer<T> {
         let len = self.len();
         let begin = match range.start_bound() {
             Bound::Included(&n) => n,
-            Bound::Excluded(&n) => n.checked_add(1).vortex_expect("out of range"),
+            Bound::Excluded(&n) => n.checked_add(1).expect("out of range"),
             Bound::Unbounded => 0,
         };
         let end = match range.end_bound() {
-            Bound::Included(&n) => n.checked_add(1).vortex_expect("out of range"),
+            Bound::Included(&n) => n.checked_add(1).expect("out of range"),
             Bound::Excluded(&n) => n,
             Bound::Unbounded => len,
         };

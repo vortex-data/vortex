@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -30,7 +29,7 @@ impl Time {
 
     /// Creates a new Time extension dtype with the given time unit and nullability.
     pub fn new(time_unit: TimeUnit, nullability: Nullability) -> ExtDType<Self> {
-        Self::try_new(time_unit, nullability).vortex_expect("failed to create time dtype")
+        Self::try_new(time_unit, nullability).expect("failed to create time dtype")
     }
 }
 

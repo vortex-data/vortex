@@ -16,7 +16,6 @@ use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::array::take_canonical_array_non_nullable_indices;
@@ -75,9 +74,9 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
             sort_indices.sort_by(|a, b| {
                 array
                     .scalar_at(*a)
-                    .vortex_expect("scalar_at")
-                    .partial_cmp(&array.scalar_at(*b).vortex_expect("scalar_at"))
-                    .vortex_expect("must be a valid comparison")
+                    .expect("scalar_at")
+                    .partial_cmp(&array.scalar_at(*b).expect("scalar_at"))
+                    .expect("must be a valid comparison")
             });
             take_canonical_array_non_nullable_indices(array, &sort_indices)
         }

@@ -32,7 +32,6 @@ use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::MaskFuture;
 use vortex::array::ToCanonical;
-use vortex::error::VortexExpect;
 use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
@@ -120,7 +119,7 @@ fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table
         .cursor
         .layout()
         .new_reader("".into(), app.vxf.segment_source(), app.session)
-        .vortex_expect("Failed to create reader");
+        .expect("Failed to create reader");
 
     // FIXME(ngates): our TUI app should never perform I/O in the render loop...
     let array = block_in_place(|| {
@@ -130,13 +129,13 @@ fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table
                     &(0..row_count),
                     &root(),
                     MaskFuture::new_true(
-                        usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
+                        usize::try_from(row_count).expect("row_count overflowed usize"),
                     ),
                 )
-                .vortex_expect("Failed to construct projection"),
+                .expect("Failed to construct projection"),
         )
     })
-    .vortex_expect("Failed to read flat array");
+    .expect("Failed to read flat array");
 
     // Show the metadata as JSON. (show count of encoded bytes as well)
     // let metadata_size = array.metadata_bytes().unwrap_or_default().len();
@@ -172,7 +171,7 @@ fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table
                 .chain(field_arrays.iter().map(|arr| {
                     Cell::from(Text::from(
                         arr.scalar_at(chunk_id)
-                            .vortex_expect("scalar_at failed")
+                            .expect("scalar_at failed")
                             .to_string(),
                     ))
                 }))
@@ -194,10 +193,9 @@ fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table
 
         let rows = array.statistics().with_iter(|iter| {
             iter.map(|(stat, value)| {
-                let value = value.clone().into_scalar(
-                    stat.dtype(array.dtype())
-                        .vortex_expect("stat invalid for dtype"),
-                );
+                let value = value
+                    .clone()
+                    .into_scalar(stat.dtype(array.dtype()).expect("stat invalid for dtype"));
                 let stat = Cell::from(Text::from(format!("{stat}")));
                 let value = Cell::from(Text::from(format!("{value}")));
                 Row::new(vec![stat, value])

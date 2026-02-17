@@ -6,7 +6,6 @@ use std::fmt::Display;
 use std::marker::PhantomData;
 use std::num::NonZero;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -42,7 +41,7 @@ impl<D: NativeDecimalType> PrecisionScale<D> {
     ///
     /// Panics if the precision/scale are invalid.
     pub fn new(precision: u8, scale: i8) -> Self {
-        Self::try_new(precision, scale).vortex_expect("Failed to create `PrecisionScale`")
+        Self::try_new(precision, scale).expect("Failed to create `PrecisionScale`")
     }
 
     /// Try to create a new [`PrecisionScale`] with the given precision and scale.

@@ -8,7 +8,6 @@ use std::sync::Arc;
 use vortex::array::Array;
 use vortex::array::ToCanonical;
 use vortex::dtype::half::f16;
-use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 
 use crate::arc_dyn_wrapper;
@@ -89,9 +88,7 @@ pub unsafe extern "C-unwind" fn vx_array_is_null(
 ) -> bool {
     let array = vx_array::as_ref(array);
     // TODO(joe): propagate this error up instead of expecting
-    array
-        .is_invalid(index as usize)
-        .vortex_expect("is_invalid failed")
+    array.is_invalid(index as usize).expect("is_invalid failed")
 }
 
 // TODO(robert): Make this return usize and remove error
@@ -101,7 +98,13 @@ pub unsafe extern "C-unwind" fn vx_array_null_count(
     error_out: *mut *mut vx_error,
 ) -> u32 {
     let array = vx_array::as_ref(array);
-    try_or_default(error_out, || Ok(array.invalid_count()?.try_into()?))
+
+    try_or_default(error_out, || {
+        Ok(array
+            .invalid_count()?
+            .try_into()
+            .expect("null count must fit into u32"))
+    })
 }
 
 macro_rules! ffiarray_get_ptype {
@@ -111,24 +114,24 @@ macro_rules! ffiarray_get_ptype {
             pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
                 let array = vx_array::as_ref(array);
                 // TODO(joe): propagate this error up instead of expecting
-                let value = array.scalar_at(index as usize).vortex_expect("scalar_at failed");
+                let value = array.scalar_at(index as usize).expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
                 value.as_primitive()
                     .as_::<$ptype>()
-                    .vortex_expect("null value")
+                    .expect("null value")
             }
 
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
                 let array = vx_array::as_ref(array);
                 // TODO(joe): propagate this error up instead of expecting
-                let value = array.scalar_at(index as usize).vortex_expect("scalar_at failed");
+                let value = array.scalar_at(index as usize).expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
                 value.as_extension()
                     .to_storage_scalar()
                     .as_primitive()
                     .as_::<$ptype>()
-                    .vortex_expect("null value")
+                    .expect("null value")
             }
         }
     };
@@ -155,9 +158,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_utf8(
 ) -> *const vx_string {
     let array = vx_array::as_ref(array);
     // TODO(joe): propagate this error up instead of expecting
-    let value = array
-        .scalar_at(index as usize)
-        .vortex_expect("scalar_at failed");
+    let value = array.scalar_at(index as usize).expect("scalar_at failed");
     let utf8_scalar = value.as_utf8();
     if let Some(buffer) = utf8_scalar.value() {
         vx_string::new(Arc::from(buffer.as_str()))
@@ -175,9 +176,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
 ) -> *const vx_binary {
     let array = vx_array::as_ref(array);
     // TODO(joe): propagate this error up instead of expecting
-    let value = array
-        .scalar_at(index as usize)
-        .vortex_expect("scalar_at failed");
+    let value = array.scalar_at(index as usize).expect("scalar_at failed");
     let binary_scalar = value.as_binary();
     if let Some(bytes) = binary_scalar.value() {
         vx_binary::new(Arc::from(bytes.as_bytes()))

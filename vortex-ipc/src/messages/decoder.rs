@@ -13,7 +13,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_buffer::AlignedBuf;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -117,9 +116,7 @@ impl MessageDecoder {
                             let body = bytes.copy_to_aligned(body_length, Alignment::new(1));
                             let parts = ArrayParts::try_from(body)?;
 
-                            let header = msg
-                                .header_as_array_message()
-                                .vortex_expect("header is array");
+                            let header = msg.header_as_array_message().expect("header is array");
 
                             let encoding_ids: Vec<_> = header
                                 .encodings()
@@ -141,7 +138,7 @@ impl MessageDecoder {
                                 body_length,
                                 Alignment::from_exponent(
                                     msg.header_as_buffer_message()
-                                        .vortex_expect("header is buffer")
+                                        .expect("header is buffer")
                                         .alignment_exponent(),
                                 ),
                             );

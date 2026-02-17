@@ -14,7 +14,6 @@ use vortex::dtype::DecimalDType;
 use vortex::dtype::DecimalType;
 use vortex::dtype::NativeDecimalType;
 use vortex::dtype::match_each_decimal_value_type;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::mask::Mask;
@@ -92,7 +91,7 @@ where
             .iter()
             .zip(unsafe { vector.as_slice_mut(len) })
         {
-            *dst = <N as BigCast>::from(*src).vortex_expect(
+            *dst = <N as BigCast>::from(*src).expect(
                 "We know all decimals with this scale/precision fit into the target bit width",
             );
         }
@@ -130,7 +129,6 @@ pub fn precision_to_duckdb_storage_size(decimal_dtype: &DecimalDType) -> VortexR
 mod tests {
     use vortex::array::arrays::DecimalArray;
     use vortex::dtype::DecimalDType;
-    use vortex::error::VortexExpect;
 
     use super::*;
     use crate::duckdb::DataChunk;
@@ -166,7 +164,7 @@ mod tests {
 
         // Create a DuckDB integer chunk since decimal will be stored as i32 for this precision
         let mut chunk = DataChunk::new([LogicalType::decimal_type(10, 2)
-            .vortex_expect("LogicalType creation should succeed for test data")]);
+            .expect("LogicalType creation should succeed for test data")]);
 
         new_zero_copy_exporter(&arr)
             .unwrap()
@@ -193,7 +191,7 @@ mod tests {
         );
 
         let mut chunk = DataChunk::new([LogicalType::decimal_type(5, 1)
-            .vortex_expect("LogicalType creation should succeed for test data")]);
+            .expect("LogicalType creation should succeed for test data")]);
 
         // Export first 3 elements
         new_zero_copy_exporter(&arr)
@@ -219,7 +217,7 @@ mod tests {
             DecimalArray::from_option_iter([Some(123456i32), None, Some(789012i32)], decimal_dtype);
 
         let mut chunk = DataChunk::new([LogicalType::decimal_type(8, 3)
-            .vortex_expect("LogicalType creation should succeed for test data")]);
+            .expect("LogicalType creation should succeed for test data")]);
 
         new_zero_copy_exporter(&arr)
             .unwrap()

@@ -11,7 +11,6 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -91,7 +90,7 @@ impl VarBinViewBuilder {
 
     fn append_value_view(&mut self, value: &[u8]) {
         let length =
-            u32::try_from(value.len()).vortex_expect("cannot have a single string >2^32 in length");
+            u32::try_from(value.len()).expect("cannot have a single string >2^32 in length");
         if length <= 12 {
             self.views_builder.push(BinaryView::make_view(value, 0, 0));
             return;
@@ -137,7 +136,7 @@ impl VarBinViewBuilder {
         }
 
         let buffer_idx = self.completed.len();
-        let offset = u32::try_from(self.in_progress.len()).vortex_expect("too many buffers");
+        let offset = u32::try_from(self.in_progress.len()).expect("too many buffers");
         self.in_progress.extend_from_slice(value);
 
         (buffer_idx, offset)
@@ -274,7 +273,7 @@ impl ArrayBuilder for VarBinViewBuilder {
         self.push_only_validity_mask(
             array
                 .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .expect("validity_mask in extend_from_array_unchecked"),
         );
 
         let view_adjustment =
@@ -293,7 +292,7 @@ impl ArrayBuilder for VarBinViewBuilder {
             ),
             ViewAdjustment::Rewriting(adjustment) => match array
                 .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked")
+                .expect("validity_mask in extend_from_array_unchecked")
             {
                 Mask::AllTrue(_) => {
                     for (idx, &view) in array.views().iter().enumerate() {
@@ -596,7 +595,7 @@ impl BuffersWithOffsets {
 
         let buffer_utilizations = array
             .buffer_utilizations()
-            .vortex_expect("buffer_utilizations in BuffersWithOffsets::from_array");
+            .expect("buffer_utilizations in BuffersWithOffsets::from_array");
         let mut has_rewrite = false;
         let mut has_nonzero_offset = false;
         for utilization in buffer_utilizations.iter() {
@@ -626,7 +625,7 @@ impl BuffersWithOffsets {
             // keep all buffers
             (false, false) => {
                 let buffers: Vec<_> = buffers_with_offsets_iter
-                    .map(|(b, _)| b.vortex_expect("already checked for rewrite"))
+                    .map(|(b, _)| b.expect("already checked for rewrite"))
                     .collect();
                 Self::AllKept {
                     buffers: Arc::from(buffers),
@@ -644,9 +643,7 @@ impl BuffersWithOffsets {
             // keep all buffers, but some have offsets
             (false, true) => {
                 let (buffers, offsets): (Vec<_>, _) = buffers_with_offsets_iter
-                    .map(|(buffer, offset)| {
-                        (buffer.vortex_expect("already checked for rewrite"), offset)
-                    })
+                    .map(|(buffer, offset)| (buffer.expect("already checked for rewrite"), offset))
                     .collect();
                 Self::AllKept {
                     buffers: Arc::from(buffers),

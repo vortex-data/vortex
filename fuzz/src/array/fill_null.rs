@@ -20,7 +20,6 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 /// Apply fill_null on the canonical form of the array to get a consistent baseline.
@@ -55,7 +54,7 @@ fn fill_bool_array(
     let fill_bool = fill_value
         .as_bool()
         .value()
-        .vortex_expect("cannot have null fill value");
+        .expect("cannot have null fill value");
 
     match array.validity() {
         Validity::NonNullable | Validity::AllValid => {
@@ -85,8 +84,8 @@ fn fill_primitive_array(
     result_nullability: Nullability,
 ) -> ArrayRef {
     match_each_native_ptype!(array.ptype(), |T| {
-        let fill_val = T::try_from(fill_value)
-            .vortex_expect("fill value conversion should succeed in fuzz test");
+        let fill_val =
+            T::try_from(fill_value).expect("fill value conversion should succeed in fuzz test");
 
         match array.validity() {
             Validity::NonNullable | Validity::AllValid => {
@@ -126,7 +125,7 @@ fn fill_decimal_array(
 
     match_each_decimal_value_type!(array.values_type(), |D| {
         let fill_val = D::try_from(decimal_scalar)
-            .vortex_expect("decimal fill value conversion should succeed in fuzz test");
+            .expect("decimal fill value conversion should succeed in fuzz test");
 
         match array.validity() {
             Validity::NonNullable | Validity::AllValid => DecimalArray::new(
@@ -153,7 +152,7 @@ fn fill_decimal_array(
                 }
 
                 DecimalArray::try_new(new_data.freeze(), decimal_dtype, result_nullability.into())
-                    .vortex_expect("DecimalArray creation should succeed in fuzz test")
+                    .expect("DecimalArray creation should succeed in fuzz test")
                     .into_array()
             }
         }
@@ -177,16 +176,16 @@ fn fill_varbinview_array(
                     let fill_str = fill_value
                         .as_utf8()
                         .value()
-                        .vortex_expect("cannot have null fill value");
+                        .expect("cannot have null fill value");
                     let strings: Vec<String> = (0..array.len())
                         .map(|i| {
                             if validity_bits.value(i) {
                                 array
                                     .scalar_at(i)
-                                    .vortex_expect("scalar_at")
+                                    .expect("scalar_at")
                                     .as_utf8()
                                     .value()
-                                    .vortex_expect("cannot have null valid value")
+                                    .expect("cannot have null valid value")
                                     .to_string()
                             } else {
                                 fill_str.to_string()
@@ -211,16 +210,16 @@ fn fill_varbinview_array(
                     let fill_bytes = fill_value
                         .as_binary()
                         .value()
-                        .vortex_expect("cannot have null fill value");
+                        .expect("cannot have null fill value");
                     let binaries: Vec<Vec<u8>> = (0..array.len())
                         .map(|i| {
                             if validity_bits.value(i) {
                                 array
                                     .scalar_at(i)
-                                    .vortex_expect("scalar_at")
+                                    .expect("scalar_at")
                                     .as_binary()
                                     .value()
-                                    .vortex_expect("cannot have null valid value")
+                                    .expect("cannot have null valid value")
                                     .to_vec()
                             } else {
                                 fill_bytes.to_vec()

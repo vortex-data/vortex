@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitView;
-use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 use vortex_mask::MaskMut;
 use vortex_mask::MaskValues;
@@ -186,7 +185,7 @@ impl<const NB: usize> Filter<BitView<'_, NB>> for &mut MaskMut {
             return;
         }
         self.as_bit_buffer_mut()
-            .vortex_expect("Checked all-true and all-false cases; should have bit buffer")
+            .expect("Checked all-true and all-false cases; should have bit buffer")
             .filter(selection);
     }
 }

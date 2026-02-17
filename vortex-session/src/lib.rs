@@ -15,7 +15,6 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use dashmap::Entry;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 /// A Vortex session encapsulates the set of extensible arrays, layouts, compute functions, dtypes,
@@ -95,7 +94,7 @@ impl SessionExt for VortexSession {
                 (**v)
                     .as_any()
                     .downcast_ref::<V>()
-                    .vortex_expect("Type mismatch - this is a bug")
+                    .expect("Type mismatch - this is a bug")
             }));
         }
 
@@ -109,7 +108,7 @@ impl SessionExt for VortexSession {
                 (**v)
                     .as_any()
                     .downcast_ref::<V>()
-                    .vortex_expect("Type mismatch - this is a bug")
+                    .expect("Type mismatch - this is a bug")
             }))
     }
 
@@ -119,7 +118,7 @@ impl SessionExt for VortexSession {
                 (**v)
                     .as_any()
                     .downcast_ref::<V>()
-                    .vortex_expect("Type mismatch - this is a bug")
+                    .expect("Type mismatch - this is a bug")
             }))
         })
     }
@@ -136,7 +135,7 @@ impl SessionExt for VortexSession {
                     (**v)
                         .as_any_mut()
                         .downcast_mut::<V>()
-                        .vortex_expect("Type mismatch - this is a bug")
+                        .expect("Type mismatch - this is a bug")
                 }),
         )
     }
@@ -147,7 +146,7 @@ impl SessionExt for VortexSession {
                 (**v)
                     .as_any_mut()
                     .downcast_mut::<V>()
-                    .vortex_expect("Type mismatch - this is a bug")
+                    .expect("Type mismatch - this is a bug")
             }))
         })
     }

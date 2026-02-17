@@ -17,7 +17,6 @@ use vortex_dtype::PType;
 use vortex_dtype::ToBytes;
 use vortex_dtype::half::f16;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -56,14 +55,14 @@ pub enum PValue {
 impl PartialEq for PValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::U8(s), o) => o.as_u64().vortex_expect("upcast") == *s as u64,
-            (Self::U16(s), o) => o.as_u64().vortex_expect("upcast") == *s as u64,
-            (Self::U32(s), o) => o.as_u64().vortex_expect("upcast") == *s as u64,
-            (Self::U64(s), o) => o.as_u64().vortex_expect("upcast") == *s,
-            (Self::I8(s), o) => o.as_i64().vortex_expect("upcast") == *s as i64,
-            (Self::I16(s), o) => o.as_i64().vortex_expect("upcast") == *s as i64,
-            (Self::I32(s), o) => o.as_i64().vortex_expect("upcast") == *s as i64,
-            (Self::I64(s), o) => o.as_i64().vortex_expect("upcast") == *s,
+            (Self::U8(s), o) => o.as_u64().expect("upcast") == *s as u64,
+            (Self::U16(s), o) => o.as_u64().expect("upcast") == *s as u64,
+            (Self::U32(s), o) => o.as_u64().expect("upcast") == *s as u64,
+            (Self::U64(s), o) => o.as_u64().expect("upcast") == *s,
+            (Self::I8(s), o) => o.as_i64().expect("upcast") == *s as i64,
+            (Self::I16(s), o) => o.as_i64().expect("upcast") == *s as i64,
+            (Self::I32(s), o) => o.as_i64().expect("upcast") == *s as i64,
+            (Self::I64(s), o) => o.as_i64().expect("upcast") == *s,
             (Self::F16(s), Self::F16(o)) => s.is_eq(*o),
             (Self::F32(s), Self::F32(o)) => s.is_eq(*o),
             (Self::F64(s), Self::F64(o)) => s.is_eq(*o),
@@ -77,14 +76,14 @@ impl Eq for PValue {}
 impl PartialOrd for PValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
-            (Self::U8(s), o) => Some((*s as u64).cmp(&o.as_u64().vortex_expect("upcast"))),
-            (Self::U16(s), o) => Some((*s as u64).cmp(&o.as_u64().vortex_expect("upcast"))),
-            (Self::U32(s), o) => Some((*s as u64).cmp(&o.as_u64().vortex_expect("upcast"))),
-            (Self::U64(s), o) => Some((*s).cmp(&o.as_u64().vortex_expect("upcast"))),
-            (Self::I8(s), o) => Some((*s as i64).cmp(&o.as_i64().vortex_expect("upcast"))),
-            (Self::I16(s), o) => Some((*s as i64).cmp(&o.as_i64().vortex_expect("upcast"))),
-            (Self::I32(s), o) => Some((*s as i64).cmp(&o.as_i64().vortex_expect("upcast"))),
-            (Self::I64(s), o) => Some((*s).cmp(&o.as_i64().vortex_expect("upcast"))),
+            (Self::U8(s), o) => Some((*s as u64).cmp(&o.as_u64().expect("upcast"))),
+            (Self::U16(s), o) => Some((*s as u64).cmp(&o.as_u64().expect("upcast"))),
+            (Self::U32(s), o) => Some((*s as u64).cmp(&o.as_u64().expect("upcast"))),
+            (Self::U64(s), o) => Some((*s).cmp(&o.as_u64().expect("upcast"))),
+            (Self::I8(s), o) => Some((*s as i64).cmp(&o.as_i64().expect("upcast"))),
+            (Self::I16(s), o) => Some((*s as i64).cmp(&o.as_i64().expect("upcast"))),
+            (Self::I32(s), o) => Some((*s as i64).cmp(&o.as_i64().expect("upcast"))),
+            (Self::I64(s), o) => Some((*s).cmp(&o.as_i64().expect("upcast"))),
             (Self::F16(s), Self::F16(o)) => Some(s.total_compare(*o)),
             (Self::F32(s), Self::F32(o)) => Some(s.total_compare(*o)),
             (Self::F64(s), Self::F64(o)) => Some(s.total_compare(*o)),
@@ -97,10 +96,10 @@ impl Hash for PValue {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
             PValue::U8(_) | PValue::U16(_) | PValue::U32(_) | PValue::U64(_) => {
-                self.as_u64().vortex_expect("upcast").hash(state)
+                self.as_u64().expect("upcast").hash(state)
             }
             PValue::I8(_) | PValue::I16(_) | PValue::I32(_) | PValue::I64(_) => {
-                self.as_i64().vortex_expect("upcast").hash(state)
+                self.as_i64().expect("upcast").hash(state)
             }
             PValue::F16(v) => v.to_le_bytes().hash(state),
             PValue::F32(v) => v.to_le_bytes().hash(state),

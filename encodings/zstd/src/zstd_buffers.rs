@@ -31,7 +31,6 @@ use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -199,7 +198,8 @@ impl ZstdBuffersArray {
             .zip(&self.uncompressed_sizes)
             .enumerate()
         {
-            let size = usize::try_from(uncompressed_size)?;
+            let size =
+                usize::try_from(uncompressed_size).expect("uncompressed size must fit in usize");
             let alignment = self.buffer_alignments.get(i).copied().unwrap_or(1);
 
             let aligned = Alignment::try_from(alignment)?;
@@ -268,13 +268,13 @@ impl ZstdBuffersArray {
         // If invariants are somehow broken, device decompression could have UB, so ensure
         // they still hold.
         self.validate()
-            .vortex_expect("zstd_buffers invariant violated before decode_plan");
+            .expect("zstd_buffers invariant violated before decode_plan");
 
         let output_sizes = self
             .uncompressed_sizes
             .iter()
-            .map(|&size| usize::try_from(size))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|&size| usize::try_from(size).expect("buffer sizes must fit in usize"))
+            .collect::<Vec<_>>();
         let output_size_max = output_sizes.iter().copied().max().unwrap_or(0);
 
         let output_alignments = self

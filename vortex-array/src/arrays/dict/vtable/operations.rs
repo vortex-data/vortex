@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::DictVTable;
@@ -25,6 +24,6 @@ impl OperationsVTable<DictVTable> for DictVTable {
             .values()
             .scalar_at(dict_index)?
             .cast(array.dtype())
-            .vortex_expect("Array dtype will only differ by nullability"))
+            .expect("Array dtype will only differ by nullability"))
     }
 }

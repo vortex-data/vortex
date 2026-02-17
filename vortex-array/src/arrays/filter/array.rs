@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
@@ -36,7 +35,7 @@ pub struct FilterArray {
 
 impl FilterArray {
     pub fn new(array: ArrayRef, mask: Mask) -> Self {
-        Self::try_new(array, mask).vortex_expect("FilterArray construction failed")
+        Self::try_new(array, mask).expect("FilterArray construction failed")
     }
 
     pub fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {

@@ -11,7 +11,6 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
@@ -200,9 +199,7 @@ impl VTable for Merge {
                 )
             }
 
-            let child_dtype = child_dtype
-                .as_struct_fields_opt()
-                .vortex_expect("expected struct");
+            let child_dtype = child_dtype.as_struct_fields_opt().expect("expected struct");
 
             for name in child_dtype.names().iter() {
                 if let Some(idx) = names.iter().position(|n| n == name) {

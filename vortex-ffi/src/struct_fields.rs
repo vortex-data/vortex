@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use vortex::dtype::DType;
 use vortex::dtype::StructFields;
-use vortex::error::VortexExpect;
 
 use crate::arc_wrapper;
 use crate::box_wrapper;
@@ -24,10 +23,7 @@ arc_wrapper!(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_nfields(dtype: *const vx_struct_fields) -> u64 {
     // TODO(joe): propagate this error up instead of expecting
-    unsafe { dtype.as_ref() }
-        .vortex_expect("null ptr")
-        .0
-        .nfields() as u64
+    unsafe { dtype.as_ref() }.expect("null ptr").0.nfields() as u64
 }
 
 /// Return a borrowed reference to the name of the field at the given index.
@@ -41,7 +37,7 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
     idx: usize,
 ) -> *const vx_string {
     // TODO(joe): propagate this error up instead of expecting
-    let ptr = unsafe { dtype.as_ref() }.vortex_expect("null ptr");
+    let ptr = unsafe { dtype.as_ref() }.expect("null ptr");
     let struct_dtype = &ptr.0;
     if idx >= struct_dtype.nfields() {
         return ptr::null();
@@ -63,7 +59,7 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_dtype(
     idx: usize,
 ) -> *const vx_dtype {
     // TODO(joe): propagate this error up instead of expecting
-    let ptr = unsafe { dtype.as_ref() }.vortex_expect("null ptr");
+    let ptr = unsafe { dtype.as_ref() }.expect("null ptr");
     let struct_dtype = &ptr.0;
 
     if idx >= struct_dtype.nfields() {

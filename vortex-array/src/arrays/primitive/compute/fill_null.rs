@@ -4,7 +4,6 @@
 use std::ops::Not;
 
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -34,7 +33,7 @@ impl FillNullKernel for PrimitiveVTable {
                     let fill_value = fill_value
                         .as_primitive()
                         .typed_value::<T>()
-                        .vortex_expect("top-level fill_null ensure non-null fill value");
+                        .expect("top-level fill_null ensure non-null fill value");
                     for invalid_index in is_invalid.set_indices() {
                         buffer[invalid_index] = fill_value;
                     }

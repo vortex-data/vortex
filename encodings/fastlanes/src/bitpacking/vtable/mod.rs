@@ -20,7 +20,6 @@ use vortex_array::vtable::ValidityVTableFromValidityHelper;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -255,7 +254,7 @@ impl VTable for BitPackedVTable {
                 builder
                     .as_any_mut()
                     .downcast_mut()
-                    .vortex_expect("bit packed array must canonicalize into a primitive array"),
+                    .expect("bit packed array must canonicalize into a primitive array"),
                 ctx,
             )
         })

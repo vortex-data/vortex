@@ -13,7 +13,6 @@ use bytes::Buf;
 use bytes::BufMut;
 use bytes::BytesMut;
 use bytes::buf::UninitSlice;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::Alignment;
@@ -598,8 +597,7 @@ impl<T> BufferMut<T> {
         // for this operation up front.
         let (_, upper_bound) = iter.size_hint();
         self.reserve(
-            upper_bound
-                .vortex_expect("`TrustedLen` iterator somehow didn't have valid upper bound"),
+            upper_bound.expect("`TrustedLen` iterator somehow didn't have valid upper bound"),
         );
 
         // We store `begin` in the case that the upper bound hint is incorrect.
@@ -636,8 +634,7 @@ impl<T> BufferMut<T> {
     {
         let (_, upper_bound) = iter.size_hint();
         let mut buffer = Self::with_capacity(
-            upper_bound
-                .vortex_expect("`TrustedLen` iterator somehow didn't have valid upper bound"),
+            upper_bound.expect("`TrustedLen` iterator somehow didn't have valid upper bound"),
         );
 
         buffer.extend_trusted(iter);
@@ -762,7 +759,7 @@ impl AlignedBytesMut for BytesMut {
         let padding = self.as_ptr().align_offset(*alignment);
         self.capacity()
             .checked_sub(padding)
-            .vortex_expect("Not enough capacity to align buffer");
+            .expect("Not enough capacity to align buffer");
 
         // SAFETY: We know the buffer is empty, and we know we have enough capacity, so we can
         // safely set the length to the padding and advance the buffer to the aligned offset.

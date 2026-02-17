@@ -69,7 +69,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::i256;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
@@ -370,9 +369,7 @@ fn remove_nulls(data: arrow_data::ArrayData) -> arrow_data::ArrayData {
     if let Some(children) = children {
         builder = builder.child_data(children);
     }
-    builder
-        .build()
-        .vortex_expect("reconstructing array without nulls")
+    builder.build().expect("reconstructing array without nulls")
 }
 
 impl FromArrowArray<&ArrowStructArray> for ArrayRef {

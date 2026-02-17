@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -59,7 +58,7 @@ impl Display for ListScalar<'_> {
                     elems
                         .iter()
                         .map(|e| Scalar::try_new(self.element_dtype().clone(), e.clone())
-                            .vortex_expect("`ListScalar` is already a valid `Scalar`"))
+                            .expect("`ListScalar` is already a valid `Scalar`"))
                         .format(", ")
                 )
             }

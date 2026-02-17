@@ -49,7 +49,6 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::match_smallest_offset_type;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -176,7 +175,7 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
         let position_is_patched = patch_idx < patch_indices.len()
             && patch_indices[patch_idx]
                 .to_usize()
-                .vortex_expect("patch index must fit in usize")
+                .expect("patch index must fit in usize")
                 == position;
 
         if position_is_patched {
@@ -185,16 +184,16 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
                 .append_value(
                     patch_values
                         .scalar_at(patch_idx)
-                        .vortex_expect("scalar_at")
+                        .expect("scalar_at")
                         .as_list(),
                 )
-                .vortex_expect("Failed to append sparse value");
+                .expect("Failed to append sparse value");
             patch_idx += 1;
         } else {
             // Set with the fill value.
             builder
                 .append_value(fill_value.clone())
-                .vortex_expect("Failed to append fill value");
+                .expect("Failed to append fill value");
         }
     }
 
@@ -247,7 +246,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
     let mut next_index = 0;
     let indices = indices
         .iter()
-        .map(|x| (*x).to_usize().vortex_expect("index must fit in usize"));
+        .map(|x| (*x).to_usize().expect("index must fit in usize"));
 
     for (patch_idx, sparse_idx) in indices.enumerate() {
         // Fill gap before this patch with fill values.
@@ -259,18 +258,14 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
         );
 
         // Append the patch value, handling null patches by appending defaults.
-        if values
-            .validity()
-            .is_valid(patch_idx)
-            .vortex_expect("is_valid")
-        {
+        if values.validity().is_valid(patch_idx).expect("is_valid") {
             let patch_list = values
                 .fixed_size_list_elements_at(patch_idx)
-                .vortex_expect("fixed_size_list_elements_at");
+                .expect("fixed_size_list_elements_at");
             for i in 0..list_size as usize {
                 builder
-                    .append_scalar(&patch_list.scalar_at(i).vortex_expect("scalar_at"))
-                    .vortex_expect("element dtype must match");
+                    .append_scalar(&patch_list.scalar_at(i).expect("scalar_at"))
+                    .expect("element dtype must match");
             }
         } else {
             builder.append_defaults(list_size as usize);
@@ -308,7 +303,7 @@ fn append_n_lists(
             for elem in fill_elems {
                 builder
                     .append_scalar(elem)
-                    .vortex_expect("element dtype must match");
+                    .expect("element dtype must match");
             }
         } else {
             builder.append_defaults(list_size as usize);
@@ -323,7 +318,7 @@ fn execute_sparse_bools(patches: &Patches, fill_value: &Scalar) -> VortexResult<
         (
             fill_value
                 .try_into()
-                .vortex_expect("Fill value must convert to bool"),
+                .expect("Fill value must convert to bool"),
             if patches.dtype().nullability() == Nullability::NonNullable {
                 Validity::NonNullable
             } else {
@@ -347,7 +342,7 @@ fn execute_sparse_primitives<T: NativePType + for<'a> TryFrom<&'a Scalar, Error 
         (
             fill_value
                 .try_into()
-                .vortex_expect("Fill value must convert to target T"),
+                .expect("Fill value must convert to target T"),
             if patches.dtype().nullability() == Nullability::NonNullable {
                 Validity::NonNullable
             } else {
@@ -391,7 +386,7 @@ fn execute_sparse_struct(
                 unresolved_patches
                     .values()
                     .validity_mask()
-                    .vortex_expect("validity_mask"),
+                    .expect("validity_mask"),
                 Nullability::Nullable,
             ),
         )?
@@ -412,7 +407,7 @@ fn execute_sparse_struct(
                         unresolved_patches
                             .clone()
                             .map_values(|_| Ok(patch_values))
-                            .vortex_expect("Replacing patch values"),
+                            .expect("Replacing patch values"),
                         fill_value,
                     )
                 }),
@@ -432,9 +427,7 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
     let mut builder = DecimalBuilder::with_capacity::<D>(len, decimal_dtype, nullability);
     match fill_value.decimal_value() {
         Some(fill_value) => {
-            let fill_value = fill_value
-                .cast::<D>()
-                .vortex_expect("unexpected value type");
+            let fill_value = fill_value.cast::<D>().expect("unexpected value type");
             for _ in 0..len {
                 builder.append_value(fill_value)
             }
@@ -482,7 +475,7 @@ fn execute_varbin_inner<I: IntegerPType>(
         buffers.push(BufferHandle::new_host(buffer.clone()));
         BinaryView::make_view(
             buffer.as_ref(),
-            u32::try_from(n_patch_buffers).vortex_expect("too many buffers"),
+            u32::try_from(n_patch_buffers).expect("too many buffers"),
             0,
         )
     } else {
@@ -492,8 +485,8 @@ fn execute_varbin_inner<I: IntegerPType>(
 
     let mut views = buffer_mut![fill; len];
     for (patch_index, &patch) in indices.into_iter().zip_eq(values.views().iter()) {
-        let patch_index_usize = <usize as NumCast>::from(patch_index)
-            .vortex_expect("var bin view indices must fit in usize");
+        let patch_index_usize =
+            <usize as NumCast>::from(patch_index).expect("var bin view indices must fit in usize");
         views[patch_index_usize] = patch;
     }
 
@@ -534,7 +527,6 @@ mod test {
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType;
     use vortex_dtype::StructFields;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
@@ -1030,7 +1022,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().vortex_expect("no fail").into_array();
+        let actual = sparse.to_canonical().expect("no fail").into_array();
         let result_listview = actual.to_listview();
 
         // Check the structure

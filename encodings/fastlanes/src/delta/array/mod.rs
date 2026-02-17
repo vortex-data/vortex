@@ -12,7 +12,6 @@ use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_unsigned_integer_ptype;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -163,8 +162,7 @@ impl DeltaArray {
 
     #[inline]
     pub(crate) fn lanes(&self) -> usize {
-        let ptype =
-            PType::try_from(self.dtype()).vortex_expect("DeltaArray DType must be primitive");
+        let ptype = PType::try_from(self.dtype()).expect("DeltaArray DType must be primitive");
         lane_count(ptype)
     }
 

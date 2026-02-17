@@ -20,7 +20,6 @@ use vortex_array::compute::is_constant;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_fsst::FSSTArray;
@@ -55,7 +54,7 @@ pub struct StringStats {
 }
 
 /// Estimate the number of distinct strings in the var bin view array.
-fn estimate_distinct_count(strings: &VarBinViewArray) -> VortexResult<u32> {
+fn estimate_distinct_count(strings: &VarBinViewArray) -> u32 {
     let views = strings.views();
     // Iterate the views. Two strings which are equal must have the same first 8-bytes.
     // NOTE: there are cases where this performs pessimally, e.g. when we have strings that all
@@ -70,7 +69,7 @@ fn estimate_distinct_count(strings: &VarBinViewArray) -> VortexResult<u32> {
         distinct.insert(len_and_prefix);
     });
 
-    Ok(u32::try_from(distinct.len())?)
+    u32::try_from(distinct.len()).unwrap_or(u32::MAX)
 }
 
 impl StringStats {
@@ -84,15 +83,15 @@ impl StringStats {
             .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
         let value_count = input.len() - null_count;
         let estimated_distinct = if opts.count_distinct_values {
-            estimate_distinct_count(input)?
+            estimate_distinct_count(input)
         } else {
             u32::MAX
         };
 
         Ok(Self {
             src: input.clone(),
-            value_count: u32::try_from(value_count)?,
-            null_count: u32::try_from(null_count)?,
+            value_count: u32::try_from(value_count).expect("value count must fit in u32"),
+            null_count: u32::try_from(null_count).expect("null count must fit in u32"),
             estimated_distinct_count: estimated_distinct,
         })
     }
@@ -103,7 +102,7 @@ impl CompressorStats for StringStats {
 
     fn generate_opts(input: &VarBinViewArray, opts: GenerateStatsOptions) -> Self {
         Self::generate_opts_fallible(input, opts)
-            .vortex_expect("StringStats::generate_opts should not fail")
+            .expect("StringStats::generate_opts should not fail")
     }
 
     fn source(&self) -> &VarBinViewArray {

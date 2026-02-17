@@ -9,6 +9,11 @@
 //!
 //! Note that the implementations of `Scalar` are split into several different modules.
 
+#![deny(missing_docs)]
+#![warn(clippy::missing_docs_in_private_items)]
+#![warn(clippy::missing_errors_doc)]
+#![warn(clippy::missing_safety_doc)]
+
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 mod arrow;

@@ -24,7 +24,6 @@ use vortex_array::optimizer::ArrayOptimizer;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -59,7 +58,8 @@ impl DictReader {
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
     ) -> VortexResult<Self> {
-        let values_len = usize::try_from(layout.values.row_count())?;
+        let values_len =
+            usize::try_from(layout.values.row_count()).expect("layout row count must fit in usize");
         let values = layout.values.new_reader(
             format!("{name}.values").into(),
             segment_source.clone(),
@@ -94,7 +94,7 @@ impl DictReader {
                         &root(),
                         MaskFuture::new_true(values_len),
                     )
-                    .vortex_expect("must construct dict values array evaluation")
+                    .expect("must construct dict values array evaluation")
                     .map_err(Arc::new)
                     .map(move |array| {
                         let array = array?;
@@ -258,7 +258,6 @@ mod tests {
     use vortex_dtype::FieldName;
     use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability;
-    use vortex_error::VortexExpect;
     use vortex_io::runtime::single::block_on;
 
     use crate::LayoutId;
@@ -482,7 +481,7 @@ mod tests {
             assert_arrays_eq!(
                 actual
                     .to_canonical()
-                    .vortex_expect("to_canonical failed")
+                    .expect("to_canonical failed")
                     .into_array(),
                 expected
             );

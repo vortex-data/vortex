@@ -23,7 +23,6 @@ use vortex_buffer::BitBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
@@ -64,7 +63,7 @@ fn test_filter_take_consistency(array: &dyn Array) {
     // Filter the array
     let filtered = array
         .filter(mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
 
     // Create indices where mask is true
     let indices: Vec<u64> = mask_pattern
@@ -77,7 +76,7 @@ fn test_filter_take_consistency(array: &dyn Array) {
     // Take using those indices
     let taken = array
         .take(indices_array.to_array())
-        .vortex_expect("take should succeed in conformance test");
+        .expect("take should succeed in conformance test");
 
     // Results should be identical
     assert_eq!(
@@ -92,10 +91,10 @@ fn test_filter_take_consistency(array: &dyn Array) {
     for i in 0..filtered.len() {
         let filtered_val = filtered
             .scalar_at(i)
-            .vortex_expect("scalar_at should succeed in conformance test");
+            .expect("scalar_at should succeed in conformance test");
         let taken_val = taken
             .scalar_at(i)
-            .vortex_expect("scalar_at should succeed in conformance test");
+            .expect("scalar_at should succeed in conformance test");
         assert_eq!(
             filtered_val, taken_val,
             "Filter and take produced different values at index {i}. \
@@ -130,9 +129,9 @@ fn test_double_mask_consistency(array: &dyn Array) {
     let mask2: Mask = (0..len).map(|i| i % 2 == 0).collect();
 
     // Apply masks sequentially
-    let first_masked = mask(array, &mask1).vortex_expect("mask should succeed in conformance test");
+    let first_masked = mask(array, &mask1).expect("mask should succeed in conformance test");
     let double_masked =
-        mask(&first_masked, &mask2).vortex_expect("mask should succeed in conformance test");
+        mask(&first_masked, &mask2).expect("mask should succeed in conformance test");
 
     // Create combined mask (OR operation - element is masked if EITHER mask is true)
     let combined_pattern: BitBuffer = mask1
@@ -145,7 +144,7 @@ fn test_double_mask_consistency(array: &dyn Array) {
 
     // Apply combined mask directly
     let directly_masked =
-        mask(array, &combined_mask).vortex_expect("mask should succeed in conformance test");
+        mask(array, &combined_mask).expect("mask should succeed in conformance test");
 
     // Results should be identical
     assert_eq!(
@@ -160,10 +159,10 @@ fn test_double_mask_consistency(array: &dyn Array) {
     for i in 0..double_masked.len() {
         let double_val = double_masked
             .scalar_at(i)
-            .vortex_expect("scalar_at should succeed in conformance test");
+            .expect("scalar_at should succeed in conformance test");
         let direct_val = directly_masked
             .scalar_at(i)
-            .vortex_expect("scalar_at should succeed in conformance test");
+            .expect("scalar_at should succeed in conformance test");
         assert_eq!(
             double_val, direct_val,
             "Sequential masking and combined masking produced different values at index {i}. \
@@ -195,7 +194,7 @@ fn test_filter_identity(array: &dyn Array) {
     let all_true_mask = Mask::new_true(len);
     let filtered = array
         .filter(all_true_mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
 
     // Filtered array should be identical to original
     assert_eq!(
@@ -210,10 +209,10 @@ fn test_filter_identity(array: &dyn Array) {
     for i in 0..len {
         let original_val = array
             .scalar_at(i)
-            .vortex_expect("scalar_at should succeed in conformance test");
+            .expect("scalar_at should succeed in conformance test");
         let filtered_val = filtered
             .scalar_at(i)
-            .vortex_expect("scalar_at should succeed in conformance test");
+            .expect("scalar_at should succeed in conformance test");
         assert_eq!(
             filtered_val, original_val,
             "Filtering with all-true mask should preserve all values. \
@@ -242,8 +241,7 @@ fn test_mask_identity(array: &dyn Array) {
     }
 
     let all_false_mask = Mask::new_false(len);
-    let masked =
-        mask(array, &all_false_mask).vortex_expect("mask should succeed in conformance test");
+    let masked = mask(array, &all_false_mask).expect("mask should succeed in conformance test");
 
     // Masked array should have same values (just nullable)
     assert_eq!(
@@ -264,10 +262,10 @@ fn test_mask_identity(array: &dyn Array) {
     for i in 0..len {
         let original_val = array
             .scalar_at(i)
-            .vortex_expect("scalar_at should succeed in conformance test");
+            .expect("scalar_at should succeed in conformance test");
         let masked_val = masked
             .scalar_at(i)
-            .vortex_expect("scalar_at should succeed in conformance test");
+            .expect("scalar_at should succeed in conformance test");
         let expected_val = original_val.clone().into_nullable();
         assert_eq!(
             masked_val, expected_val,
@@ -304,12 +302,12 @@ fn test_slice_filter_consistency(array: &dyn Array) {
     let mask = Mask::from_iter(mask_pattern);
     let filtered = array
         .filter(mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
 
     // Slice should produce the same result
     let sliced = array
         .slice(1..4.min(len))
-        .vortex_expect("slice should succeed in conformance test");
+        .expect("slice should succeed in conformance test");
 
     assert_eq!(
         filtered.len(),
@@ -323,10 +321,10 @@ fn test_slice_filter_consistency(array: &dyn Array) {
     for i in 0..filtered.len() {
         let filtered_val = filtered
             .scalar_at(i)
-            .vortex_expect("scalar_at should succeed in conformance test");
+            .expect("scalar_at should succeed in conformance test");
         let sliced_val = sliced
             .scalar_at(i)
-            .vortex_expect("scalar_at should succeed in conformance test");
+            .expect("scalar_at should succeed in conformance test");
         assert_eq!(
             filtered_val, sliced_val,
             "Filter with contiguous mask and slice produced different values at index {i}. \
@@ -359,12 +357,12 @@ fn test_take_slice_consistency(array: &dyn Array) {
     let indices = PrimitiveArray::from_iter((1..end).map(|i| i as u64)).into_array();
     let taken = array
         .take(indices.to_array())
-        .vortex_expect("take should succeed in conformance test");
+        .expect("take should succeed in conformance test");
 
     // Slice from 1 to end
     let sliced = array
         .slice(1..end)
-        .vortex_expect("slice should succeed in conformance test");
+        .expect("slice should succeed in conformance test");
 
     assert_eq!(
         taken.len(),
@@ -378,10 +376,10 @@ fn test_take_slice_consistency(array: &dyn Array) {
     for i in 0..taken.len() {
         let taken_val = taken
             .scalar_at(i)
-            .vortex_expect("scalar_at should succeed in conformance test");
+            .expect("scalar_at should succeed in conformance test");
         let sliced_val = sliced
             .scalar_at(i)
-            .vortex_expect("scalar_at should succeed in conformance test");
+            .expect("scalar_at should succeed in conformance test");
         assert_eq!(
             taken_val, sliced_val,
             "Take with sequential indices and slice produced different values at index {i}. \
@@ -403,7 +401,7 @@ fn test_filter_preserves_order(array: &dyn Array) {
 
     let filtered = array
         .filter(mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
 
     // Verify the filtered array contains the right elements in order
     assert_eq!(filtered.len(), 3.min(len));
@@ -411,26 +409,26 @@ fn test_filter_preserves_order(array: &dyn Array) {
         assert_eq!(
             filtered
                 .scalar_at(0)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             array
                 .scalar_at(0)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
         );
         assert_eq!(
             filtered
                 .scalar_at(1)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             array
                 .scalar_at(2)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
         );
         assert_eq!(
             filtered
                 .scalar_at(2)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             array
                 .scalar_at(3)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
         );
     }
 }
@@ -446,17 +444,17 @@ fn test_take_repeated_indices(array: &dyn Array) {
     let indices = PrimitiveArray::from_iter([0u64, 0, 0]).into_array();
     let taken = array
         .take(indices.to_array())
-        .vortex_expect("take should succeed in conformance test");
+        .expect("take should succeed in conformance test");
 
     assert_eq!(taken.len(), 3);
     for i in 0..3 {
         assert_eq!(
             taken
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             array
                 .scalar_at(0)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
         );
     }
 }
@@ -471,29 +469,29 @@ fn test_mask_filter_null_consistency(array: &dyn Array) {
     // First mask some elements
     let mask_pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
     let mask_array = Mask::from_iter(mask_pattern);
-    let masked = mask(array, &mask_array).vortex_expect("mask should succeed in conformance test");
+    let masked = mask(array, &mask_array).expect("mask should succeed in conformance test");
 
     // Then filter to remove the nulls
     let filter_pattern: Vec<bool> = (0..len).map(|i| i % 2 != 0).collect();
     let filter_mask = Mask::from_iter(filter_pattern);
     let filtered = masked
         .filter(filter_mask.clone())
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
 
     // This should be equivalent to directly filtering the original array
     let direct_filtered = array
         .filter(filter_mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
 
     assert_eq!(filtered.len(), direct_filtered.len());
     for i in 0..filtered.len() {
         assert_eq!(
             filtered
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             direct_filtered
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
         );
     }
 }
@@ -505,7 +503,7 @@ fn test_empty_operations_consistency(array: &dyn Array) {
     // Empty filter
     let empty_filter = array
         .filter(Mask::new_false(len))
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
     assert_eq!(empty_filter.len(), 0);
     assert_eq!(empty_filter.dtype(), array.dtype());
 
@@ -513,7 +511,7 @@ fn test_empty_operations_consistency(array: &dyn Array) {
     let empty_indices = PrimitiveArray::empty::<u64>(Nullability::NonNullable).into_array();
     let empty_take = array
         .take(empty_indices.to_array())
-        .vortex_expect("take should succeed in conformance test");
+        .expect("take should succeed in conformance test");
     assert_eq!(empty_take.len(), 0);
     assert_eq!(empty_take.dtype(), array.dtype());
 
@@ -521,7 +519,7 @@ fn test_empty_operations_consistency(array: &dyn Array) {
     if len > 0 {
         let empty_slice = array
             .slice(0..0)
-            .vortex_expect("slice should succeed in conformance test");
+            .expect("slice should succeed in conformance test");
         assert_eq!(empty_slice.len(), 0);
         assert_eq!(empty_slice.dtype(), array.dtype());
     }
@@ -538,7 +536,7 @@ fn test_take_preserves_properties(array: &dyn Array) {
     let indices = PrimitiveArray::from_iter((0..len).map(|i| i as u64)).into_array();
     let taken = array
         .take(indices.to_array())
-        .vortex_expect("take should succeed in conformance test");
+        .expect("take should succeed in conformance test");
 
     // Should be identical to original
     assert_eq!(taken.len(), array.len());
@@ -547,10 +545,10 @@ fn test_take_preserves_properties(array: &dyn Array) {
         assert_eq!(
             taken
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             array
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
         );
     }
 }
@@ -583,7 +581,7 @@ fn test_nullable_indices_consistency(array: &dyn Array) {
 
     let taken = array
         .take(indices.to_array())
-        .vortex_expect("take should succeed in conformance test");
+        .expect("take should succeed in conformance test");
 
     // Result should have nulls where indices were null
     assert_eq!(
@@ -602,11 +600,11 @@ fn test_nullable_indices_consistency(array: &dyn Array) {
     // Check first element (from index 0)
     let expected_0 = array
         .scalar_at(0)
-        .vortex_expect("scalar_at should succeed in conformance test")
+        .expect("scalar_at should succeed in conformance test")
         .into_nullable();
     let actual_0 = taken
         .scalar_at(0)
-        .vortex_expect("scalar_at should succeed in conformance test");
+        .expect("scalar_at should succeed in conformance test");
     assert_eq!(
         actual_0, expected_0,
         "Take with nullable indices: element at position 0 should be from array index 0. \
@@ -616,7 +614,7 @@ fn test_nullable_indices_consistency(array: &dyn Array) {
     // Check second element (should be null)
     let actual_1 = taken
         .scalar_at(1)
-        .vortex_expect("scalar_at should succeed in conformance test");
+        .expect("scalar_at should succeed in conformance test");
     assert!(
         actual_1.is_null(),
         "Take with nullable indices: element at position 1 should be null, but got {actual_1:?}"
@@ -625,11 +623,11 @@ fn test_nullable_indices_consistency(array: &dyn Array) {
     // Check third element (from index 2)
     let expected_2 = array
         .scalar_at(2)
-        .vortex_expect("scalar_at should succeed in conformance test")
+        .expect("scalar_at should succeed in conformance test")
         .into_nullable();
     let actual_2 = taken
         .scalar_at(2)
-        .vortex_expect("scalar_at should succeed in conformance test");
+        .expect("scalar_at should succeed in conformance test");
     assert_eq!(
         actual_2, expected_2,
         "Take with nullable indices: element at position 2 should be from array index 2. \
@@ -649,14 +647,14 @@ fn test_large_array_consistency(array: &dyn Array) {
     let indices_array = PrimitiveArray::from_iter(indices).into_array();
     let taken = array
         .take(indices_array.to_array())
-        .vortex_expect("take should succeed in conformance test");
+        .expect("take should succeed in conformance test");
 
     // Create equivalent filter mask
     let mask_pattern: Vec<bool> = (0..len).map(|i| i % 10 == 0).collect();
     let mask = Mask::from_iter(mask_pattern);
     let filtered = array
         .filter(mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
 
     // Results should match
     assert_eq!(taken.len(), filtered.len());
@@ -664,10 +662,10 @@ fn test_large_array_consistency(array: &dyn Array) {
         assert_eq!(
             taken
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             filtered
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
         );
     }
 }
@@ -707,7 +705,7 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
     } else {
         array
             .scalar_at(len / 2)
-            .vortex_expect("scalar_at should succeed in conformance test")
+            .expect("scalar_at should succeed in conformance test")
     };
 
     // Test Eq vs NotEq
@@ -716,8 +714,7 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
         compare(array, const_array.as_ref(), Operator::Eq),
         compare(array, const_array.as_ref(), Operator::NotEq),
     ) {
-        let inverted_eq =
-            invert(&eq_result).vortex_expect("invert should succeed in conformance test");
+        let inverted_eq = invert(&eq_result).expect("invert should succeed in conformance test");
 
         assert_eq!(
             inverted_eq.len(),
@@ -728,10 +725,10 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
         for i in 0..inverted_eq.len() {
             let inv_val = inverted_eq
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             let neq_val = neq_result
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             assert_eq!(
                 inv_val, neq_val,
                 "At index {i}: NOT(Eq) should equal NotEq. \
@@ -745,16 +742,15 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
         compare(array, const_array.as_ref(), Operator::Gt),
         compare(array, const_array.as_ref(), Operator::Lte),
     ) {
-        let inverted_gt =
-            invert(&gt_result).vortex_expect("invert should succeed in conformance test");
+        let inverted_gt = invert(&gt_result).expect("invert should succeed in conformance test");
 
         for i in 0..inverted_gt.len() {
             let inv_val = inverted_gt
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             let lte_val = lte_result
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             assert_eq!(
                 inv_val, lte_val,
                 "At index {i}: NOT(Gt) should equal Lte. \
@@ -768,16 +764,15 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
         compare(array, const_array.as_ref(), Operator::Lt),
         compare(array, const_array.as_ref(), Operator::Gte),
     ) {
-        let inverted_lt =
-            invert(&lt_result).vortex_expect("invert should succeed in conformance test");
+        let inverted_lt = invert(&lt_result).expect("invert should succeed in conformance test");
 
         for i in 0..inverted_lt.len() {
             let inv_val = inverted_lt
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             let gte_val = gte_result
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             assert_eq!(
                 inv_val, gte_val,
                 "At index {i}: NOT(Lt) should equal Gte. \
@@ -820,7 +815,7 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
     } else {
         array
             .scalar_at(len / 2)
-            .vortex_expect("scalar_at should succeed in conformance test")
+            .expect("scalar_at should succeed in conformance test")
     };
 
     // Create a constant array with the test scalar for reverse comparison
@@ -840,10 +835,10 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
         for i in 0..arr_gt_scalar.len() {
             let arr_gt = arr_gt_scalar
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             let scalar_lt = scalar_lt_arr
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             assert_eq!(
                 arr_gt, scalar_lt,
                 "At index {i}: (array > scalar) should equal (scalar < array). \
@@ -860,10 +855,10 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
         for i in 0..arr_eq_scalar.len() {
             let arr_eq = arr_eq_scalar
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             let scalar_eq = scalar_eq_arr
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             assert_eq!(
                 arr_eq, scalar_eq,
                 "At index {i}: (array == scalar) should equal (scalar == array). \
@@ -905,10 +900,9 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
     if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) =
         (and_kleene(array, mask), invert(array), invert(mask))
     {
-        let not_a_and_b =
-            invert(&a_and_b).vortex_expect("invert should succeed in conformance test");
+        let not_a_and_b = invert(&a_and_b).expect("invert should succeed in conformance test");
         let not_a_or_not_b =
-            or_kleene(&not_a, &not_b).vortex_expect("or should succeed in conformance test");
+            or_kleene(&not_a, &not_b).expect("or should succeed in conformance test");
 
         assert_eq!(
             not_a_and_b.len(),
@@ -919,10 +913,10 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
         for i in 0..not_a_and_b.len() {
             let left = not_a_and_b
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             let right = not_a_or_not_b
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             assert_eq!(
                 left, right,
                 "De Morgan's first law failed at index {i}: \
@@ -935,17 +929,17 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
     if let (Ok(a_or_b), Ok(not_a), Ok(not_b)) =
         (or_kleene(array, mask), invert(array), invert(mask))
     {
-        let not_a_or_b = invert(&a_or_b).vortex_expect("invert should succeed in conformance test");
+        let not_a_or_b = invert(&a_or_b).expect("invert should succeed in conformance test");
         let not_a_and_not_b =
-            and_kleene(&not_a, &not_b).vortex_expect("and should succeed in conformance test");
+            and_kleene(&not_a, &not_b).expect("and should succeed in conformance test");
 
         for i in 0..not_a_or_b.len() {
             let left = not_a_or_b
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             let right = not_a_and_not_b
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             assert_eq!(
                 left, right,
                 "De Morgan's second law failed at index {i}: \
@@ -989,20 +983,20 @@ fn test_slice_aggregate_consistency(array: &dyn Array) {
     // Get sliced array and canonical slice
     let sliced = array
         .slice(start..end)
-        .vortex_expect("slice should succeed in conformance test");
-    let canonical = array.to_canonical().vortex_expect("to_canonical failed");
+        .expect("slice should succeed in conformance test");
+    let canonical = array.to_canonical().expect("to_canonical failed");
     let canonical_sliced = canonical
         .as_ref()
         .slice(start..end)
-        .vortex_expect("slice should succeed in conformance test");
+        .expect("slice should succeed in conformance test");
 
     // Test null count through invalid_count
     let sliced_invalid_count = sliced
         .invalid_count()
-        .vortex_expect("invalid_count should succeed in conformance test");
+        .expect("invalid_count should succeed in conformance test");
     let canonical_invalid_count = canonical_sliced
         .invalid_count()
-        .vortex_expect("invalid_count should succeed in conformance test");
+        .expect("invalid_count should succeed in conformance test");
     assert_eq!(
         sliced_invalid_count, canonical_invalid_count,
         "null_count on sliced array should match canonical. \
@@ -1085,7 +1079,7 @@ fn test_cast_slice_consistency(array: &dyn Array) {
     let end = 7.min(len - 2).max(start + 1); // Ensure we have at least 1 element
 
     // Get canonical form of the original array
-    let canonical = array.to_canonical().vortex_expect("to_canonical failed");
+    let canonical = array.to_canonical().expect("to_canonical failed");
 
     // Choose appropriate target dtype based on the array's type
     let target_dtypes = match array.dtype() {
@@ -1205,7 +1199,7 @@ fn test_cast_slice_consistency(array: &dyn Array) {
         // Slice the array
         let sliced = array
             .slice(start..end)
-            .vortex_expect("slice should succeed in conformance test");
+            .expect("slice should succeed in conformance test");
 
         // Try to cast the sliced array (force execution via to_canonical)
         let slice_then_cast = match sliced
@@ -1229,13 +1223,13 @@ fn test_cast_slice_consistency(array: &dyn Array) {
         for i in 0..slice_then_cast.len() {
             let slice_cast_val = slice_then_cast
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
 
             // Get the corresponding value from the canonical array (adjusted for slice offset)
             let canonical_val = canonical
                 .as_ref()
                 .scalar_at(start + i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
 
             // Cast the canonical scalar to the target dtype
             let expected_val = match canonical_val.cast(&target_dtype) {
@@ -1269,7 +1263,7 @@ fn test_cast_slice_consistency(array: &dyn Array) {
         };
         let cast_then_slice = casted
             .slice(start..end)
-            .vortex_expect("slice should succeed in conformance test");
+            .expect("slice should succeed in conformance test");
 
         // Verify the two approaches produce identical results
         assert_eq!(
@@ -1281,10 +1275,10 @@ fn test_cast_slice_consistency(array: &dyn Array) {
         for i in 0..slice_then_cast.len() {
             let slice_cast_val = slice_then_cast
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             let cast_slice_val = cast_then_slice
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test");
+                .expect("scalar_at should succeed in conformance test");
             assert_eq!(
                 slice_cast_val, cast_slice_val,
                 "Slice-then-cast and cast-then-slice produced different values at index {i}. \

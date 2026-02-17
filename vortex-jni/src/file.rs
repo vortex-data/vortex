@@ -21,7 +21,6 @@ use url::Url;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::error::VortexError;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
@@ -278,7 +277,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
     // Return a new pointer to some native memory for the scan.
     let file = unsafe { NativeFile::from_ptr(pointer) };
     // TODO: propagate this error up instead of expecting
-    let mut scan_builder = file.inner.scan().vortex_expect("scan builder");
+    let mut scan_builder = file.inner.scan().expect("scan builder");
 
     try_or_throw(&mut env, |env| {
         // Apply the projection if provided

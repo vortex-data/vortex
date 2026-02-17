@@ -8,8 +8,6 @@ pub mod benchmark;
 pub mod schema;
 pub mod tpchgen;
 
-use vortex::error::VortexExpect;
-
 pub const TPC_H_ROW_COUNT_ARRAY_LENGTH: usize = 23;
 pub const EXPECTED_ROW_COUNTS_SF1: [usize; TPC_H_ROW_COUNT_ARRAY_LENGTH] = [
     // The 0th entry is a dummy so that Query 1's row count is at index 1.
@@ -32,5 +30,5 @@ fn tpch_query(query_idx: usize) -> String {
         .join("tpch")
         .join(format!("q{query_idx}"))
         .with_extension("sql");
-    fs::read_to_string(manifest_dir).vortex_expect("cannot load tpch query from file")
+    fs::read_to_string(manifest_dir).expect("cannot load tpch query from file")
 }

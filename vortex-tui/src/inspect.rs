@@ -17,7 +17,6 @@ use itertools::Itertools;
 use serde::Serialize;
 use vortex::buffer::Alignment;
 use vortex::buffer::ByteBuffer;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -217,7 +216,7 @@ async fn exec_inspect_json(
                 let mut queue =
                     VecDeque::<(Vec<Arc<str>>, LayoutRef)>::from_iter([(Vec::new(), root_layout)]);
                 while !queue.is_empty() {
-                    let (path, layout) = queue.pop_front().vortex_expect("queue is not empty");
+                    let (path, layout) = queue.pop_front().expect("queue is not empty");
                     for segment in layout.segment_ids() {
                         segment_paths[*segment as usize] = Some(path.clone());
                     }
@@ -550,14 +549,14 @@ impl FooterSegments {
         let mut queue =
             VecDeque::<(Vec<Arc<str>>, LayoutRef)>::from_iter([(Vec::new(), root_layout)]);
         while !queue.is_empty() {
-            let (path, layout) = queue.pop_front().vortex_expect("queue is not empty");
+            let (path, layout) = queue.pop_front().expect("queue is not empty");
             for segment in layout.segment_ids() {
                 segment_paths[*segment as usize] = Some(path.clone());
             }
 
             for (child_layout, child_name) in layout
                 .children()
-                .vortex_expect("Failed to deserialize children")
+                .expect("Failed to deserialize children")
                 .into_iter()
                 .zip(layout.child_names())
             {
@@ -567,17 +566,17 @@ impl FooterSegments {
         }
 
         // Find the largest values for formatting
-        let max_offset = segment_map.last().vortex_expect("non-empty").offset;
+        let max_offset = segment_map.last().expect("non-empty").offset;
         let max_length = segment_map
             .iter()
             .map(|s| s.length)
             .max()
-            .vortex_expect("non-empty");
+            .expect("non-empty");
         let max_alignment = segment_map
             .iter()
             .map(|s| s.alignment)
             .max()
-            .vortex_expect("non-empty");
+            .expect("non-empty");
 
         // Calculate all widths
         let offset_width = max_offset.to_string().len();

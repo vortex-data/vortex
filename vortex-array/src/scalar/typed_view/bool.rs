@@ -8,7 +8,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -89,7 +88,7 @@ impl<'a> BoolScalar<'a> {
             )
         }
         Ok(Scalar::bool(
-            self.value.vortex_expect("nullness handled in Scalar::cast"),
+            self.value.expect("nullness handled in Scalar::cast"),
             dtype.nullability(),
         ))
     }

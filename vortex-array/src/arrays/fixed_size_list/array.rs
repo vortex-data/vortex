@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -108,7 +107,7 @@ impl FixedSizeListArray {
     /// in [`FixedSizeListArray::new_unchecked`].
     pub fn new(elements: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
         Self::try_new(elements, list_size, validity, len)
-            .vortex_expect("FixedSizeListArray construction failed")
+            .expect("FixedSizeListArray construction failed")
     }
 
     /// Constructs a new `FixedSizeListArray`.
@@ -155,7 +154,7 @@ impl FixedSizeListArray {
     ) -> Self {
         #[cfg(debug_assertions)]
         Self::validate(&elements, len, list_size, &validity)
-            .vortex_expect("[Debug Assertion]: Invalid `FixedSizeListArray` parameters");
+            .expect("[Debug Assertion]: Invalid `FixedSizeListArray` parameters");
 
         let nullability = validity.nullability();
 

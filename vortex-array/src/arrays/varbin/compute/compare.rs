@@ -9,7 +9,6 @@ use vortex_buffer::BitBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -47,11 +46,11 @@ impl CompareKernel for VarBinVTable {
                 DType::Binary(_) => rhs_const
                     .as_binary()
                     .is_empty()
-                    .vortex_expect("RHS should not be null"),
+                    .expect("RHS should not be null"),
                 DType::Utf8(_) => rhs_const
                     .as_utf8()
                     .is_empty()
-                    .vortex_expect("RHS should not be null"),
+                    .expect("RHS should not be null"),
                 _ => vortex_bail!("VarBinArray can only have type of Binary or Utf8"),
             };
 

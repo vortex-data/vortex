@@ -4,7 +4,6 @@
 use std::hash::Hash;
 
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -93,7 +92,7 @@ impl VTable for SharedVTable {
         let child = children
             .into_iter()
             .next()
-            .vortex_expect("children length already validated");
+            .expect("children length already validated");
         array.set_source(child);
         Ok(())
     }

@@ -5,7 +5,6 @@ use std::fmt::Formatter;
 
 use prost::Message;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
@@ -300,7 +299,7 @@ impl VTable for Binary {
 pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
     Binary
         .try_new_expr(Operator::Eq, [lhs, rhs])
-        .vortex_expect("Failed to create Eq binary expression")
+        .expect("Failed to create Eq binary expression")
 }
 
 /// Create a new [`Binary`] using the [`NotEq`](crate::expr::exprs::operators::Operator::NotEq) operator.
@@ -324,7 +323,7 @@ pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
 pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
     Binary
         .try_new_expr(Operator::NotEq, [lhs, rhs])
-        .vortex_expect("Failed to create NotEq binary expression")
+        .expect("Failed to create NotEq binary expression")
 }
 
 /// Create a new [`Binary`] using the [`Gte`](crate::expr::exprs::operators::Operator::Gte) operator.
@@ -348,7 +347,7 @@ pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
 pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
     Binary
         .try_new_expr(Operator::Gte, [lhs, rhs])
-        .vortex_expect("Failed to create Gte binary expression")
+        .expect("Failed to create Gte binary expression")
 }
 
 /// Create a new [`Binary`] using the [`Gt`](crate::expr::exprs::operators::Operator::Gt) operator.
@@ -372,7 +371,7 @@ pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
 pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
     Binary
         .try_new_expr(Operator::Gt, [lhs, rhs])
-        .vortex_expect("Failed to create Gt binary expression")
+        .expect("Failed to create Gt binary expression")
 }
 
 /// Create a new [`Binary`] using the [`Lte`](crate::expr::exprs::operators::Operator::Lte) operator.
@@ -396,7 +395,7 @@ pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
 pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
     Binary
         .try_new_expr(Operator::Lte, [lhs, rhs])
-        .vortex_expect("Failed to create Lte binary expression")
+        .expect("Failed to create Lte binary expression")
 }
 
 /// Create a new [`Binary`] using the [`Lt`](crate::expr::exprs::operators::Operator::Lt) operator.
@@ -420,7 +419,7 @@ pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
 pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
     Binary
         .try_new_expr(Operator::Lt, [lhs, rhs])
-        .vortex_expect("Failed to create Lt binary expression")
+        .expect("Failed to create Lt binary expression")
 }
 
 /// Create a new [`Binary`] using the [`Or`](crate::expr::exprs::operators::Operator::Or) operator.
@@ -442,7 +441,7 @@ pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
 pub fn or(lhs: Expression, rhs: Expression) -> Expression {
     Binary
         .try_new_expr(Operator::Or, [lhs, rhs])
-        .vortex_expect("Failed to create Or binary expression")
+        .expect("Failed to create Or binary expression")
 }
 
 /// Collects a list of `or`ed values into a single expression using a balanced tree.
@@ -478,7 +477,7 @@ where
 pub fn and(lhs: Expression, rhs: Expression) -> Expression {
     Binary
         .try_new_expr(Operator::And, [lhs, rhs])
-        .vortex_expect("Failed to create And binary expression")
+        .expect("Failed to create And binary expression")
 }
 
 /// Collects a list of `and`ed values into a single expression using a balanced tree.
@@ -552,7 +551,7 @@ where
 pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
     Binary
         .try_new_expr(Operator::Add, [lhs, rhs])
-        .vortex_expect("Failed to create Add binary expression")
+        .expect("Failed to create Add binary expression")
 }
 
 #[cfg(test)]
@@ -735,7 +734,7 @@ mod tests {
         // Test using compare compute function directly
         let result_equal = compare(&lhs_struct, &rhs_struct_equal, compute::Operator::Eq).unwrap();
         assert_eq!(
-            result_equal.scalar_at(0).vortex_expect("value"),
+            result_equal.scalar_at(0).expect("value"),
             Scalar::bool(true, Nullability::NonNullable),
             "Equal structs should be equal"
         );
@@ -743,7 +742,7 @@ mod tests {
         let result_different =
             compare(&lhs_struct, &rhs_struct_different, compute::Operator::Eq).unwrap();
         assert_eq!(
-            result_different.scalar_at(0).vortex_expect("value"),
+            result_different.scalar_at(0).expect("value"),
             Scalar::bool(false, Nullability::NonNullable),
             "Different structs should not be equal"
         );

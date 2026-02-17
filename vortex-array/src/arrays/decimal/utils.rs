@@ -5,7 +5,6 @@ use itertools::Itertools;
 use itertools::MinMaxResult;
 use vortex_dtype::DecimalType;
 use vortex_dtype::i256;
-use vortex_error::VortexExpect;
 
 use crate::arrays::DecimalArray;
 use crate::vtable::ValidityHelper;
@@ -26,7 +25,7 @@ macro_rules! try_downcast {
                             $array
                                 .buffer::<$src>()
                                 .into_iter()
-                                .map(|v| <$dst as BigCast>::from(v).vortex_expect("decimal conversion failure"))
+                                .map(|v| <$dst as BigCast>::from(v).expect("decimal conversion failure"))
                                 .collect(),
                             $array.decimal_dtype(),
                             $array.validity().clone(),

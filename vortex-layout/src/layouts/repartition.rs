@@ -14,7 +14,6 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
@@ -219,9 +218,7 @@ impl ChunksBuffer {
         let mut res = Vec::with_capacity(self.data.len());
         let mut remaining = nblocks * self.block_len_multiple;
         while remaining > 0 {
-            let (chunk, _) = self
-                .pop_front()
-                .vortex_expect("must have at least one chunk");
+            let (chunk, _) = self.pop_front().expect("must have at least one chunk");
             let len = chunk.len();
 
             if len > remaining {

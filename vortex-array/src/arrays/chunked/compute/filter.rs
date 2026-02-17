@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_mask::MaskIter;
 
@@ -30,7 +30,7 @@ impl FilterKernel for ChunkedVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         let mask_values = mask
             .values()
-            .vortex_expect("AllTrue and AllFalse are handled by filter fn");
+            .expect("AllTrue and AllFalse are handled by filter fn");
 
         // Based on filter selectivity, we take the values between a range of slices, or
         // we take individual indices.
@@ -117,8 +117,10 @@ pub(crate) fn chunk_filters(
             // start chunk: append a slice from (start_idx, start_chunk_end), i.e. whole chunk.
             // end chunk: append a slice from (0, end_idx).
             // chunks between start and end: append ChunkFilter::All.
-            let start_chunk_len: usize =
-                (chunk_offsets[start_chunk + 1] - chunk_offsets[start_chunk]).try_into()?;
+            let start_chunk_len: usize = (chunk_offsets[start_chunk + 1]
+                - chunk_offsets[start_chunk])
+                .try_into()
+                .map_err(|e| vortex_err!("chunk length conversion failed: {e}"))?;
             let start_slice = (start_idx, start_chunk_len);
             match &mut chunk_filters[start_chunk] {
                 f @ (ChunkFilter::All | ChunkFilter::None) => {
@@ -194,7 +196,7 @@ pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> VortexResult<(us
         .saturating_sub(1);
     let chunk_begin: usize = chunk_ends[chunk_id]
         .try_into()
-        .vortex_expect("chunk end must fit in usize");
+        .expect("chunk end must fit in usize");
     let chunk_offset = idx - chunk_begin;
 
     Ok((chunk_id, chunk_offset))

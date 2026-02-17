@@ -4,7 +4,6 @@
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -111,7 +110,7 @@ impl VTable for ListVTable {
         let elements = children.get(
             0,
             element_dtype.as_ref(),
-            usize::try_from(metadata.0.elements_len)?,
+            usize::try_from(metadata.0.elements_len).expect("elements must fit in usize"),
         )?;
 
         let offsets = children.get(
@@ -131,12 +130,8 @@ impl VTable for ListVTable {
         );
 
         let mut iter = children.into_iter();
-        let elements = iter
-            .next()
-            .vortex_expect("children length already validated");
-        let offsets = iter
-            .next()
-            .vortex_expect("children length already validated");
+        let elements = iter.next().expect("children length already validated");
+        let offsets = iter.next().expect("children length already validated");
         let validity = if let Some(validity_array) = iter.next() {
             Validity::Array(validity_array)
         } else {

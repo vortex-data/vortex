@@ -7,7 +7,6 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::compute::ListContainsKernel;
 use vortex_array::compute::ListContainsKernelAdapter;
 use vortex_array::register_kernel;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::array::SequenceVTable;
@@ -26,7 +25,7 @@ impl ListContainsKernel for SequenceVTable {
         let list_elements = list_scalar
             .as_list()
             .elements()
-            .vortex_expect("non-null element (checked in entry)");
+            .expect("non-null element (checked in entry)");
 
         let mut set_indices: Vec<usize> = Vec::new();
         for intercept in list_elements.iter() {

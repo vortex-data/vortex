@@ -12,7 +12,6 @@ use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 
 use crate::RunEndArray;
 
@@ -44,7 +43,7 @@ impl ArbitraryRunEndArray {
             let ends = PrimitiveArray::from_iter(Vec::<u64>::new()).into_array();
             let values = ArbitraryArray::arbitrary_with(u, Some(0), dtype)?.0;
             let runend_array = RunEndArray::try_new(ends, values)
-                .vortex_expect("Empty RunEndArray creation should succeed");
+                .expect("Empty RunEndArray creation should succeed");
             return Ok(ArbitraryRunEndArray(runend_array));
         }
 
@@ -56,7 +55,7 @@ impl ArbitraryRunEndArray {
         let ends = random_strictly_sorted_ends(u, num_runs, len)?;
 
         let runend_array = RunEndArray::try_new(ends, values)
-            .vortex_expect("RunEndArray creation should succeed in arbitrary impl");
+            .expect("RunEndArray creation should succeed in arbitrary impl");
 
         Ok(ArbitraryRunEndArray(runend_array))
     }
@@ -107,21 +106,21 @@ fn random_strictly_sorted_ends(
         PType::U8 => {
             let ends_typed: Vec<u8> = ends
                 .iter()
-                .map(|&e| u8::try_from(e).vortex_expect("end value fits in u8"))
+                .map(|&e| u8::try_from(e).expect("end value fits in u8"))
                 .collect();
             PrimitiveArray::new(Buffer::copy_from(ends_typed), Validity::NonNullable).into_array()
         }
         PType::U16 => {
             let ends_typed: Vec<u16> = ends
                 .iter()
-                .map(|&e| u16::try_from(e).vortex_expect("end value fits in u16"))
+                .map(|&e| u16::try_from(e).expect("end value fits in u16"))
                 .collect();
             PrimitiveArray::new(Buffer::copy_from(ends_typed), Validity::NonNullable).into_array()
         }
         PType::U32 => {
             let ends_typed: Vec<u32> = ends
                 .iter()
-                .map(|&e| u32::try_from(e).vortex_expect("end value fits in u32"))
+                .map(|&e| u32::try_from(e).expect("end value fits in u32"))
                 .collect();
             PrimitiveArray::new(Buffer::copy_from(ends_typed), Validity::NonNullable).into_array()
         }

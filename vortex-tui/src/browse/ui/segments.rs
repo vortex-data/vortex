@@ -27,7 +27,6 @@ use taffy::Style;
 use taffy::TaffyTree;
 use taffy::TraversePartialTree;
 use vortex::dtype::FieldName;
-use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::utils::aliases::hash_map::HashMap;
 
@@ -120,7 +119,7 @@ pub fn segments_ui(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
         app_state.segment_grid_state.segment_tree = Some(
             to_display_segment_tree(segment_tree)
                 .map_err(|e| vortex_err!("Fail to compute segment tree {e}"))
-                .vortex_expect("operation should succeed in TUI"),
+                .expect("operation should succeed in TUI"),
         );
     }
 
@@ -135,7 +134,7 @@ pub fn segments_ui(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
         };
         tree.compute_layout(*root_node, viewport_size)
             .map_err(|e| vortex_err!("Fail to compute layout {e}"))
-            .vortex_expect("operation should succeed in TUI");
+            .expect("operation should succeed in TUI");
         app_state.frame_size = area.as_size();
 
         let root_layout = tree.get_final_layout(*root_node);
@@ -299,7 +298,7 @@ fn to_display_segment_tree<'a>(
             let chunks = segment_tree
                 .segments
                 .get_mut(&name)
-                .vortex_expect("Must have segment for name");
+                .expect("Must have segment for name");
             chunks.sort_by(|a, b| a.spec.offset.cmp(&b.spec.offset));
 
             // Build leaf nodes for each segment chunk.

@@ -8,7 +8,6 @@ use futures::future::BoxFuture;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_metrics::Counter;
@@ -158,9 +157,8 @@ impl VortexReadAt for ByteBuffer {
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let buffer = self.clone();
         async move {
-            let start = usize::try_from(offset).vortex_expect("start too big for usize");
-            let end =
-                usize::try_from(offset + length as u64).vortex_expect("end too big for usize");
+            let start = usize::try_from(offset).expect("start too big for usize");
+            let end = usize::try_from(offset + length as u64).expect("end too big for usize");
             if end > buffer.len() {
                 vortex_bail!(
                     "Requested range {}..{} out of bounds for buffer of length {}",
@@ -232,12 +230,10 @@ impl Drop for InnerMetrics {
         if !self.sizes.is_empty() {
             tracing::debug!(
                 "Read size: p50={} p95={} p99={} p999={}",
-                self.sizes.quantile(0.5).vortex_expect("must not be empty"),
-                self.sizes.quantile(0.95).vortex_expect("must not be empty"),
-                self.sizes.quantile(0.99).vortex_expect("must not be empty"),
-                self.sizes
-                    .quantile(0.999)
-                    .vortex_expect("must not be empty"),
+                self.sizes.quantile(0.5).expect("must not be empty"),
+                self.sizes.quantile(0.95).expect("must not be empty"),
+                self.sizes.quantile(0.99).expect("must not be empty"),
+                self.sizes.quantile(0.999).expect("must not be empty"),
             );
         }
 
@@ -249,19 +245,19 @@ impl Drop for InnerMetrics {
                 "Read duration: p50={}ms p95={}ms p99={}ms p999={}ms",
                 self.durations
                     .quantile(0.5)
-                    .vortex_expect("must not be empty")
+                    .expect("must not be empty")
                     .as_millis(),
                 self.durations
                     .quantile(0.95)
-                    .vortex_expect("must not be empty")
+                    .expect("must not be empty")
                     .as_millis(),
                 self.durations
                     .quantile(0.99)
-                    .vortex_expect("must not be empty")
+                    .expect("must not be empty")
                     .as_millis(),
                 self.durations
                     .quantile(0.999)
-                    .vortex_expect("must not be empty")
+                    .expect("must not be empty")
                     .as_millis(),
             );
         }

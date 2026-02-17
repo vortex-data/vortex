@@ -17,7 +17,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 
 use crate::FoRArray;
@@ -38,7 +37,7 @@ impl CompareKernel for FoRVTable {
                     lhs,
                     constant
                         .typed_value::<T>()
-                        .vortex_expect("null scalar handled in adaptor"),
+                        .expect("null scalar handled in adaptor"),
                     rhs.dtype().nullability(),
                     operator,
                 );

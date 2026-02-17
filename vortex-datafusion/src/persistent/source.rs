@@ -26,7 +26,6 @@ use datafusion_physical_plan::filter_pushdown::PushedDownPredicate;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use object_store::ObjectStore;
 use object_store::path::Path;
-use vortex::error::VortexExpect as _;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::metrics::DefaultMetricsRegistry;
@@ -145,7 +144,7 @@ impl FileSource for VortexSource {
     ) -> DFResult<Arc<dyn FileOpener>> {
         let batch_size = self
             .batch_size
-            .vortex_expect("batch_size must be supplied to VortexSource");
+            .expect("batch_size must be supplied to VortexSource");
 
         let expr_adapter_factory = base_config
             .expr_adapter_factory

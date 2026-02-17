@@ -20,7 +20,6 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::stream::ArrayStream;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -186,7 +185,7 @@ impl SequencePointer {
 
         // increment x.y.z -> x.y.(z + 1)
         let last = next_id.last_mut();
-        let last = last.vortex_expect("must have at least one element");
+        let last = last.expect("must have at least one element");
         *last += 1;
         let next_sibling = SequenceId::new(next_id, self.0.universe.clone());
         std::mem::replace(&mut self.0, next_sibling)
@@ -235,7 +234,7 @@ impl Future for WaitSequenceFuture<'_> {
             .active
             .first()
             .cloned()
-            .vortex_expect("if we have a future, we must have at least one active sequence");
+            .expect("if we have a future, we must have at least one active sequence");
         if self.0.id == current_first {
             guard.wakers.remove(&self.0.id);
             return Poll::Ready(());

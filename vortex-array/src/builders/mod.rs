@@ -33,7 +33,6 @@ use std::any::Any;
 use vortex_dtype::DType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
@@ -215,7 +214,7 @@ pub trait ArrayBuilder: Send {
     fn finish_into_canonical(&mut self) -> Canonical {
         self.finish()
             .to_canonical()
-            .vortex_expect("finish_into_canonical failed")
+            .expect("finish_into_canonical failed")
     }
 }
 

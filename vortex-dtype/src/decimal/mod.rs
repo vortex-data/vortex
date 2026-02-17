@@ -14,7 +14,6 @@ use num_traits::ToPrimitive;
 pub use precision::*;
 pub use types::*;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -105,7 +104,7 @@ impl DecimalDType {
         (self.precision.get() as f32 * 10.0f32.log(2.0))
             .ceil()
             .to_usize()
-            .vortex_expect("too many bits required")
+            .expect("too many bits required")
     }
 }
 

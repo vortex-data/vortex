@@ -41,7 +41,6 @@ use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_signed_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -124,7 +123,7 @@ impl VTable for DecimalBytePartsVTable {
             "DecimalBytePartsArray expects exactly 1 child (msp), got {}",
             children.len()
         );
-        array.msp = children.into_iter().next().vortex_expect("checked");
+        array.msp = children.into_iter().next().expect("checked");
         Ok(())
     }
 
@@ -208,7 +207,7 @@ impl DecimalBytePartsArray {
     pub fn decimal_dtype(&self) -> &DecimalDType {
         self.dtype
             .as_decimal_opt()
-            .vortex_expect("must be a decimal dtype")
+            .expect("must be a decimal dtype")
     }
 
     pub(crate) fn msp(&self) -> &ArrayRef {
@@ -286,7 +285,7 @@ impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         // Note. values in msp, can only be signed integers upto size i64.
         let primitive_scalar = scalar.as_primitive();
         // TODO(joe): extend this to support multiple parts.
-        let value = primitive_scalar.as_::<i64>().vortex_expect("non-null");
+        let value = primitive_scalar.as_::<i64>().expect("non-null");
         Scalar::try_new(
             array.dtype.clone(),
             Some(ScalarValue::Decimal(DecimalValue::I64(value))),

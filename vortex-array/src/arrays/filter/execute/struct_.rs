@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
 use crate::ArrayRef;
@@ -22,7 +21,7 @@ pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray
         .map(|field| {
             field
                 .filter(mask_for_filter.clone())
-                .vortex_expect("StructArray fields are guaranteed to support filter")
+                .expect("StructArray fields are guaranteed to support filter")
         })
         .collect();
 
@@ -37,7 +36,7 @@ pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray
         length,
         filtered_validity,
     )
-    .vortex_expect("filtered StructArray fields have consistent lengths")
+    .expect("filtered StructArray fields have consistent lengths")
 }
 
 #[cfg(test)]

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -132,9 +131,7 @@ impl VTable for FixedSizeListVTable {
         );
 
         let mut iter = children.into_iter();
-        let elements = iter
-            .next()
-            .vortex_expect("children length already validated");
+        let elements = iter.next().expect("children length already validated");
         let validity = if let Some(validity_array) = iter.next() {
             Validity::Array(validity_array)
         } else {

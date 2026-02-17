@@ -3,7 +3,6 @@
 
 use vortex_dtype::FieldName;
 use vortex_dtype::StructFields;
-use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::expr::Expression;
@@ -49,7 +48,7 @@ pub fn make_free_field_annotator(
             if expr.child(0).is::<Root>() {
                 return selection
                     .normalize_to_included_fields(scope.names())
-                    .vortex_expect("Select fields must be valid for scope")
+                    .expect("Select fields must be valid for scope")
                     .into_iter()
                     .collect();
             }
@@ -86,6 +85,6 @@ pub fn immediate_scope_access<'a>(
 ) -> HashSet<FieldName> {
     immediate_scope_accesses(expr, scope)
         .get(expr)
-        .vortex_expect("Expression missing from scope accesses, this is a internal bug")
+        .expect("Expression missing from scope accesses, this is a internal bug")
         .clone()
 }

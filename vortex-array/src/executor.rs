@@ -7,7 +7,6 @@ use std::fmt::Display;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -168,7 +167,7 @@ impl Executable for ArrayRef {
 
         // 2. reduce_parent (child-driven metadata-only rewrites)
         for child_idx in 0..array.nchildren() {
-            let child = array.nth_child(child_idx).vortex_expect("checked length");
+            let child = array.nth_child(child_idx).expect("checked length");
             if let Some(reduced_parent) = child.vtable().reduce_parent(&child, &array, child_idx)? {
                 ctx.log(format_args!(
                     "reduce_parent: child[{}]({}) rewrote {} -> {}",
@@ -184,7 +183,7 @@ impl Executable for ArrayRef {
 
         // 3. execute_parent (child-driven optimized execution)
         for child_idx in 0..array.nchildren() {
-            let child = array.nth_child(child_idx).vortex_expect("checked length");
+            let child = array.nth_child(child_idx).expect("checked length");
             if let Some(executed_parent) = child
                 .vtable()
                 .execute_parent(&child, &array, child_idx, ctx)?

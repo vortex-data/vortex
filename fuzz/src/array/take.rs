@@ -21,7 +21,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 pub fn take_canonical_array_non_nullable_indices(
@@ -133,7 +132,7 @@ pub fn take_canonical_array(
                         &array
                             .scalar_at(*idx)?
                             .cast(&array.dtype().union_nullability(nullable))
-                            .vortex_expect("cannot cast scalar nullability"),
+                            .expect("cannot cast scalar nullability"),
                     )?;
                 } else {
                     builder.append_null()

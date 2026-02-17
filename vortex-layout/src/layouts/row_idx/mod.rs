@@ -32,7 +32,6 @@ use vortex_dtype::FieldMask;
 use vortex_dtype::FieldName;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_sequence::SequenceArray;
@@ -83,7 +82,7 @@ impl RowIdxLayoutReader {
                         vec![]
                     }
                 })
-                .vortex_expect("We should not fail to partition expression over struct fields");
+                .expect("We should not fail to partition expression over struct fields");
 
                 // If there's only a single partition, we can directly return the expression.
                 if partitioned.partitions.len() == 1 {
@@ -252,9 +251,9 @@ fn idx_array(row_offset: u64, row_range: &Range<u64>) -> SequenceArray {
         PType::U64,
         NonNullable,
         usize::try_from(row_range.end - row_range.start)
-            .vortex_expect("Row range length must fit in usize"),
+            .expect("Row range length must fit in usize"),
     )
-    .vortex_expect("Failed to create row index array")
+    .expect("Failed to create row index array")
 }
 
 fn row_idx_mask_future(

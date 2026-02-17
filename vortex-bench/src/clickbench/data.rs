@@ -25,7 +25,6 @@ use tokio::io::AsyncWriteExt;
 use tokio::task::JoinSet;
 use tracing::info;
 use tracing::warn;
-use vortex::error::VortexExpect;
 
 use crate::Format;
 // Re-export for use by clickbench_benchmark
@@ -181,7 +180,7 @@ impl Display for Flavor {
             f,
             "{}",
             self.to_possible_value()
-                .vortex_expect("Invalid flavour value")
+                .expect("Invalid flavour value")
                 .get_name()
                 .to_lowercase()
         )

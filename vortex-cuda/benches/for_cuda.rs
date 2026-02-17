@@ -30,7 +30,6 @@ use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 use vortex_fastlanes::BitPackedArray;
 use vortex_fastlanes::FoRArray;
 use vortex_session::VortexSession;
@@ -55,13 +54,10 @@ where
         PrimitiveArray::new(Buffer::from(data), Validity::NonNullable).into_array();
 
     if bp && T::PTYPE != PType::U8 {
-        let child =
-            BitPackedArray::encode(primitive_array.as_ref(), 8).vortex_expect("failed to bitpack");
-        FoRArray::try_new(child.into_array(), reference.into())
-            .vortex_expect("failed to create FoR array")
+        let child = BitPackedArray::encode(primitive_array.as_ref(), 8).expect("failed to bitpack");
+        FoRArray::try_new(child.into_array(), reference.into()).expect("failed to create FoR array")
     } else {
-        FoRArray::try_new(primitive_array, reference.into())
-            .vortex_expect("failed to create FoR array")
+        FoRArray::try_new(primitive_array, reference.into()).expect("failed to create FoR array")
     }
 }
 
@@ -88,7 +84,7 @@ where
                     let timer = Arc::clone(&timed.total_time_ns);
 
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                        .vortex_expect("failed to create execution context")
+                        .expect("failed to create execution context")
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {
@@ -126,7 +122,7 @@ where
                     let timer = Arc::clone(&timed.total_time_ns);
 
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                        .vortex_expect("failed to create execution context")
+                        .expect("failed to create execution context")
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {

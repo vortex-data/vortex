@@ -10,7 +10,6 @@ use futures::future::WeakShared;
 use vortex_array::buffer::BufferHandle;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
@@ -54,7 +53,7 @@ impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
                     e.insert(
                         future
                             .downgrade()
-                            .vortex_expect("just created, cannot be polled to completion"),
+                            .expect("just created, cannot be polled to completion"),
                     );
                     return future.map_err(VortexError::from).boxed();
                 }
@@ -105,7 +104,7 @@ mod tests {
         let shared_source = SharedSegmentSource::new(source.clone());
 
         // Request the same segment twice concurrently
-        let id = SegmentId::from(0);
+        let id = SegmentId::from(0_u32);
         let future1 = shared_source.request(id);
         let future2 = shared_source.request(id);
 
@@ -132,7 +131,7 @@ mod tests {
             .unwrap();
 
         let shared_source = SharedSegmentSource::new(source.clone());
-        let id = SegmentId::from(0);
+        let id = SegmentId::from(0_u32);
 
         // Create and immediately drop a future
         {

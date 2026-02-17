@@ -10,7 +10,6 @@ use std::fmt::Formatter;
 
 use vortex_buffer::BufferString;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_utils::aliases::StringEscape;
@@ -98,7 +97,7 @@ impl<'a> Utf8Scalar<'a> {
             Some(ScalarValue::Utf8(
                 self.value()
                     .cloned()
-                    .vortex_expect("nullness handled in Scalar::cast"),
+                    .expect("nullness handled in Scalar::cast"),
             )),
         )
     }

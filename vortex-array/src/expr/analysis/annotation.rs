@@ -3,7 +3,6 @@
 
 use std::hash::Hash;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -43,7 +42,7 @@ pub fn descendent_annotations<A: AnnotationFn>(
         annotations: Default::default(),
         annotate,
     };
-    expr.accept(&mut visitor).vortex_expect("Infallible");
+    expr.accept(&mut visitor).expect("Infallible");
     visitor.annotations
 }
 

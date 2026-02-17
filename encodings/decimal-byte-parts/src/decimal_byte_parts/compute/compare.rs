@@ -19,7 +19,6 @@ use vortex_dtype::PType;
 use vortex_dtype::ToI256;
 use vortex_dtype::match_each_decimal_value;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DecimalBytePartsVTable;
@@ -42,7 +41,7 @@ impl CompareKernel for DecimalBytePartsVTable {
         let rhs_decimal = rhs_const
             .as_decimal()
             .decimal_value()
-            .vortex_expect("checked for null in entry func");
+            .expect("checked for null in entry func");
 
         match decimal_value_wrapper_to_primitive(rhs_decimal, lhs.msp.as_primitive_typed().ptype())
         {
@@ -110,11 +109,11 @@ where
         let Some(encoded) = <P as NumCast>::from(decimal_v) else {
             let decimal_i256 = decimal_v
                 .to_i256()
-                .vortex_expect("i256 is big enough for any DecimalValue");
+                .expect("i256 is big enough for any DecimalValue");
             return if decimal_i256
                 > P::max_value()
                     .to_i256()
-                    .vortex_expect("i256 is big enough for any PType")
+                    .expect("i256 is big enough for any PType")
             {
                 Err(Positive)
             } else {
@@ -122,7 +121,7 @@ where
                     decimal_i256
                         < P::min_value()
                             .to_i256()
-                            .vortex_expect("i256 is big enough for any PType")
+                            .expect("i256 is big enough for any PType")
                 );
                 Err(Negative)
             };

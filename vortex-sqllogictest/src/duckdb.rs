@@ -105,7 +105,7 @@ impl AsyncDB for DuckDB {
                 let mut rows = Vec::default();
 
                 for col_idx in 0..r.column_count() {
-                    let col_idx = usize::try_from(col_idx).map_err(VortexError::from)?;
+                    let col_idx = usize::try_from(col_idx).expect("col idx must fit usize");
                     let dtype = r.column_type(col_idx);
                     types.push(Self::normalize_column_type(dtype));
                 }

@@ -14,7 +14,6 @@ use vortex_buffer::BitBuffer;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -46,7 +45,7 @@ impl CompareKernel for SequenceVTable {
             constant
                 .as_primitive()
                 .pvalue()
-                .vortex_expect("null constant handled in adaptor"),
+                .expect("null constant handled in adaptor"),
         );
 
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
@@ -98,7 +97,7 @@ fn find_intersection<P: NativePType>(
         vortex_bail!("len == 0")
     }
 
-    let count = P::from_usize(len - 1).vortex_expect("idx must fit into type");
+    let count = P::from_usize(len - 1).expect("idx must fit into type");
     let end_element = base + (multiplier * count);
 
     // Handle ascending vs descending sequences

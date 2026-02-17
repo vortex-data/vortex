@@ -27,7 +27,6 @@ use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
@@ -152,7 +151,7 @@ where
                     b.iter_custom(|iters| {
                         let mut cuda_ctx =
                             CudaSession::create_execution_ctx(&VortexSession::empty())
-                                .vortex_expect("failed to create execution context");
+                                .expect("failed to create execution context");
 
                         let num_items = input_data.len() as i64;
                         #[expect(clippy::expect_used)]
@@ -165,7 +164,7 @@ where
                             // Copy input to device
                             let d_input_handle =
                                 block_on(cuda_ctx.copy_to_device(input_data.clone()).unwrap())
-                                    .vortex_expect("failed to copy input to device");
+                                    .expect("failed to copy input to device");
                             let d_input = d_input_handle
                                 .as_device()
                                 .as_any()
@@ -175,7 +174,7 @@ where
                             // Copy bitmask to device
                             let d_bitmask_handle =
                                 block_on(cuda_ctx.copy_to_device(bitmask.clone()).unwrap())
-                                    .vortex_expect("failed to copy bitmask to device");
+                                    .expect("failed to copy bitmask to device");
                             let d_bitmask = d_bitmask_handle
                                 .as_device()
                                 .as_any()
@@ -185,13 +184,13 @@ where
                             // Allocate output and temp buffers
                             let mut d_output: CudaSlice<T> = cuda_ctx
                                 .device_alloc(*true_count)
-                                .vortex_expect("failed to allocate output");
+                                .expect("failed to allocate output");
                             let mut d_temp: CudaSlice<u8> = cuda_ctx
                                 .device_alloc(temp_bytes.max(1))
-                                .vortex_expect("failed to allocate temp");
+                                .expect("failed to allocate temp");
                             let mut d_num_selected: CudaSlice<i64> = cuda_ctx
                                 .device_alloc(1)
-                                .vortex_expect("failed to allocate num_selected");
+                                .expect("failed to allocate num_selected");
 
                             let kernel_time = block_on(run_filter_timed(
                                 d_input.as_view(),
@@ -203,7 +202,7 @@ where
                                 temp_bytes,
                                 &mut cuda_ctx,
                             ))
-                            .vortex_expect("kernel execution failed");
+                            .expect("kernel execution failed");
 
                             total_time += kernel_time;
                         }

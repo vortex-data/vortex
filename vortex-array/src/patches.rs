@@ -18,7 +18,6 @@ use vortex_dtype::PType;
 use vortex_dtype::UnsignedPType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -977,7 +976,7 @@ unsafe fn apply_patches_to_buffer_inner<P, I>(
     }
 }
 
-fn take_map<I: NativePType + Hash + Eq + TryFrom<usize>, T: NativePType>(
+fn take_map<I, T>(
     indices: &[I],
     take_indices: PrimitiveArray,
     indices_offset: usize,
@@ -987,13 +986,15 @@ fn take_map<I: NativePType + Hash + Eq + TryFrom<usize>, T: NativePType>(
 ) -> VortexResult<Option<(ArrayRef, ArrayRef)>>
 where
     usize: TryFrom<T>,
-    VortexError: From<<I as TryFrom<usize>>::Error>,
+    I: NativePType + Hash + Eq + TryFrom<usize>,
+    <I as TryFrom<usize>>::Error: Debug,
+    T: NativePType,
 {
     let take_indices_len = take_indices.len();
     let take_indices_validity = take_indices.validity();
     let take_indices_validity_mask = take_indices_validity.to_mask(take_indices_len);
     let take_indices = take_indices.as_slice::<T>();
-    let offset_i = I::try_from(indices_offset)?;
+    let offset_i = I::try_from(indices_offset).expect("Indices offset should fit");
 
     let sparse_index_to_value_index: HashMap<I, usize> = indices
         .iter()

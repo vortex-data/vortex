@@ -3,7 +3,6 @@
 
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
@@ -23,7 +22,7 @@ impl OperationsVTable<ALPVTable> for ALPVTable {
 
         Ok(match_each_alp_float_ptype!(array.ptype(), |T| {
             let encoded_val: <T as ALPFloat>::ALPInt =
-                (&encoded_val).try_into().vortex_expect("invalid ALPInt");
+                (&encoded_val).try_into().expect("invalid ALPInt");
             Scalar::primitive(
                 <T as ALPFloat>::decode_single(encoded_val, array.exponents()),
                 array.dtype().nullability(),

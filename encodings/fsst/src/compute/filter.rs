@@ -6,7 +6,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterKernel;
 use vortex_array::arrays::VarBinVTable;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -21,7 +20,7 @@ impl FilterKernel for FSSTVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         // Directly invoke VarBin's FilterKernel to get a concrete VarBinArray back.
         let filtered_codes = <VarBinVTable as FilterKernel>::filter(array.codes(), mask, ctx)?
-            .vortex_expect("VarBin filter kernel always returns Some")
+            .expect("VarBin filter kernel always returns Some")
             .as_::<VarBinVTable>()
             .clone();
 

@@ -8,7 +8,6 @@ use std::ffi::c_char;
 use std::sync::LazyLock;
 
 use vortex::VortexSessionDefault;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
@@ -66,13 +65,13 @@ pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
 
     database
         .register_vortex_scan_replacement()
-        .vortex_expect("failed to register vortex scan replacement");
+        .expect("failed to register vortex scan replacement");
 
     let conn = database
         .connect()
         .inspect_err(|e| println!("err {e}"))
-        .vortex_expect("Failed to connect to DuckDB database");
-    register_table_functions(&conn).vortex_expect("Failed to initialize Vortex extension");
+        .expect("Failed to connect to DuckDB database");
+    register_table_functions(&conn).expect("Failed to initialize Vortex extension");
 }
 
 /// The DuckDB extension ABI version function.

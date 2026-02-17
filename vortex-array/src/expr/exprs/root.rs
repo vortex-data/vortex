@@ -5,7 +5,6 @@ use std::fmt::Formatter;
 
 use vortex_dtype::DType;
 use vortex_dtype::FieldPath;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
@@ -98,7 +97,7 @@ impl VTable for Root {
 /// This is commonly used as the starting point for field access and other operations.
 pub fn root() -> Expression {
     Root.try_new_expr(EmptyOptions, vec![])
-        .vortex_expect("Failed to create Root expression")
+        .expect("Failed to create Root expression")
 }
 
 /// Return whether the expression is a root expression.

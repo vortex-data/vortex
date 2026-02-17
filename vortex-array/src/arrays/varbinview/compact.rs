@@ -6,7 +6,6 @@
 
 use std::ops::Range;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -95,7 +94,7 @@ impl VarBinViewArray {
             .buffers()
             .iter()
             .map(|buf| {
-                let len = u32::try_from(buf.len()).vortex_expect("buffer sizes must fit in u32");
+                let len = u32::try_from(buf.len()).expect("buffer sizes must fit in u32");
                 BufferUtilization::zero(len)
             })
             .collect();

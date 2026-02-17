@@ -13,7 +13,6 @@ use vortex_array::arrays::PrimitiveVTable;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::half::f16;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -84,7 +83,7 @@ impl CompressorStats for FloatStats {
 
     fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
         Self::generate_opts_fallible(input, opts)
-            .vortex_expect("FloatStats::generate_opts should not fail")
+            .expect("FloatStats::generate_opts should not fail")
     }
 
     fn source(&self) -> &PrimitiveArray {
@@ -136,7 +135,7 @@ where
     } else if array.all_invalid()? {
         return Ok(FloatStats {
             src: array.clone(),
-            null_count: u32::try_from(array.len())?,
+            null_count: u32::try_from(array.len()).expect("null count must fit in u32"),
             value_count: 0,
             average_run_length: 0,
             distinct_values_count: 0,
@@ -166,7 +165,7 @@ where
     let mut runs = 1;
     let head_idx = validity
         .first()
-        .vortex_expect("All null masks have been handled before");
+        .expect("All null masks have been handled before");
     let buff = array.to_buffer::<T>();
     let mut prev = buff[head_idx];
 
@@ -204,10 +203,10 @@ where
         }
     }
 
-    let null_count = u32::try_from(null_count)?;
-    let value_count = u32::try_from(value_count)?;
+    let null_count = u32::try_from(null_count).expect("null count must fit in u32");
+    let value_count = u32::try_from(value_count).expect("value count must fit in u32");
     let distinct_values_count = if count_distinct_values {
-        u32::try_from(distinct_values.len())?
+        u32::try_from(distinct_values.len()).unwrap_or(u32::MAX)
     } else {
         u32::MAX
     };

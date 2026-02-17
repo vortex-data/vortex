@@ -17,7 +17,6 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 pub use matcher::*;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 pub use vtable::*;
@@ -173,7 +172,7 @@ impl ExtDTypeRef {
     /// Panics if the match fails.
     pub fn metadata<M: Matcher>(&self) -> M::Match<'_> {
         self.metadata_opt::<M>()
-            .vortex_expect("Failed to downcast DynExtDType")
+            .expect("Failed to downcast DynExtDType")
     }
 
     /// Downcast to the concrete [`ExtDType`].
@@ -205,7 +204,7 @@ impl ExtDTypeRef {
                     type_name::<V>(),
                 )
             })
-            .vortex_expect("Failed to downcast DynExtDType")
+            .expect("Failed to downcast DynExtDType")
     }
 }
 
@@ -311,7 +310,7 @@ impl<V: ExtDTypeVTable> ExtDTypeImpl for ExtDTypeAdapter<V> {
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef {
         let storage_dtype = self.storage_dtype.with_nullability(nullability);
         ExtDType::<V>::try_with_vtable(self.vtable.clone(), self.metadata.clone(), storage_dtype)
-            .vortex_expect("Extension DType {} incorrect fails validation with the same storage type but different nullability").erased()
+            .expect("Extension DType {} incorrect fails validation with the same storage type but different nullability").erased()
     }
 }
 

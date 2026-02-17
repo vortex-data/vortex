@@ -5,7 +5,6 @@ use std::fmt::Display;
 use std::ops::Deref;
 
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 
 /// Default alignment for device-to-host buffer copies.
@@ -76,7 +75,7 @@ impl Alignment {
     /// Returns the log2 of the alignment.
     pub fn exponent(&self) -> u8 {
         u8::try_from(self.0.trailing_zeros())
-            .vortex_expect("alignment fits into u16, so exponent fits in u7")
+            .expect("alignment fits into u16, so exponent fits in u7")
     }
 
     /// Create from the log2 exponent of the alignment.
@@ -129,14 +128,14 @@ impl From<Alignment> for usize {
 impl From<Alignment> for u16 {
     #[inline]
     fn from(value: Alignment) -> Self {
-        u16::try_from(value.0).vortex_expect("Alignment must fit into u16")
+        u16::try_from(value.0).expect("Alignment must fit into u16")
     }
 }
 
 impl From<Alignment> for u32 {
     #[inline]
     fn from(value: Alignment) -> Self {
-        u32::try_from(value.0).vortex_expect("Alignment must fit into u32")
+        u32::try_from(value.0).expect("Alignment must fit into u32")
     }
 }
 

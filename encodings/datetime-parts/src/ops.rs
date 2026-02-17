@@ -6,7 +6,6 @@ use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_dtype::DType;
 use vortex_dtype::datetime::Timestamp;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -37,19 +36,19 @@ impl OperationsVTable<DateTimePartsVTable> for DateTimePartsVTable {
             .scalar_at(index)?
             .as_primitive()
             .as_::<i64>()
-            .vortex_expect("days fits in i64");
+            .expect("days fits in i64");
         let seconds: i64 = array
             .seconds()
             .scalar_at(index)?
             .as_primitive()
             .as_::<i64>()
-            .vortex_expect("seconds fits in i64");
+            .expect("seconds fits in i64");
         let subseconds: i64 = array
             .subseconds()
             .scalar_at(index)?
             .as_primitive()
             .as_::<i64>()
-            .vortex_expect("subseconds fits in i64");
+            .expect("subseconds fits in i64");
 
         let ts = timestamp::combine(
             TimestampParts {

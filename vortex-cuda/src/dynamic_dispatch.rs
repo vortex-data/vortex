@@ -128,7 +128,6 @@ mod tests {
     use vortex_array::buffer::BufferHandle;
     use vortex_array::validity::Validity::NonNullable;
     use vortex_buffer::Buffer;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_fastlanes::BitPackedArray;
     use vortex_fastlanes::FoRArray;
@@ -150,7 +149,7 @@ mod tests {
             .collect();
         let primitive = PrimitiveArray::new(Buffer::from(values), NonNullable);
         BitPackedArray::encode(primitive.as_ref(), bit_width)
-            .vortex_expect("failed to create BitPacked array")
+            .expect("failed to create BitPacked array")
     }
 
     fn run_dynamic_dispatch_u32(
@@ -161,7 +160,7 @@ mod tests {
     ) -> VortexResult<Vec<u32>> {
         let output_slice = cuda_ctx
             .device_alloc::<u32>(output_len)
-            .vortex_expect("alloc output");
+            .expect("alloc output");
         let output_buf = CudaDeviceBuffer::new(output_slice);
         let output_ptr = output_buf.as_view::<u32>().device_ptr(cuda_ctx.stream()).0;
 
@@ -178,7 +177,7 @@ mod tests {
 
         let cuda_function = cuda_ctx
             .load_function("dynamic_dispatch", &["u32"])
-            .vortex_expect("load kernel");
+            .expect("load kernel");
         let mut launch_builder = cuda_ctx.launch_builder(&cuda_function);
         launch_builder.arg(&input_ptr);
         launch_builder.arg(&output_ptr);
@@ -219,11 +218,11 @@ mod tests {
         bitpacked: &BitPackedArray,
     ) -> VortexResult<(u64, BufferHandle)> {
         let packed = bitpacked.packed().clone();
-        let device_input = futures::executor::block_on(cuda_ctx.move_to_device(packed)?)
-            .vortex_expect("move to device");
+        let device_input =
+            futures::executor::block_on(cuda_ctx.move_to_device(packed)?).expect("move to device");
         let ptr = device_input
             .cuda_view::<u32>()
-            .vortex_expect("input view")
+            .expect("input view")
             .device_ptr(cuda_ctx.stream())
             .0;
         Ok((ptr, device_input))

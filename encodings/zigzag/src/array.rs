@@ -29,7 +29,6 @@ use vortex_array::vtable::VisitorVTable;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_unsigned_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -99,7 +98,7 @@ impl VTable for ZigZagVTable {
             "ZigZagArray expects exactly 1 child (encoded), got {}",
             children.len()
         );
-        array.encoded = children.into_iter().next().vortex_expect("checked");
+        array.encoded = children.into_iter().next().expect("checked");
         Ok(())
     }
 
@@ -141,7 +140,7 @@ impl ZigZagVTable {
 
 impl ZigZagArray {
     pub fn new(encoded: ArrayRef) -> Self {
-        Self::try_new(encoded).vortex_expect("ZigZigArray new")
+        Self::try_new(encoded).expect("ZigZigArray new")
     }
 
     pub fn try_new(encoded: ArrayRef) -> VortexResult<Self> {
@@ -203,9 +202,7 @@ impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
         Ok(match_each_unsigned_integer_ptype!(pscalar.ptype(), |P| {
             Scalar::primitive(
                 <<P as ZigZagEncoded>::Int>::decode(
-                    pscalar
-                        .typed_value::<P>()
-                        .vortex_expect("zigzag corruption"),
+                    pscalar.typed_value::<P>().expect("zigzag corruption"),
                 ),
                 array.dtype().nullability(),
             )

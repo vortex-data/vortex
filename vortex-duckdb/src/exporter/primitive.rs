@@ -69,7 +69,6 @@ impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
-    use vortex::error::VortexExpect;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
@@ -103,7 +102,7 @@ mod tests {
     fn test_long_primitive_exporter() {
         const ARRAY_COUNT: usize = 2;
         const LEN: usize = DUCKDB_STANDARD_VECTOR_SIZE * ARRAY_COUNT;
-        let arr = PrimitiveArray::from_iter(0..i32::try_from(LEN).vortex_expect(""));
+        let arr = PrimitiveArray::from_iter(0..i32::try_from(LEN).expect(""));
 
         {
             let mut chunk = (0..ARRAY_COUNT)

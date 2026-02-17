@@ -10,7 +10,6 @@ use arcref::ArcRef;
 use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -116,7 +115,7 @@ impl dyn LayoutEncoding + '_ {
 
     pub fn as_<V: VTable>(&self) -> &V::Encoding {
         self.as_opt::<V>()
-            .vortex_expect("LayoutEncoding is not of the expected type")
+            .expect("LayoutEncoding is not of the expected type")
     }
 
     pub fn as_opt<V: VTable>(&self) -> Option<&V::Encoding> {

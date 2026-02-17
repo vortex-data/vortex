@@ -13,7 +13,6 @@ use vortex_array::expr::stats::Stat;
 use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -113,11 +112,11 @@ impl FileStatsAccumulator {
             .iter_mut()
             .map(|acc| {
                 acc.as_stats_table()
-                    .vortex_expect("as_stats_table should not fail")
+                    .expect("as_stats_table should not fail")
                     .map(|table| {
                         table
                             .to_stats_set(&self.stats)
-                            .vortex_expect("shouldn't fail to convert table we just created")
+                            .expect("shouldn't fail to convert table we just created")
                     })
                     .unwrap_or_default()
             })

@@ -125,13 +125,13 @@ impl VTable for RLEVTable {
         let values = children.get(
             0,
             &DType::Primitive(dtype.as_ptype(), Nullability::NonNullable),
-            usize::try_from(metadata.values_len)?,
+            usize::try_from(metadata.values_len).expect("values len must fit in usize"),
         )?;
 
         let indices = children.get(
             1,
             &DType::Primitive(metadata.indices_ptype(), dtype.nullability()),
-            usize::try_from(metadata.indices_len)?,
+            usize::try_from(metadata.indices_len).expect("indices len must fit in usize"),
         )?;
 
         let values_idx_offsets = children.get(
@@ -140,7 +140,8 @@ impl VTable for RLEVTable {
                 metadata.values_idx_offsets_ptype(),
                 Nullability::NonNullable,
             ),
-            usize::try_from(metadata.values_idx_offsets_len)?,
+            usize::try_from(metadata.values_idx_offsets_len)
+                .expect("offsets len must fit in usize"),
         )?;
 
         RLEArray::try_new(

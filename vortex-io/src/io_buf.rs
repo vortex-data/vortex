@@ -8,7 +8,6 @@ use std::ops::Range;
 use bytes::Bytes;
 use vortex_buffer::Buffer;
 use vortex_buffer::ConstByteBuffer;
-use vortex_error::VortexExpect;
 
 /// Trait for types that can provide a readonly byte buffer interface to I/O frameworks.
 ///
@@ -198,7 +197,7 @@ unsafe impl<T: Unpin + Send + 'static> IoBuf for Buffer<T> {
     fn bytes_init(&self) -> usize {
         self.len()
             .checked_mul(size_of::<T>())
-            .vortex_expect("Buffer size calculation overflow")
+            .expect("Buffer size calculation overflow")
     }
 
     fn as_slice(&self) -> &[u8] {

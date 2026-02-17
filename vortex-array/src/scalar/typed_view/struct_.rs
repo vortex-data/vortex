@@ -14,7 +14,6 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
 use vortex_dtype::StructFields;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -48,7 +47,7 @@ impl Display for StructScalar<'_> {
                     .zip_eq(fields.iter())
                     .map(|((name, dtype), value)| {
                         let val = Scalar::try_new(dtype, value.clone())
-                            .vortex_expect("unable to construct a struct `Scalar`");
+                            .expect("unable to construct a struct `Scalar`");
                         format!("{name}: {val}")
                     })
                     .format(", ");
@@ -137,7 +136,7 @@ impl<'a> StructScalar<'a> {
     pub fn struct_fields(&self) -> &StructFields {
         self.dtype
             .as_struct_fields_opt()
-            .vortex_expect("StructScalar always has struct dtype")
+            .expect("StructScalar always has struct dtype")
     }
 
     /// Returns the field names of the struct.
@@ -170,7 +169,7 @@ impl<'a> StructScalar<'a> {
     pub fn field_by_idx(&self, idx: usize) -> Option<Scalar> {
         let fields = self
             .fields
-            .vortex_expect("Can't take field out of null struct scalar");
+            .expect("Can't take field out of null struct scalar");
         Some(
             // SAFETY: We assume that the struct `DType` correctly describes the struct values.
             unsafe {
@@ -227,13 +226,10 @@ impl<'a> StructScalar<'a> {
                     Scalar::try_new(
                         own_st
                             .field_by_index(i)
-                            .vortex_expect("Iterating over scalar fields"),
+                            .expect("Iterating over scalar fields"),
                         f.clone(),
                     )?
-                    .cast(
-                        &st.field_by_index(i)
-                            .vortex_expect("Iterating over scalar fields"),
-                    )
+                    .cast(&st.field_by_index(i).expect("Iterating over scalar fields"))
                     .map(|s| s.into_value())
                 })
                 .collect::<VortexResult<Vec<_>>>()?;
@@ -248,6 +244,7 @@ impl<'a> StructScalar<'a> {
     /// # Errors
     ///
     /// Returns an error if the struct cannot be projected or if a field is not found.
+    #[allow(clippy::missing_panics_doc)]
     pub fn project(&self, projection: &[FieldName]) -> VortexResult<Scalar> {
         let struct_dtype = self
             .dtype
@@ -268,7 +265,7 @@ impl<'a> StructScalar<'a> {
                 .map(|name| {
                     struct_dtype
                         .find(name)
-                        .vortex_expect("DType has been successfully projected already")
+                        .expect("DType has been successfully projected already")
                 })
                 .map(|i| fs[i].clone())
                 .collect(),
@@ -309,7 +306,7 @@ impl Scalar {
         value_children.extend(children.into_iter().map(|x| x.into_value()));
 
         Self::try_new(dtype, Some(ScalarValue::List(value_children)))
-            .vortex_expect("unable to construct a struct `Scalar`")
+            .expect("unable to construct a struct `Scalar`")
     }
 }
 

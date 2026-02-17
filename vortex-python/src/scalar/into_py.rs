@@ -22,7 +22,6 @@ use vortex::dtype::PType;
 use vortex::dtype::half::f16;
 use vortex::dtype::i256;
 use vortex::dtype::match_each_decimal_value;
-use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::scalar::DecimalValue;
 use vortex::scalar::ListScalar;
@@ -122,7 +121,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<StructScalar<'_>> {
         for (child, name) in fields.zip(self.0.names().iter()) {
             dict.set_item(name.to_string(), PyVortex(&child).into_pyobject(py)?)
                 .map_err(|e| vortex_err!("Failed to set item in dictionary {}", e))
-                .vortex_expect("Failed to set item in dictionary");
+                .expect("Failed to set item in dictionary");
         }
         Ok(dict.into_pyobject(py)?.into_any())
     }

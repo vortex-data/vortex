@@ -12,7 +12,6 @@ use vortex_dtype::Nullability;
 use vortex_dtype::match_each_decimal_value;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::Canonical;
@@ -60,8 +59,7 @@ pub(crate) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
                 Canonical::Primitive(PrimitiveArray::new(
                     if scalar.is_valid() {
                         Buffer::full(
-                            P::try_from(scalar)
-                                .vortex_expect("Couldn't unwrap scalar to primitive"),
+                            P::try_from(scalar).expect("Couldn't unwrap scalar to primitive"),
                             array.len(),
                         )
                     } else {
@@ -225,13 +223,13 @@ fn constant_canonical_list_array(scalar: &Scalar, len: usize) -> ListViewArray {
         let mut builder = builder_with_capacity(
             list.dtype()
                 .as_list_element_opt()
-                .vortex_expect("list scalar somehow did not have a list DType"),
+                .expect("list scalar somehow did not have a list DType"),
             list.len(),
         );
         for scalar in &elements {
             builder
                 .append_scalar(scalar)
-                .vortex_expect("list element scalar was invalid");
+                .expect("list element scalar was invalid");
         }
         builder.finish()
     } else {
@@ -292,7 +290,7 @@ fn constant_canonical_fixed_size_list_array(
                 for v in &values {
                     elements_builder
                         .append_scalar(v)
-                        .vortex_expect("must be a same dtype");
+                        .expect("must be a same dtype");
                 }
             }
 

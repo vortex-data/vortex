@@ -21,7 +21,6 @@ use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -350,7 +349,7 @@ impl Scheme for FORScheme {
             .ptype()
             .bit_width()
             .try_into()
-            .vortex_expect("bit width must fit in u32");
+            .expect("bit width must fit in u32");
         let bw = match stats.typed.max_minus_min().checked_ilog2() {
             Some(l) => l + 1,
             // If max-min == 0, it we should use a different compression scheme

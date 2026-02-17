@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::Array;
@@ -109,10 +108,10 @@ where
         }
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
-            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
+            .expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let fill_value = scalar_fn_array.children()[1]
             .as_constant()
-            .vortex_expect("fill_null fill_value must be constant");
+            .expect("fill_null fill_value must be constant");
         if let Some(result) = precondition(&**array, &fill_value)? {
             return Ok(Some(result));
         }
@@ -143,10 +142,10 @@ where
         }
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
-            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
+            .expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let fill_value = scalar_fn_array.children()[1]
             .as_constant()
-            .vortex_expect("fill_null fill_value must be constant");
+            .expect("fill_null fill_value must be constant");
         if let Some(result) = precondition(&**array, &fill_value)? {
             return Ok(Some(result));
         }

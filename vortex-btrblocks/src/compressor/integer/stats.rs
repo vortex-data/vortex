@@ -16,7 +16,6 @@ use vortex_buffer::BitBuffer;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -89,7 +88,7 @@ impl ErasedStats {
             ErasedStats::I16(x) => (x.max as i32 - x.min as i32) as u64,
             ErasedStats::I32(x) => (x.max as i64 - x.min as i64) as u64,
             ErasedStats::I64(x) => u64::try_from(x.max as i128 - x.min as i128)
-                .vortex_expect("max minus min result bigger than u64"),
+                .expect("max minus min result bigger than u64"),
         }
     }
 
@@ -156,7 +155,7 @@ impl CompressorStats for IntegerStats {
 
     fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
         Self::generate_opts_fallible(input, opts)
-            .vortex_expect("IntegerStats::generate_opts should not fail")
+            .expect("IntegerStats::generate_opts should not fail")
     }
 
     fn source(&self) -> &PrimitiveArray {
@@ -213,7 +212,7 @@ where
     } else if array.all_invalid()? {
         return Ok(IntegerStats {
             src: array.clone(),
-            null_count: u32::try_from(array.len())?,
+            null_count: u32::try_from(array.len()).expect("null count must fit in u32"),
             value_count: 0,
             average_run_length: 0,
             distinct_values_count: 0,
@@ -235,7 +234,7 @@ where
     // Initialize loop state
     let head_idx = validity
         .first()
-        .vortex_expect("All null masks have been handled before");
+        .expect("All null masks have been handled before");
     let buffer = array.to_buffer::<T>();
     let head = buffer[head_idx];
 
@@ -255,7 +254,7 @@ where
         AllOr::All => {
             for chunk in &mut chunks {
                 inner_loop_nonnull(
-                    chunk.try_into().ok().vortex_expect("chunk size must be 64"),
+                    chunk.try_into().expect("chunk size must be 64"),
                     count_distinct_values,
                     &mut loop_state,
                 )
@@ -281,13 +280,13 @@ where
                     0 => continue,
                     // Inner loop for when validity check can be elided
                     64 => inner_loop_nonnull(
-                        chunk.try_into().ok().vortex_expect("chunk size must be 64"),
+                        chunk.try_into().expect("chunk size must be 64"),
                         count_distinct_values,
                         &mut loop_state,
                     ),
                     // Inner loop for when we need to check validity
                     _ => inner_loop_nullable(
-                        chunk.try_into().ok().vortex_expect("chunk size must be 64"),
+                        chunk.try_into().expect("chunk size must be 64"),
                         count_distinct_values,
                         &validity,
                         &mut loop_state,
@@ -310,7 +309,7 @@ where
             .distinct_values
             .iter()
             .max_by_key(|&(_, &count)| count)
-            .vortex_expect("non-empty");
+            .expect("non-empty");
         (top_value.0, top_count)
     } else {
         (T::default(), 0)
@@ -318,7 +317,7 @@ where
 
     let runs = loop_state.runs;
     let distinct_values_count = if count_distinct_values {
-        u32::try_from(loop_state.distinct_values.len())?
+        u32::try_from(loop_state.distinct_values.len()).unwrap_or(u32::MAX)
     } else {
         u32::MAX
     };
@@ -326,12 +325,12 @@ where
     let min = array
         .statistics()
         .compute_as::<T>(Stat::Min)
-        .vortex_expect("min should be computed");
+        .expect("min should be computed");
 
     let max = array
         .statistics()
         .compute_as::<T>(Stat::Max)
-        .vortex_expect("max should be computed");
+        .expect("max should be computed");
 
     let typed = TypedStats {
         min,
@@ -341,8 +340,8 @@ where
         top_count,
     };
 
-    let null_count = u32::try_from(null_count)?;
-    let value_count = u32::try_from(value_count)?;
+    let null_count = u32::try_from(null_count).expect("value count must fit in u32");
+    let value_count = u32::try_from(value_count).expect("null count must fit in u32");
 
     Ok(IntegerStats {
         src: array.clone(),

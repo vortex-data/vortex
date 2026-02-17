@@ -13,7 +13,6 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -150,7 +149,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     let final_size = final_size
         .as_primitive()
         .typed_value::<O>()
-        .vortex_expect("non null");
+        .expect("non null");
 
     let offsets = offsets
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?

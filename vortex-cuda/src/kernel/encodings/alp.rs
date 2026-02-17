@@ -127,7 +127,6 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
-    use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -137,7 +136,7 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_alp_decompression_f32() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         // Create encoded values (what ALP would produce)
         // For f32 with exponents (e=0, f=2): decoded = encoded * F10[2] * IF10[0]
@@ -168,7 +167,7 @@ mod tests {
         let gpu_result = ALPExecutor
             .execute(alp_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed")
+            .expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();

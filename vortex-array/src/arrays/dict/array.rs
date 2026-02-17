@@ -5,7 +5,6 @@ use vortex_buffer::BitBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -85,9 +84,8 @@ impl DictArray {
 
         #[cfg(debug_assertions)]
         {
-            use vortex_error::VortexExpect;
             self.validate_all_values_referenced()
-                .vortex_expect("validation should succeed when all values are referenced")
+                .expect("validation should succeed when all values are referenced")
         }
 
         self
@@ -98,7 +96,7 @@ impl DictArray {
     /// This constructor will panic if `codes` or `values` do not pass validation for building
     /// a new `DictArray`. See [`DictArray::try_new`] for a description of the error conditions.
     pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
-        Self::try_new(codes, values).vortex_expect("DictArray new")
+        Self::try_new(codes, values).expect("DictArray new")
     }
 
     /// Build a new `DictArray` from its components, `codes` and `values`.
@@ -241,7 +239,6 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType;
     use vortex_dtype::UnsignedPType;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_panic;
     use vortex_mask::AllOr;
@@ -351,13 +348,11 @@ mod test {
                     .map(|_| rng.random::<T>())
                     .collect::<PrimitiveArray>();
                 let codes = (0..len)
-                    .map(|_| {
-                        Code::from(rng.random_range(0..unique_values)).vortex_expect("valid value")
-                    })
+                    .map(|_| Code::from(rng.random_range(0..unique_values)).expect("valid value"))
                     .collect::<PrimitiveArray>();
 
                 DictArray::try_new(codes.into_array(), values.into_array())
-                    .vortex_expect("DictArray creation should succeed in arbitrary impl")
+                    .expect("DictArray creation should succeed in arbitrary impl")
                     .into_array()
             })
             .collect::<ChunkedArray>()

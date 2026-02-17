@@ -8,7 +8,6 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -69,11 +68,11 @@ impl MinMaxResult {
             let min = scalar
                 .as_struct()
                 .field_by_idx(0)
-                .vortex_expect("missing min field");
+                .expect("missing min field");
             let max = scalar
                 .as_struct()
                 .field_by_idx(1)
-                .vortex_expect("missing max field");
+                .expect("missing max field");
             Ok(Some(MinMaxResult { min, max }))
         }
     }

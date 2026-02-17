@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::Array;
@@ -23,7 +22,7 @@ impl IsConstantKernel for ChunkedVTable {
 
         let first_chunk = chunks
             .next()
-            .vortex_expect("Must have at least one non-empty chunk");
+            .expect("Must have at least one non-empty chunk");
 
         match is_constant_opts(first_chunk, opts)? {
             // Un-determined

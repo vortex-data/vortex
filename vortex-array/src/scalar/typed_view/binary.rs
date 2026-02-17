@@ -9,7 +9,6 @@ use std::fmt::Formatter;
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -102,7 +101,7 @@ impl<'a> BinaryScalar<'a> {
             Some(ScalarValue::Binary(
                 self.value()
                     .cloned()
-                    .vortex_expect("nullness handled in Scalar::cast"),
+                    .expect("nullness handled in Scalar::cast"),
             )),
         )
     }

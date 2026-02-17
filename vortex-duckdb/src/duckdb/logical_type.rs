@@ -5,7 +5,6 @@ use std::ffi::CString;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 
@@ -186,7 +185,7 @@ impl LogicalType {
 
     pub fn array_type_array_size(&self) -> u32 {
         u32::try_from(unsafe { duckdb_array_type_array_size(self.as_ptr()) })
-            .vortex_expect("Array size must fit in u32")
+            .expect("Array size must fit in u32")
     }
 
     pub fn list_child_type(&self) -> Self {
@@ -211,7 +210,7 @@ impl LogicalType {
 
     pub fn struct_type_child_count(&self) -> usize {
         usize::try_from(unsafe { duckdb_struct_type_child_count(self.as_ptr()) })
-            .vortex_expect("Struct type child count must fit in usize")
+            .expect("Struct type child count must fit in usize")
     }
 
     pub fn union_member_type(&self, idx: usize) -> Self {
@@ -224,7 +223,7 @@ impl LogicalType {
 
     pub fn union_member_count(&self) -> usize {
         usize::try_from(unsafe { duckdb_union_type_member_count(self.as_ptr()) })
-            .vortex_expect("Union member count must fit in usize")
+            .expect("Union member count must fit in usize")
     }
 }
 
@@ -395,8 +394,7 @@ mod tests {
 
     #[test]
     fn test_clone_decimal_logical_type() {
-        let decimal_type =
-            LogicalType::decimal_type(10, 2).vortex_expect("Failed to create decimal type");
+        let decimal_type = LogicalType::decimal_type(10, 2).expect("Failed to create decimal type");
         #[allow(clippy::redundant_clone)]
         let cloned = decimal_type.clone();
 
@@ -415,8 +413,7 @@ mod tests {
     fn test_clone_list_logical_type() {
         // Create a list of integers
         let int_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let list_type =
-            LogicalType::list_type(int_type).vortex_expect("Failed to create list type");
+        let list_type = LogicalType::list_type(int_type).expect("Failed to create list type");
 
         #[allow(clippy::redundant_clone)]
         let cloned = list_type.clone();
@@ -440,7 +437,7 @@ mod tests {
         // Create an array of strings with size 5
         let array_type =
             LogicalType::array_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR), 5)
-                .vortex_expect("Failed to create array type");
+                .expect("Failed to create array type");
         #[allow(clippy::redundant_clone)]
         let cloned = array_type.clone();
 
@@ -508,7 +505,7 @@ mod tests {
         let member_names = vec![CString::new("name").unwrap(), CString::new("age").unwrap()];
 
         let struct_type = LogicalType::struct_type(member_types, member_names)
-            .vortex_expect("Failed to create struct type");
+            .expect("Failed to create struct type");
 
         #[allow(clippy::redundant_clone)]
         let cloned = struct_type.clone();

@@ -9,7 +9,6 @@ use std::marker::PhantomData;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
@@ -199,7 +198,7 @@ fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
     array
         .as_any()
         .downcast_ref::<ArrayAdapter<V>>()
-        .vortex_expect("Failed to downcast array to expected encoding type")
+        .expect("Failed to downcast array to expected encoding type")
         .as_inner()
 }
 

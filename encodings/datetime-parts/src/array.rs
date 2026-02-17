@@ -30,7 +30,6 @@ use vortex_array::vtable::VisitorVTable;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -152,9 +151,9 @@ impl VTable for DateTimePartsVTable {
         );
 
         let mut children_iter = children.into_iter();
-        array.days = children_iter.next().vortex_expect("checked");
-        array.seconds = children_iter.next().vortex_expect("checked");
-        array.subseconds = children_iter.next().vortex_expect("checked");
+        array.days = children_iter.next().expect("checked");
+        array.seconds = children_iter.next().expect("checked");
+        array.subseconds = children_iter.next().expect("checked");
 
         Ok(())
     }

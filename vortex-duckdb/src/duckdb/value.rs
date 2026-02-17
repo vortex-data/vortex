@@ -11,7 +11,6 @@ use vortex::buffer::BufferString;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::NativeDType;
 use vortex::error::VortexError;
-use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 
@@ -83,7 +82,7 @@ impl<'a> ValueRef<'a> {
                 let string = BufferString::from(
                     cstr.to_str()
                         .map_err(|e| vortex_err!("Invalid UTF-8 string from DuckDB: {e}"))
-                        .vortex_expect("Invalid UTF-8 string from DuckDB"),
+                        .expect("Invalid UTF-8 string from DuckDB"),
                 );
                 unsafe { cpp::duckdb_free(ptr.cast()) };
                 ExtractedValue::Varchar(string)
@@ -128,14 +127,14 @@ impl<'a> ValueRef<'a> {
                 let value = i128_from_parts(decimal.value.upper, decimal.value.lower);
                 ExtractedValue::Decimal(
                     decimal.width,
-                    i8::try_from(decimal.scale).vortex_expect("invalid scale"),
+                    i8::try_from(decimal.scale).expect("invalid scale"),
                     value,
                 )
             }
             DUCKDB_TYPE::DUCKDB_TYPE_LIST => {
                 let elem_count =
                     usize::try_from(unsafe { cpp::duckdb_get_list_size(self.as_ptr()) })
-                        .vortex_expect("List size must fit usize");
+                        .expect("List size must fit usize");
                 ExtractedValue::List(
                     (0..elem_count)
                         .map(|i| unsafe {

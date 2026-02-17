@@ -14,7 +14,6 @@ use vortex_dtype::PType;
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::Timestamp;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -46,7 +45,7 @@ pub fn decode_to_temporal(
     let days_buf = array
         .days()
         .cast(DType::Primitive(PType::I64, array.dtype().nullability()))
-        .vortex_expect("must be able to cast days to i64")
+        .expect("must be able to cast days to i64")
         .execute::<PrimitiveArray>(ctx)?;
 
     // We start with the days component, which is always present.
@@ -58,10 +57,7 @@ pub fn decode_to_temporal(
         .map_each_in_place(|d| d * 86_400 * divisor);
 
     if let Some(seconds) = array.seconds().as_constant() {
-        let seconds = seconds
-            .as_primitive()
-            .as_::<i64>()
-            .vortex_expect("non-nullable");
+        let seconds = seconds.as_primitive().as_::<i64>().expect("non-nullable");
         let seconds = seconds * divisor;
         for v in values.iter_mut() {
             *v += seconds;
@@ -80,7 +76,7 @@ pub fn decode_to_temporal(
         let subseconds = subseconds
             .as_primitive()
             .as_::<i64>()
-            .vortex_expect("non-nullable");
+            .expect("non-nullable");
         for v in values.iter_mut() {
             *v += subseconds;
         }

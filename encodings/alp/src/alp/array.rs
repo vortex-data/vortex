@@ -31,7 +31,6 @@ use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_array::vtable::VisitorVTable;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -109,7 +108,14 @@ impl VTable for ALPVTable {
                 let values = children.get(2, dtype, p.len()?)?;
                 let chunk_offsets = p
                     .chunk_offsets_dtype()?
-                    .map(|dtype| children.get(3, &dtype, usize::try_from(p.chunk_offsets_len())?))
+                    .map(|dtype| {
+                        children.get(
+                            3,
+                            &dtype,
+                            usize::try_from(p.chunk_offsets_len())
+                                .expect("offsets length must fit in usize"),
+                        )
+                    })
                     .transpose()?;
 
                 Patches::new(len, p.offset()?, indices, values, chunk_offsets)
@@ -119,8 +125,8 @@ impl VTable for ALPVTable {
         ALPArray::try_new(
             encoded,
             Exponents {
-                e: u8::try_from(metadata.exp_e)?,
-                f: u8::try_from(metadata.exp_f)?,
+                e: u8::try_from(metadata.exp_e).expect("e exponent must fit in u8"),
+                f: u8::try_from(metadata.exp_f).expect("f exponent must fit in u8"),
             },
             patches,
         )
@@ -298,7 +304,7 @@ impl ALPArray {
     /// See [`ALPArray::try_new`] for reference on preconditions that must pass before
     /// calling this method.
     pub fn new(encoded: ArrayRef, exponents: Exponents, patches: Option<Patches>) -> Self {
-        Self::try_new(encoded, exponents, patches).vortex_expect("ALPArray new")
+        Self::try_new(encoded, exponents, patches).expect("ALPArray new")
     }
 
     /// Build a new `ALPArray` from components:

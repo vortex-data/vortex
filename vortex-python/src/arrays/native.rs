@@ -34,7 +34,6 @@ use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sequence::SequenceVTable;
 use vortex::encodings::sparse::SparseVTable;
 use vortex::encodings::zigzag::ZigZagVTable;
-use vortex::error::VortexExpect;
 
 use crate::arrays::PyArray;
 use crate::arrays::builtins::PyBoolArray;
@@ -255,7 +254,7 @@ impl<V: EncodingSubclass> AsArrayRef<<V::VTable as VTable>::Array> for PyRef<'_,
             .inner()
             .as_any()
             .downcast_ref::<ArrayAdapter<V::VTable>>()
-            .vortex_expect("Failed to downcast array")
+            .expect("Failed to downcast array")
             .as_inner()
     }
 }

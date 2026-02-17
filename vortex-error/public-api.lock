@@ -144,24 +144,6 @@ impl<T> core::convert::From<T> for vortex_error::ErrString where T: core::conver
 
 pub fn vortex_error::ErrString::from(msg: T) -> Self
 
-pub trait vortex_error::VortexExpect
-
-pub type vortex_error::VortexExpect::Output
-
-pub fn vortex_error::VortexExpect::vortex_expect(self, msg: &'static str) -> Self::Output
-
-impl<T, E> vortex_error::VortexExpect for core::result::Result<T, E> where E: core::convert::Into<vortex_error::VortexError>
-
-pub type core::result::Result<T, E>::Output = T
-
-pub fn core::result::Result<T, E>::vortex_expect(self, msg: &'static str) -> Self::Output
-
-impl<T> vortex_error::VortexExpect for core::option::Option<T>
-
-pub type core::option::Option<T>::Output = T
-
-pub fn core::option::Option<T>::vortex_expect(self, msg: &'static str) -> Self::Output
-
 pub type vortex_error::SharedVortexResult<T> = core::result::Result<T, alloc::sync::Arc<vortex_error::VortexError>>
 
 pub type vortex_error::VortexResult<T> = core::result::Result<T, vortex_error::VortexError>

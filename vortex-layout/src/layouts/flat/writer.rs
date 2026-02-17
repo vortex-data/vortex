@@ -20,7 +20,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::Handle;
@@ -113,16 +112,14 @@ impl LayoutStrategy for FlatLayoutStrategy {
             DType::Utf8(n) => {
                 truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
                     lower_bound(
-                        BufferString::from_scalar(v)
-                            .vortex_expect("utf8 scalar must be a BufferString"),
+                        BufferString::from_scalar(v).expect("utf8 scalar must be a BufferString"),
                         self.max_variable_length_statistics_size,
                         *n,
                     )
                 });
                 truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
                     upper_bound(
-                        BufferString::from_scalar(v)
-                            .vortex_expect("utf8 scalar must be a BufferString"),
+                        BufferString::from_scalar(v).expect("utf8 scalar must be a BufferString"),
                         self.max_variable_length_statistics_size,
                         *n,
                     )
@@ -131,16 +128,14 @@ impl LayoutStrategy for FlatLayoutStrategy {
             DType::Binary(n) => {
                 truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
                     lower_bound(
-                        ByteBuffer::from_scalar(v)
-                            .vortex_expect("binary scalar must be a ByteBuffer"),
+                        ByteBuffer::from_scalar(v).expect("binary scalar must be a ByteBuffer"),
                         self.max_variable_length_statistics_size,
                         *n,
                     )
                 });
                 truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
                     upper_bound(
-                        ByteBuffer::from_scalar(v)
-                            .vortex_expect("binary scalar must be a ByteBuffer"),
+                        ByteBuffer::from_scalar(v).expect("binary scalar must be a ByteBuffer"),
                         self.max_variable_length_statistics_size,
                         *n,
                     )
@@ -220,7 +215,6 @@ mod tests {
     use vortex_dtype::FieldName;
     use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_mask::AllOr;
@@ -288,7 +282,7 @@ mod tests {
                 array
                     .statistics()
                     .compute_all(&Stat::all().collect::<Vec<_>>())
-                    .vortex_expect("stats computation should succeed for test array")
+                    .expect("stats computation should succeed for test array")
                     .into_iter(),
             );
 

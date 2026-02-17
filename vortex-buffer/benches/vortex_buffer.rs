@@ -12,7 +12,6 @@ use divan::Bencher;
 use num_traits::PrimInt;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 
 fn main() {
@@ -65,7 +64,7 @@ impl<T: ArrowNativeType, R: ArrowNativeType> MapEach<T, R> for Arrow<ScalarBuffe
                 .into_inner()
                 .into_vec::<T>()
                 .map_err(|_| vortex_err!("Failed to convert Arrow buffer into a mut vec"))
-                .vortex_expect("Failed to convert Arrow buffer into a mut vec")
+                .expect("Failed to convert Arrow buffer into a mut vec")
                 .into_iter()
                 .map(f)
                 .collect::<Vec<R>>(),

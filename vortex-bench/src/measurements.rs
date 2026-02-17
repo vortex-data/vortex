@@ -15,7 +15,6 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde::Serializer;
 use target_lexicon::Triple;
-use vortex::error::VortexExpect;
 use vortex::error::vortex_panic;
 
 use crate::BenchmarkDataset;
@@ -185,9 +184,9 @@ impl TimingMeasurement {
         let mean_nanos = total_nanos / len as u128;
         Duration::new(
             u64::try_from(mean_nanos / 1_000_000_000)
-                .vortex_expect("nanosecond conversion must fit in u64/u32"),
+                .expect("nanosecond conversion must fit in u64/u32"),
             u32::try_from(mean_nanos % 1_000_000_000)
-                .vortex_expect("nanosecond conversion must fit in u64/u32"),
+                .expect("nanosecond conversion must fit in u64/u32"),
         )
     }
 
@@ -266,9 +265,9 @@ impl QueryMeasurement {
             let avg_nanos = (mid1.as_nanos() + mid2.as_nanos()) / 2;
             Duration::new(
                 u64::try_from(avg_nanos / 1_000_000_000)
-                    .vortex_expect("nanosecond conversion must fit in u64/u32"),
+                    .expect("nanosecond conversion must fit in u64/u32"),
                 u32::try_from(avg_nanos % 1_000_000_000)
-                    .vortex_expect("nanosecond conversion must fit in u64/u32"),
+                    .expect("nanosecond conversion must fit in u64/u32"),
             )
         }
     }

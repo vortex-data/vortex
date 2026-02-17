@@ -10,7 +10,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::i256;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -54,7 +53,7 @@ fn sum_scalar(
             let accumulator = accumulator
                 .as_primitive()
                 .as_::<u64>()
-                .vortex_expect("cannot be null");
+                .expect("cannot be null");
             Ok(accumulator
                 .checked_add(count)
                 .map(|v| ScalarValue::Primitive(v.into())))
@@ -86,10 +85,8 @@ fn sum_decimal(
 ) -> VortexResult<Option<ScalarValue>> {
     let result_dtype = Stat::Sum
         .dtype(&DType::Decimal(decimal_dtype, Nullability::Nullable))
-        .vortex_expect("decimal supports sum");
-    let result_decimal_type = result_dtype
-        .as_decimal_opt()
-        .vortex_expect("must be decimal");
+        .expect("decimal supports sum");
+    let result_decimal_type = result_dtype.as_decimal_opt().expect("must be decimal");
 
     let Some(value) = decimal_scalar.decimal_value() else {
         // Null value: return null
@@ -143,7 +140,7 @@ where
     let initial = accumulator
         .as_primitive()
         .as_::<T>()
-        .vortex_expect("cannot be null");
+        .expect("cannot be null");
     Ok(initial.checked_add(&array_sum))
 }
 
@@ -155,10 +152,8 @@ fn sum_float(
     let initial = accumulator
         .as_primitive()
         .as_::<f64>()
-        .vortex_expect("cannot be null");
-    let v = primitive_scalar
-        .as_::<f64>()
-        .vortex_expect("cannot be null");
+        .expect("cannot be null");
+    let v = primitive_scalar.as_::<f64>().expect("cannot be null");
     let len_f64: f64 = array_len.as_();
 
     Ok(Some(initial + v * len_f64))
@@ -174,7 +169,6 @@ mod tests {
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType;
     use vortex_dtype::i256;
-    use vortex_error::VortexExpect;
 
     use crate::Array;
     use crate::IntoArray;
@@ -292,9 +286,9 @@ mod tests {
         let acc = -2048669276050936500000000000f64;
         let array = ConstantArray::new(6.1811675e16f64, 25);
         let sum = sum_with_accumulator(array.as_ref(), &Scalar::primitive(acc, Nullable))
-            .vortex_expect("operation should succeed in test");
+            .expect("operation should succeed in test");
         assert_eq!(
-            f64::try_from(&sum).vortex_expect("operation should succeed in test"),
+            f64::try_from(&sum).expect("operation should succeed in test"),
             -2048669274505644600000000000f64
         );
     }

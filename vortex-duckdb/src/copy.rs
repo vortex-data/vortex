@@ -15,7 +15,6 @@ use vortex::dtype::DType;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::Nullability::Nullable;
 use vortex::dtype::StructFields;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
@@ -92,7 +91,7 @@ impl CopyFunction for VortexCopyFunction {
             init_global
                 .sink
                 .as_mut()
-                .vortex_expect("sink closed early")
+                .expect("sink closed early")
                 .send(chunk)
                 .await
                 .map_err(|e| vortex_err!("send error {}", e.to_string()))
@@ -113,7 +112,7 @@ impl CopyFunction for VortexCopyFunction {
                 .write_task
                 .lock()
                 .take()
-                .vortex_expect("no file to close");
+                .expect("no file to close");
             task.await?;
             Ok(())
         })

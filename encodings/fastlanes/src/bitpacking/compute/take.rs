@@ -21,7 +21,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 
 use super::chunked_indices;
@@ -77,10 +76,10 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     let packed = array.packed_slice::<T>();
 
     // Group indices by 1024-element chunk, *without* allocating on the heap
-    let indices_iter = indices.as_slice::<I>().iter().map(|i| {
-        i.to_usize()
-            .vortex_expect("index must be expressible as usize")
-    });
+    let indices_iter = indices
+        .as_slice::<I>()
+        .iter()
+        .map(|i| i.to_usize().expect("index must be expressible as usize"));
 
     let mut output = BufferMut::<T>::with_capacity(indices.len());
     let mut unpacked = [const { MaybeUninit::uninit() }; 1024];

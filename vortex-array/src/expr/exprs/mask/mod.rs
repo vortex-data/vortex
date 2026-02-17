@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 pub use kernel::*;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -120,7 +119,7 @@ impl VTable for Mask {
         let mask_lit = mask_lit
             .as_bool()
             .value()
-            .vortex_expect("Mask must be non-nullable");
+            .expect("Mask must be non-nullable");
 
         if mask_lit {
             // Mask is all true, so the output is just the input.
@@ -195,7 +194,6 @@ mod test {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType;
-    use vortex_error::VortexExpect;
 
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::mask::mask;
@@ -210,13 +208,13 @@ mod test {
         let mask_true_expr = mask(input_expr.clone(), true_mask_expr);
         let simplified_true = mask_true_expr
             .optimize(&DType::Null)
-            .vortex_expect("Simplification");
+            .expect("Simplification");
         assert_eq!(&simplified_true, &input_expr);
 
         let mask_false_expr = mask(input_expr, false_mask_expr);
         let simplified_false = mask_false_expr
             .optimize(&DType::Null)
-            .vortex_expect("Simplification");
+            .expect("Simplification");
         let expected_null_expr = lit(Scalar::null(DType::Primitive(PType::U32, Nullable)));
         assert_eq!(&simplified_false, &expected_null_expr);
     }

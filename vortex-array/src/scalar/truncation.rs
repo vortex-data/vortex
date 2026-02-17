@@ -6,7 +6,6 @@
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -100,7 +99,7 @@ impl ScalarTruncation for BufferString {
     fn upper_bound(self, max_length: usize) -> Option<Self> {
         let utf8_split_pos = (max_length.saturating_sub(3)..=max_length)
             .rfind(|p| self.is_char_boundary(*p))
-            .vortex_expect("Failed to find utf8 character boundary");
+            .expect("Failed to find utf8 character boundary");
 
         // SAFETY: we slice to a char boundary so the sliced range contains valid UTF-8.
         let sliced =
@@ -115,7 +114,7 @@ impl ScalarTruncation for BufferString {
         // valid UTF-8, we must have a valid character boundary.
         let utf8_split_pos = (max_length.saturating_sub(3)..=max_length)
             .rfind(|p| self.is_char_boundary(*p))
-            .vortex_expect("Failed to find utf8 character boundary");
+            .expect("Failed to find utf8 character boundary");
 
         unsafe { BufferString::new_unchecked(self.into_inner().slice(..utf8_split_pos)) }
     }

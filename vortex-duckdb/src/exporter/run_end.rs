@@ -12,7 +12,6 @@ use vortex::dtype::IntegerPType;
 use vortex::dtype::match_each_integer_ptype;
 use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::runend::RunEndArrayParts;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
 use crate::convert::ToDuckDBScalar;
@@ -59,9 +58,9 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
 
         // Adjust offset to account for the run-end offset.
         let mut offset = E::from_usize(self.run_end_offset + offset)
-            .vortex_expect("RunEndExporter::export: offset is not a valid value");
+            .expect("RunEndExporter::export: offset is not a valid value");
         // Compute the final end offset.
-        let end_offset = offset + E::from_usize(len).vortex_expect("len is not end type");
+        let end_offset = offset + E::from_usize(len).expect("len is not end type");
 
         // Find the run that contains the start offset.
         let start_run_idx = ends_slice
@@ -71,7 +70,7 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
         // Find the final run in case we can short-circuit and return a constant vector.
         let end_run_idx = ends_slice
             .search_sorted(
-                &offset.add(E::from_usize(len).vortex_expect("len out of bounds")),
+                &offset.add(E::from_usize(len).expect("len out of bounds")),
                 SearchSortedSide::Right,
             )?
             .to_ends_index(ends_slice.len());
@@ -91,12 +90,10 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
 
         for (run_idx, &next_end) in ends_slice[start_run_idx..=end_run_idx].iter().enumerate() {
             let next_end = next_end.min(end_offset);
-            let run_len = (next_end - offset)
-                .to_usize()
-                .vortex_expect("run_len is usize");
+            let run_len = (next_end - offset).to_usize().expect("run_len is usize");
 
             // Push the runs into the selection vector.
-            sel_vec_slice[..run_len].fill(u32::try_from(run_idx).vortex_expect("sel_idx is u32"));
+            sel_vec_slice[..run_len].fill(u32::try_from(run_idx).expect("sel_idx is u32"));
             sel_vec_slice = &mut sel_vec_slice[run_len..];
 
             offset = next_end;
@@ -110,7 +107,7 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
         // values we referenced by looking at the last index of the selection vector.
         let values_len = *unsafe { sel_vec.as_slice_mut(len) }
             .last()
-            .vortex_expect("non-empty")
+            .expect("non-empty")
             + 1;
 
         // Export the run-end values into the vector, and then turn it into a dictionary vector.

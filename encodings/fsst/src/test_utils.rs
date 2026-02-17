@@ -14,7 +14,6 @@ use vortex_array::arrays::VarBinArray;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
@@ -57,5 +56,5 @@ pub fn gen_dict_fsst_test_data<T: NativePType>(
         .map(|_| T::from(rng.random_range(0..unique_values)).unwrap())
         .collect::<PrimitiveArray>();
     DictArray::try_new(codes.into_array(), values)
-        .vortex_expect("DictArray::try_new should succeed for test data")
+        .expect("DictArray::try_new should succeed for test data")
 }

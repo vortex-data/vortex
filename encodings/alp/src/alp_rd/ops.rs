@@ -4,7 +4,6 @@
 use vortex_array::Array;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ALPRDArray;
@@ -22,14 +21,14 @@ impl OperationsVTable<ALPRDVTable> for ALPRDVTable {
             Some(patched_value) => patched_value
                 .as_primitive()
                 .as_::<u16>()
-                .vortex_expect("patched values must be non-null"),
+                .expect("patched values must be non-null"),
             _ => {
                 let left_code: u16 = array
                     .left_parts()
                     .scalar_at(index)?
                     .as_primitive()
                     .as_::<u16>()
-                    .vortex_expect("left_code must be non-null");
+                    .expect("left_code must be non-null");
                 array.left_parts_dictionary()[left_code as usize]
             }
         };
@@ -41,7 +40,7 @@ impl OperationsVTable<ALPRDVTable> for ALPRDVTable {
                 .scalar_at(index)?
                 .as_primitive()
                 .as_::<u32>()
-                .vortex_expect("non-null");
+                .expect("non-null");
             let packed = f32::from_bits((left as u32) << array.right_bit_width() | right);
             Scalar::primitive(packed, array.dtype().nullability())
         } else {
@@ -50,7 +49,7 @@ impl OperationsVTable<ALPRDVTable> for ALPRDVTable {
                 .scalar_at(index)?
                 .as_primitive()
                 .as_::<u64>()
-                .vortex_expect("non-null");
+                .expect("non-null");
             let packed = f64::from_bits(((left as u64) << array.right_bit_width()) | right);
             Scalar::primitive(packed, array.dtype().nullability())
         })

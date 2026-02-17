@@ -12,7 +12,6 @@ use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 
 use crate::FSSTArray;
 
@@ -73,11 +72,8 @@ where
                 uncompressed_lengths.push(0);
             }
             Some(s) => {
-                uncompressed_lengths.push(
-                    s.len()
-                        .try_into()
-                        .vortex_expect("string length must fit in i32"),
-                );
+                uncompressed_lengths
+                    .push(s.len().try_into().expect("string length must fit in i32"));
 
                 // SAFETY: buffer is large enough
                 unsafe { compressor.compress_into(s, &mut buffer) };
@@ -94,5 +90,5 @@ where
     let uncompressed_lengths = uncompressed_lengths.into_array();
 
     FSSTArray::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
-        .vortex_expect("building FSSTArray from parts")
+        .expect("building FSSTArray from parts")
 }

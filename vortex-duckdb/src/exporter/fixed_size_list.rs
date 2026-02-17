@@ -94,7 +94,6 @@ mod tests {
     use vortex::array::IntoArray as _;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
-    use vortex::error::VortexExpect;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
@@ -297,7 +296,7 @@ mod tests {
             LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, inner_list_size);
 
         LogicalType::array_type(inner_array_type, outer_list_size)
-            .vortex_expect("failed to create nested array type")
+            .expect("failed to create nested array type")
     }
 
     #[test]

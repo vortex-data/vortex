@@ -5,6 +5,7 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -34,9 +35,15 @@ fn take_chunked(array: &ChunkedArray, indices: &dyn Array) -> VortexResult<Array
     let mut start = 0;
     let mut stop = 0;
     // We assume indices are non-empty as it's handled in the top-level `take` function
-    let mut prev_chunk_idx = array.find_chunk_idx(indices[0].try_into()?)?.0;
+    let mut prev_chunk_idx = array
+        .find_chunk_idx(
+            indices[0]
+                .try_into()
+                .map_err(|e| vortex_err!("index conversion failed: {e}"))?,
+        )?
+        .0;
     for idx in indices {
-        let idx = usize::try_from(*idx)?;
+        let idx = usize::try_from(*idx).map_err(|e| vortex_err!("index conversion failed: {e}"))?;
         let (chunk_idx, idx_in_chunk) = array.find_chunk_idx(idx)?;
 
         if chunk_idx != prev_chunk_idx {

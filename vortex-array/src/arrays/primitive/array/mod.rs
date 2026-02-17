@@ -13,7 +13,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -110,7 +109,7 @@ impl PrimitiveArray {
     /// in [`PrimitiveArray::new_unchecked`].
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
         let buffer = buffer.into();
-        Self::try_new(buffer, validity).vortex_expect("PrimitiveArray construction failed")
+        Self::try_new(buffer, validity).expect("PrimitiveArray construction failed")
     }
 
     /// Constructs a new `PrimitiveArray`.
@@ -145,7 +144,7 @@ impl PrimitiveArray {
     pub unsafe fn new_unchecked<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> Self {
         #[cfg(debug_assertions)]
         Self::validate(&buffer, &validity)
-            .vortex_expect("[Debug Assertion]: Invalid `PrimitiveArray` parameters");
+            .expect("[Debug Assertion]: Invalid `PrimitiveArray` parameters");
 
         Self {
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),

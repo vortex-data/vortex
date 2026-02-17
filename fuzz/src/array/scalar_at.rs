@@ -11,7 +11,6 @@ use vortex_array::scalar::Scalar;
 use vortex_dtype::DType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 /// Baseline implementation of scalar_at that works on canonical arrays.
@@ -48,10 +47,10 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
                 .map(|i| {
                     scalar_at_canonical_array(
                         list.to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
+                            .expect("to_canonical should succeed in fuzz test"),
                         i,
                     )
-                    .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
+                    .expect("scalar_at_canonical_array should succeed in fuzz test")
                 })
                 .collect();
             Scalar::list(
@@ -66,10 +65,10 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
                 .map(|i| {
                     scalar_at_canonical_array(
                         list.to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
+                            .expect("to_canonical should succeed in fuzz test"),
                         i,
                     )
-                    .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
+                    .expect("scalar_at_canonical_array should succeed in fuzz test")
                 })
                 .collect();
             Scalar::fixed_size_list(list.dtype().clone(), children, array.dtype().nullability())
@@ -82,10 +81,10 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
                     scalar_at_canonical_array(
                         field
                             .to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
+                            .expect("to_canonical should succeed in fuzz test"),
                         index,
                     )
-                    .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
+                    .expect("scalar_at_canonical_array should succeed in fuzz test")
                 })
                 .collect();
             Scalar::struct_(array.dtype().clone(), field_scalars)

@@ -19,7 +19,6 @@ use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -79,7 +78,7 @@ pub fn bitpacked_cuda_kernel(
 
 pub fn bitpacked_cuda_launch_config(output_width: usize, len: usize) -> VortexResult<LaunchConfig> {
     let thread_count = bitpacked_thread_count(output_width);
-    let num_blocks = u32::try_from(len.div_ceil(1024))?;
+    let num_blocks = u32::try_from(len.div_ceil(1024)).expect("Number of blocks must fit u32");
     Ok(LaunchConfig {
         grid_dim: (num_blocks, 1, 1),
         block_dim: (thread_count, 1, 1),
@@ -132,7 +131,7 @@ where
             let buf = output_buf
                 .as_any()
                 .downcast_ref::<CudaDeviceBuffer>()
-                .vortex_expect("we created this as CudaDeviceBuffer")
+                .expect("we created this as CudaDeviceBuffer")
                 .clone();
 
             let patched_buf = match_each_unsigned_integer_ptype!(p.indices_ptype()?, |I| {
@@ -163,7 +162,6 @@ mod tests {
     use vortex_array::validity::Validity::NonNullable;
     use vortex_array::vtable::VTable;
     use vortex_buffer::Buffer;
-    use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -173,7 +171,7 @@ mod tests {
     #[test]
     fn test_patches() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let array = PrimitiveArray::new((0u16..=513).collect::<Buffer<_>>(), NonNullable);
 
@@ -187,7 +185,7 @@ mod tests {
             BitPackedExecutor
                 .execute(bp_with_patches.to_array(), &mut cuda_ctx)
                 .await
-                .vortex_expect("GPU decompression failed")
+                .expect("GPU decompression failed")
                 .into_host()
                 .await
                 .map(|a| a.into_array())
@@ -208,26 +206,26 @@ mod tests {
     #[case::bw_7(7)]
     fn test_cuda_bitunpack_u8(#[case] bit_width: u8) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let max_val = (1u8 << bit_width).saturating_sub(1);
 
         let primitive_array = PrimitiveArray::new(
             (0u16..1024)
-                .map(|i| u8::try_from(i % (max_val as u16 + 1)).vortex_expect(""))
+                .map(|i| u8::try_from(i % (max_val as u16 + 1)).expect(""))
                 .collect::<Buffer<_>>(),
             NonNullable,
         );
 
         let bitpacked_array = BitPackedArray::encode(primitive_array.as_ref(), bit_width)
-            .vortex_expect("operation should succeed in test");
+            .expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
 
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(bitpacked_array.to_array(), &mut cuda_ctx)
                 .await
-                .vortex_expect("GPU decompression failed")
+                .expect("GPU decompression failed")
                 .into_host()
                 .await
                 .map(|a| a.into_array())
@@ -256,7 +254,7 @@ mod tests {
     #[case::bw_15(15)]
     fn test_cuda_bitunpack_u16(#[case] bit_width: u8) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let max_val = (1u16 << bit_width).saturating_sub(1);
 
@@ -268,14 +266,14 @@ mod tests {
         );
 
         let bitpacked_array = BitPackedArray::encode(primitive_array.as_ref(), bit_width)
-            .vortex_expect("operation should succeed in test");
+            .expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
 
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(bitpacked_array.to_array(), &mut cuda_ctx)
                 .await
-                .vortex_expect("GPU decompression failed")
+                .expect("GPU decompression failed")
                 .into_host()
                 .await
                 .map(|a| a.into_array())
@@ -320,7 +318,7 @@ mod tests {
     #[case::bw_31(31)]
     fn test_cuda_bitunpack_u32(#[case] bit_width: u8) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let max_val = (1u32 << bit_width).saturating_sub(1);
 
@@ -332,14 +330,14 @@ mod tests {
         );
 
         let bitpacked_array = BitPackedArray::encode(primitive_array.as_ref(), bit_width)
-            .vortex_expect("operation should succeed in test");
+            .expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
 
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(bitpacked_array.to_array(), &mut cuda_ctx)
                 .await
-                .vortex_expect("GPU decompression failed")
+                .expect("GPU decompression failed")
                 .into_host()
                 .await
                 .map(|a| a.into_array())
@@ -416,7 +414,7 @@ mod tests {
     #[case::bw_63(63)]
     fn test_cuda_bitunpack_u64(#[case] bit_width: u8) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let max_val = (1u64 << bit_width).saturating_sub(1);
 
@@ -428,13 +426,13 @@ mod tests {
         );
 
         let bitpacked_array = BitPackedArray::encode(primitive_array.as_ref(), bit_width)
-            .vortex_expect("operation should succeed in test");
+            .expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(bitpacked_array.to_array(), &mut cuda_ctx)
                 .await
-                .vortex_expect("GPU decompression failed")
+                .expect("GPU decompression failed")
                 .into_host()
                 .await
                 .map(|a| a.into_array())
@@ -449,7 +447,7 @@ mod tests {
     fn test_cuda_bitunpack_sliced() -> VortexResult<()> {
         let bit_width = 32;
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let max_val = (1u64 << bit_width).saturating_sub(1);
 
@@ -461,7 +459,7 @@ mod tests {
         );
 
         let bitpacked_array = BitPackedArray::encode(primitive_array.as_ref(), bit_width)
-            .vortex_expect("operation should succeed in test");
+            .expect("operation should succeed in test");
         let slice_ref = bitpacked_array.clone().into_array().slice(67..3969)?;
         let mut exec_ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());
         let sliced_array = <BitPackedVTable as VTable>::execute_parent(
@@ -476,7 +474,7 @@ mod tests {
             BitPackedExecutor
                 .execute(sliced_array, &mut cuda_ctx)
                 .await
-                .vortex_expect("GPU decompression failed")
+                .expect("GPU decompression failed")
                 .into_host()
                 .await
                 .map(|a| a.into_array())

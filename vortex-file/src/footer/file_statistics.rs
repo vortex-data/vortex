@@ -13,7 +13,6 @@ use flatbuffers::WIPOffset;
 use itertools::Itertools;
 use vortex_array::stats::StatsSet;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_flatbuffers::FlatBufferRoot;
@@ -116,7 +115,7 @@ impl FileStatistics {
 
             let array_stat = array_stats
                 .pop()
-                .vortex_expect("we just checked that there was 1 field");
+                .expect("we just checked that there was 1 field");
             let stats_set = StatsSet::from_flatbuffer(&array_stat, file_dtype)?;
 
             Ok(Self {

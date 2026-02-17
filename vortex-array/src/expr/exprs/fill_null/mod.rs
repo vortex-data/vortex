@@ -197,7 +197,6 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_error::VortexExpect;
 
     use super::fill_null;
     use crate::IntoArray;
@@ -221,7 +220,7 @@ mod tests {
     fn replace_children() {
         let expr = fill_null(root(), lit(0i32));
         expr.with_children(vec![root(), lit(0i32)])
-            .vortex_expect("operation should succeed in test");
+            .expect("operation should succeed in test");
     }
 
     #[test]

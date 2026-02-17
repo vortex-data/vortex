@@ -9,7 +9,6 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::half::f16;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -102,9 +101,7 @@ macro_rules! primitive_scalar {
                     DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
                     Some(ScalarValue::Primitive(value.into())),
                 )
-                .vortex_expect(
-                    "somehow unable to construct a primitive `Scalar` from a native type",
-                )
+                .expect("somehow unable to construct a primitive `Scalar` from a native type")
             }
         }
 
@@ -115,9 +112,7 @@ macro_rules! primitive_scalar {
                     DType::Primitive(<$T>::PTYPE, Nullability::Nullable),
                     value.map(|value| ScalarValue::Primitive(value.into())),
                 )
-                .vortex_expect(
-                    "somehow unable to construct a primitive `Scalar` from a native type",
-                )
+                .expect("somehow unable to construct a primitive `Scalar` from a native type")
             }
         }
     };
@@ -153,7 +148,7 @@ impl TryFrom<&ScalarValue> for usize {
 
     fn try_from(value: &ScalarValue) -> VortexResult<Self> {
         let val = value.as_primitive().cast::<u64>()?;
-        Ok(usize::try_from(val)?)
+        usize::try_from(val).map_err(|e| vortex_err!("failed to convert u64 to usize: {e}"))
     }
 }
 
@@ -169,7 +164,7 @@ impl TryFrom<&Scalar> for usize {
             .as_::<u64>()
             .ok_or_else(|| vortex_err!("cannot convert Null to usize"))?;
 
-        Ok(usize::try_from(prim)?)
+        usize::try_from(prim).map_err(|e| vortex_err!("failed to convert u64 to usize: {e}"))
     }
 }
 
@@ -181,7 +176,11 @@ impl TryFrom<&Scalar> for Option<usize> {
             .as_primitive_opt()
             .ok_or_else(|| vortex_err!("Expected primitive scalar, found {}", value.dtype()))?;
 
-        Ok(prim_scalar.as_::<u64>().map(usize::try_from).transpose()?)
+        prim_scalar
+            .as_::<u64>()
+            .map(usize::try_from)
+            .transpose()
+            .map_err(|e| vortex_err!("failed to convert u64 to usize: {e}"))
     }
 }
 
@@ -197,7 +196,7 @@ impl From<usize> for Scalar {
             DType::Primitive(PType::U64, Nullability::NonNullable),
             Some(ScalarValue::Primitive((value as u64).into())),
         )
-        .vortex_expect("somehow unable to construct a primitive `Scalar` from a native type")
+        .expect("somehow unable to construct a primitive `Scalar` from a native type")
     }
 }
 
@@ -207,6 +206,6 @@ impl From<Option<usize>> for Scalar {
             DType::Primitive(PType::U64, Nullability::Nullable),
             value.map(|value| ScalarValue::Primitive((value as u64).into())),
         )
-        .vortex_expect("somehow unable to construct a primitive `Scalar` from a native type")
+        .expect("somehow unable to construct a primitive `Scalar` from a native type")
     }
 }

@@ -10,7 +10,6 @@ use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 
 use super::DictArray;
 use crate::ArrayRef;
@@ -86,7 +85,7 @@ impl ArbitraryDictArray {
 
         Ok(ArbitraryDictArray(
             DictArray::try_new(codes, values)
-                .vortex_expect("DictArray creation should succeed in arbitrary impl"),
+                .expect("DictArray creation should succeed in arbitrary impl"),
         ))
     }
 }
@@ -105,7 +104,7 @@ where
         .map(|_| {
             let idx = u.int_in_range(0..=max_value - 1)?;
             // max_value is bounded by T::MAX in the caller, so conversion always succeeds
-            Ok(T::from(idx).vortex_expect("value within type bounds"))
+            Ok(T::from(idx).expect("value within type bounds"))
         })
         .collect::<Result<Vec<_>>>()?;
     let validity = random_validity(u, nullability, len)?;

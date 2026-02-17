@@ -12,7 +12,6 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
@@ -322,7 +321,7 @@ pub trait VTableExt: VTable {
         options: Self::Options,
         children: impl IntoIterator<Item = Expression>,
     ) -> Expression {
-        Self::try_new_expr(self, options, children).vortex_expect("Failed to create expression")
+        Self::try_new_expr(self, options, children).expect("Failed to create expression")
     }
 
     /// Try to create a new expression with this vtable and the given options and children.
@@ -435,7 +434,7 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
     fn options_clone(&self, options: &dyn Any) -> Box<dyn Any + Send + Sync> {
         let options = options
             .downcast_ref::<V::Options>()
-            .vortex_expect("Failed to downcast expression options to expected type");
+            .expect("Failed to downcast expression options to expected type");
         Box::new(options.clone())
     }
 
@@ -585,7 +584,7 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
 fn downcast<V: VTable>(options: &dyn Any) -> &V::Options {
     options
         .downcast_ref::<V::Options>()
-        .vortex_expect("Invalid options type for expression")
+        .expect("Invalid options type for expression")
 }
 
 mod private {

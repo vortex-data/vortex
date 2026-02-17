@@ -17,7 +17,6 @@ use vortex::array::arrow::FromArrowArray;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
@@ -87,7 +86,7 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
         // Parquet reader returns batches, rather than row groups. So make sure we correctly
         // configure the progress bar.
         let nbatches = u64::try_from(num_rows)
-            .vortex_expect("negative row count?")
+            .expect("negative row count?")
             .div_ceil(BATCH_SIZE as u64);
         vortex_stream = ProgressBar::new(nbatches)
             .wrap_stream(vortex_stream)

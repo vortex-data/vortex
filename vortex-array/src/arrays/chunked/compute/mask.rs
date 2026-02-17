@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -25,8 +26,12 @@ impl MaskKernel for ChunkedVTable {
             .iter()
             .enumerate()
             .map(|(i, chunk)| {
-                let start: usize = chunk_offsets[i].try_into()?;
-                let end: usize = chunk_offsets[i + 1].try_into()?;
+                let start: usize = chunk_offsets[i]
+                    .try_into()
+                    .map_err(|e| vortex_err!("offset conversion failed: {e}"))?;
+                let end: usize = chunk_offsets[i + 1]
+                    .try_into()
+                    .map_err(|e| vortex_err!("offset conversion failed: {e}"))?;
                 let chunk_mask = mask.slice(start..end)?;
                 MaskExpr.try_new_array(chunk.len(), EmptyOptions, [chunk.clone(), chunk_mask])
             })

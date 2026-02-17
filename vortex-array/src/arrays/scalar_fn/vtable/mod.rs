@@ -15,7 +15,6 @@ use std::ops::Deref;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -231,13 +230,13 @@ impl<F: expr::VTable> Matcher for ExactScalarFn<F> {
             .vtable()
             .as_any()
             .downcast_ref::<F>()
-            .vortex_expect("ScalarFn VTable type mismatch in ExactScalarFn matcher");
+            .expect("ScalarFn VTable type mismatch in ExactScalarFn matcher");
         let scalar_fn_options = scalar_fn_array
             .scalar_fn
             .options()
             .as_any()
             .downcast_ref::<F::Options>()
-            .vortex_expect("ScalarFn options type mismatch in ExactScalarFn matcher");
+            .expect("ScalarFn options type mismatch in ExactScalarFn matcher");
         Some(ScalarFnArrayView {
             array,
             vtable: scalar_fn_vtable,

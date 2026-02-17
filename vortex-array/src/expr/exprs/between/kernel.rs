@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::Between;
@@ -64,7 +63,7 @@ where
         }
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
-            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
+            .expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let children = scalar_fn_array.children();
         let lower = children[1].as_ref();
         let upper = children[2].as_ref();
@@ -98,7 +97,7 @@ where
         }
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
-            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
+            .expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let children = scalar_fn_array.children();
         let lower = children[1].as_ref();
         let upper = children[2].as_ref();

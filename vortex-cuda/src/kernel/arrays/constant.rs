@@ -197,7 +197,6 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::scalar::Scalar;
     use vortex_dtype::NativePType;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -225,14 +224,14 @@ mod tests {
         #[case] constant_array: ConstantArray,
     ) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let cpu_result = constant_array.to_canonical()?;
 
         let gpu_result = ConstantNumericExecutor
             .execute(constant_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU materialization failed")
+            .expect("GPU materialization failed")
             .into_host()
             .await?
             .into_array();
@@ -245,7 +244,7 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_constant_empty_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let constant_array = ConstantArray::new(42i32, 0);
         let cpu_result = constant_array.to_canonical()?;
@@ -253,7 +252,7 @@ mod tests {
         let gpu_result = ConstantNumericExecutor
             .execute(constant_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU materialization failed")
+            .expect("GPU materialization failed")
             .into_host()
             .await?
             .into_array();
@@ -266,7 +265,7 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_constant_small_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         // Test with array smaller than one block (< 2048 elements)
         let constant_array = ConstantArray::new(99i32, 100);
@@ -275,7 +274,7 @@ mod tests {
         let gpu_result = ConstantNumericExecutor
             .execute(constant_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU materialization failed")
+            .expect("GPU materialization failed")
             .into_host()
             .await?
             .into_array();

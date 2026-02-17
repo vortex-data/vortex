@@ -9,7 +9,6 @@ use vortex_buffer::BitBuffer;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 
@@ -30,20 +29,20 @@ impl SumKernel for PrimitiveVTable {
                     unsigned: |T| {
                         Scalar::from(sum_integer::<_, u64>(
                             array.as_slice::<T>(),
-                            accumulator.as_primitive().as_::<u64>().vortex_expect("cannot be null"),
+                            accumulator.as_primitive().as_::<u64>().expect("cannot be null"),
                         ))
                     },
                     signed: |T| {
                         Scalar::from(sum_integer::<_, i64>(
                             array.as_slice::<T>(),
-                            accumulator.as_primitive().as_::<i64>().vortex_expect("cannot be null"),
+                            accumulator.as_primitive().as_::<i64>().expect("cannot be null"),
                         ))
                     },
                     floating: |T| {
                         Scalar::primitive(
                             sum_float(
                                 array.as_slice::<T>(),
-                                accumulator.as_primitive().as_::<f64>().vortex_expect("cannot be null"),
+                                accumulator.as_primitive().as_::<f64>().expect("cannot be null"),
                             ),
                             Nullability::Nullable,
                         )
@@ -62,14 +61,14 @@ impl SumKernel for PrimitiveVTable {
                         Scalar::from(sum_integer_with_validity::<_, u64>(
                             array.as_slice::<T>(),
                             validity_mask,
-                            accumulator.as_primitive().as_::<u64>().vortex_expect("cannot be null"),
+                            accumulator.as_primitive().as_::<u64>().expect("cannot be null"),
                         ))
                     },
                     signed: |T| {
                         Scalar::from(sum_integer_with_validity::<_, i64>(
                             array.as_slice::<T>(),
                             validity_mask,
-                            accumulator.as_primitive().as_::<i64>().vortex_expect("cannot be null"),
+                            accumulator.as_primitive().as_::<i64>().expect("cannot be null"),
                         ))
                     },
                     floating: |T| {
@@ -77,7 +76,7 @@ impl SumKernel for PrimitiveVTable {
                             sum_float_with_validity(
                                 array.as_slice::<T>(),
                                 validity_mask,
-                                accumulator.as_primitive().as_::<f64>().vortex_expect("cannot be null"),
+                                accumulator.as_primitive().as_::<f64>().expect("cannot be null"),
                             ),
                             Nullability::Nullable,
                         )
@@ -120,7 +119,7 @@ fn sum_integer_with_validity<T: NativePType + ToPrimitive, R: NativePType + Chec
 fn sum_float<T: NativePType + Float>(values: &[T], accumulator: f64) -> f64 {
     let mut sum = accumulator;
     for &x in values {
-        sum += x.to_f64().vortex_expect("Failed to cast value to f64");
+        sum += x.to_f64().expect("Failed to cast value to f64");
     }
     sum
 }
@@ -133,7 +132,7 @@ fn sum_float_with_validity<T: NativePType + Float>(
     let mut sum = accumulator;
     for (&x, valid) in array.iter().zip_eq(validity.iter()) {
         if valid {
-            sum += x.to_f64().vortex_expect("Failed to cast value to f64");
+            sum += x.to_f64().expect("Failed to cast value to f64");
         }
     }
     sum

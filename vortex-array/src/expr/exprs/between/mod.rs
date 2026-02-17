@@ -11,7 +11,6 @@ pub use kernel::*;
 use prost::Message;
 use vortex_dtype::DType;
 use vortex_dtype::DType::Bool;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -361,7 +360,7 @@ pub fn between(
 ) -> Expression {
     Between
         .try_new_expr(options, [arr, lower, upper])
-        .vortex_expect("Failed to create Between expression")
+        .expect("Failed to create Between expression")
 }
 
 #[cfg(test)]

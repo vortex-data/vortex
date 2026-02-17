@@ -11,7 +11,6 @@ use futures::stream;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -64,7 +63,7 @@ impl ChunkedArray {
     pub unsafe fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
         #[cfg(debug_assertions)]
         Self::validate(&chunks, &dtype)
-            .vortex_expect("[Debug Assertion]: Invalid `ChunkedArray` parameters");
+            .expect("[Debug Assertion]: Invalid `ChunkedArray` parameters");
 
         let nchunks = chunks.len();
 
@@ -84,7 +83,7 @@ impl ChunkedArray {
             dtype,
             len: curr_offset
                 .try_into()
-                .vortex_expect("chunk offset must fit in usize"),
+                .expect("chunk offset must fit in usize"),
             chunk_offsets,
             chunks,
             stats_set: Default::default(),
@@ -134,7 +133,7 @@ impl ChunkedArray {
         let chunk_start = self.chunk_offsets()[index_chunk];
 
         let index_in_chunk =
-            usize::try_from(index - chunk_start).vortex_expect("Index is too large for usize");
+            usize::try_from(index - chunk_start).expect("Index is too large for usize");
         Ok((index_chunk, index_in_chunk))
     }
 
@@ -216,8 +215,8 @@ impl FromIterator<ArrayRef> for ChunkedArray {
         let dtype = chunks
             .first()
             .map(|c| c.dtype().clone())
-            .vortex_expect("Cannot infer DType from an empty iterator");
-        Self::try_new(chunks, dtype).vortex_expect("Failed to create chunked array from iterator")
+            .expect("Cannot infer DType from an empty iterator");
+        Self::try_new(chunks, dtype).expect("Failed to create chunked array from iterator")
     }
 }
 

@@ -6,7 +6,6 @@ use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::SharedVTable;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::executor::CudaArrayExt;
@@ -27,8 +26,7 @@ impl CudaExecute for SharedExecutor {
     ) -> VortexResult<Canonical> {
         let shared = array
             .try_into::<SharedVTable>()
-            .ok()
-            .vortex_expect("Array is not a Shared array");
+            .expect("Array is not a Shared array");
 
         shared
             .get_or_compute_async(|source| source.execute_cuda(ctx))

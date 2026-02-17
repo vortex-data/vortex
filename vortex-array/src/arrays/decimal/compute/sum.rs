@@ -11,7 +11,6 @@ use vortex_dtype::DecimalDType;
 use vortex_dtype::DecimalType;
 use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::match_each_decimal_value_type;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -29,16 +28,14 @@ impl SumKernel for DecimalVTable {
     fn sum(&self, array: &DecimalArray, accumulator: &Scalar) -> VortexResult<Scalar> {
         let return_dtype = Stat::Sum
             .dtype(array.dtype())
-            .vortex_expect("sum for decimals exists");
-        let return_decimal_dtype = *return_dtype
-            .as_decimal_opt()
-            .vortex_expect("must be decimal");
+            .expect("sum for decimals exists");
+        let return_decimal_dtype = *return_dtype.as_decimal_opt().expect("must be decimal");
 
         // Extract the initial value as a `DecimalValue`.
         let initial_decimal = accumulator
             .as_decimal()
             .decimal_value()
-            .vortex_expect("cannot be null");
+            .expect("cannot be null");
 
         let mask = array.validity_mask()?;
         let validity = match &mask {
@@ -54,7 +51,7 @@ impl SumKernel for DecimalVTable {
             match_each_decimal_value_type!(values_type, |O| {
                 let initial_val: O = initial_decimal
                     .cast()
-                    .vortex_expect("cannot fail to cast initial value");
+                    .expect("cannot fail to cast initial value");
 
                 Ok(sum_to_scalar(
                     array.buffer::<I>(),
@@ -133,7 +130,6 @@ mod tests {
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
     use vortex_dtype::i256;
-    use vortex_error::VortexExpect;
 
     use crate::arrays::DecimalArray;
     use crate::compute::sum;
@@ -406,7 +402,7 @@ mod tests {
         );
 
         assert_eq!(
-            sum(decimal.as_ref()).vortex_expect("operation should succeed in test"),
+            sum(decimal.as_ref()).expect("operation should succeed in test"),
             Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable))
         );
     }

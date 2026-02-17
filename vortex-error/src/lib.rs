@@ -17,7 +17,6 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::io;
-use std::num::TryFromIntError;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -118,8 +117,6 @@ pub enum VortexError {
     /// A wrapper for Tokio join error.
     #[cfg(feature = "tokio")]
     Join(tokio::task::JoinError, Box<Backtrace>),
-    /// Wrap errors for fallible integer casting.
-    TryFromInt(TryFromIntError, Box<Backtrace>),
     /// Wrap protobuf-related errors
     Prost(Box<dyn Error + Send + Sync + 'static>, Box<Backtrace>),
 }
@@ -155,7 +152,6 @@ impl VortexError {
             Jiff(..) => "Jiff error: ",
             #[cfg(feature = "tokio")]
             Join(..) => "Tokio join error:",
-            TryFromInt(..) => "Try from int error:",
             Prost(..) => "Prost error:",
         }
     }
@@ -183,7 +179,6 @@ impl VortexError {
             Jiff(.., bt) => Some(bt.as_ref()),
             #[cfg(feature = "tokio")]
             Join(.., bt) => Some(bt.as_ref()),
-            TryFromInt(.., bt) => Some(bt.as_ref()),
             Prost(.., bt) => Some(bt.as_ref()),
             Context(_, inner) => inner.backtrace(),
             Shared(inner) => inner.backtrace(),
@@ -234,9 +229,6 @@ impl VortexError {
             }
             #[cfg(feature = "tokio")]
             Join(err, _) => {
-                format!("{err}")
-            }
-            TryFromInt(err, _) => {
                 format!("{err}")
             }
             Prost(err, _) => {
@@ -309,50 +301,6 @@ impl From<&Arc<VortexError>> for VortexError {
         } else {
             VortexError::Shared(Arc::clone(e))
         }
-    }
-}
-
-/// A trait for expect-ing a VortexResult or an Option.
-pub trait VortexExpect {
-    /// The type of the value being expected.
-    type Output;
-
-    /// Returns the value of the result if it is Ok, otherwise panics with the error.
-    /// Should be called only in contexts where the error condition represents a bug (programmer error).
-    ///
-    /// # `&'static` message lifetime
-    ///
-    /// The panic string argument should be a string literal, hence the `&'static` lifetime. If
-    /// you'd like to panic with a dynamic format string, consider using `unwrap_or_else` combined
-    /// with the `vortex_panic!` macro instead.
-    fn vortex_expect(self, msg: &'static str) -> Self::Output;
-}
-
-impl<T, E> VortexExpect for Result<T, E>
-where
-    E: Into<VortexError>,
-{
-    type Output = T;
-
-    #[inline(always)]
-    fn vortex_expect(self, msg: &'static str) -> Self::Output {
-        self.map_err(|err| err.into())
-            .unwrap_or_else(|e| vortex_panic!(e.with_context(msg.to_string())))
-    }
-}
-
-impl<T> VortexExpect for Option<T> {
-    type Output = T;
-
-    #[inline(always)]
-    fn vortex_expect(self, msg: &'static str) -> Self::Output {
-        self.unwrap_or_else(|| {
-            let err = VortexError::AssertionFailed(
-                msg.to_string().into(),
-                Box::new(Backtrace::capture()),
-            );
-            vortex_panic!(err)
-        })
     }
 }
 
@@ -541,12 +489,6 @@ impl From<tokio::task::JoinError> for VortexError {
         } else {
             VortexError::Join(value, Box::new(Backtrace::capture()))
         }
-    }
-}
-
-impl From<TryFromIntError> for VortexError {
-    fn from(value: TryFromIntError) -> Self {
-        VortexError::TryFromInt(value, Box::new(Backtrace::capture()))
     }
 }
 

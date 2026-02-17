@@ -16,7 +16,6 @@ pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -300,7 +299,7 @@ impl dyn Array + '_ {
 
     /// Returns the array downcast by the given matcher.
     pub fn as_<M: Matcher>(&self) -> M::Match<'_> {
-        self.as_opt::<M>().vortex_expect("Failed to downcast")
+        self.as_opt::<M>().expect("Failed to downcast")
     }
 
     /// Returns the array downcast by the given matcher.
@@ -316,7 +315,7 @@ impl dyn Array + '_ {
                     .as_any_arc()
                     .downcast::<ArrayAdapter<V>>()
                     .map_err(|_| vortex_err!("failed to downcast"))
-                    .vortex_expect("Failed to downcast");
+                    .expect("Failed to downcast");
                 Ok(match Arc::try_unwrap(arc) {
                     Ok(array) => array.0,
                     Err(arc) => arc.deref().0.clone(),
@@ -488,7 +487,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
                         Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
                     ) && value.as_ref().as_exact().is_some_and(|v| {
                         Scalar::try_new(DType::Bool(Nullability::NonNullable), Some(v.clone()))
-                            .vortex_expect("A stat that was expected to be a boolean stat was not")
+                            .expect("A stat that was expected to be a boolean stat was not")
                             .as_bool()
                             .value()
                             .unwrap_or_default()

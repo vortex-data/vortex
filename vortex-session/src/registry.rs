@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use parking_lot::Mutex;
-use vortex_error::VortexExpect;
 use vortex_utils::aliases::dash_map::DashMap;
 
 /// An identifier for an item in a registry.
@@ -125,7 +124,7 @@ impl<T: Clone> Context<T> {
 
         let mut ids = self.ids.lock();
         if let Some(idx) = ids.iter().position(|e| e == id) {
-            return Some(u16::try_from(idx).vortex_expect("Cannot have more than u16::MAX items"));
+            return Some(u16::try_from(idx).expect("Cannot have more than u16::MAX items"));
         }
 
         let idx = ids.len();
@@ -134,7 +133,7 @@ impl<T: Clone> Context<T> {
             "Cannot have more than u16::MAX items"
         );
         ids.push(id.clone());
-        Some(u16::try_from(idx).vortex_expect("checked already"))
+        Some(u16::try_from(idx).expect("checked already"))
     }
 
     /// Resolve an interned ID by its index.

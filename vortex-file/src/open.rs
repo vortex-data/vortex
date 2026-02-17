@@ -10,7 +10,6 @@ use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
@@ -270,10 +269,8 @@ impl VortexOpenOptions {
 
         for idx in first_idx..footer.segment_map().len() {
             let segment = &footer.segment_map()[idx];
-            let segment_id =
-                SegmentId::from(u32::try_from(idx).vortex_expect("Invalid segment ID"));
-            let offset =
-                usize::try_from(segment.offset - initial_offset).vortex_expect("Invalid offset");
+            let segment_id = SegmentId::from(u32::try_from(idx).expect("Invalid segment ID"));
+            let offset = usize::try_from(segment.offset - initial_offset).expect("Invalid offset");
             let buffer = initial_read
                 .slice(offset..offset + (segment.length as usize))
                 .aligned(segment.alignment);

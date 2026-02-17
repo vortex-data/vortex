@@ -8,7 +8,6 @@ use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType::I32;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -382,7 +381,7 @@ fn test_offset_to_0() {
             )
             .as_list(),
         )
-        .vortex_expect("operation should succeed in test");
+        .expect("operation should succeed in test");
     builder
         .append_value(
             Scalar::list(
@@ -392,7 +391,7 @@ fn test_offset_to_0() {
             )
             .as_list(),
         )
-        .vortex_expect("operation should succeed in test");
+        .expect("operation should succeed in test");
     builder
         .append_value(
             Scalar::list(
@@ -402,7 +401,7 @@ fn test_offset_to_0() {
             )
             .as_list(),
         )
-        .vortex_expect("operation should succeed in test");
+        .expect("operation should succeed in test");
     builder
         .append_value(
             Scalar::list(
@@ -412,7 +411,7 @@ fn test_offset_to_0() {
             )
             .as_list(),
         )
-        .vortex_expect("operation should succeed in test");
+        .expect("operation should succeed in test");
     builder
         .append_value(
             Scalar::list(
@@ -422,7 +421,7 @@ fn test_offset_to_0() {
             )
             .as_list(),
         )
-        .vortex_expect("operation should succeed in test");
+        .expect("operation should succeed in test");
     let list = builder.finish().slice(2..4).unwrap();
 
     // The sliced list should be a ListArray since we built it with ListBuilder

@@ -8,7 +8,6 @@ use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -39,7 +38,7 @@ impl VarBinArray {
     /// Panics if the provided components do not satisfy the invariants documented
     /// in [`VarBinArray::new_unchecked`].
     pub fn new(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
-        Self::try_new(offsets, bytes, dtype, validity).vortex_expect("VarBinArray new")
+        Self::try_new(offsets, bytes, dtype, validity).expect("VarBinArray new")
     }
 
     /// Creates a new [`VarBinArray`].
@@ -54,7 +53,7 @@ impl VarBinArray {
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        Self::try_new_from_handle(offset, bytes, dtype, validity).vortex_expect("VarBinArray new")
+        Self::try_new_from_handle(offset, bytes, dtype, validity).expect("VarBinArray new")
     }
 
     /// Constructs a new `VarBinArray`.
@@ -154,7 +153,7 @@ impl VarBinArray {
     ) -> Self {
         #[cfg(debug_assertions)]
         Self::validate(&offsets, &bytes, &dtype, &validity)
-            .vortex_expect("[Debug Assertion]: Invalid `VarBinArray` parameters");
+            .expect("[Debug Assertion]: Invalid `VarBinArray` parameters");
 
         Self {
             dtype,
@@ -355,9 +354,9 @@ impl VarBinArray {
         (&self
             .offsets()
             .scalar_at(index)
-            .vortex_expect("offsets must support scalar_at"))
+            .expect("offsets must support scalar_at"))
             .try_into()
-            .vortex_expect("Failed to convert offset to usize")
+            .expect("Failed to convert offset to usize")
     }
 
     /// Access value bytes at a given index

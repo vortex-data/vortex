@@ -31,7 +31,6 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::Timestamp;
-use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
 use crate::common::TimedLaunchStrategy;
@@ -45,7 +44,7 @@ fn make_datetimeparts_array(len: usize, time_unit: TimeUnit) -> DateTimePartsArr
     let dtype = DType::Extension(Timestamp::new(time_unit, Nullability::NonNullable).erased());
 
     DateTimePartsArray::try_new(dtype, days_arr, seconds_arr, subseconds_arr)
-        .vortex_expect("Failed to create DateTimePartsArray")
+        .expect("Failed to create DateTimePartsArray")
 }
 
 fn benchmark_datetimeparts(c: &mut Criterion) {
@@ -71,7 +70,7 @@ fn benchmark_datetimeparts(c: &mut Criterion) {
                     let timer = Arc::clone(&timed.total_time_ns);
 
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                        .vortex_expect("failed to create execution context")
+                        .expect("failed to create execution context")
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {

@@ -28,7 +28,6 @@ use vortex_dtype::FieldPath;
 use vortex_dtype::FieldPathSet;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -128,13 +127,13 @@ impl ZonedReader {
                 let zones_eval = self
                     .lazy_children
                     .get(1)
-                    .vortex_expect("failed to get zone child")
+                    .expect("failed to get zone child")
                     .projection_evaluation(
                         &(0..nzones as u64),
                         &root(),
                         MaskFuture::new_true(nzones),
                     )
-                    .vortex_expect("Failed construct zone map evaluation");
+                    .expect("Failed construct zone map evaluation");
 
                 async move {
                     let zones_array = zones_eval.await?.to_struct();
@@ -262,12 +261,14 @@ impl LayoutReader for ZonedReader {
                 let start = usize::try_from(
                     self.first_row_offset(zone_idx)
                         .saturating_sub(row_range.start),
-                )?;
+                )
+                .expect("zone start must fit in usize");
                 let end = usize::try_from(
                     self.first_row_offset(zone_idx + 1)
                         .saturating_sub(row_range.start)
                         .min(row_count),
-                )?;
+                )
+                .expect("zone end must fit in usize");
                 Ok::<_, VortexError>(end - start)
             })
             .try_collect()?;
@@ -282,7 +283,12 @@ impl LayoutReader for ZonedReader {
 
             let mut builder = BitBufferMut::with_capacity(mask.len());
             for (zone_idx, &zone_length) in zone_range.clone().zip_eq(&zone_lengths) {
-                builder.append_n(!pruning_mask.value(usize::try_from(zone_idx)?), zone_length);
+                builder.append_n(
+                    !pruning_mask.value(
+                        usize::try_from(zone_idx).expect("layout zone index must fit in usize"),
+                    ),
+                    zone_length,
+                );
             }
 
             let stats_mask = Mask::from(builder.freeze());

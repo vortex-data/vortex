@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
 use crate::arrays::ListViewArray;
@@ -52,10 +51,10 @@ pub fn filter_listview(array: &ListViewArray, selection_mask: &Arc<MaskValues>) 
     let mask_for_filter = values_to_mask(selection_mask);
     let new_offsets = offsets
         .filter(mask_for_filter.clone())
-        .vortex_expect("ListViewArray offsets are guaranteed to support filter");
+        .expect("ListViewArray offsets are guaranteed to support filter");
     let new_sizes = sizes
         .filter(mask_for_filter)
-        .vortex_expect("ListViewArray sizes are guaranteed to support filter");
+        .expect("ListViewArray sizes are guaranteed to support filter");
 
     // SAFETY: Filter operation maintains all `ListViewArray` invariants:
     // - Offsets and sizes are derived from existing valid child arrays.
@@ -71,7 +70,7 @@ pub fn filter_listview(array: &ListViewArray, selection_mask: &Arc<MaskValues>) 
 
     new_array
         .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
-        .vortex_expect("ListViewArray rebuild to zero-copy List should always succeed")
+        .expect("ListViewArray rebuild to zero-copy List should always succeed")
 }
 
 #[cfg(test)]

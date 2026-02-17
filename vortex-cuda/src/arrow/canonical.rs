@@ -290,7 +290,6 @@ mod tests {
     use vortex_dtype::DecimalDType;
     use vortex_dtype::FieldNames;
     use vortex_dtype::datetime::TimeUnit;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -314,7 +313,7 @@ mod tests {
         #[case] expected_len: i64,
     ) -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let mut device_array = array.export_device_array(&mut ctx).await?;
 
@@ -333,7 +332,7 @@ mod tests {
     #[tokio::test]
     async fn test_export_null() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let array = NullArray::new(7).into_array();
         let mut device_array = array.export_device_array(&mut ctx).await?;
@@ -349,7 +348,7 @@ mod tests {
     #[tokio::test]
     async fn test_export_decimal() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let array = DecimalArray::from_iter(0i128..5, DecimalDType::new(38, 2)).into_array();
         let mut device_array = array.export_device_array(&mut ctx).await?;
@@ -368,7 +367,7 @@ mod tests {
     #[tokio::test]
     async fn test_export_temporal() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let array = TemporalArray::new_date(
             PrimitiveArray::from_iter([100i32, 200, 300]).into_array(),
@@ -391,7 +390,7 @@ mod tests {
     #[tokio::test]
     async fn test_export_varbinview() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let array = VarBinViewArray::from_iter_str([
             "hello",
@@ -416,7 +415,7 @@ mod tests {
     #[tokio::test]
     async fn test_export_struct() -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let array = StructArray::new(
             FieldNames::from_iter(["a", "b"]),

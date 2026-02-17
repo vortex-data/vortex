@@ -13,7 +13,6 @@ use vortex_array::builders::VarBinViewBuilder;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 
 fn main() {
     divan::main();
@@ -43,13 +42,13 @@ fn compact_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)
     let indices = random_indices(output_size, base_size);
     let taken = base_array
         .take(indices)
-        .vortex_expect("operation should succeed in benchmark");
+        .expect("operation should succeed in benchmark");
     let array = taken.to_varbinview();
 
     bencher.with_inputs(|| &array).bench_refs(|array| {
         array
             .compact_buffers()
-            .vortex_expect("operation should succeed in benchmark")
+            .expect("operation should succeed in benchmark")
     })
 }
 
@@ -59,13 +58,13 @@ fn compact_sliced_impl(bencher: Bencher, (output_size, utilization_pct): (usize,
     let sliced = base_array
         .as_ref()
         .slice(0..output_size)
-        .vortex_expect("slice should succeed");
+        .expect("slice should succeed");
     let array = sliced.to_varbinview();
 
     bencher.with_inputs(|| &array).bench_refs(|array| {
         array
             .compact_buffers()
-            .vortex_expect("operation should succeed in benchmark")
+            .expect("operation should succeed in benchmark")
     })
 }
 

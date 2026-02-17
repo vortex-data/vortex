@@ -12,7 +12,6 @@ use futures::future::BoxFuture;
 use vortex_buffer::ALIGNMENT_TO_HOST_COPY;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::dyn_traits::DynEq;
 use vortex_utils::dyn_traits::DynHash;
@@ -267,13 +266,13 @@ impl BufferHandle {
     /// A version of [`as_host_opt`][Self::as_host_opt] that panics if the allocation is
     /// not a host allocation.
     pub fn as_host(&self) -> &ByteBuffer {
-        self.as_host_opt().vortex_expect("expected host buffer")
+        self.as_host_opt().expect("expected host buffer")
     }
 
     /// A version of [`as_device_opt`][Self::as_device_opt] that panics if the allocation is
     /// not a device allocation.
     pub fn as_device(&self) -> &Arc<dyn DeviceBuffer> {
-        self.as_device_opt().vortex_expect("expected device buffer")
+        self.as_device_opt().expect("expected device buffer")
     }
 
     /// Returns a host-resident copy of the data in the buffer.
@@ -293,7 +292,7 @@ impl BufferHandle {
     /// See also: [`try_to_host`][Self::try_to_host].
     pub fn to_host_sync(&self) -> ByteBuffer {
         self.try_to_host_sync()
-            .vortex_expect("to_host: copy from device to host failed")
+            .expect("to_host: copy from device to host failed")
     }
 
     /// Returns a host-resident copy of the data behind the handle, consuming the handle.
@@ -307,7 +306,7 @@ impl BufferHandle {
     /// See the panic documentation on [`to_host`][Self::to_host].
     pub fn into_host_sync(self) -> ByteBuffer {
         self.try_into_host_sync()
-            .vortex_expect("into_host: copy from device to host failed")
+            .expect("into_host: copy from device to host failed")
     }
 
     /// Attempts to load this buffer into a host-resident allocation.
@@ -380,11 +379,11 @@ impl BufferHandle {
     pub fn to_host(&self) -> BoxFuture<'static, ByteBuffer> {
         let future = self
             .try_to_host()
-            .vortex_expect("to_host: failed to initiate copy from device to host");
+            .expect("to_host: failed to initiate copy from device to host");
         Box::pin(async move {
             future
                 .await
-                .vortex_expect("to_host: copy from device to host failed")
+                .expect("to_host: copy from device to host failed")
         })
     }
 
@@ -396,11 +395,11 @@ impl BufferHandle {
     pub fn into_host(self) -> BoxFuture<'static, ByteBuffer> {
         let future = self
             .try_into_host()
-            .vortex_expect("into_host: failed to initiate copy from device to host");
+            .expect("into_host: failed to initiate copy from device to host");
         Box::pin(async move {
             future
                 .await
-                .vortex_expect("into_host: copy from device to host failed")
+                .expect("into_host: copy from device to host failed")
         })
     }
 }

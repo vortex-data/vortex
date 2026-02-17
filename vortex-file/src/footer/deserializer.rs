@@ -5,7 +5,6 @@ use flatbuffers::root;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -85,9 +84,7 @@ impl FooterDeserializer {
             postscript
         } else {
             self.postscript = Some(self.parse_postscript(&self.buffer)?);
-            self.postscript
-                .as_ref()
-                .vortex_expect("Just set postscript")
+            self.postscript.as_ref().expect("Just set postscript")
         };
 
         // If we haven't been provided a DType, we must read one from the file.
@@ -129,7 +126,8 @@ impl FooterDeserializer {
             );
             return Ok(DeserializeStep::NeedMoreData {
                 offset: read_more_offset,
-                len: usize::try_from(initial_offset - read_more_offset)?,
+                len: usize::try_from(initial_offset - read_more_offset)
+                    .expect("deserialization step can only require up to usize bytes"),
             });
         }
 
@@ -137,7 +135,7 @@ impl FooterDeserializer {
         let dtype = dtype_segment
             .map(|segment| self.parse_dtype(initial_offset, &self.buffer, segment))
             .transpose()?
-            .unwrap_or_else(|| self.dtype.clone().vortex_expect("DType was provided"));
+            .unwrap_or_else(|| self.dtype.clone().expect("DType was provided"));
         let file_stats = postscript
             .statistics
             .as_ref()
@@ -209,7 +207,8 @@ impl FooterDeserializer {
         initial_read: &[u8],
         segment: &PostscriptSegment,
     ) -> VortexResult<DType> {
-        let offset = usize::try_from(segment.offset - initial_offset)?;
+        let offset = usize::try_from(segment.offset - initial_offset)
+            .expect("dtype offset must fit in usize");
         let sliced_buffer =
             FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
         DType::from_flatbuffer(sliced_buffer, &self.session)
@@ -223,7 +222,8 @@ impl FooterDeserializer {
         segment: &PostscriptSegment,
         dtype: &DType,
     ) -> VortexResult<FileStatistics> {
-        let offset = usize::try_from(segment.offset - initial_offset)?;
+        let offset = usize::try_from(segment.offset - initial_offset)
+            .expect("file statistics offset must fit in usize");
         let sliced_buffer =
             FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
 
@@ -241,12 +241,14 @@ impl FooterDeserializer {
         dtype: DType,
         file_stats: Option<FileStatistics>,
     ) -> VortexResult<Footer> {
-        let footer_offset = usize::try_from(footer_segment.offset - initial_offset)?;
+        let footer_offset = usize::try_from(footer_segment.offset - initial_offset)
+            .expect("footer offset must fit usize");
         let footer_bytes = FlatBuffer::copy_from(
             &initial_read[footer_offset..footer_offset + (footer_segment.length as usize)],
         );
 
-        let layout_offset = usize::try_from(layout_segment.offset - initial_offset)?;
+        let layout_offset = usize::try_from(layout_segment.offset - initial_offset)
+            .expect("layout offset must fit usize");
         let layout_bytes = FlatBuffer::copy_from(
             &initial_read[layout_offset..layout_offset + (layout_segment.length as usize)],
         );

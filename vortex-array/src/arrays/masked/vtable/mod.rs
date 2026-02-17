@@ -8,7 +8,6 @@ mod validity;
 
 use kernel::PARENT_KERNELS;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -175,9 +174,7 @@ impl VTable for MaskedVTable {
         );
 
         let mut iter = children.into_iter();
-        let child = iter
-            .next()
-            .vortex_expect("children length already validated");
+        let child = iter.next().expect("children length already validated");
         let validity = if let Some(validity_array) = iter.next() {
             Validity::Array(validity_array)
         } else {

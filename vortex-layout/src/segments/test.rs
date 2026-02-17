@@ -9,7 +9,6 @@ use parking_lot::Mutex;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -51,8 +50,7 @@ impl SegmentSink for TestSegments {
         }
 
         let mut segments = self.segments.lock();
-        let segment_id =
-            SegmentId::from(u32::try_from(segments.len()).vortex_expect("Too many segments"));
+        let segment_id = SegmentId::from(u32::try_from(segments.len()).expect("Too many segments"));
         segments.push(buffer.freeze());
 
         Ok(segment_id)

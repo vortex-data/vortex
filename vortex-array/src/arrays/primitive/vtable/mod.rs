@@ -4,7 +4,6 @@
 use kernel::PARENT_KERNELS;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -129,7 +128,7 @@ impl VTable for PrimitiveVTable {
         array.validity = if children.is_empty() {
             Validity::from(array.dtype().nullability())
         } else {
-            Validity::Array(children.into_iter().next().vortex_expect("checked"))
+            Validity::Array(children.into_iter().next().expect("checked"))
         };
 
         Ok(())

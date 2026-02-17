@@ -21,7 +21,6 @@ use sqllogictest::Record;
 use sqllogictest::Runner;
 use sqllogictest::parse_file;
 use sqllogictest::strict_column_validator;
-use vortex::error::VortexExpect;
 use vortex_datafusion::VortexFormatFactory;
 use vortex_sqllogictest::args::Args;
 use vortex_sqllogictest::duckdb::DuckDB;
@@ -65,10 +64,7 @@ async fn main() -> anyhow::Result<()> {
                 let session = SessionContext::new_with_state(session_state_builder.build())
                     .enable_url_table();
 
-                let filename = path
-                    .file_name()
-                    .vortex_expect("must be file")
-                    .to_string_lossy();
+                let filename = path.file_name().expect("must be file").to_string_lossy();
                 let records = parse_file(path.canonicalize()?)?;
 
                 let df_pb = mpb.add(ProgressBar::new(records.len() as u64));

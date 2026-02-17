@@ -5,7 +5,6 @@ use std::fmt::Formatter;
 
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -76,7 +75,7 @@ impl VTable for IsNull {
     }
 
     fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let child = args.inputs.pop().vortex_expect("Missing input child");
+        let child = args.inputs.pop().expect("Missing input child");
         if let Some(scalar) = child.as_constant() {
             return Ok(ConstantArray::new(scalar.is_null(), args.row_count).into_array());
         }
@@ -129,7 +128,6 @@ mod tests {
     use vortex_dtype::FieldPath;
     use vortex_dtype::FieldPathSet;
     use vortex_dtype::Nullability;
-    use vortex_error::VortexExpect as _;
     use vortex_utils::aliases::hash_map::HashMap;
     use vortex_utils::aliases::hash_set::HashSet;
 
@@ -160,7 +158,7 @@ mod tests {
     fn replace_children() {
         let expr = is_null(root());
         expr.with_children([root()])
-            .vortex_expect("operation should succeed in test");
+            .expect("operation should succeed in test");
     }
 
     #[test]

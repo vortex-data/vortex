@@ -11,7 +11,6 @@ use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::UnsignedPType;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_utils::aliases::hash_map::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashTable;
@@ -108,7 +107,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
                             val,
                             0,
                             u32::try_from(self.values.len())
-                                .vortex_expect("values length must fit in u32"),
+                                .expect("values length must fit in u32"),
                         );
                         let additional_bytes = if view.is_inlined() {
                             size_of::<BinaryView>()
@@ -137,7 +136,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
     }
 
     fn encode_bytes<A: ArrayAccessor<[u8]>>(&mut self, accessor: &A, len: usize) -> ArrayRef {
-        let mut local_lookup = self.lookup.take().vortex_expect("Must have a lookup dict");
+        let mut local_lookup = self.lookup.take().expect("Must have a lookup dict");
         let mut codes: BufferMut<Code> = BufferMut::with_capacity(len);
 
         accessor.with_iterator(|it| {

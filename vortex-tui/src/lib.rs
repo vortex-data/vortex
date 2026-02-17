@@ -18,7 +18,6 @@
 //! ```
 
 #![deny(clippy::missing_errors_doc)]
-#![deny(clippy::missing_panics_doc)]
 #![deny(clippy::missing_safety_doc)]
 #![deny(missing_docs)]
 
@@ -27,7 +26,6 @@ use std::path::PathBuf;
 
 use clap::CommandFactory;
 use clap::Parser;
-use vortex::error::VortexExpect;
 use vortex::session::VortexSession;
 
 pub mod browse;
@@ -112,7 +110,7 @@ pub async fn launch_from(
                 clap::error::ErrorKind::Io,
                 format!(
                     "File '{}' does not exist.",
-                    path.to_str().vortex_expect("file path")
+                    path.to_str().expect("file path")
                 ),
             )
             .exit()

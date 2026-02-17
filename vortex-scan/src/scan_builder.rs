@@ -28,7 +28,6 @@ use vortex_dtype::Field;
 use vortex_dtype::FieldMask;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldPath;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;
@@ -347,7 +346,7 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
         loop {
             match &mut self.state {
                 LazyScanState::Builder(builder) => {
-                    let builder = builder.take().vortex_expect("polled after completion");
+                    let builder = builder.take().expect("polled after completion");
                     let ordered = builder.ordered;
                     let num_workers = std::thread::available_parallelism()
                         .map(|n| n.get())

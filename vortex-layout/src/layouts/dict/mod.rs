@@ -13,7 +13,6 @@ use vortex_array::ProstMetadata;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -57,7 +56,7 @@ impl VTable for DictVTable {
 
     fn metadata(layout: &Self::Layout) -> Self::Metadata {
         let mut metadata =
-            DictLayoutMetadata::new(PType::try_from(layout.codes.dtype()).vortex_expect("ptype"));
+            DictLayoutMetadata::new(PType::try_from(layout.codes.dtype()).expect("ptype"));
         metadata.is_nullable_codes = Some(layout.codes.dtype().is_nullable());
         metadata.all_values_referenced = Some(layout.all_values_referenced);
         ProstMetadata(metadata)

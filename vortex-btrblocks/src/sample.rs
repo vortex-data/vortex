@@ -8,7 +8,6 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
-use vortex_error::VortexExpect;
 
 use crate::stats::SAMPLE_COUNT;
 use crate::stats::SAMPLE_SIZE;
@@ -28,14 +27,10 @@ pub(crate) fn sample(input: &dyn Array, sample_size: u32, sample_count: u32) -> 
     // For every slice, grab the relevant slice and repack into a new PrimitiveArray.
     let chunks: Vec<_> = slices
         .into_iter()
-        .map(|(start, end)| {
-            input
-                .slice(start..end)
-                .vortex_expect("slice should succeed")
-        })
+        .map(|(start, end)| input.slice(start..end).expect("slice should succeed"))
         .collect();
     ChunkedArray::try_new(chunks, input.dtype().clone())
-        .vortex_expect("sample slices should form valid chunked array")
+        .expect("sample slices should form valid chunked array")
         .into_array()
 }
 
@@ -43,12 +38,12 @@ pub(crate) fn sample(input: &dyn Array, sample_size: u32, sample_count: u32) -> 
 /// with a minimum of `SAMPLE_SIZE * SAMPLE_COUNT` (1024) values.
 pub(crate) fn sample_count_approx_one_percent(len: usize) -> u32 {
     let approximately_one_percent =
-        (len / 100) / usize::try_from(SAMPLE_SIZE).vortex_expect("SAMPLE_SIZE must fit in usize");
+        (len / 100) / usize::try_from(SAMPLE_SIZE).expect("SAMPLE_SIZE must fit in usize");
     u32::max(
         u32::next_multiple_of(
             approximately_one_percent
                 .try_into()
-                .vortex_expect("sample count must fit in u32"),
+                .expect("sample count must fit in u32"),
             16,
         ),
         SAMPLE_COUNT,

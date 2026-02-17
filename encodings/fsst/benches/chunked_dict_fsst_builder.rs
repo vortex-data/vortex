@@ -13,7 +13,6 @@ use vortex_array::builders::builder_with_capacity;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::session::ArraySession;
 use vortex_dtype::NativePType;
-use vortex_error::VortexExpect;
 use vortex_fsst::test_utils::gen_dict_fsst_test_data;
 use vortex_session::VortexSession;
 
@@ -56,7 +55,7 @@ fn chunked_dict_fsst_canonical_into(
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
         chunk
             .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
-            .vortex_expect("append failed");
+            .expect("append failed");
         builder.finish()
     })
 }

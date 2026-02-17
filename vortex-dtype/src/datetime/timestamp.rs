@@ -7,7 +7,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -44,7 +43,7 @@ impl Timestamp {
             },
             DType::Primitive(PType::I64, nullability),
         )
-        .vortex_expect("failed to create timestamp dtype")
+        .expect("failed to create timestamp dtype")
     }
 }
 
@@ -101,10 +100,7 @@ impl ExtDTypeVTable for Timestamp {
 
         let tag = data[0];
         let time_unit = TimeUnit::try_from(tag)?;
-        let tz_len_bytes: [u8; 2] = data[1..3]
-            .try_into()
-            .ok()
-            .vortex_expect("Verified to have two bytes");
+        let tz_len_bytes: [u8; 2] = data[1..3].try_into().expect("Verified to have two bytes");
         let tz_len = u16::from_le_bytes(tz_len_bytes) as usize;
         if tz_len == 0 {
             return Ok(TimestampOptions {

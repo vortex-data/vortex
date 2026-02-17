@@ -12,7 +12,6 @@ use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::half::f16;
 use vortex_dtype::i256;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -37,7 +36,7 @@ impl From<&Scalar> for pb::Scalar {
             dtype: Some(
                 (value.dtype())
                     .try_into()
-                    .vortex_expect("Failed to convert DType to proto"),
+                    .expect("Failed to convert DType to proto"),
             ),
             value: Some(ScalarValue::to_proto(value.value())),
         }
@@ -69,7 +68,7 @@ impl ScalarValue {
         let mut buf = B::default();
         proto
             .encode(&mut buf)
-            .vortex_expect("Failed to encode scalar value");
+            .expect("Failed to encode scalar value");
         buf
     }
 }
@@ -367,32 +366,27 @@ fn bytes_from_proto(bytes: &[u8], dtype: &DType) -> VortexResult<ScalarValue> {
             2 => DecimalValue::I16(i16::from_le_bytes(
                 bytes
                     .try_into()
-                    .ok()
-                    .vortex_expect("Buffer has invalid number of bytes"),
+                    .expect("Buffer has invalid number of bytes"),
             )),
             4 => DecimalValue::I32(i32::from_le_bytes(
                 bytes
                     .try_into()
-                    .ok()
-                    .vortex_expect("Buffer has invalid number of bytes"),
+                    .expect("Buffer has invalid number of bytes"),
             )),
             8 => DecimalValue::I64(i64::from_le_bytes(
                 bytes
                     .try_into()
-                    .ok()
-                    .vortex_expect("Buffer has invalid number of bytes"),
+                    .expect("Buffer has invalid number of bytes"),
             )),
             16 => DecimalValue::I128(i128::from_le_bytes(
                 bytes
                     .try_into()
-                    .ok()
-                    .vortex_expect("Buffer has invalid number of bytes"),
+                    .expect("Buffer has invalid number of bytes"),
             )),
             32 => DecimalValue::I256(i256::from_le_bytes(
                 bytes
                     .try_into()
-                    .ok()
-                    .vortex_expect("Buffer has invalid number of bytes"),
+                    .expect("Buffer has invalid number of bytes"),
             )),
             l => vortex_bail!(Serde: "invalid decimal byte length: {l}"),
         })),
