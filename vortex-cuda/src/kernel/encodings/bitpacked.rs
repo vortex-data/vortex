@@ -9,7 +9,7 @@ use cudarc::driver::CudaFunction;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
+use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
@@ -32,12 +32,11 @@ use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::kernel::launch_cuda_kernel_with_config;
 use crate::kernel::patches::execute_patches;
 
 /// CUDA decoder for bit-packed arrays.
 #[derive(Debug)]
-pub struct BitPackedExecutor;
+pub(crate) struct BitPackedExecutor;
 
 impl BitPackedExecutor {
     fn try_specialize(array: ArrayRef) -> Option<BitPackedArray> {
@@ -47,6 +46,7 @@ impl BitPackedExecutor {
 
 #[async_trait]
 impl CudaExecute for BitPackedExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -87,7 +87,7 @@ pub fn bitpacked_cuda_launch_config(output_width: usize, len: usize) -> VortexRe
     })
 }
 
-async fn decode_bitpacked<A>(
+pub(crate) async fn decode_bitpacked<A>(
     array: BitPackedArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical>
@@ -119,18 +119,11 @@ where
 
     let output_width = size_of::<A>() * 8;
     let cuda_function = bitpacked_cuda_kernel(bit_width, output_width, ctx)?;
+    let config = bitpacked_cuda_launch_config(output_width, len)?;
 
-    {
-        let mut launch_builder = ctx.launch_builder(&cuda_function);
-
-        launch_builder.arg(&input_view);
-        launch_builder.arg(&output_view);
-
-        let config = bitpacked_cuda_launch_config(output_width, len)?;
-
-        let _cuda_events =
-            launch_cuda_kernel_with_config(&mut launch_builder, config, CU_EVENT_DISABLE_TIMING)?;
-    }
+    ctx.launch_kernel_config(&cuda_function, config, len, |args| {
+        args.arg(&input_view).arg(&output_view);
+    })?;
 
     let output_handle = match patches {
         None => BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len))),

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use async_trait::async_trait;
+use tracing::instrument;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -19,6 +20,7 @@ pub struct SliceExecutor;
 
 #[async_trait]
 impl CudaExecute for SliceExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,

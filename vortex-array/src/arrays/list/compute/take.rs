@@ -187,7 +187,6 @@ mod test {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::IntoArray as _;
@@ -196,6 +195,7 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::list::ListArray;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]

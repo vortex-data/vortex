@@ -3,10 +3,10 @@
 
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
+use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<PrimitiveVTable> for PrimitiveVTable {

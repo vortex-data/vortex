@@ -5,11 +5,11 @@ use num_traits::CheckedAdd;
 use num_traits::CheckedSub;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::scalar::PValue;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
-use vortex_scalar::PValue;
 
 use crate::SequenceArray;
 

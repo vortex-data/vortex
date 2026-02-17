@@ -8,7 +8,6 @@ use vortex_buffer::get_bit;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -20,6 +19,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::TakeExecute;
 use crate::builtins::ArrayBuiltins;
 use crate::executor::ExecutionCtx;
+use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
 
 impl TakeExecute for BoolVTable {

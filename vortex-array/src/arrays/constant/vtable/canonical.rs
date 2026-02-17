@@ -14,8 +14,6 @@ use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::Scalar;
 
 use crate::Canonical;
 use crate::IntoArray;
@@ -31,6 +29,8 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::builders::builder_with_capacity;
+use crate::scalar::DecimalValue;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// Shared implementation for both `canonicalize` and `execute` methods.
@@ -317,7 +317,6 @@ mod tests {
     use vortex_dtype::PType;
     use vortex_dtype::half::f16;
     use vortex_error::VortexResult;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::IntoArray;
@@ -329,6 +328,7 @@ mod tests {
     use crate::canonical::ToCanonical;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 

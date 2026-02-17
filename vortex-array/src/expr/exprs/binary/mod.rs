@@ -125,10 +125,10 @@ impl VTable for Binary {
             Operator::Gte => execute_compare(lhs, rhs, compute::Operator::Gte),
             Operator::And => execute_boolean(lhs, rhs, BooleanOperator::AndKleene),
             Operator::Or => execute_boolean(lhs, rhs, BooleanOperator::OrKleene),
-            Operator::Add => execute_numeric(lhs, rhs, vortex_scalar::NumericOperator::Add),
-            Operator::Sub => execute_numeric(lhs, rhs, vortex_scalar::NumericOperator::Sub),
-            Operator::Mul => execute_numeric(lhs, rhs, vortex_scalar::NumericOperator::Mul),
-            Operator::Div => execute_numeric(lhs, rhs, vortex_scalar::NumericOperator::Div),
+            Operator::Add => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Add),
+            Operator::Sub => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Sub),
+            Operator::Mul => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Mul),
+            Operator::Div => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Div),
         }
     }
 
@@ -559,7 +559,6 @@ pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
 mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
 
     use super::*;
     use crate::assert_arrays_eq;
@@ -568,6 +567,7 @@ mod tests {
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
     use crate::expr::test_harness;
+    use crate::scalar::Scalar;
 
     #[test]
     fn and_collect_balanced() {

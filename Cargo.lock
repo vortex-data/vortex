@@ -4121,6 +4121,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpu-scan-cli"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "vortex",
+ "vortex-cuda",
+ "vortex-cuda-macros",
+]
+
+[[package]]
 name = "grid"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8064,6 +8077,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "scc"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46e6f046b7fef48e2660c57ed794263155d713de679057f2d0c169bfc6e756cc"
+dependencies = [
+ "sdd",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8125,6 +8147,12 @@ name = "scratch"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d68f2ec51b097e4c1a75b681a8bec621909b5e91f15bb7b840c4f2f7b01148b2"
+
+[[package]]
+name = "sdd"
+version = "3.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "490dcfcbfef26be6800d11870ff2df8774fa6e86d047e3e8c8a76b25655e41ca"
 
 [[package]]
 name = "seahash"
@@ -8299,6 +8327,32 @@ dependencies = [
  "ryu",
  "serde",
  "unsafe-libyaml",
+]
+
+[[package]]
+name = "serial_test"
+version = "3.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d0b343e184fc3b7bb44dff0705fffcf4b3756ba6aff420dddd8b24ca145e555"
+dependencies = [
+ "futures-executor",
+ "futures-util",
+ "log",
+ "once_cell",
+ "parking_lot",
+ "scc",
+ "serial_test_derive",
+]
+
+[[package]]
+name = "serial_test_derive"
+version = "3.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f50427f258fb77356e4cd4aa0e87e2bd2c66dbcee41dc405282cae2bfc26c83"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.116",
 ]
 
 [[package]]
@@ -9017,6 +9071,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
 
 [[package]]
+name = "temp-env"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96374855068f47402c3121c6eed88d29cb1de8f3ab27090e273e420bdabcf050"
+dependencies = [
+ "parking_lot",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9585,6 +9648,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-serde"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704b1aeb7be0d0a84fc9828cae51dab5970fee5088f83d1dd7ee6f6246fc6ff1"
+dependencies = [
+ "serde",
+ "tracing-core",
+]
+
+[[package]]
 name = "tracing-subscriber"
 version = "0.3.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9594,12 +9667,15 @@ dependencies = [
  "nu-ansi-term",
  "once_cell",
  "regex-automata",
+ "serde",
+ "serde_json",
  "sharded-slab",
  "smallvec",
  "thread_local",
  "tracing",
  "tracing-core",
  "tracing-log",
+ "tracing-serde",
 ]
 
 [[package]]
@@ -9878,7 +9954,6 @@ dependencies = [
  "vortex-pco",
  "vortex-proto",
  "vortex-runend",
- "vortex-scalar",
  "vortex-scan",
  "vortex-sequence",
  "vortex-session",
@@ -9905,7 +9980,6 @@ dependencies = [
  "vortex-error",
  "vortex-fastlanes",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
  "vortex-utils",
 ]
@@ -9926,6 +10000,7 @@ dependencies = [
  "arrow-select",
  "arrow-string",
  "async-lock",
+ "bytes",
  "cfg-if",
  "codspeed-divan-compat",
  "enum-iterator",
@@ -9963,7 +10038,6 @@ dependencies = [
  "vortex-flatbuffers",
  "vortex-mask",
  "vortex-proto",
- "vortex-scalar",
  "vortex-session",
  "vortex-utils",
 ]
@@ -10040,7 +10114,6 @@ dependencies = [
  "vortex-mask",
  "vortex-pco",
  "vortex-runend",
- "vortex-scalar",
  "vortex-sequence",
  "vortex-sparse",
  "vortex-utils",
@@ -10077,7 +10150,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -10150,7 +10222,6 @@ dependencies = [
  "vortex-mask",
  "vortex-nvcomp",
  "vortex-runend",
- "vortex-scalar",
  "vortex-sequence",
  "vortex-session",
  "vortex-utils",
@@ -10231,7 +10302,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -10247,7 +10317,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -10327,9 +10396,9 @@ dependencies = [
  "object_store",
  "prost 0.14.3",
  "pyo3",
- "serde_json",
+ "serial_test",
+ "temp-env",
  "tokio",
- "url",
 ]
 
 [[package]]
@@ -10353,7 +10422,6 @@ dependencies = [
  "vortex-error",
  "vortex-fastlanes",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -10417,7 +10485,6 @@ dependencies = [
  "vortex-metrics",
  "vortex-pco",
  "vortex-runend",
- "vortex-scalar",
  "vortex-scan",
  "vortex-sequence",
  "vortex-session",
@@ -10451,7 +10518,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -10476,7 +10542,6 @@ dependencies = [
  "vortex-layout",
  "vortex-mask",
  "vortex-runend",
- "vortex-scalar",
  "vortex-session",
  "vortex-utils",
 ]
@@ -10586,7 +10651,6 @@ dependencies = [
  "vortex-io",
  "vortex-mask",
  "vortex-metrics",
- "vortex-scalar",
  "vortex-sequence",
  "vortex-session",
  "vortex-utils",
@@ -10641,7 +10705,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -10694,29 +10757,7 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
-]
-
-[[package]]
-name = "vortex-scalar"
-version = "0.1.0"
-dependencies = [
- "arbitrary",
- "arrow-array",
- "bytes",
- "itertools 0.14.0",
- "num-traits",
- "paste",
- "prost 0.14.3",
- "rstest",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-mask",
- "vortex-proto",
- "vortex-session",
- "vortex-utils",
 ]
 
 [[package]]
@@ -10761,7 +10802,6 @@ dependencies = [
  "vortex-mask",
  "vortex-proto",
  "vortex-runend",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -10789,7 +10829,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
 ]
 
@@ -10885,7 +10924,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
  "zigzag",
 ]
@@ -10903,7 +10941,6 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-mask",
- "vortex-scalar",
  "vortex-session",
  "zstd",
 ]

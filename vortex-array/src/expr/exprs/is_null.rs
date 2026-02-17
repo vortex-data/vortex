@@ -130,7 +130,6 @@ mod tests {
     use vortex_dtype::FieldPathSet;
     use vortex_dtype::Nullability;
     use vortex_error::VortexExpect as _;
-    use vortex_scalar::Scalar;
     use vortex_utils::aliases::hash_map::HashMap;
     use vortex_utils::aliases::hash_set::HashSet;
 
@@ -146,6 +145,7 @@ mod tests {
     use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::stats::Stat;
     use crate::expr::test_harness;
+    use crate::scalar::Scalar;
 
     #[test]
     fn dtype() {

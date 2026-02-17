@@ -4,10 +4,10 @@
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
+use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ListViewVTable> for ListViewVTable {

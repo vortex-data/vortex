@@ -6,13 +6,14 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
+use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
@@ -26,18 +27,16 @@ use vortex_error::vortex_err;
 use vortex_runend::RunEndArray;
 use vortex_runend::RunEndArrayParts;
 use vortex_runend::RunEndVTable;
-use vortex_scalar::Scalar;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel_impl;
 
 /// CUDA executor for run-end encoded arrays.
 #[derive(Debug)]
-pub struct RunEndExecutor;
+pub(crate) struct RunEndExecutor;
 
 impl RunEndExecutor {
     fn try_specialize(array: ArrayRef) -> Option<RunEndArray> {
@@ -47,6 +46,7 @@ impl RunEndExecutor {
 
 #[async_trait]
 impl CudaExecute for RunEndExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -131,18 +131,15 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
     let kernel_ptypes = [value_ptype.to_string(), E::PTYPE.to_string()];
     let kernel_ptype_strs: Vec<&str> = kernel_ptypes.iter().map(|s| s.as_str()).collect();
     let cuda_function = ctx.load_function("runend", &kernel_ptype_strs)?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
 
-    launch_builder.arg(&ends_view);
-    launch_builder.arg(&num_runs);
-    launch_builder.arg(&values_view);
-    launch_builder.arg(&offset);
-    launch_builder.arg(&output_len);
-    launch_builder.arg(&output_view);
-
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, output_len)?;
+    ctx.launch_kernel(&cuda_function, output_len, |args| {
+        args.arg(&ends_view)
+            .arg(&num_runs)
+            .arg(&values_view)
+            .arg(&offset)
+            .arg(&output_len)
+            .arg(&output_view);
+    })?;
 
     let output_validity = match values_validity {
         Validity::NonNullable => Validity::NonNullable,

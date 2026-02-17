@@ -5,6 +5,8 @@
 
 use std::process::Command;
 
+use tracing::info;
+
 pub mod arrow;
 mod canonical;
 mod device_buffer;
@@ -29,20 +31,19 @@ use kernel::BitPackedExecutor;
 use kernel::ConstantNumericExecutor;
 use kernel::DateTimePartsExecutor;
 use kernel::DecimalBytePartsExecutor;
+pub use kernel::DefaultLaunchStrategy;
 use kernel::DictExecutor;
 use kernel::FilterExecutor;
 use kernel::FoRExecutor;
+pub use kernel::LaunchStrategy;
 use kernel::RunEndExecutor;
 use kernel::SharedExecutor;
+pub use kernel::TracingLaunchStrategy;
 use kernel::ZigZagExecutor;
 #[cfg(feature = "unstable_encodings")]
 use kernel::ZstdBuffersExecutor;
 use kernel::ZstdExecutor;
 pub use kernel::ZstdKernelPrep;
-pub use kernel::bitpacked_cuda_kernel;
-pub use kernel::bitpacked_cuda_launch_config;
-pub use kernel::launch_cuda_kernel_impl;
-pub use kernel::launch_cuda_kernel_with_config;
 pub use kernel::zstd_kernel_prepare;
 pub use session::CudaSession;
 pub use session::CudaSessionExt;
@@ -78,7 +79,7 @@ pub fn cuda_available() -> bool {
 
 /// Registers CUDA kernels.
 pub fn initialize_cuda(session: &CudaSession) {
-    tracing::info!("Registering CUDA kernels");
+    info!("Registering CUDA kernels");
     session.register_kernel(ALPVTable::ID, &ALPExecutor);
     session.register_kernel(BitPackedVTable::ID, &BitPackedExecutor);
     session.register_kernel(ConstantVTable::ID, &ConstantNumericExecutor);

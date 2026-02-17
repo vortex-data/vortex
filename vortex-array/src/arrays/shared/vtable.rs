@@ -6,7 +6,6 @@ use std::hash::Hash;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::ArrayBufferVisitor;
@@ -21,6 +20,7 @@ use crate::arrays::shared::SharedArray;
 use crate::buffer::BufferHandle;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
+use crate::scalar::Scalar;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;

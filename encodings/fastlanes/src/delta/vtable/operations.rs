@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ToCanonical;
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use super::DeltaVTable;
 use crate::DeltaArray;

@@ -163,13 +163,13 @@ impl ListArray {
         // Offsets must have at least one element
         vortex_ensure!(
             !offsets.is_empty(),
-            "Offsets must have at least one element, [0] for an empty list"
+            InvalidArgument: "Offsets must have at least one element, [0] for an empty list"
         );
 
         // Offsets must be of integer type, and cannot go lower than 0.
         vortex_ensure!(
             offsets.dtype().is_int() && !offsets.dtype().is_nullable(),
-            "offsets have invalid type {}",
+            InvalidArgument: "offsets have invalid type {}",
             offsets.dtype()
         );
 
@@ -178,9 +178,9 @@ impl ListArray {
 
         // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed)
         if let Some(is_sorted) = offsets.statistics().compute_is_sorted() {
-            vortex_ensure!(is_sorted, "offsets must be sorted");
+            vortex_ensure!(is_sorted, InvalidArgument: "offsets must be sorted");
         } else {
-            vortex_bail!("offsets must report is_sorted statistic");
+            vortex_bail!(InvalidArgument: "offsets must report is_sorted statistic");
         }
 
         // Validate that offsets min is non-negative, and max does not exceed the length of
@@ -202,7 +202,7 @@ impl ListArray {
 
                     vortex_ensure!(
                         min >= 0,
-                        "offsets minimum {min} outside valid range [0, {max}]"
+                        InvalidArgument: "offsets minimum {min} outside valid range [0, {max}]"
                     );
 
                     vortex_ensure!(
@@ -211,7 +211,7 @@ impl ListArray {
                             <P as NativePType>::PTYPE,
                             elements.len()
                         )),
-                        "Max offset {max} is beyond the length of the elements array {}",
+                        InvalidArgument: "Max offset {max} is beyond the length of the elements array {}",
                         elements.len()
                     );
                 }
@@ -219,7 +219,7 @@ impl ListArray {
         } else {
             // TODO(aduffy): fallback to slower validation pathway?
             vortex_bail!(
-                "offsets array with encoding {} must support min_max compute function",
+                InvalidArgument: "offsets array with encoding {} must support min_max compute function",
                 offsets.encoding_id()
             );
         };
@@ -228,7 +228,7 @@ impl ListArray {
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == offsets.len() - 1,
-                "validity with size {validity_len} does not match array size {}",
+                InvalidArgument: "validity with size {validity_len} does not match array size {}",
                 offsets.len() - 1
             );
         }

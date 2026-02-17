@@ -7,13 +7,13 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
-use vortex_scalar::Scalar;
 
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::register_kernel;
+use crate::scalar::Scalar;
 
 impl SumKernel for BoolVTable {
     fn sum(&self, array: &BoolArray, accumulator: &Scalar) -> VortexResult<Scalar> {

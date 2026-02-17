@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 
 use async_trait::async_trait;
+use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::DecimalArray;
@@ -20,10 +21,11 @@ use crate::executor::CudaExecute;
 
 // See `DecimalBytePartsArray`
 #[derive(Debug)]
-pub struct DecimalBytePartsExecutor;
+pub(crate) struct DecimalBytePartsExecutor;
 
 #[async_trait]
 impl CudaExecute for DecimalBytePartsExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,

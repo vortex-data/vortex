@@ -23,7 +23,6 @@ vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-proto = { workspace = true }
 vortex-runend = { workspace = true }
-vortex-scalar = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]

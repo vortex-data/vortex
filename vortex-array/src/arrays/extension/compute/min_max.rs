@@ -3,7 +3,6 @@
 
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
@@ -12,6 +11,7 @@ use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
 use crate::compute::{self};
 use crate::register_kernel;
+use crate::scalar::Scalar;
 
 impl MinMaxKernel for ExtensionVTable {
     fn min_max(&self, array: &ExtensionArray) -> VortexResult<Option<MinMaxResult>> {

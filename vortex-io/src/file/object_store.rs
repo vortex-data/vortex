@@ -26,13 +26,8 @@ use crate::VortexReadAt;
 use crate::file::std_file::read_exact_at;
 use crate::runtime::Handle;
 
-const DEFAULT_COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
-    distance: 1024 * 1024,      // 1 MB
-    max_size: 16 * 1024 * 1024, // 16 MB
-};
-
 /// Default number of concurrent requests to allow.
-const DEFAULT_CONCURRENCY: usize = 192;
+pub const DEFAULT_CONCURRENCY: usize = 192;
 
 /// An object store backed I/O source.
 pub struct ObjectStoreSource {
@@ -54,7 +49,7 @@ impl ObjectStoreSource {
             uri,
             handle,
             concurrency: DEFAULT_CONCURRENCY,
-            coalesce_config: Some(DEFAULT_COALESCING_CONFIG),
+            coalesce_config: Some(CoalesceConfig::object_storage()),
         }
     }
 

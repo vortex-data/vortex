@@ -30,10 +30,10 @@ register_kernel!(MinMaxKernelAdapter(ConstantVTable).lift());
 mod test {
     use vortex_dtype::Nullability;
     use vortex_dtype::half::f16;
-    use vortex_scalar::Scalar;
 
     use crate::arrays::ConstantArray;
     use crate::compute::min_max;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_min_max_nan() {

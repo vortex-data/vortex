@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
 use crate::BitPackedVTable;
@@ -37,6 +37,7 @@ mod test {
     use vortex_array::assert_nth_scalar;
     use vortex_array::buffer::BufferHandle;
     use vortex_array::patches::Patches;
+    use vortex_array::scalar::Scalar;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::VTable;
@@ -47,7 +48,6 @@ mod test {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_scalar::Scalar;
 
     use crate::BitPackedArray;
     use crate::BitPackedVTable;

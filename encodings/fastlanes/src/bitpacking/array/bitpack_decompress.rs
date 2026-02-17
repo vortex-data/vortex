@@ -9,6 +9,7 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::builders::UninitRange;
 use vortex_array::patches::Patches;
+use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_dtype::IntegerPType;
@@ -20,7 +21,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
 use crate::unpack_iter::BitPacked;

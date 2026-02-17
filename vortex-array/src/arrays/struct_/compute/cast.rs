@@ -5,7 +5,6 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -15,6 +14,7 @@ use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::CastKernel;
+use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
 
 impl CastKernel for StructVTable {

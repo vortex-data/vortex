@@ -3,11 +3,11 @@
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use super::DictVTable;
 use crate::Array;
 use crate::arrays::dict::DictArray;
+use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<DictVTable> for DictVTable {

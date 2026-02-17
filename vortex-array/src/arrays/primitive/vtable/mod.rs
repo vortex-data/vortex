@@ -89,6 +89,11 @@ impl VTable for PrimitiveVTable {
 
         let ptype = PType::try_from(dtype)?;
 
+        vortex_ensure!(
+            buffer.is_aligned_to(Alignment::new(ptype.byte_width())),
+            "Misaligned buffer cannot be used to build PrimitiveArray of {ptype}"
+        );
+
         if buffer.len() != ptype.byte_width() * len {
             vortex_bail!(
                 "Buffer length {} does not match expected length {} for {}, {}",

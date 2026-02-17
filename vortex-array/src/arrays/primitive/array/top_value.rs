@@ -10,11 +10,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
-use vortex_scalar::PValue;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::arrays::NativeValue;
 use crate::arrays::PrimitiveArray;
+use crate::scalar::PValue;
 
 impl PrimitiveArray {
     /// Compute most common present value of this array

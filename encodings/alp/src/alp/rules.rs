@@ -7,6 +7,7 @@ use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::compute::CastReduceAdaptor;
 use vortex_array::compute::MaskExecuteAdaptor;
 use vortex_array::compute::MaskReduceAdaptor;
+use vortex_array::expr::BetweenReduceAdaptor;
 use vortex_array::expr::CompareExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::optimizer::rules::ParentRuleSet;
@@ -22,6 +23,7 @@ pub(super) const PARENT_KERNELS: ParentKernelSet<ALPVTable> = ParentKernelSet::n
 ]);
 
 pub(super) const RULES: ParentRuleSet<ALPVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&BetweenReduceAdaptor(ALPVTable)),
     ParentRuleSet::lift(&CastReduceAdaptor(ALPVTable)),
     ParentRuleSet::lift(&MaskReduceAdaptor(ALPVTable)),
 ]);

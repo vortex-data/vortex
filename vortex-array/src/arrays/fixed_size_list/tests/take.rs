@@ -6,7 +6,6 @@ use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_scalar::Scalar;
 
 use super::common::create_basic_fsl;
 use super::common::create_empty_fsl;
@@ -21,6 +20,7 @@ use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::FixedSizeListBuilder;
 use crate::compute::conformance::take::test_take_conformance;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 // Conformance tests for common take scenarios.

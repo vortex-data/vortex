@@ -11,14 +11,14 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::expr::CompareKernel;
+use vortex_array::scalar::PValue;
+use vortex_array::scalar::Scalar;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
-use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
 
 use crate::FoRArray;
 use crate::FoRVTable;

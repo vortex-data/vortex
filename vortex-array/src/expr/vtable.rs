@@ -742,7 +742,7 @@ mod tests {
         col("a"),
         lit(10),
         lit(20),
-        crate::compute::BetweenOptions{ lower_strict: crate::compute::StrictComparison::NonStrict, upper_strict: crate::compute::StrictComparison::NonStrict }
+        crate::expr::BetweenOptions{ lower_strict: crate::expr::StrictComparison::NonStrict, upper_strict: crate::expr::StrictComparison::NonStrict }
     ))]
     // List contains expressions
     #[case(list_contains(col("list_col"), lit("item")))]

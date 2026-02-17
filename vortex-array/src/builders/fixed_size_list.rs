@@ -12,8 +12,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::ListScalar;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -25,6 +23,8 @@ use crate::builders::LazyBitBufferBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::scalar::ListScalar;
+use crate::scalar::Scalar;
 
 /// The builder for building a [`FixedSizeListArray`].
 pub struct FixedSizeListBuilder {
@@ -277,7 +277,6 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType::I32;
-    use vortex_scalar::Scalar;
 
     use super::FixedSizeListBuilder;
     use crate::IntoArray as _;
@@ -286,6 +285,7 @@ mod tests {
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::PrimitiveArray;
     use crate::builders::ArrayBuilder;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 

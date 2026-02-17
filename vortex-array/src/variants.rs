@@ -11,10 +11,10 @@ use vortex_dtype::extension::ExtDTypeRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_scalar::PValue;
 
 use crate::Array;
 use crate::compute::sum;
+use crate::scalar::PValue;
 use crate::search_sorted::IndexOrd;
 
 impl dyn Array + '_ {

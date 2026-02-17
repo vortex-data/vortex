@@ -4,7 +4,6 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -13,6 +12,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::compute::BooleanOperator;
 use crate::compute::arrow_boolean;
+use crate::scalar::Scalar;
 
 /// Execute a boolean operation between two arrays.
 ///

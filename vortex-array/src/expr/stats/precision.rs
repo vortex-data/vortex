@@ -8,11 +8,11 @@ use std::fmt::Formatter;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use crate::expr::stats::precision::Precision::Exact;
 use crate::expr::stats::precision::Precision::Inexact;
+use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 
 /// A statistic has a precision `Exact` or `Inexact`. This represents uncertainty in that value.
 /// Exact values are computed, where can inexact values are likely inferred from compute functions.

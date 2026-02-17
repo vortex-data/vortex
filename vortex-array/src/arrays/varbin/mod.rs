@@ -18,7 +18,8 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
+
+use crate::scalar::Scalar;
 
 pub fn varbin_scalar(value: ByteBuffer, dtype: &DType) -> Scalar {
     if matches!(dtype, DType::Utf8(_)) {

@@ -11,6 +11,8 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::io::IoBuf;
 use vortex::io::VortexWrite;
+use vortex::io::file::object_store;
+use vortex::io::file::std_file;
 use vortex::io::runtime::BlockingRuntime;
 
 use crate::RUNTIME;
@@ -167,6 +169,147 @@ pub(crate) unsafe fn duckdb_fs_create_writer(
     unsafe { DuckDbFsWriter::create(ctx, path) }
 }
 
+<<<<<<< HEAD
+=======
+/// A VortexReadAt implementation backed by DuckDB's filesystem (e.g., httpfs/s3).
+pub(crate) struct DuckDbFsReader {
+    handle: Arc<FsFileHandle>,
+    uri: Arc<str>,
+    size: Arc<OnceLock<u64>>,
+    is_local: bool,
+}
+
+impl DuckDbFsReader {
+    pub(crate) unsafe fn open_url(
+        ctx: cpp::duckdb_vx_client_context,
+        url: &url::Url,
+    ) -> VortexResult<Self> {
+        let c_path = CString::new(url.as_str()).map_err(|e| vortex_err!("Invalid URL: {e}"))?;
+        let mut err: cpp::duckdb_vx_error = ptr::null_mut();
+        let file_handle = unsafe { cpp::duckdb_vx_fs_open(ctx, c_path.as_ptr(), &raw mut err) };
+        if file_handle.is_null() {
+            return Err(fs_error(err));
+        }
+
+        let is_local = url.scheme() == "file";
+
+        Ok(Self {
+            handle: Arc::new(unsafe { FsFileHandle::own(file_handle) }),
+            uri: Arc::from(url.as_str()),
+            size: Arc::new(OnceLock::new()),
+            is_local,
+        })
+    }
+}
+
+impl VortexReadAt for DuckDbFsReader {
+    fn uri(&self) -> Option<&Arc<str>> {
+        Some(&self.uri)
+    }
+
+    fn coalesce_config(&self) -> Option<CoalesceConfig> {
+        if self.is_local {
+            Some(CoalesceConfig::local())
+        } else {
+            Some(CoalesceConfig::object_storage())
+        }
+    }
+
+    fn concurrency(&self) -> usize {
+        if self.is_local {
+            std_file::DEFAULT_CONCURRENCY
+        } else {
+            object_store::DEFAULT_CONCURRENCY
+        }
+    }
+
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        let file_handle = self.handle.clone();
+        let size_cell = self.size.clone();
+
+        async move {
+            if let Some(size) = size_cell.get() {
+                return Ok(*size);
+            }
+
+            let runtime = RUNTIME.handle();
+            let size = runtime
+                .spawn_blocking(move || {
+                    let mut err: cpp::duckdb_vx_error = ptr::null_mut();
+                    let mut size_out: cpp::idx_t = 0;
+                    let status = unsafe {
+                        cpp::duckdb_vx_fs_get_size(
+                            file_handle.as_ptr(),
+                            &raw mut size_out,
+                            &raw mut err,
+                        )
+                    };
+                    if status != cpp::duckdb_state::DuckDBSuccess {
+                        return Err(fs_error(err));
+                    }
+                    Ok::<_, VortexError>(size_out as u64)
+                })
+                .await?;
+
+            let _ = size_cell.set(size);
+            Ok(size)
+        }
+        .boxed()
+    }
+
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let file_handle = self.handle.clone();
+
+        async move {
+            let runtime = RUNTIME.handle();
+            let result: VortexResult<BufferHandle> = runtime
+                .spawn_blocking(move || -> VortexResult<BufferHandle> {
+                    let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
+                    unsafe { buffer.set_len(length) };
+
+                    let mut err: cpp::duckdb_vx_error = ptr::null_mut();
+                    let mut out_len: cpp::idx_t = 0;
+                    let status = unsafe {
+                        cpp::duckdb_vx_fs_read(
+                            file_handle.as_ptr(),
+                            offset as cpp::idx_t,
+                            length as cpp::idx_t,
+                            buffer.as_mut_slice().as_mut_ptr(),
+                            &raw mut out_len,
+                            &raw mut err,
+                        )
+                    };
+
+                    if status != cpp::duckdb_state::DuckDBSuccess {
+                        return Err(fs_error(err));
+                    }
+
+                    let used = usize::try_from(out_len)
+                        .map_err(|e| vortex_err!("Invalid read len: {e}"))?;
+                    unsafe { buffer.set_len(used) };
+
+                    let frozen = buffer.freeze();
+                    Ok::<_, VortexError>(BufferHandle::new_host(frozen))
+                })
+                .await;
+            result
+        }
+        .boxed()
+    }
+}
+
+// SAFETY: DuckDB file handles can be used across threads when operations are position-based. The
+// C++ bridge opens handles with FILE_FLAGS_PARALLEL_ACCESS, and writes use explicit offsets, so
+// there is no shared cursor state.
+unsafe impl Send for DuckDbFsReader {}
+unsafe impl Sync for DuckDbFsReader {}
+
+>>>>>>> develop
 pub(crate) struct DuckDbFsWriter {
     handle: Arc<FsFileHandle>,
     pos: u64,
@@ -179,13 +322,13 @@ impl DuckDbFsWriter {
     ) -> VortexResult<Self> {
         let c_path = CString::new(path).map_err(|e| vortex_err!("Invalid path: {e}"))?;
         let mut err: cpp::duckdb_vx_error = ptr::null_mut();
-        let handle = unsafe { cpp::duckdb_vx_fs_create(ctx, c_path.as_ptr(), &raw mut err) };
-        if handle.is_null() {
+        let file_handle = unsafe { cpp::duckdb_vx_fs_create(ctx, c_path.as_ptr(), &raw mut err) };
+        if file_handle.is_null() {
             return Err(fs_error(err));
         }
 
         Ok(Self {
-            handle: Arc::new(unsafe { FsFileHandle::own(handle) }),
+            handle: Arc::new(unsafe { FsFileHandle::own(file_handle) }),
             pos: 0,
         })
     }
@@ -196,14 +339,9 @@ impl VortexWrite for DuckDbFsWriter {
         let len = buffer.bytes_init();
         let offset = self.pos;
         let handle = self.handle.clone();
-        // IoBuf is not bounded by Send, so it cannot be moved into a
-        // spawn_blocking closure. Pass the pointer as usize (which is Send)
-        // and keep `buffer` alive in this async fn until the blocking call
-        // completes.
-        let buf_ptr = buffer.read_ptr() as usize;
 
         let runtime = RUNTIME.handle();
-        runtime
+        let buffer = runtime
             .spawn_blocking(move || {
                 let mut err: cpp::duckdb_vx_error = ptr::null_mut();
                 let mut out_len: cpp::idx_t = 0;
@@ -212,7 +350,7 @@ impl VortexWrite for DuckDbFsWriter {
                         handle.as_ptr(),
                         offset as cpp::idx_t,
                         len as cpp::idx_t,
-                        buf_ptr as *mut u8,
+                        buffer.read_ptr() as *mut u8,
                         &raw mut out_len,
                         &raw mut err,
                     )
@@ -222,7 +360,7 @@ impl VortexWrite for DuckDbFsWriter {
                     return Err(std::io::Error::other(fs_error(err).to_string()));
                 }
 
-                Ok(())
+                Ok(buffer)
             })
             .await?;
 

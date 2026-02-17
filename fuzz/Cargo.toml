@@ -41,7 +41,6 @@ vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-runend = { workspace = true, features = ["arbitrary"] }
-vortex-scalar = { workspace = true, features = ["arbitrary"] }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 

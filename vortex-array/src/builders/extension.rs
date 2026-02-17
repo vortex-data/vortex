@@ -8,8 +8,6 @@ use vortex_dtype::extension::ExtDTypeRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::ExtScalar;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -20,6 +18,8 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::scalar::ExtScalar;
+use crate::scalar::Scalar;
 
 /// The builder for building a [`ExtensionArray`].
 pub struct ExtensionBuilder {
@@ -125,12 +125,12 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::datetime::Date;
     use vortex_dtype::datetime::TimeUnit;
-    use vortex_scalar::Scalar;
 
     use super::*;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_append_scalar() {
