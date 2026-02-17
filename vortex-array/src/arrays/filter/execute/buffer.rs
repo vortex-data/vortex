@@ -9,7 +9,7 @@
 use vortex_buffer::Buffer;
 use vortex_mask::MaskValues;
 
-use super::slice;
+use crate::arrays::filter::execute::slice;
 
 /// Filter a [`Buffer<T>`] by [`MaskValues`], returning a new buffer.
 ///

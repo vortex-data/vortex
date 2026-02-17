@@ -54,7 +54,7 @@ fn filter_bitbuffer_by_slices(bb: &BitBuffer, slices: &[(usize, usize)]) -> BitB
 mod tests {
     use vortex_buffer::bitbuffer;
 
-    use super::*;
+    use crate::arrays::filter::execute::bitbuffer::filter_bitbuffer_by_indices;
 
     #[test]
     fn filter_bool_by_index_test() {
