@@ -55,7 +55,7 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
     let bp = bitpack_to_best_bit_width(&encoded)
         .vortex_expect("")
         .into_array();
-    ALPArray::new(bp, alp.exponents(), alp.patches().cloned()).into_array()
+    ALPArray::new(bp, alp.exponents(), None).into_array()
 }
 
 const BENCH_ARGS: &[usize] = &[2 << 10, 2 << 13, 2 << 14];
