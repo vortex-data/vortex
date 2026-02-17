@@ -10,6 +10,7 @@ use vortex_error::vortex_err;
 
 #[test]
 #[serial]
+#[inline(never)]
 fn test_basic_display() {
     temp_env::with_var("RUST_BACKTRACE", Some("1"), || {
         let err = vortex_err!("this is bad");
