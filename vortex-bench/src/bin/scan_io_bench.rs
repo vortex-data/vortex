@@ -915,11 +915,11 @@ impl KtlsS3ReadSource {
 
         let mut roots = RootCertStore::empty();
         roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let tls = TlsConnector::from(std::sync::Arc::new(
-            ClientConfig::builder()
-                .with_root_certificates(roots)
-                .with_no_client_auth(),
-        ));
+        let mut tls_config = ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        tls_config.enable_secret_extraction = true;
+        let tls = TlsConnector::from(std::sync::Arc::new(tls_config));
 
         let mut coalesce_config = Some(DEFAULT_KTLS_COALESCING_CONFIG);
         if read_env_bool(KTLS_COALESCE_DISABLE_ENV, false) {
