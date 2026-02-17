@@ -297,16 +297,16 @@ jobs:
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --locked --all-targets -- -D warnings
 
-  cuda-lint:
-    name: "CUDA (lint)"
+  cpp-lint:
+    name: "C/C++ (lint)"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
-      - name: CUDA Lint - clang-format
+      - name: C/C++ Lint - clang-format
         run: |
-          git ls-files vortex-cuda \
-            | grep -E '\.(cu|cuh|h)$' \
+          git ls-files vortex-cuda vortex-cxx vortex-duckdb vortex-ffi \
+            | grep -E '\.(cpp|hpp|cu|cuh|h)$' \
             | xargs clang-format --dry-run --Werror --style=file
 
   rust-lint-no-default:

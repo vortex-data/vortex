@@ -73,8 +73,10 @@ struct CTableBindResult {
     vector<string> &names;
 };
 
-unique_ptr<FunctionData> c_bind(ClientContext &context, TableFunctionBindInput &input,
-                                vector<LogicalType> &return_types, vector<string> &names) {
+unique_ptr<FunctionData> c_bind(ClientContext &context,
+                                TableFunctionBindInput &input,
+                                vector<LogicalType> &return_types,
+                                vector<string> &names) {
     const auto &info = input.table_function.function_info->Cast<CTableFunctionInfo>();
 
     // Setup bind info to pass into the callback.
@@ -85,8 +87,10 @@ unique_ptr<FunctionData> c_bind(ClientContext &context, TableFunctionBindInput &
 
     duckdb_vx_error error_out = nullptr;
     auto ctx = reinterpret_cast<duckdb_vx_client_context>(&context);
-    auto ffi_bind_data = info.vtab.bind(ctx, reinterpret_cast<duckdb_vx_tfunc_bind_input>(&input),
-                                        reinterpret_cast<duckdb_vx_tfunc_bind_result>(&result), &error_out);
+    auto ffi_bind_data = info.vtab.bind(ctx,
+                                        reinterpret_cast<duckdb_vx_tfunc_bind_input>(&input),
+                                        reinterpret_cast<duckdb_vx_tfunc_bind_result>(&result),
+                                        &error_out);
     if (error_out) {
         throw BinderException(IntoErrString(error_out));
     }
@@ -119,7 +123,8 @@ unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, Table
         bind.info->max_threads);
 }
 
-unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context, TableFunctionInitInput &input,
+unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context,
+                                                 TableFunctionInitInput &input,
                                                  GlobalTableFunctionState *global_state) {
     const auto &bind = input.bind_data->Cast<CTableBindData>();
     auto global_data = global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
@@ -153,14 +158,20 @@ void c_function(ClientContext &context, TableFunctionInput &input, DataChunk &ou
     auto local_data = input.local_state->Cast<CTableLocalData>().ffi_data->DataPtr();
 
     duckdb_vx_error error_out = nullptr;
-    bind.info->vtab.function(ctx, bind_data, global_data, local_data,
-                             reinterpret_cast<duckdb_data_chunk>(&output), &error_out);
+    bind.info->vtab.function(ctx,
+                             bind_data,
+                             global_data,
+                             local_data,
+                             reinterpret_cast<duckdb_data_chunk>(&output),
+                             &error_out);
     if (error_out) {
         throw InvalidInputException(IntoErrString(error_out));
     }
 }
 
-void c_pushdown_complex_filter(ClientContext &context, LogicalGet &get, FunctionData *bind_data,
+void c_pushdown_complex_filter(ClientContext &context,
+                               LogicalGet &get,
+                               FunctionData *bind_data,
                                vector<unique_ptr<Expression>> &filters) {
     if (filters.empty()) {
         return;
@@ -170,9 +181,10 @@ void c_pushdown_complex_filter(ClientContext &context, LogicalGet &get, Function
 
     for (auto iter = filters.begin(); iter != filters.end();) {
         duckdb_vx_error error_out = nullptr;
-        auto pushed = bind.info->vtab.pushdown_complex_filter(
-            bind_data->Cast<CTableBindData>().ffi_data->DataPtr(),
-            reinterpret_cast<duckdb_vx_expr>(iter->get()), &error_out);
+        auto pushed =
+            bind.info->vtab.pushdown_complex_filter(bind_data->Cast<CTableBindData>().ffi_data->DataPtr(),
+                                                    reinterpret_cast<duckdb_vx_expr>(iter->get()),
+                                                    &error_out);
         if (error_out) {
             throw BinderException(IntoErrString(error_out));
         }
@@ -238,7 +250,8 @@ extern "C" duckdb_value duckdb_vx_tfunc_bind_input_get_named_parameter(duckdb_vx
 }
 
 extern "C" void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_result ffi_result,
-                                                       const char *name_str, size_t name_len,
+                                                       const char *name_str,
+                                                       size_t name_len,
                                                        duckdb_logical_type ffi_type) {
     if (!name_str || !ffi_type) {
         return;
@@ -260,7 +273,9 @@ virtual_column_map_t c_get_virtual_columns(ClientContext &context, optional_ptr<
 }
 
 extern "C" void duckdb_vx_tfunc_virtual_columns_push(duckdb_vx_tfunc_virtual_cols_result ffi_result,
-                                                     idx_t column_idx, const char *name_str, size_t name_len,
+                                                     idx_t column_idx,
+                                                     const char *name_str,
+                                                     size_t name_len,
                                                      duckdb_logical_type ffi_type) {
     if (!ffi_result || !name_str || !ffi_type) {
         return;
@@ -283,8 +298,10 @@ OperatorPartitionData c_get_partition_data(ClientContext &context, TableFunction
     auto &local = input.local_state->Cast<CTableLocalData>();
 
     duckdb_vx_error error_out = nullptr;
-    auto index = bind.info->vtab.get_partition_data(bind.ffi_data->DataPtr(), global.ffi_data->DataPtr(),
-                                                    local.ffi_data->DataPtr(), &error_out);
+    auto index = bind.info->vtab.get_partition_data(bind.ffi_data->DataPtr(),
+                                                    global.ffi_data->DataPtr(),
+                                                    local.ffi_data->DataPtr(),
+                                                    &error_out);
     if (error_out) {
         throw InvalidInputException(IntoErrString(error_out));
     }

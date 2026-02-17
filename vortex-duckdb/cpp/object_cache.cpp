@@ -36,7 +36,9 @@ public:
 
 } // namespace vortex
 
-extern "C" void duckdb_vx_object_cache_put(duckdb_vx_object_cache cache, const char *key, void *value,
+extern "C" void duckdb_vx_object_cache_put(duckdb_vx_object_cache cache,
+                                           const char *key,
+                                           void *value,
                                            duckdb_vx_deleter_fn deleter) {
     auto object_cache = reinterpret_cast<duckdb::ObjectCache *>(cache);
     auto wrapper = duckdb::make_shared_ptr<vortex::OpaqueWrapper>(value, deleter);
