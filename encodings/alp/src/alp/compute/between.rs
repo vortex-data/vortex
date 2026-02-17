@@ -97,8 +97,8 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::BetweenOptions;
-    use vortex_array::compute::StrictComparison;
+    use vortex_array::expr::BetweenOptions;
+    use vortex_array::expr::StrictComparison;
     use vortex_dtype::Nullability;
 
     use crate::ALPArray;

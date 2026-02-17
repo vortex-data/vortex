@@ -72,12 +72,12 @@ mod primitive {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::BetweenOptions;
     use vortex_array::compute::BooleanOperator;
     use vortex_array::compute::Operator;
-    use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::boolean;
     use vortex_array::compute::compare;
+    use vortex_array::expr::BetweenOptions;
+    use vortex_array::expr::StrictComparison::NonStrict;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
@@ -162,12 +162,12 @@ mod bitpack {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::BetweenOptions;
     use vortex_array::compute::BooleanOperator;
     use vortex_array::compute::Operator;
-    use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::boolean;
     use vortex_array::compute::compare;
+    use vortex_array::expr::BetweenOptions;
+    use vortex_array::expr::StrictComparison::NonStrict;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
@@ -251,12 +251,12 @@ mod alp {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::BetweenOptions;
     use vortex_array::compute::BooleanOperator;
     use vortex_array::compute::Operator;
-    use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::boolean;
     use vortex_array::compute::compare;
+    use vortex_array::expr::BetweenOptions;
+    use vortex_array::expr::StrictComparison::NonStrict;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 

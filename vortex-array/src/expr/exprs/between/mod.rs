@@ -344,8 +344,8 @@ impl VTable for Between {
 /// The comparison strictness is controlled by the options parameter.
 ///
 /// ```rust
-/// # use vortex_array::compute::BetweenOptions;
-/// # use vortex_array::compute::StrictComparison;
+/// # use vortex_array::expr::BetweenOptions;
+/// # use vortex_array::expr::StrictComparison;
 /// # use vortex_array::expr::{between, lit, root};
 /// let opts = BetweenOptions {
 ///     lower_strict: StrictComparison::NonStrict,
