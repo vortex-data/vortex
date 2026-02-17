@@ -89,10 +89,6 @@ config_namespace! {
     ///
     /// [`SessionConfig`]: https://docs.rs/datafusion/latest/datafusion/prelude/struct.SessionConfig.html
     pub struct VortexTableOptions {
-        /// The size of the in-memory [`vortex::file::Footer`] cache.
-        pub footer_cache_size_mb: usize, default = 64
-        /// The size of the in-memory segment cache.
-        pub segment_cache_size_mb: usize, default = 0
         /// The number of bytes to read when parsing a file footer.
         ///
         /// Values smaller than `MAX_POSTSCRIPT_SIZE + EOF_SIZE` will be clamped to that minimum
