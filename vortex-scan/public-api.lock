@@ -2,28 +2,6 @@ pub mod vortex_scan
 
 pub mod vortex_scan::api
 
-pub struct vortex_scan::api::Estimate<T>
-
-pub vortex_scan::api::Estimate::lower: T
-
-pub vortex_scan::api::Estimate::upper: core::option::Option<T>
-
-impl<T: core::marker::Copy> vortex_scan::api::Estimate<T>
-
-pub fn vortex_scan::api::Estimate<T>::exact(value: T) -> Self
-
-impl<T: core::clone::Clone> core::clone::Clone for vortex_scan::api::Estimate<T>
-
-pub fn vortex_scan::api::Estimate<T>::clone(&self) -> vortex_scan::api::Estimate<T>
-
-impl<T: core::default::Default> core::default::Default for vortex_scan::api::Estimate<T>
-
-pub fn vortex_scan::api::Estimate<T>::default() -> Self
-
-impl<T: core::fmt::Debug> core::fmt::Debug for vortex_scan::api::Estimate<T>
-
-pub fn vortex_scan::api::Estimate<T>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
 pub struct vortex_scan::api::ScanRequest
 
 pub vortex_scan::api::ScanRequest::filter: core::option::Option<vortex_array::expr::expression::Expression>
@@ -52,13 +30,13 @@ pub fn vortex_scan::api::ScanRequest::fmt(&self, f: &mut core::fmt::Formatter<'_
 
 pub trait vortex_scan::api::DataSource: 'static + core::marker::Send + core::marker::Sync
 
-pub fn vortex_scan::api::DataSource::byte_size_estimate(&self) -> vortex_scan::api::Estimate<u64>
+pub fn vortex_scan::api::DataSource::byte_size_estimate(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
 pub fn vortex_scan::api::DataSource::deserialize_split(&self, data: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_scan::api::SplitRef>
 
 pub fn vortex_scan::api::DataSource::dtype(&self) -> &vortex_dtype::dtype::DType
 
-pub fn vortex_scan::api::DataSource::row_count_estimate(&self) -> vortex_scan::api::Estimate<u64>
+pub fn vortex_scan::api::DataSource::row_count_estimate(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
 pub fn vortex_scan::api::DataSource::scan(&self, scan_request: vortex_scan::api::ScanRequest) -> vortex_error::VortexResult<vortex_scan::api::DataSourceScanRef>
 
@@ -66,13 +44,13 @@ pub fn vortex_scan::api::DataSource::serialize(&self) -> vortex_error::VortexRes
 
 impl vortex_scan::api::DataSource for vortex_scan::layout::LayoutReaderDataSource
 
-pub fn vortex_scan::layout::LayoutReaderDataSource::byte_size_estimate(&self) -> vortex_scan::api::Estimate<u64>
+pub fn vortex_scan::layout::LayoutReaderDataSource::byte_size_estimate(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
 pub fn vortex_scan::layout::LayoutReaderDataSource::deserialize_split(&self, _data: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_scan::api::SplitRef>
 
 pub fn vortex_scan::layout::LayoutReaderDataSource::dtype(&self) -> &vortex_dtype::dtype::DType
 
-pub fn vortex_scan::layout::LayoutReaderDataSource::row_count_estimate(&self) -> vortex_scan::api::Estimate<u64>
+pub fn vortex_scan::layout::LayoutReaderDataSource::row_count_estimate(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
 pub fn vortex_scan::layout::LayoutReaderDataSource::scan(&self, scan_request: vortex_scan::api::ScanRequest) -> vortex_error::VortexResult<vortex_scan::api::DataSourceScanRef>
 
@@ -82,7 +60,7 @@ pub fn vortex_scan::multi::MultiDataSource::deserialize_split(&self, _data: &[u8
 
 pub fn vortex_scan::multi::MultiDataSource::dtype(&self) -> &vortex_dtype::dtype::DType
 
-pub fn vortex_scan::multi::MultiDataSource::row_count_estimate(&self) -> vortex_scan::api::Estimate<u64>
+pub fn vortex_scan::multi::MultiDataSource::row_count_estimate(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
 pub fn vortex_scan::multi::MultiDataSource::scan(&self, scan_request: vortex_scan::api::ScanRequest) -> vortex_error::VortexResult<vortex_scan::api::DataSourceScanRef>
 
@@ -98,7 +76,7 @@ pub trait vortex_scan::api::DataSourceScan: 'static + core::marker::Send
 
 pub fn vortex_scan::api::DataSourceScan::dtype(&self) -> &vortex_dtype::dtype::DType
 
-pub fn vortex_scan::api::DataSourceScan::split_count_estimate(&self) -> vortex_scan::api::Estimate<usize>
+pub fn vortex_scan::api::DataSourceScan::split_count_estimate(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<usize>>
 
 pub fn vortex_scan::api::DataSourceScan::splits(self: alloc::boxed::Box<Self>) -> vortex_scan::api::SplitStream
 
@@ -106,11 +84,11 @@ pub trait vortex_scan::api::Split: 'static + core::marker::Send
 
 pub fn vortex_scan::api::Split::as_any(&self) -> &dyn core::any::Any
 
-pub fn vortex_scan::api::Split::byte_size_estimate(&self) -> vortex_scan::api::Estimate<u64>
+pub fn vortex_scan::api::Split::byte_size_estimate(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
 pub fn vortex_scan::api::Split::execute(self: alloc::boxed::Box<Self>) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
-pub fn vortex_scan::api::Split::row_count_estimate(&self) -> vortex_scan::api::Estimate<u64>
+pub fn vortex_scan::api::Split::row_count_estimate(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
 pub fn vortex_scan::api::Split::serialize(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
@@ -160,13 +138,13 @@ pub fn vortex_scan::layout::LayoutReaderDataSource::with_split_max_row_count(sel
 
 impl vortex_scan::api::DataSource for vortex_scan::layout::LayoutReaderDataSource
 
-pub fn vortex_scan::layout::LayoutReaderDataSource::byte_size_estimate(&self) -> vortex_scan::api::Estimate<u64>
+pub fn vortex_scan::layout::LayoutReaderDataSource::byte_size_estimate(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
 pub fn vortex_scan::layout::LayoutReaderDataSource::deserialize_split(&self, _data: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_scan::api::SplitRef>
 
 pub fn vortex_scan::layout::LayoutReaderDataSource::dtype(&self) -> &vortex_dtype::dtype::DType
 
-pub fn vortex_scan::layout::LayoutReaderDataSource::row_count_estimate(&self) -> vortex_scan::api::Estimate<u64>
+pub fn vortex_scan::layout::LayoutReaderDataSource::row_count_estimate(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
 pub fn vortex_scan::layout::LayoutReaderDataSource::scan(&self, scan_request: vortex_scan::api::ScanRequest) -> vortex_error::VortexResult<vortex_scan::api::DataSourceScanRef>
 
@@ -190,7 +168,7 @@ pub fn vortex_scan::multi::MultiDataSource::deserialize_split(&self, _data: &[u8
 
 pub fn vortex_scan::multi::MultiDataSource::dtype(&self) -> &vortex_dtype::dtype::DType
 
-pub fn vortex_scan::multi::MultiDataSource::row_count_estimate(&self) -> vortex_scan::api::Estimate<u64>
+pub fn vortex_scan::multi::MultiDataSource::row_count_estimate(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
 pub fn vortex_scan::multi::MultiDataSource::scan(&self, scan_request: vortex_scan::api::ScanRequest) -> vortex_error::VortexResult<vortex_scan::api::DataSourceScanRef>
 
@@ -206,7 +184,11 @@ pub vortex_scan::Selection::All
 
 pub vortex_scan::Selection::ExcludeByIndex(vortex_buffer::buffer::Buffer<u64>)
 
+pub vortex_scan::Selection::ExcludeRoaring(roaring::treemap::RoaringTreemap)
+
 pub vortex_scan::Selection::IncludeByIndex(vortex_buffer::buffer::Buffer<u64>)
+
+pub vortex_scan::Selection::IncludeRoaring(roaring::treemap::RoaringTreemap)
 
 impl core::clone::Clone for vortex_scan::Selection
 
