@@ -54,6 +54,10 @@ pub use crate::expr::FillNullExecuteAdaptor;
 pub use crate::expr::FillNullKernel;
 pub use crate::expr::FillNullReduce;
 pub use crate::expr::FillNullReduceAdaptor;
+pub use crate::expr::MaskExecuteAdaptor;
+pub use crate::expr::MaskKernel;
+pub use crate::expr::MaskReduce;
+pub use crate::expr::MaskReduceAdaptor;
 pub use crate::expr::NotExecuteAdaptor;
 pub use crate::expr::NotKernel;
 pub use crate::expr::NotReduce;
@@ -97,7 +101,6 @@ pub fn warm_up_vtables() {
     is_constant::warm_up_vtable();
     is_sorted::warm_up_vtable();
     list_contains::warm_up_vtable();
-    mask::warm_up_vtable();
     min_max::warm_up_vtable();
     nan_count::warm_up_vtable();
     sum::warm_up_vtable();

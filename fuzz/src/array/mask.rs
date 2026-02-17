@@ -5,6 +5,7 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::ExtensionArray;
@@ -13,11 +14,38 @@ use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
+use vortex_dtype::Nullability;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
+
+/// Set to false any entries for which the mask is true.
+///
+/// The result is always nullable. The result has the same length as self.
+#[inline]
+pub fn mask_validity(validity: &Validity, mask: &Mask) -> Validity {
+    match mask.bit_buffer() {
+        AllOr::All => Validity::AllInvalid,
+        AllOr::None => validity.clone().into_nullable(),
+        AllOr::Some(make_invalid) => match validity {
+            Validity::NonNullable | Validity::AllValid => {
+                Validity::from_bit_buffer(!make_invalid, Nullability::Nullable)
+            }
+            Validity::AllInvalid => Validity::AllInvalid,
+            Validity::Array(is_valid) => {
+                let is_valid = is_valid.to_bool();
+                Validity::from_bit_buffer(
+                    is_valid.to_bit_buffer() & !make_invalid,
+                    Nullability::Nullable,
+                )
+            }
+        },
+    }
+}
 
 /// Apply mask on the canonical form of the array to get a consistent baseline.
 /// This implementation manually applies the mask to each canonical type
@@ -29,11 +57,11 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             array.into_array()
         }
         Canonical::Bool(array) => {
-            let new_validity = array.validity().mask(mask);
+            let new_validity = mask_validity(array.validity(), mask);
             BoolArray::new(array.to_bit_buffer(), new_validity).into_array()
         }
         Canonical::Primitive(array) => {
-            let new_validity = array.validity().mask(mask);
+            let new_validity = mask_validity(array.validity(), mask);
             PrimitiveArray::from_buffer_handle(
                 array.buffer_handle().clone(),
                 array.ptype(),
@@ -42,14 +70,14 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             .into_array()
         }
         Canonical::Decimal(array) => {
-            let new_validity = array.validity().mask(mask);
+            let new_validity = mask_validity(array.validity(), mask);
             match_each_decimal_value_type!(array.values_type(), |D| {
                 DecimalArray::new(array.buffer::<D>(), array.decimal_dtype(), new_validity)
                     .into_array()
             })
         }
         Canonical::VarBinView(array) => {
-            let new_validity = array.validity().mask(mask);
+            let new_validity = mask_validity(array.validity(), mask);
             VarBinViewArray::new_handle(
                 array.views_handle().clone(),
                 array.buffers().clone(),
@@ -59,7 +87,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             .into_array()
         }
         Canonical::List(array) => {
-            let new_validity = array.validity().mask(mask);
+            let new_validity = mask_validity(array.validity(), mask);
 
             // SAFETY: Since we are only masking the validity and everything else comes from an
             // already valid `ListViewArray`, all of the invariants are still upheld.
@@ -75,7 +103,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             .into_array()
         }
         Canonical::FixedSizeList(array) => {
-            let new_validity = array.validity().mask(mask);
+            let new_validity = mask_validity(array.validity(), mask);
             FixedSizeListArray::new(
                 array.elements().clone(),
                 array.list_size(),
@@ -85,7 +113,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             .into_array()
         }
         Canonical::Struct(array) => {
-            let new_validity = array.validity().mask(mask);
+            let new_validity = mask_validity(array.validity(), mask);
             StructArray::try_new_with_dtype(
                 array.unmasked_fields().clone(),
                 array.struct_fields().clone(),

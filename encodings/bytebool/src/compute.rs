@@ -9,14 +9,12 @@ use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::compute::CastReduce;
-use vortex_array::compute::MaskKernel;
-use vortex_array::compute::MaskKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_array::compute::MaskReduce;
+use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use super::ByteBoolArray;
 use super::ByteBoolVTable;
@@ -44,13 +42,20 @@ impl CastReduce for ByteBoolVTable {
     }
 }
 
-impl MaskKernel for ByteBoolVTable {
-    fn mask(&self, array: &ByteBoolArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(ByteBoolArray::new(array.buffer().clone(), array.validity().mask(mask)).into_array())
+impl MaskReduce for ByteBoolVTable {
+    fn mask(array: &ByteBoolArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            ByteBoolArray::new(
+                array.buffer().clone(),
+                array
+                    .validity()
+                    .clone()
+                    .and(Validity::Array(mask.clone()))?,
+            )
+            .into_array(),
+        ))
     }
 }
-
-register_kernel!(MaskKernelAdapter(ByteBoolVTable).lift());
 
 impl TakeExecute for ByteBoolVTable {
     fn take(

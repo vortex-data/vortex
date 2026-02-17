@@ -15,6 +15,7 @@ use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::builtins::ArrayBuiltins;
+use crate::compute::MaskReduceAdaptor;
 use crate::expr::Cast;
 use crate::expr::EmptyOptions;
 use crate::expr::GetItem;
@@ -27,6 +28,7 @@ use crate::vtable::ValidityHelper;
 pub(crate) const PARENT_RULES: ParentRuleSet<StructVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&StructCastPushDownRule),
     ParentRuleSet::lift(&StructGetItemRule),
+    ParentRuleSet::lift(&MaskReduceAdaptor(StructVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(StructVTable)),
 ]);
 

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod kernel;
 use std::fmt::Formatter;
-use std::ops::Not;
 
+pub use kernel::*;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
@@ -14,8 +15,13 @@ use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::IntoArray;
 use crate::arrays::BoolArray;
-use crate::compute;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::arrays::mask_validity_canonical;
+use crate::builtins::ArrayBuiltins;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -94,9 +100,11 @@ impl VTable for Mask {
             .try_into()
             .map_err(|_| vortex_err!("Wrong arg count"))?;
 
-        let mask_bool = mask_array.execute::<BoolArray>(args.ctx)?;
-        let inverted = mask_bool.to_bit_buffer().not();
-        compute::mask(&input, &vortex_mask::Mask::from(inverted))?.execute(args.ctx)
+        if let Some(result) = execute_constant(&input, &mask_array)? {
+            return Ok(result);
+        }
+
+        execute_canonical(input, mask_array, args.ctx)
     }
 
     fn simplify(
@@ -134,6 +142,47 @@ impl VTable for Mask {
             expression.child(1).clone(),
         )))
     }
+}
+
+/// Try to handle masking when at least one of the input or mask is a constant array.
+///
+/// Returns `Ok(Some(result))` if the constant case was handled, `Ok(None)` if not.
+fn execute_constant(input: &ArrayRef, mask_array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    let len = input.len();
+
+    if let Some(constant_mask) = mask_array.as_opt::<ConstantVTable>() {
+        let mask_value = constant_mask.scalar().as_bool().value().unwrap_or(false);
+        return if mask_value {
+            input.cast(input.dtype().as_nullable()).map(Some)
+        } else {
+            Ok(Some(
+                ConstantArray::new(Scalar::null(input.dtype().as_nullable()), len).into_array(),
+            ))
+        };
+    }
+
+    if let Some(constant_input) = input.as_opt::<ConstantVTable>()
+        && constant_input.scalar().is_null()
+    {
+        return Ok(Some(
+            ConstantArray::new(Scalar::null(input.dtype().as_nullable()), len).into_array(),
+        ));
+    }
+
+    Ok(None)
+}
+
+/// Execute the mask by materializing both inputs to their canonical forms.
+fn execute_canonical(
+    input: ArrayRef,
+    mask_array: ArrayRef,
+    ctx: &mut crate::executor::ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let mask_bool = mask_array.execute::<BoolArray>(ctx)?;
+    let validity_mask = vortex_mask::Mask::from(mask_bool.to_bit_buffer());
+
+    let canonical = input.execute::<Canonical>(ctx)?;
+    Ok(mask_validity_canonical(canonical, &validity_mask, ctx)?.into_array())
 }
 
 /// Creates a mask expression that applies the given boolean mask to the input array.

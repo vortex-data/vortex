@@ -12,6 +12,7 @@ use crate::arrays::FilterReduceAdaptor;
 use crate::arrays::FilterVTable;
 use crate::arrays::SliceReduceAdaptor;
 use crate::compute::CastReduceAdaptor;
+use crate::expr::MaskReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 
@@ -19,6 +20,7 @@ pub(crate) const PARENT_RULES: ParentRuleSet<ExtensionVTable> = ParentRuleSet::n
     ParentRuleSet::lift(&ExtensionFilterPushDownRule),
     ParentRuleSet::lift(&CastReduceAdaptor(ExtensionVTable)),
     ParentRuleSet::lift(&FilterReduceAdaptor(ExtensionVTable)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(ExtensionVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(ExtensionVTable)),
 ]);
 
