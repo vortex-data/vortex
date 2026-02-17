@@ -284,18 +284,19 @@ jobs:
       - id: setup-rust
         uses: ./.github/actions/setup-rust
         with:
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install nightly for fmt
+        run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
       - name: Rust Lint - Format
         run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
       - name: Rustc check
-        run: RUSTFLAGS="-D warnings" cargo check --locked --all-features --all-targets
+        run: RUSTFLAGS="-D warnings" cargo +stable check --locked --all-features --all-targets
       - name: Rustc check (release)
-        run: RUSTFLAGS="-D warnings" cargo check --locked --all-features --all-targets --release
+        run: RUSTFLAGS="-D warnings" cargo +stable check --locked --all-features --all-targets --release
       - name: Rust Lint - Clippy All Features
-        run: cargo clippy --locked --all-features --all-targets -- -D warnings
+        run: cargo +stable clippy --locked --all-features --all-targets -- -D warnings
       - name: Rust Lint - Clippy Default Features
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: cargo +stable clippy --locked --all-targets -- -D warnings
 
   cuda-lint:
     name: "CUDA (lint)"
@@ -412,10 +413,8 @@ jobs:
           tool: nextest
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
-        env:
-          RUSTFLAGS: "-Cinstrument-coverage -A warnings --cfg vortex_nightly"
         run: |
-          cargo +$NIGHTLY_TOOLCHAIN nextest run --locked --workspace --all-features --no-fail-fast
+          cargo +stable nextest run --locked --workspace --all-features --no-fail-fast
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
       - name: Generate coverage report
@@ -527,8 +526,6 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
-          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
@@ -539,9 +536,9 @@ jobs:
           FLAT_LAYOUT_INLINE_ARRAY_NODE: true
         run: |
           # Build with full debug info first (helps with caching)
-          cargo +$NIGHTLY_TOOLCHAIN build --locked -p vortex-cuda -p vortex-file -p vortex-test-e2e-cuda --all-features --target x86_64-unknown-linux-gnu
-          # Run tests with sanitizers and debug output
-          cargo +$NIGHTLY_TOOLCHAIN nextest run \
+          cargo +stable build --locked -p vortex-cuda -p vortex-file -p vortex-test-e2e-cuda --all-features --target x86_64-unknown-linux-gnu
+          # Run tests with debug output
+          cargo +stable nextest run \
             --locked \
             -p vortex-file \
             -p vortex-cuda \
@@ -553,22 +550,22 @@ jobs:
       - name: CUDA - memcheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool memcheck --leak-check=full --error-exitcode 1
-        run: cargo test -p vortex-cuda
+        run: cargo +stable test -p vortex-cuda
         # TODO(joe): try to re-enable, This is hanging in CI.
         #      - name: CUDA - racecheck
         #        env:
         #          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool racecheck --error-exitcode 1
-        #        run: cargo test -p vortex-cuda
+        #        run: cargo +stable test -p vortex-cuda
       - name: CUDA - synccheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool synccheck --error-exitcode 1
-        run: cargo test -p vortex-cuda
+        run: cargo +stable test -p vortex-cuda
       - name: CUDA - initcheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool initcheck --error-exitcode 1
-        run: cargo test -p vortex-cuda
+        run: cargo +stable test -p vortex-cuda
       - name: Build cudf test library
-        run: cargo +$NIGHTLY_TOOLCHAIN build --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
+        run: cargo +stable build --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
       - name: Download and run cudf-test-harness
         run: |
           curl -fsSL https://github.com/vortex-data/cudf-test-harness/releases/latest/download/cudf-test-harness-x86_64.tar.gz | tar -xz
@@ -826,12 +823,13 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+      - name: Install nightly for cbindgen macro expansion
+        run: rustup toolchain install $NIGHTLY_TOOLCHAIN
       - uses: ./.github/actions/setup-flatc
       - name: "regenerate all .fbs/.proto Rust code"
         run: |
-          cargo xtask generate-fbs
-          cargo xtask generate-proto
+          cargo +stable xtask generate-fbs
+          cargo +stable xtask generate-proto
       - name: "regenerate FFI header file"
         run: |
           cargo +$NIGHTLY_TOOLCHAIN build -p vortex-ffi

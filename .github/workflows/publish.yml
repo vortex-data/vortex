@@ -8,9 +8,6 @@ on:
   release:
     types: [published]
 
-env:
-  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
-
 jobs:
   package:
     uses: ./.github/workflows/package.yml
@@ -39,7 +36,7 @@ jobs:
 
       - name: Release
         run: |
-          cargo +$NIGHTLY_TOOLCHAIN publish -Zpublish-timeout --no-verify --allow-dirty --workspace
+          cargo +stable publish --no-verify --allow-dirty --workspace
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
