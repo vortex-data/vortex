@@ -62,6 +62,11 @@ harness = false
 test = false
 
 [[bench]]
+name = "compress_listview"
+harness = false
+test = false
+
+[[bench]]
 name = "dict_encode"
 harness = false
 test = false
