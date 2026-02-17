@@ -17,6 +17,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::expr::stats::Precision as StatPrecision;
 use vortex_array::expr::stats::Stat;
+use vortex_array::match_each_pvalue;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
@@ -133,11 +134,13 @@ impl SequenceArray {
 
         // A sequence A[i] = base + i * multiplier is sorted iff multiplier >= 0,
         // and strictly sorted iff multiplier > 0.
-        let m_int = multiplier
-            .cast::<i64>()
-            .vortex_expect("must be able to cast");
-        let is_sorted = m_int >= 0;
-        let is_strict_sorted = m_int > 0;
+
+        let (is_sorted, is_strict_sorted) = match_each_pvalue!(
+            multiplier,
+            uint: |v| { (true, v> 0) },
+            int: |v| { (v >= 0, v > 0) },
+            float: |v| { (!v.is_sign_negative(), v.is_sign_positive()) }
+        );
 
         // SAFETY: we don't have duplicate stats
         let stats_set = unsafe {
@@ -519,6 +522,27 @@ mod tests {
             .statistics()
             .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
         assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(false)));
+        Ok(())
+    }
+
+    // This is regression test for an issue caught by the fuzzer, where SequenceArrays with
+    // multiplier > i64::MAX were unable to be constructed.
+    #[test]
+    fn test_large_multiplier_sorted() -> VortexResult<()> {
+        let large_multiplier = (i64::MAX as u64) + 1;
+        let arr = SequenceArray::typed_new(0, large_multiplier, Nullability::NonNullable, 2)?;
+
+        let is_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+
+        let is_strict_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+
+        assert_eq!(is_sorted, Some(StatPrecision::Exact(true)));
+        assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(true)));
+
         Ok(())
     }
 }
