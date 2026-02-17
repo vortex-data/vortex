@@ -14578,6 +14578,8 @@ pub fn vortex_array::vtable::validity_to_child(validity: &vortex_array::validity
 
 pub type vortex_array::vtable::ArrayId = arcref::ArcRef<str>
 
+pub macro vortex_array::match_each_pvalue!
+
 pub macro vortex_array::register_kernel!
 
 pub macro vortex_array::vtable!
