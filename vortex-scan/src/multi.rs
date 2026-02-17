@@ -9,7 +9,7 @@
 //!
 //! # Schema Resolution
 //!
-//! Currently, all children must share the exact same [`DType`](vortex_dtype::DType). A dtype
+//! Currently, all children must share the exact same [`DType`]. A dtype
 //! mismatch produces an error. Future work could support schema union (allowing missing columns
 //! filled with nulls and compatible type upcasts).
 //!
