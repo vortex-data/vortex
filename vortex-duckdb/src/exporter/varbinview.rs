@@ -6,10 +6,10 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex::array::ExecutionCtx;
+use vortex::array::arrays::BinaryView;
+use vortex::array::arrays::Inlined;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::VarBinViewArrayParts;
-use vortex::array::arrays::build_views::BinaryView;
-use vortex::array::arrays::build_views::Inlined;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;

@@ -2,32 +2,31 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
-use crate::compute::MaskKernel;
-use crate::compute::MaskKernelAdapter;
-use crate::compute::mask;
-use crate::register_kernel;
+use crate::arrays::ScalarFnArrayExt;
+use crate::compute::MaskReduce;
+use crate::expr::EmptyOptions;
+use crate::expr::mask::Mask as MaskExpr;
 
-impl MaskKernel for ExtensionVTable {
-    fn mask(&self, array: &ExtensionArray, mask_array: &Mask) -> VortexResult<ArrayRef> {
-        // Use compute::mask directly since mask_array has compute::mask semantics (true=null)
-        let masked_storage = mask(array.storage(), mask_array)?;
-        assert!(masked_storage.dtype().is_nullable());
-
-        Ok(ExtensionArray::new(
-            array
-                .ext_dtype()
-                .with_nullability(masked_storage.dtype().nullability()),
-            masked_storage,
-        )
-        .into_array())
+impl MaskReduce for ExtensionVTable {
+    fn mask(array: &ExtensionArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let masked_storage = MaskExpr.try_new_array(
+            array.storage().len(),
+            EmptyOptions,
+            [array.storage().clone(), mask.clone()],
+        )?;
+        Ok(Some(
+            ExtensionArray::new(
+                array
+                    .ext_dtype()
+                    .with_nullability(masked_storage.dtype().nullability()),
+                masked_storage,
+            )
+            .into_array(),
+        ))
     }
 }
-
-register_kernel!(MaskKernelAdapter(ExtensionVTable).lift());

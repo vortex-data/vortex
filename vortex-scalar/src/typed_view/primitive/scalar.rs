@@ -24,7 +24,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use super::pvalue::CoercePValue;
@@ -137,8 +136,7 @@ impl<'a> PrimitiveScalar<'a> {
             T::PTYPE
         );
 
-        // TODO(connor): This should really use `cast_opt`...
-        self.pvalue.map(|pv| pv.cast::<T>())
+        self.pvalue.and_then(|pv| pv.cast::<T>().ok())
     }
 
     /// Returns the value as a specific native primitive type.
@@ -157,8 +155,11 @@ impl<'a> PrimitiveScalar<'a> {
             T::PTYPE
         );
 
-        // TODO(connor): This should really use `cast_opt`...
-        Ok(self.pvalue.map(|pv| pv.cast::<T>()))
+        if let Some(pv) = self.pvalue {
+            pv.cast::<T>().map(Some)
+        } else {
+            Ok(None)
+        }
     }
 
     /// Casts this scalar to the given `dtype`.
@@ -168,12 +169,7 @@ impl<'a> PrimitiveScalar<'a> {
             .pvalue
             .vortex_expect("nullness handled in Scalar::cast");
         Ok(match_each_native_ptype!(ptype, |Q| {
-            Scalar::primitive(
-                pvalue
-                    .cast_opt::<Q>()
-                    .ok_or_else(|| vortex_err!("Cannot cast {} to {}", self.ptype, dtype))?,
-                dtype.nullability(),
-            )
+            Scalar::primitive(pvalue.cast::<Q>()?, dtype.nullability())
         }))
     }
 

@@ -50,9 +50,7 @@ macro_rules! primitive_scalar {
             type Error = VortexError;
 
             fn try_from(value: &ScalarValue) -> VortexResult<Self> {
-                value.as_primitive().cast_opt::<$T>().ok_or_else(|| {
-                    vortex_err!("Unable to convert the `ScalarValue` to the target type")
-                })
+                value.as_primitive().cast::<$T>()
             }
         }
 
@@ -154,10 +152,7 @@ impl TryFrom<&ScalarValue> for usize {
     type Error = VortexError;
 
     fn try_from(value: &ScalarValue) -> VortexResult<Self> {
-        let val = value
-            .as_primitive()
-            .cast_opt::<u64>()
-            .ok_or_else(|| vortex_err!("Unable to convert the `ScalarValue` to the target type"))?;
+        let val = value.as_primitive().cast::<u64>()?;
         Ok(usize::try_from(val)?)
     }
 }

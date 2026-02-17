@@ -185,6 +185,13 @@ impl Operator {
     pub fn is_arithmetic(&self) -> bool {
         matches!(self, Self::Add | Self::Sub | Self::Mul | Self::Div)
     }
+
+    pub fn is_comparison(&self) -> bool {
+        matches!(
+            self,
+            Self::Eq | Self::NotEq | Self::Gt | Self::Gte | Self::Lt | Self::Lte
+        )
+    }
 }
 
 impl From<compute::Operator> for Operator {

@@ -11,6 +11,7 @@ use vortex_array::arrays::FilterExecuteAdaptor;
 use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::SliceVTable;
 use vortex_array::arrays::TakeExecuteAdaptor;
+use vortex_array::expr::CompareExecuteAdaptor;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
@@ -20,6 +21,7 @@ use crate::RunEndVTable;
 use crate::compute::take_from::RunEndVTableTakeFrom;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<RunEndVTable> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&CompareExecuteAdaptor(RunEndVTable)),
     ParentKernelSet::lift(&RunEndSliceKernel),
     ParentKernelSet::lift(&FilterExecuteAdaptor(RunEndVTable)),
     ParentKernelSet::lift(&TakeExecuteAdaptor(RunEndVTable)),

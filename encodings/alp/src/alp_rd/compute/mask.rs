@@ -3,31 +3,35 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::MaskKernel;
-use vortex_array::compute::MaskKernelAdapter;
-use vortex_array::compute::mask;
-use vortex_array::register_kernel;
+use vortex_array::arrays::ScalarFnArrayExt;
+use vortex_array::compute::MaskReduce;
+use vortex_array::expr::EmptyOptions;
+use vortex_array::expr::Mask as MaskExpr;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::ALPRDArray;
 use crate::ALPRDVTable;
 
-impl MaskKernel for ALPRDVTable {
-    fn mask(&self, array: &ALPRDArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(ALPRDArray::try_new(
-            array.dtype().as_nullable(),
-            mask(array.left_parts(), filter_mask)?,
-            array.left_parts_dictionary().clone(),
-            array.right_parts().clone(),
-            array.right_bit_width(),
-            array.left_parts_patches().cloned(),
-        )?
-        .into_array())
+impl MaskReduce for ALPRDVTable {
+    fn mask(array: &ALPRDArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let masked_left_parts = MaskExpr.try_new_array(
+            array.left_parts().len(),
+            EmptyOptions,
+            [array.left_parts().clone(), mask.clone()],
+        )?;
+        Ok(Some(
+            ALPRDArray::try_new(
+                array.dtype().as_nullable(),
+                masked_left_parts,
+                array.left_parts_dictionary().clone(),
+                array.right_parts().clone(),
+                array.right_bit_width(),
+                array.left_parts_patches().cloned(),
+            )?
+            .into_array(),
+        ))
     }
 }
-
-register_kernel!(MaskKernelAdapter(ALPRDVTable).lift());
 
 #[cfg(test)]
 mod tests {

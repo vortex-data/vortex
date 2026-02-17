@@ -3,16 +3,15 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::CompareKernel;
-use vortex_array::compute::CompareKernelAdapter;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::compute::compare_lengths_to_empty;
-use vortex_array::register_kernel;
+use vortex_array::expr::CompareKernel;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
@@ -28,10 +27,10 @@ use crate::FSSTVTable;
 
 impl CompareKernel for FSSTVTable {
     fn compare(
-        &self,
         lhs: &FSSTArray,
         rhs: &dyn Array,
         operator: Operator,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         match rhs.as_constant() {
             Some(constant) => compare_fsst_constant(lhs, &constant, operator),
@@ -40,8 +39,6 @@ impl CompareKernel for FSSTVTable {
         }
     }
 }
-
-register_kernel!(CompareKernelAdapter(FSSTVTable).lift());
 
 /// Specialized compare function implementation used when performing against a constant
 fn compare_fsst_constant(

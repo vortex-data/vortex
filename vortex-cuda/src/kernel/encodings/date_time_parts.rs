@@ -162,23 +162,9 @@ where
     } = subseconds.into_parts();
 
     // Move buffers to device if not already there
-    let days_device = if days_buffer.is_on_device() {
-        days_buffer
-    } else {
-        ctx.move_to_device(days_buffer)?.await?
-    };
-
-    let seconds_device = if seconds_buffer.is_on_device() {
-        seconds_buffer
-    } else {
-        ctx.move_to_device(seconds_buffer)?.await?
-    };
-
-    let subseconds_device = if subseconds_buffer.is_on_device() {
-        subseconds_buffer
-    } else {
-        ctx.move_to_device(subseconds_buffer)?.await?
-    };
+    let days_device = ctx.ensure_on_device(days_buffer).await?;
+    let seconds_device = ctx.ensure_on_device(seconds_buffer).await?;
+    let subseconds_device = ctx.ensure_on_device(subseconds_buffer).await?;
 
     // Allocate output buffer
     let output_slice = ctx.device_alloc::<i64>(output_len)?;

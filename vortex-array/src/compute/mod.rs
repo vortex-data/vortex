@@ -15,7 +15,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 
 use arcref::ArcRef;
-pub use between::*;
 pub use boolean::*;
 #[expect(deprecated)]
 pub use cast::cast;
@@ -27,7 +26,6 @@ pub use invert::invert;
 pub use is_constant::*;
 pub use is_sorted::*;
 use itertools::Itertools;
-pub use like::*;
 pub use list_contains::*;
 pub use mask::*;
 pub use min_max::*;
@@ -47,6 +45,10 @@ pub use zip::*;
 use crate::Array;
 use crate::ArrayRef;
 use crate::builders::ArrayBuilder;
+pub use crate::expr::BetweenExecuteAdaptor;
+pub use crate::expr::BetweenKernel;
+pub use crate::expr::BetweenReduce;
+pub use crate::expr::BetweenReduceAdaptor;
 pub use crate::expr::CastExecuteAdaptor;
 pub use crate::expr::CastKernel;
 pub use crate::expr::CastReduce;
@@ -55,6 +57,10 @@ pub use crate::expr::FillNullExecuteAdaptor;
 pub use crate::expr::FillNullKernel;
 pub use crate::expr::FillNullReduce;
 pub use crate::expr::FillNullReduceAdaptor;
+pub use crate::expr::MaskExecuteAdaptor;
+pub use crate::expr::MaskKernel;
+pub use crate::expr::MaskReduce;
+pub use crate::expr::MaskReduceAdaptor;
 pub use crate::expr::NotExecuteAdaptor;
 pub use crate::expr::NotKernel;
 pub use crate::expr::NotReduce;
@@ -62,7 +68,6 @@ pub use crate::expr::NotReduceAdaptor;
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
-mod between;
 mod boolean;
 mod cast;
 mod compare;
@@ -73,7 +78,6 @@ mod filter;
 mod invert;
 mod is_constant;
 mod is_sorted;
-mod like;
 mod list_contains;
 mod mask;
 mod min_max;
@@ -95,13 +99,9 @@ pub struct ComputeFn {
 /// Mostly useful for small benchmarks where the overhead might cause noise depending on the order of benchmarks.
 pub fn warm_up_vtables() {
     #[allow(unused_qualifications)]
-    between::warm_up_vtable();
-    compare::warm_up_vtable();
     is_constant::warm_up_vtable();
     is_sorted::warm_up_vtable();
-    like::warm_up_vtable();
     list_contains::warm_up_vtable();
-    mask::warm_up_vtable();
     min_max::warm_up_vtable();
     nan_count::warm_up_vtable();
     sum::warm_up_vtable();

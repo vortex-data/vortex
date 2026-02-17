@@ -8,10 +8,8 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::NativePType;
-// These will be moved to array soon
-pub use vortex_vector::binaryview::BinaryView;
-pub use vortex_vector::binaryview::Inlined;
-pub use vortex_vector::binaryview::Ref;
+
+pub use crate::arrays::BinaryView;
 
 /// Convert an offsets buffer to a buffer of element lengths.
 #[inline]
@@ -70,8 +68,8 @@ pub fn build_views<P: NativePType + AsPrimitive<usize>>(
 mod tests {
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
-    use vortex_vector::binaryview::BinaryView;
 
+    use crate::arrays::BinaryView;
     use crate::arrays::build_views::build_views;
 
     #[test]

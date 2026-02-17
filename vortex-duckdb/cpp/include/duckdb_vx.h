@@ -10,6 +10,7 @@
 #include "duckdb_vx/data_chunk.h"
 #include "duckdb_vx/error.h"
 #include "duckdb_vx/expr.h"
+#include "duckdb_vx/file_system.h"
 #include "duckdb_vx/logical_type.h"
 #include "duckdb_vx/object_cache.h"
 #include "duckdb_vx/replacement_scan.h"

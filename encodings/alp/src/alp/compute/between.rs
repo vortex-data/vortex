@@ -5,13 +5,12 @@ use std::fmt::Debug;
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::BetweenKernel;
-use vortex_array::compute::BetweenKernelAdapter;
-use vortex_array::compute::BetweenOptions;
-use vortex_array::compute::StrictComparison;
-use vortex_array::compute::between;
-use vortex_array::register_kernel;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::expr::BetweenOptions;
+use vortex_array::expr::BetweenReduce;
+use vortex_array::expr::StrictComparison;
 use vortex_dtype::NativeDType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
@@ -23,9 +22,8 @@ use crate::ALPFloat;
 use crate::ALPVTable;
 use crate::match_each_alp_float_ptype;
 
-impl BetweenKernel for ALPVTable {
+impl BetweenReduce for ALPVTable {
     fn between(
-        &self,
         array: &ALPArray,
         lower: &dyn Array,
         upper: &dyn Array,
@@ -41,7 +39,6 @@ impl BetweenKernel for ALPVTable {
 
         let nullability =
             array.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
-
         match_each_alp_float_ptype!(array.ptype(), |F| {
             between_impl::<F>(
                 array,
@@ -54,8 +51,6 @@ impl BetweenKernel for ALPVTable {
         .map(Some)
     }
 }
-
-register_kernel!(BetweenKernelAdapter(ALPVTable).lift());
 
 fn between_impl<T: NativePType + ALPFloat>(
     array: &ALPArray,
@@ -90,11 +85,10 @@ where
         upper_strict,
     };
 
-    between(
-        array.encoded(),
-        ConstantArray::new(Scalar::primitive(lower_enc, nullability), array.len()).as_ref(),
-        ConstantArray::new(Scalar::primitive(upper_enc, nullability), array.len()).as_ref(),
-        &options,
+    array.encoded().clone().between(
+        ConstantArray::new(Scalar::primitive(lower_enc, nullability), array.len()).into_array(),
+        ConstantArray::new(Scalar::primitive(upper_enc, nullability), array.len()).into_array(),
+        options,
     )
 }
 
@@ -103,8 +97,8 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::BetweenOptions;
-    use vortex_array::compute::StrictComparison;
+    use vortex_array::expr::BetweenOptions;
+    use vortex_array::expr::StrictComparison;
     use vortex_dtype::Nullability;
 
     use crate::ALPArray;

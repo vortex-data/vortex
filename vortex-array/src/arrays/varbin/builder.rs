@@ -11,6 +11,8 @@ use vortex_error::vortex_panic;
 use crate::IntoArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::varbin::VarBinArray;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
 use crate::validity::Validity;
 
 pub struct VarBinBuilder<O: IntegerPType> {
@@ -94,6 +96,17 @@ impl<O: IntegerPType> VarBinBuilder<O> {
 
         let validity = Validity::from_bit_buffer(nulls, dtype.nullability());
 
+        // The builder guarantees offsets are monotonically increasing, so we can set
+        // this stat eagerly. This avoids an O(n) recomputation when the array is
+        // deserialized and VarBinArray::validate checks sortedness.
+        debug_assert!(
+            offsets.statistics().compute_is_sorted().unwrap_or(false),
+            "VarBinBuilder offsets must be sorted"
+        );
+        offsets
+            .statistics()
+            .set(Stat::IsSorted, Precision::Exact(true.into()));
+
         // SAFETY: The builder maintains all invariants:
         // - Offsets are monotonically increasing starting from 0 (guaranteed by builder logic).
         // - Bytes buffer contains exactly the data referenced by offsets.
@@ -109,9 +122,13 @@ impl<O: IntegerPType> VarBinBuilder<O> {
 mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::Nullable;
+    use vortex_error::VortexResult;
     use vortex_scalar::Scalar;
 
     use crate::arrays::varbin::builder::VarBinBuilder;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
+    use crate::expr::stats::StatsProviderExt;
 
     #[test]
     fn test_builder() {
@@ -128,5 +145,34 @@ mod tests {
             Scalar::utf8("hello".to_string(), Nullable)
         );
         assert!(array.scalar_at(1).unwrap().is_null());
+    }
+
+    #[test]
+    fn offsets_have_is_sorted_stat() -> VortexResult<()> {
+        let mut builder = VarBinBuilder::<i32>::with_capacity(0);
+        builder.append_value(b"aaa");
+        builder.append_null();
+        builder.append_value(b"bbb");
+        let array = builder.finish(DType::Utf8(Nullable));
+
+        let is_sorted = array
+            .offsets()
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+        assert_eq!(is_sorted, Some(Precision::Exact(true)));
+        Ok(())
+    }
+
+    #[test]
+    fn empty_builder_offsets_have_is_sorted_stat() -> VortexResult<()> {
+        let builder = VarBinBuilder::<i32>::new();
+        let array = builder.finish(DType::Utf8(Nullable));
+
+        let is_sorted = array
+            .offsets()
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+        assert_eq!(is_sorted, Some(Precision::Exact(true)));
+        Ok(())
     }
 }

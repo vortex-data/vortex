@@ -21,6 +21,7 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_runend::RunEndArray;
 use vortex_runend::RunEndArrayParts;
@@ -97,8 +98,11 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
     let num_runs = ends.len();
-    assert!(num_runs > 0);
-    assert!(output_len > 0);
+    vortex_ensure!(num_runs > 0, "run-end array must have at least one run");
+    vortex_ensure!(
+        output_len > 0,
+        "run-end output length must be greater than zero"
+    );
 
     let PrimitiveArrayParts {
         ptype: value_ptype,
@@ -113,17 +117,8 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
     } = ends.into_parts();
 
     // Set up device buffers.
-    let ends_device = if ends_buffer.is_on_device() {
-        ends_buffer
-    } else {
-        ctx.move_to_device(ends_buffer)?.await?
-    };
-
-    let values_device = if values_buffer.is_on_device() {
-        values_buffer
-    } else {
-        ctx.move_to_device(values_buffer)?.await?
-    };
+    let ends_device = ctx.ensure_on_device(ends_buffer).await?;
+    let values_device = ctx.ensure_on_device(values_buffer).await?;
 
     let output_slice = ctx.device_alloc::<V>(output_len)?;
     let output_device = CudaDeviceBuffer::new(output_slice);

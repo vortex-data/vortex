@@ -122,8 +122,8 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::HashMap;
-    use crate::compute::BetweenOptions;
-    use crate::compute::StrictComparison;
+    use crate::expr::BetweenOptions;
+    use crate::expr::StrictComparison;
     use crate::expr::exprs::between::between;
     use crate::expr::exprs::binary::and;
     use crate::expr::exprs::binary::eq;

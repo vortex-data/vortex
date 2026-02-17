@@ -174,7 +174,7 @@ impl Expression {
     /// # Example
     ///
     /// ```rust
-    /// # use vortex_array::compute::LikeOptions;
+    /// # use vortex_array::expr::LikeOptions;
     /// # use vortex_array::expr::VTableExt;
     /// # use vortex_dtype::{DType, Nullability, PType};
     /// # use vortex_array::expr::{and, cast, eq, get_item, gt, lit, not, root, select, Like};

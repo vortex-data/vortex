@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+#![expect(clippy::unwrap_used)]
 
 use num_traits::NumCast;
 use rand::Rng;
@@ -55,7 +56,7 @@ fn generate_alp_bit_pack_primitive_array<T: NativePType + NumCast>(
     let bp = bitpack_to_best_bit_width(&encoded)
         .vortex_expect("")
         .into_array();
-    ALPArray::new(bp, alp.exponents(), alp.patches().cloned()).into_array()
+    ALPArray::new(bp, alp.exponents(), None).into_array()
 }
 
 const BENCH_ARGS: &[usize] = &[2 << 10, 2 << 13, 2 << 14];
@@ -65,14 +66,18 @@ mod primitive {
     use num_traits::NumCast;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
+    use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::RecursiveCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::compute::BetweenOptions;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::BooleanOperator;
     use vortex_array::compute::Operator;
-    use vortex_array::compute::StrictComparison::NonStrict;
-    use vortex_array::compute::between;
     use vortex_array::compute::boolean;
     use vortex_array::compute::compare;
+    use vortex_array::expr::BetweenOptions;
+    use vortex_array::expr::StrictComparison::NonStrict;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
@@ -127,18 +132,22 @@ mod primitive {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| &arr).bench_refs(|arr| {
-            between(
-                arr.as_ref(),
-                ConstantArray::new(min, arr.len()).as_ref(),
-                ConstantArray::new(max, arr.len()).as_ref(),
-                &BetweenOptions {
-                    lower_strict: NonStrict,
-                    upper_strict: NonStrict,
-                },
-            )
-            .vortex_expect("")
-        })
+        bencher
+            .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
+            .bench_refs(|(arr, ctx)| {
+                arr.to_array()
+                    .between(
+                        ConstantArray::new(min, arr.len()).into_array(),
+                        ConstantArray::new(max, arr.len()).into_array(),
+                        BetweenOptions {
+                            lower_strict: NonStrict,
+                            upper_strict: NonStrict,
+                        },
+                    )
+                    .unwrap()
+                    .execute::<RecursiveCanonical>(ctx)
+                    .unwrap()
+            })
     }
 }
 
@@ -147,14 +156,18 @@ mod bitpack {
     use num_traits::NumCast;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
+    use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::RecursiveCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::compute::BetweenOptions;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::BooleanOperator;
     use vortex_array::compute::Operator;
-    use vortex_array::compute::StrictComparison::NonStrict;
-    use vortex_array::compute::between;
     use vortex_array::compute::boolean;
     use vortex_array::compute::compare;
+    use vortex_array::expr::BetweenOptions;
+    use vortex_array::expr::StrictComparison::NonStrict;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
@@ -208,17 +221,22 @@ mod bitpack {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| &arr).bench_refs(|arr| {
-            between(
-                arr.as_ref(),
-                ConstantArray::new(min, arr.len()).as_ref(),
-                ConstantArray::new(max, arr.len()).as_ref(),
-                &BetweenOptions {
-                    lower_strict: NonStrict,
-                    upper_strict: NonStrict,
-                },
-            )
-        })
+        bencher
+            .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
+            .bench_refs(|(arr, ctx)| {
+                arr.clone()
+                    .between(
+                        ConstantArray::new(min, arr.len()).into_array(),
+                        ConstantArray::new(max, arr.len()).into_array(),
+                        BetweenOptions {
+                            lower_strict: NonStrict,
+                            upper_strict: NonStrict,
+                        },
+                    )
+                    .unwrap()
+                    .execute::<RecursiveCanonical>(ctx)
+                    .unwrap()
+            })
     }
 }
 
@@ -227,14 +245,18 @@ mod alp {
     use num_traits::NumCast;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
+    use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::RecursiveCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::compute::BetweenOptions;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::BooleanOperator;
     use vortex_array::compute::Operator;
-    use vortex_array::compute::StrictComparison::NonStrict;
-    use vortex_array::compute::between;
     use vortex_array::compute::boolean;
     use vortex_array::compute::compare;
+    use vortex_array::expr::BetweenOptions;
+    use vortex_array::expr::StrictComparison::NonStrict;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
@@ -288,16 +310,21 @@ mod alp {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| &arr).bench_refs(|arr| {
-            between(
-                arr.as_ref(),
-                ConstantArray::new(min, arr.len()).as_ref(),
-                ConstantArray::new(max, arr.len()).as_ref(),
-                &BetweenOptions {
-                    lower_strict: NonStrict,
-                    upper_strict: NonStrict,
-                },
-            )
-        })
+        bencher
+            .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
+            .bench_refs(|(arr, ctx)| {
+                arr.clone()
+                    .between(
+                        ConstantArray::new(min, arr.len()).into_array(),
+                        ConstantArray::new(max, arr.len()).into_array(),
+                        BetweenOptions {
+                            lower_strict: NonStrict,
+                            upper_strict: NonStrict,
+                        },
+                    )
+                    .unwrap()
+                    .execute::<RecursiveCanonical>(ctx)
+                    .unwrap()
+            })
     }
 }

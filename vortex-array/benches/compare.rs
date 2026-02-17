@@ -8,11 +8,14 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand::distr::Uniform;
 use rand::prelude::StdRng;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_buffer::Buffer;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
@@ -27,10 +30,15 @@ fn compare_bool(bencher: Bencher) {
 
     let arr1 = BoolArray::from_iter((0..ARRAY_SIZE).map(|_| rng.sample(range) == 0)).into_array();
     let arr2 = BoolArray::from_iter((0..ARRAY_SIZE).map(|_| rng.sample(range) == 0)).into_array();
+    let session = VortexSession::empty();
 
     bencher
-        .with_inputs(|| (&arr1, &arr2))
-        .bench_refs(|(arr1, arr2)| compare(*arr1, *arr2, Operator::Gte).unwrap());
+        .with_inputs(|| (&arr1, &arr2, session.create_execution_ctx()))
+        .bench_refs(|input| {
+            compare(input.0, input.1, Operator::Gte)
+                .unwrap()
+                .execute::<Canonical>(&mut input.2)
+        });
 }
 
 #[divan::bench]
@@ -47,8 +55,13 @@ fn compare_int(bencher: Bencher) {
         .map(|_| rng.sample(range))
         .collect::<Buffer<_>>()
         .into_array();
+    let session = VortexSession::empty();
 
     bencher
-        .with_inputs(|| (&arr1, &arr2))
-        .bench_refs(|(arr1, arr2)| compare(*arr1, *arr2, Operator::Gte).unwrap());
+        .with_inputs(|| (&arr1, &arr2, session.create_execution_ctx()))
+        .bench_refs(|input| {
+            compare(input.0, input.1, Operator::Gte)
+                .unwrap()
+                .execute::<Canonical>(&mut input.2)
+        });
 }

@@ -9,6 +9,7 @@ use vortex_array::arrays::FilterReduceAdaptor;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::SliceReduceAdaptor;
 use vortex_array::compute::CastReduceAdaptor;
+use vortex_array::compute::MaskReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_error::VortexResult;
@@ -20,6 +21,7 @@ pub(super) const PARENT_RULES: ParentRuleSet<DecimalBytePartsVTable> = ParentRul
     ParentRuleSet::lift(&DecimalBytePartsFilterPushDownRule),
     ParentRuleSet::lift(&CastReduceAdaptor(DecimalBytePartsVTable)),
     ParentRuleSet::lift(&FilterReduceAdaptor(DecimalBytePartsVTable)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(DecimalBytePartsVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(DecimalBytePartsVTable)),
 ]);
 
