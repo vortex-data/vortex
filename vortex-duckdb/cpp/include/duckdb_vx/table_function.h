@@ -156,7 +156,7 @@ typedef struct {
 } duckdb_vx_tfunc_vtab_t;
 
 // A single function for configuring the DuckDB table function vtable.
-duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn, const duckdb_vx_tfunc_vtab_t *vtab);
+duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const duckdb_vx_tfunc_vtab_t *vtab);
 
 #ifdef __cplusplus /* End C ABI */
 }

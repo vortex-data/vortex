@@ -72,7 +72,7 @@ typedef struct {
 duckdb_vx_copy_func_vtab_t *get_vtab_one();
 
 // A single function for configuring the DuckDB table function vtable.
-duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_connection ffi_conn);
+duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_database ffi_db);
 
 #ifdef __cplusplus /* End C ABI */
 };

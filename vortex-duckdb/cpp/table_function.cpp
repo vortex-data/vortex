@@ -3,6 +3,7 @@
 
 #include "duckdb.h"
 #include "duckdb/catalog/catalog.hpp"
+#include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/common/insertion_order_preserving_map.hpp"
@@ -329,13 +330,14 @@ InsertionOrderPreservingMap<string> c_to_string(TableFunctionToStringInput &inpu
     return result;
 }
 
-extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
+extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db,
                                                  const duckdb_vx_tfunc_vtab_t *vtab) {
-    if (!ffi_conn || !vtab) {
+    if (!ffi_db || !vtab) {
         return DuckDBError;
     }
 
-    auto conn = reinterpret_cast<Connection *>(ffi_conn);
+    auto wrapper = reinterpret_cast<duckdb::DatabaseWrapper *>(ffi_db);
+    auto db = wrapper->database->instance;
     auto tf = TableFunction(vtab->name, {}, c_function, c_bind, c_init_global, c_init_local);
 
     tf.pushdown_complex_filter = c_pushdown_complex_filter;
@@ -365,11 +367,10 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
     tf.function_info = make_shared_ptr<CTableFunctionInfo>(*vtab);
 
     try {
-        conn->context->RunFunctionInTransaction([&]() {
-            auto &catalog = Catalog::GetSystemCatalog(*conn->context);
-            CreateTableFunctionInfo tf_info(tf);
-            catalog.CreateTableFunction(*conn->context, tf_info);
-        });
+        auto &system_catalog = Catalog::GetSystemCatalog(*db);
+        auto data = CatalogTransaction::GetSystemTransaction(*db);
+        CreateTableFunctionInfo tf_info(tf);
+        system_catalog.CreateFunction(data, tf_info);
     } catch (...) {
         return DuckDBError;
     }

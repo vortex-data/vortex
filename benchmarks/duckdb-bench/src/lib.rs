@@ -79,7 +79,7 @@ impl DuckClient {
         }?;
 
         let connection = db.connect()?;
-        vortex_duckdb::register_table_functions(&connection)?;
+        vortex_duckdb::register_table_functions(&db)?;
 
         // Enable Parquet metadata cache for all benchmark runs.
         //

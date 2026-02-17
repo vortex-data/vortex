@@ -16,7 +16,6 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
 use crate::copy::VortexCopyFunction;
-use crate::duckdb::Connection;
 use crate::duckdb::Database;
 use crate::duckdb::LogicalType;
 use crate::duckdb::Value;
@@ -46,10 +45,10 @@ static SESSION: LazyLock<VortexSession> =
 /// Initialize the Vortex extension by registering the extension functions.
 /// Note: This also registers extension options. If you want to register options
 /// separately (e.g., before creating connections), call `register_extension_options` first.
-pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
-    conn.register_table_function::<VortexTableFunction>(c"vortex_scan")?;
-    conn.register_table_function::<VortexTableFunction>(c"read_vortex")?;
-    conn.register_copy_function::<VortexCopyFunction>(c"vortex", c"vortex")
+pub fn register_table_functions(db: &Database) -> VortexResult<()> {
+    db.register_table_function::<VortexTableFunction>(c"vortex_scan")?;
+    db.register_table_function::<VortexTableFunction>(c"read_vortex")?;
+    db.register_copy_function::<VortexCopyFunction>(c"vortex", c"vortex")
 }
 
 /// Global symbol visibility in the Vortex extension:
@@ -68,12 +67,7 @@ pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
     database
         .register_vortex_scan_replacement()
         .vortex_expect("failed to register vortex scan replacement");
-
-    let conn = database
-        .connect()
-        .inspect_err(|e| println!("err {e}"))
-        .vortex_expect("Failed to connect to DuckDB database");
-    register_table_functions(&conn).vortex_expect("Failed to initialize Vortex extension");
+    register_table_functions(&database).vortex_expect("Failed to initialize Vortex extension");
 }
 
 /// The DuckDB extension ABI version function.
