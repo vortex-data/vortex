@@ -13,4 +13,4 @@ namespace vortex {
 std::string IntoErrString(duckdb_vx_error error);
 void SetError(duckdb_vx_error *error_out, const std::string &message);
 duckdb_state HandleException(std::exception_ptr ex, duckdb_vx_error *error_out);
-}
+} // namespace vortex
