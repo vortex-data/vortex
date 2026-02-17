@@ -10296,6 +10296,7 @@ dependencies = [
  "cc",
  "custom-labels",
  "futures",
+ "glob",
  "itertools 0.14.0",
  "jiff",
  "num-traits",

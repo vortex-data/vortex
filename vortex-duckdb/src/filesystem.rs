@@ -29,7 +29,7 @@ use crate::RUNTIME;
 use crate::cpp;
 use crate::duckdb::ClientContext;
 use crate::duckdb::FsFileHandle;
-use crate::duckdb::duckdb_fs_glob;
+use crate::duckdb::duckdb_fs_list_dir;
 use crate::duckdb::fs_error;
 
 // NOTE(ngates): this is not at all tuned, but taken from the ObjectStore defaults until we
@@ -53,14 +53,19 @@ impl DuckDbFileSystem {
 
 #[async_trait]
 impl FileSystem for DuckDbFileSystem {
-    fn list(&self, prefix: Option<&str>) -> BoxStream<'_, VortexResult<FileListing>> {
-        let pattern = if let Some(prefix) = prefix {
-            let mut joined_url = self.base_url.clone();
-            joined_url.set_path(&format!("{}/{}", joined_url.path(), prefix));
-            joined_url.to_string()
-        } else {
-            self.base_url.to_string()
-        };
+    fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
+        let mut directory_url = self.base_url.clone();
+        if !prefix.is_empty() {
+            directory_url.set_path(&format!("{}/{}", directory_url.path(), prefix));
+        }
+        let directory = directory_url.to_string();
+
+        tracing::debug!(
+            "Listing files from {} with prefix {:?} using directory {}",
+            self.base_url,
+            prefix,
+            directory
+        );
 
         let ctx = self.ctx.clone();
         let base_path = self.base_url.path().to_string();
@@ -68,24 +73,11 @@ impl FileSystem for DuckDbFileSystem {
         stream::once(async move {
             RUNTIME
                 .handle()
-                .spawn_blocking(move || duckdb_fs_glob(&ctx, &pattern))
+                .spawn_blocking(move || list_recursive(&ctx, &directory, &base_path))
                 .await
         })
-        .flat_map(move |result| match result {
-            Ok(urls) => stream::iter(urls.into_iter().map({
-                let base_path = base_path.clone();
-                move |url| {
-                    let relative_path = url
-                        .path()
-                        .strip_prefix(base_path.as_str())
-                        .unwrap_or_else(|| url.path());
-                    Ok(FileListing {
-                        path: relative_path.to_string(),
-                        size: None,
-                    })
-                }
-            }))
-            .boxed(),
+        .flat_map(|result| match result {
+            Ok(listings) => stream::iter(listings.into_iter().map(Ok)).boxed(),
             Err(e) => stream::once(async move { Err(e) }).boxed(),
         })
         .boxed()
@@ -97,6 +89,49 @@ impl FileSystem for DuckDbFileSystem {
         let reader = unsafe { DuckDbFsReader::open_url(self.ctx.as_ptr(), &url)? };
         Ok(Arc::new(reader))
     }
+}
+
+/// Recursively list all files under `directory`, stripping `base_path` from each
+/// returned URL to produce relative paths.
+fn list_recursive(
+    ctx: &ClientContext,
+    directory: &str,
+    base_path: &str,
+) -> VortexResult<Vec<FileListing>> {
+    let mut results = Vec::new();
+    let mut stack = vec![directory.to_string()];
+
+    while let Some(dir) = stack.pop() {
+        for entry in duckdb_fs_list_dir(ctx, &dir)? {
+            let full_path = format!("{}/{}", dir.trim_end_matches('/'), entry.name);
+            if entry.is_dir {
+                stack.push(full_path);
+            } else {
+                let url = match Url::parse(&full_path) {
+                    Ok(url) => url,
+                    Err(_) => {
+                        let path = std::path::Path::new(&full_path);
+                        let canonical = path.canonicalize().map_err(|e| {
+                            vortex_err!("Cannot canonicalize file path {path:?}: {e}")
+                        })?;
+                        Url::from_file_path(&canonical)
+                            .map_err(|_| vortex_err!("Cannot convert path to URL: {full_path}"))?
+                    }
+                };
+                let relative_path = url
+                    .path()
+                    .strip_prefix(base_path)
+                    .unwrap_or_else(|| url.path())
+                    .to_string();
+                results.push(FileListing {
+                    path: relative_path,
+                    size: None,
+                });
+            }
+        }
+    }
+
+    Ok(results)
 }
 
 /// A VortexReadAt implementation backed by DuckDB's filesystem (e.g., httpfs/s3).

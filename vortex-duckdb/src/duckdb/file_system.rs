@@ -33,37 +33,131 @@ pub(crate) fn fs_error(err: cpp::duckdb_vx_error) -> VortexError {
     vortex_err!("{message}")
 }
 
+/// Expand a glob pattern against a filesystem, returning matching file URLs.
+///
+/// If the pattern contains no glob characters, it is treated as an exact path.
+/// Otherwise, extracts the directory prefix before the first glob character,
+/// recursively lists all files under that directory via [`duckdb_fs_list_dir`],
+/// and filters the results using [`glob::Pattern`].
 pub(crate) fn duckdb_fs_glob(ctx: &ClientContext, pattern: &str) -> VortexResult<Vec<url::Url>> {
-    let c_pattern = CString::new(pattern).map_err(|e| vortex_err!("Invalid glob pattern: {e}"))?;
+    let has_glob = pattern.contains(['*', '?', '[']);
+
+    // No glob characters: treat as an exact file path.
+    if !has_glob {
+        let url = path_to_url(pattern)?;
+        return Ok(vec![url]);
+    }
+
+    let glob_pattern = glob::Pattern::new(pattern)
+        .map_err(|e| vortex_err!("Invalid glob pattern '{pattern}': {e}"))?;
+
+    // Find the directory prefix before the first glob character.
+    let glob_pos = pattern.find(['*', '?', '[']).unwrap_or(pattern.len());
+    let prefix = match pattern[..glob_pos].rfind('/') {
+        Some(slash_pos) => &pattern[..=slash_pos],
+        None => "",
+    };
+
+    let directory = if prefix.is_empty() {
+        ".".to_string()
+    } else {
+        prefix.trim_end_matches('/').to_string()
+    };
+
+    let all_files = list_files_recursive(ctx, &directory)?;
+
+    let mut urls = Vec::new();
+    for full_path in all_files {
+        if glob_pattern.matches(&full_path) {
+            urls.push(path_to_url(&full_path)?);
+        }
+    }
+
+    Ok(urls)
+}
+
+/// Convert a path string to a [`url::Url`], canonicalizing local paths.
+fn path_to_url(path: &str) -> VortexResult<url::Url> {
+    match url::Url::parse(path) {
+        Ok(url) => Ok(url),
+        Err(_) => {
+            let p = std::path::Path::new(path);
+            let canonical = p
+                .canonicalize()
+                .map_err(|e| vortex_err!("Cannot canonicalize file path {p:?}: {e}"))?;
+            url::Url::from_file_path(&canonical)
+                .map_err(|_| vortex_err!("Cannot convert path to URL: {path}"))
+        }
+    }
+}
+
+/// Recursively list all file paths under `directory`.
+fn list_files_recursive(ctx: &ClientContext, directory: &str) -> VortexResult<Vec<String>> {
+    let mut results = Vec::new();
+    let mut stack = vec![directory.to_string()];
+
+    while let Some(dir) = stack.pop() {
+        for entry in duckdb_fs_list_dir(ctx, &dir)? {
+            let full_path = format!("{}/{}", dir.trim_end_matches('/'), entry.name);
+            if entry.is_dir {
+                stack.push(full_path);
+            } else {
+                results.push(full_path);
+            }
+        }
+    }
+
+    Ok(results)
+}
+
+/// An entry returned by [`duckdb_fs_list_dir`].
+pub(crate) struct DirEntry {
+    pub name: String,
+    pub is_dir: bool,
+}
+
+/// Non-recursively list entries in `directory` via DuckDB's filesystem.
+///
+/// Returns file and subdirectory names (not full paths). The caller is
+/// responsible for joining paths and recursing into subdirectories.
+pub(crate) fn duckdb_fs_list_dir(
+    ctx: &ClientContext,
+    directory: &str,
+) -> VortexResult<Vec<DirEntry>> {
+    let c_directory =
+        CString::new(directory).map_err(|e| vortex_err!("Invalid directory path: {e}"))?;
+
+    let mut entries: Vec<DirEntry> = Vec::new();
     let mut err: cpp::duckdb_vx_error = ptr::null_mut();
-    let mut list =
-        unsafe { cpp::duckdb_vx_fs_glob(ctx.as_ptr(), c_pattern.as_ptr(), &raw mut err) };
-    if !err.is_null() {
+
+    let status = unsafe {
+        cpp::duckdb_vx_fs_list_files(
+            ctx.as_ptr(),
+            c_directory.as_ptr(),
+            Some(list_files_callback),
+            (&raw mut entries).cast(),
+            &raw mut err,
+        )
+    };
+
+    if status != cpp::duckdb_state::DuckDBSuccess {
         return Err(fs_error(err));
     }
 
-    let mut urls = Vec::with_capacity(list.count);
-    for idx in 0..list.count {
-        let entry = unsafe { CStr::from_ptr(*list.entries.add(idx)) };
-        let entry_str = entry.to_string_lossy();
-        let url = match url::Url::parse(entry_str.as_ref()) {
-            Ok(url) => url,
-            Err(parse_err) => {
-                let path = std::path::Path::new(entry_str.as_ref());
-                let canonical = path
-                    .canonicalize()
-                    .map_err(|e| vortex_err!("Cannot canonicalize file path {path:?}: {e}"))?;
-                url::Url::from_file_path(&canonical).map_err(|_| {
-                    vortex_err!("Invalid URL returned by DuckDB glob {entry_str}: {parse_err}")
-                })?
-            }
-        };
-        urls.push(url);
-    }
+    Ok(entries)
+}
 
-    unsafe { cpp::duckdb_vx_uri_list_free(&raw mut list) };
-
-    Ok(urls)
+/// FFI callback invoked by `duckdb_vx_fs_list_files` for each directory entry.
+unsafe extern "C-unwind" fn list_files_callback(
+    name: *const std::ffi::c_char,
+    is_dir: bool,
+    user_data: *mut std::ffi::c_void,
+) {
+    let entries = unsafe { &mut *user_data.cast::<Vec<DirEntry>>() };
+    let name = unsafe { CStr::from_ptr(name) }
+        .to_string_lossy()
+        .into_owned();
+    entries.push(DirEntry { name, is_dir });
 }
 
 pub(crate) unsafe fn duckdb_fs_create_writer(

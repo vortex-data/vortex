@@ -32,15 +32,12 @@ impl PrefixFileSystem {
 
 #[async_trait]
 impl FileSystem for PrefixFileSystem {
-    fn list(&self, prefix: Option<&str>) -> BoxStream<'_, VortexResult<FileListing>> {
-        let full_prefix = match prefix {
-            Some(suffix) => format!("{}{}", self.prefix, suffix.trim_start_matches('/')),
-            None => self.prefix.clone(),
-        };
+    fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
+        let full_prefix = format!("{}{}", self.prefix, prefix.trim_start_matches('/'));
 
         let strip_prefix = self.prefix.clone();
         self.inner
-            .list(Some(&full_prefix))
+            .list(&full_prefix)
             .map(move |result| {
                 result.map(|mut listing| {
                     listing.path = listing

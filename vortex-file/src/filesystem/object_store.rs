@@ -36,8 +36,12 @@ impl ObjectStoreFileSystem {
 
 #[async_trait]
 impl FileSystem for ObjectStoreFileSystem {
-    fn list(&self, prefix: Option<&str>) -> BoxStream<'_, VortexResult<FileListing>> {
-        let path = prefix.map(Path::from);
+    fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
+        let path = if prefix.is_empty() {
+            None
+        } else {
+            Some(Path::from(prefix))
+        };
         self.store
             .list(path.as_ref())
             .map(|result| {

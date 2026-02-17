@@ -23,7 +23,6 @@ use vortex_session::VortexSession;
 use crate::OpenOptionsSessionExt;
 use crate::VortexOpenOptions;
 use crate::filesystem::FileListing;
-use crate::filesystem::FileSystem;
 use crate::filesystem::FileSystemRef;
 
 /// A builder that discovers multiple Vortex files from a glob pattern and constructs a
@@ -109,9 +108,7 @@ impl MultiFileDataSource {
 
         let (fs, glob_pattern) = self.resolve_filesystem(&glob_url)?;
 
-        let files: Vec<FileListing> = glob_files(fs.as_ref(), &glob_pattern)?
-            .try_collect()
-            .await?;
+        let files: Vec<FileListing> = fs.glob(&glob_pattern)?.try_collect().await?;
 
         if files.is_empty() {
             vortex_bail!("No files matched the glob pattern '{}'", glob_url);
@@ -253,139 +250,5 @@ impl DataSourceFactory for VortexFileFactory {
         )
         .await?;
         Ok(Some(file.data_source()?))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Internal glob helpers (moved from filesystem/glob.rs)
-// ---------------------------------------------------------------------------
-
-/// Expand a glob pattern against a filesystem, returning matching files as a stream.
-///
-/// Splits the pattern at the first glob character (`*`, `?`, or `[`) and uses the
-/// preceding path prefix to narrow the `FileSystem::list()` call. The full glob pattern
-/// is then applied as a filter over the returned entries.
-fn glob_files<'a>(
-    fs: &'a dyn FileSystem,
-    pattern: &str,
-) -> VortexResult<futures::stream::BoxStream<'a, VortexResult<FileListing>>> {
-    validate_glob(pattern)?;
-
-    let glob_pattern = glob::Pattern::new(pattern)
-        .map_err(|e| vortex_err!("Invalid glob pattern '{}': {}", pattern, e))?;
-
-    let prefix = list_prefix(pattern);
-    let listing_prefix = if prefix.is_empty() {
-        None
-    } else {
-        Some(prefix.trim_end_matches('/'))
-    };
-
-    debug!(?listing_prefix, pattern, "expanding glob");
-
-    let stream = fs
-        .list(listing_prefix)
-        .try_filter(move |listing| {
-            let matches = glob_pattern.matches(&listing.path);
-            async move { matches }
-        })
-        .into_stream();
-
-    Ok(Box::pin(stream))
-}
-
-/// Returns the list prefix for a path pattern containing glob characters.
-///
-/// Finds the first glob character and returns everything up to and including the last `/`
-/// before it. For example, `data/2023/*/logs/*.log` returns `data/2023/`.
-fn list_prefix(pattern: &str) -> &str {
-    let glob_pos = pattern.find(['*', '?', '[']).unwrap_or(pattern.len());
-    match pattern[..glob_pos].rfind('/') {
-        Some(slash_pos) => &pattern[..=slash_pos],
-        None => "",
-    }
-}
-
-/// Validates that a glob pattern does not contain escaped glob characters.
-fn validate_glob(pattern: &str) -> VortexResult<()> {
-    for escape_pattern in ["\\*", "\\?", "\\["] {
-        if pattern.contains(escape_pattern) {
-            vortex_bail!(
-                "Escaped glob characters are not allowed in patterns. Found '{}' in: {}",
-                escape_pattern,
-                pattern
-            );
-        }
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_list_prefix_with_wildcard_in_filename() {
-        assert_eq!(list_prefix("folder/file*.txt"), "folder/");
-    }
-
-    #[test]
-    fn test_list_prefix_with_wildcard_in_directory() {
-        assert_eq!(list_prefix("folder/*/file.txt"), "folder/");
-    }
-
-    #[test]
-    fn test_list_prefix_nested_directories() {
-        assert_eq!(list_prefix("data/2023/*/logs/*.log"), "data/2023/");
-    }
-
-    #[test]
-    fn test_list_prefix_wildcard_at_root() {
-        assert_eq!(list_prefix("*.txt"), "");
-    }
-
-    #[test]
-    fn test_list_prefix_no_wildcards() {
-        assert_eq!(
-            list_prefix("folder/subfolder/file.txt"),
-            "folder/subfolder/"
-        );
-    }
-
-    #[test]
-    fn test_list_prefix_question_mark() {
-        assert_eq!(list_prefix("folder/file?.txt"), "folder/");
-    }
-
-    #[test]
-    fn test_list_prefix_bracket() {
-        assert_eq!(list_prefix("folder/file[abc].txt"), "folder/");
-    }
-
-    #[test]
-    fn test_list_prefix_empty() {
-        assert_eq!(list_prefix(""), "");
-    }
-
-    #[test]
-    fn test_validate_glob_valid() -> VortexResult<()> {
-        validate_glob("path/*.txt")?;
-        validate_glob("path/to/**/*.vortex")?;
-        Ok(())
-    }
-
-    #[test]
-    fn test_validate_glob_escaped_asterisk() {
-        assert!(validate_glob("path\\*.txt").is_err());
-    }
-
-    #[test]
-    fn test_validate_glob_escaped_question() {
-        assert!(validate_glob("path\\?.txt").is_err());
-    }
-
-    #[test]
-    fn test_validate_glob_escaped_bracket() {
-        assert!(validate_glob("path\\[test].txt").is_err());
     }
 }
