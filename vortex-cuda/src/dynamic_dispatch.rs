@@ -184,7 +184,8 @@ mod tests {
         launch_builder.arg(&array_len_u64);
         launch_builder.arg(&plan_ptr);
 
-        let num_blocks = u32::try_from(output_len.div_ceil(2048))?;
+        let num_blocks =
+            u32::try_from(output_len.div_ceil(2048)).expect("num_blocks must fit in u32");
         let config = LaunchConfig {
             grid_dim: (num_blocks, 1, 1),
             block_dim: (64, 1, 1),
