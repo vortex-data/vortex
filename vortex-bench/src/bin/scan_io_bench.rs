@@ -3,9 +3,15 @@
 
 use std::path::Path;
 use std::path::PathBuf;
+#[cfg(target_os = "linux")]
+use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
+#[cfg(target_os = "linux")]
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
+#[cfg(target_os = "linux")]
+use std::time::Duration;
 use std::time::Instant;
 
 use anyhow::Result;
@@ -13,19 +19,26 @@ use clap::Parser;
 use clap::ValueEnum;
 use futures::StreamExt;
 use futures::TryStreamExt;
+#[cfg(target_os = "linux")]
+use futures::future::BoxFuture;
 use object_store::GetOptions;
 use object_store::GetRange;
 use object_store::ObjectStore;
 use object_store::ObjectStoreScheme;
+use object_store::aws::AmazonS3;
 use object_store::aws::AmazonS3Builder;
 use object_store::http::HttpBuilder;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectStorePath;
+#[cfg(target_os = "linux")]
+use object_store::signer::Signer;
 use parking_lot::Mutex;
 use tracing_subscriber::EnvFilter;
 use url::Url;
 use vortex::array::Array;
 use vortex::array::MaskFuture;
+#[cfg(target_os = "linux")]
+use vortex::array::buffer::BufferHandle;
 use vortex::array::expr::Expression;
 use vortex::array::expr::col;
 use vortex::array::expr::eq;
@@ -37,6 +50,10 @@ use vortex::array::expr::lt_eq;
 use vortex::array::expr::not_eq;
 use vortex::array::expr::root;
 use vortex::array::expr::select;
+#[cfg(target_os = "linux")]
+use vortex::buffer::Alignment;
+#[cfg(target_os = "linux")]
+use vortex::buffer::ByteBufferMut;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -44,6 +61,12 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::segments::io_request_stats;
 use vortex::file::segments::reset_io_request_stats;
 use vortex::io::BufferAllocator;
+#[cfg(target_os = "linux")]
+use vortex::io::CoalesceConfig;
+#[cfg(target_os = "linux")]
+use vortex::io::VortexReadAt;
+#[cfg(target_os = "linux")]
+use vortex::io::WriteTarget;
 use vortex::io::copy_stats;
 use vortex::io::default_alloc_stats;
 use vortex::io::reset_copy_stats;
@@ -58,6 +81,23 @@ use vortex_cuda::CudaSessionExt;
 use vortex_cuda::PinnedByteBufferPool;
 use vortex_cuda::PinnedDeviceAllocator;
 use vortex_scan::ScanBuilder;
+
+#[cfg(target_os = "linux")]
+use ktls::CorkStream;
+#[cfg(target_os = "linux")]
+use rustls::ClientConfig;
+#[cfg(target_os = "linux")]
+use rustls::RootCertStore;
+#[cfg(target_os = "linux")]
+use rustls::pki_types::ServerName;
+#[cfg(target_os = "linux")]
+use tokio::io::AsyncReadExt;
+#[cfg(target_os = "linux")]
+use tokio::io::AsyncWriteExt;
+#[cfg(target_os = "linux")]
+use tokio::net::TcpStream;
+#[cfg(target_os = "linux")]
+use tokio_rustls::TlsConnector;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -251,17 +291,33 @@ async fn main() -> Result<()> {
                 }
 
                 if matches!(mode, ScanMode::Io) {
-                    if io_no_copy_enabled()
-                        && let ScanTarget::ObjectStore { store, path } = &target
-                    {
-                        let io_bytes = read_all_segments_object_store_no_copy(
-                            &file,
-                            store,
-                            path,
-                            args.concurrency,
-                        )
-                        .await?;
-                        manual_io_bytes.fetch_add(io_bytes, Ordering::Relaxed);
+                    if io_no_copy_enabled() {
+                        match &target {
+                            ScanTarget::ObjectStore { store, path } => {
+                                let io_bytes = read_all_segments_object_store_no_copy(
+                                    &file,
+                                    store,
+                                    path,
+                                    args.concurrency,
+                                )
+                                .await?;
+                                manual_io_bytes.fetch_add(io_bytes, Ordering::Relaxed);
+                            }
+                            ScanTarget::AmazonS3 { store, path } => {
+                                let store_dyn: std::sync::Arc<dyn ObjectStore> = store.clone();
+                                let io_bytes = read_all_segments_object_store_no_copy(
+                                    &file,
+                                    &store_dyn,
+                                    path,
+                                    args.concurrency,
+                                )
+                                .await?;
+                                manual_io_bytes.fetch_add(io_bytes, Ordering::Relaxed);
+                            }
+                            ScanTarget::Local(_) => {
+                                read_all_segments(&file, args.concurrency).await?;
+                            }
+                        }
                     } else {
                         read_all_segments(&file, args.concurrency).await?;
                     }
@@ -379,6 +435,9 @@ async fn main() -> Result<()> {
             no_copy_coalesce_max_size()
         );
     }
+    if s3_ktls_enabled() {
+        println!("s3_ktls=1");
+    }
     if args.gpu {
         println!("gpu_sync_ms={:.2}", gpu_sync_ms);
     }
@@ -442,10 +501,20 @@ fn apply_filter_op(op: FilterOp, lhs: Expression, rhs: Expression) -> Expression
 #[derive(Clone)]
 enum ScanTarget {
     Local(PathBuf),
+    AmazonS3 {
+        store: std::sync::Arc<AmazonS3>,
+        path: ObjectStorePath,
+    },
     ObjectStore {
         store: std::sync::Arc<dyn ObjectStore>,
         path: ObjectStorePath,
     },
+}
+
+#[derive(Clone)]
+enum ResolvedStore {
+    AmazonS3(std::sync::Arc<AmazonS3>),
+    ObjectStore(std::sync::Arc<dyn ObjectStore>),
 }
 
 async fn resolve_targets(args: &Args) -> Result<Vec<ScanTarget>> {
@@ -464,18 +533,36 @@ async fn resolve_targets(args: &Args) -> Result<Vec<ScanTarget>> {
             if matches!(scheme, ObjectStoreScheme::Http) {
                 anyhow::bail!("HTTP object stores do not support listing prefixes");
             }
-            let mut entries = store.list(Some(&path));
+
             let mut targets = Vec::new();
-            while let Some(entry) = entries.try_next().await? {
-                targets.push(ScanTarget::ObjectStore {
-                    store: store.clone(),
-                    path: entry.location.clone(),
-                });
+            match &store {
+                ResolvedStore::AmazonS3(s3) => {
+                    let store_dyn: std::sync::Arc<dyn ObjectStore> = s3.clone();
+                    let mut entries = store_dyn.list(Some(&path));
+                    while let Some(entry) = entries.try_next().await? {
+                        targets.push(ScanTarget::AmazonS3 {
+                            store: s3.clone(),
+                            path: entry.location.clone(),
+                        });
+                    }
+                }
+                ResolvedStore::ObjectStore(store) => {
+                    let mut entries = store.list(Some(&path));
+                    while let Some(entry) = entries.try_next().await? {
+                        targets.push(ScanTarget::ObjectStore {
+                            store: store.clone(),
+                            path: entry.location.clone(),
+                        });
+                    }
+                }
             }
             return Ok(targets);
         }
 
-        return Ok(vec![ScanTarget::ObjectStore { store, path }]);
+        return Ok(vec![match store {
+            ResolvedStore::AmazonS3(store) => ScanTarget::AmazonS3 { store, path },
+            ResolvedStore::ObjectStore(store) => ScanTarget::ObjectStore { store, path },
+        }]);
     }
 
     let path = PathBuf::from(source);
@@ -516,6 +603,30 @@ async fn open_vortex_file_for_target(
                 options = options.with_allocator(allocator);
             }
             Ok(options.open_path(path).await?)
+        }
+        ScanTarget::AmazonS3 { store, path } => {
+            let mut options = session.open_options().with_metrics_registry(metrics);
+            if let Some(allocator) = allocator {
+                options = options.with_allocator(allocator);
+            }
+
+            if s3_ktls_enabled() {
+                #[cfg(target_os = "linux")]
+                {
+                    let source = std::sync::Arc::new(
+                        KtlsS3ReadSource::new(store.clone(), path.clone()).await?,
+                    );
+                    return Ok(options.open(source).await?);
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    anyhow::bail!("VORTEX_BENCH_S3_KTLS=1 is only supported on Linux");
+                }
+            }
+
+            let path_str = path.to_string();
+            let store_dyn: std::sync::Arc<dyn ObjectStore> = store.clone();
+            Ok(options.open_object_store(&store_dyn, &path_str).await?)
         }
         ScanTarget::ObjectStore { store, path } => {
             let path_str = path.to_string();
@@ -560,23 +671,21 @@ async fn open_all_targets(
 
 fn object_store_from_url(
     url_str: &str,
-) -> Result<(
-    ObjectStoreScheme,
-    std::sync::Arc<dyn ObjectStore>,
-    ObjectStorePath,
-)> {
+) -> Result<(ObjectStoreScheme, ResolvedStore, ObjectStorePath)> {
     let url = Url::parse(url_str)?;
     let (scheme, path) = ObjectStoreScheme::parse(&url).map_err(object_store::Error::from)?;
-    let store: std::sync::Arc<dyn ObjectStore> = match scheme {
-        ObjectStoreScheme::Local => std::sync::Arc::new(LocalFileSystem::default()),
-        ObjectStoreScheme::AmazonS3 => {
-            std::sync::Arc::new(AmazonS3Builder::from_env().with_url(url_str).build()?)
+    let store = match scheme {
+        ObjectStoreScheme::Local => {
+            ResolvedStore::ObjectStore(std::sync::Arc::new(LocalFileSystem::default()))
         }
-        ObjectStoreScheme::Http => std::sync::Arc::new(
+        ObjectStoreScheme::AmazonS3 => ResolvedStore::AmazonS3(std::sync::Arc::new(
+            AmazonS3Builder::from_env().with_url(url_str).build()?,
+        )),
+        ObjectStoreScheme::Http => ResolvedStore::ObjectStore(std::sync::Arc::new(
             HttpBuilder::new()
                 .with_url(&url[..url::Position::BeforePath])
                 .build()?,
-        ),
+        )),
         otherwise => anyhow::bail!("unsupported object store scheme: {otherwise:?}"),
     };
 
@@ -612,8 +721,29 @@ fn io_no_copy_enabled() -> bool {
         .is_some_and(|v| v != 0)
 }
 
+fn s3_ktls_enabled() -> bool {
+    std::env::var("VORTEX_BENCH_S3_KTLS")
+        .ok()
+        .and_then(|v| v.parse::<u8>().ok())
+        .is_some_and(|v| v != 0)
+}
+
 fn read_env_u64(key: &str) -> Option<u64> {
     std::env::var(key).ok()?.parse::<u64>().ok()
+}
+
+#[cfg(target_os = "linux")]
+fn read_env_usize(key: &str) -> Option<usize> {
+    std::env::var(key).ok()?.parse::<usize>().ok()
+}
+
+#[cfg(target_os = "linux")]
+fn read_env_bool(key: &str, default: bool) -> bool {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<u8>().ok())
+        .map(|value| value != 0)
+        .unwrap_or(default)
 }
 
 fn no_copy_coalesce_distance() -> u64 {
@@ -723,6 +853,291 @@ async fn read_all_segments_object_store_no_copy(
         expected
     );
     Ok(read)
+}
+
+#[cfg(target_os = "linux")]
+const DEFAULT_KTLS_COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
+    distance: 1024 * 1024,      // 1 MB
+    max_size: 16 * 1024 * 1024, // 16 MB
+};
+#[cfg(target_os = "linux")]
+const DEFAULT_KTLS_CONCURRENCY: usize = 192;
+#[cfg(target_os = "linux")]
+const KTLS_READ_CONCURRENCY_ENV: &str = "VORTEX_S3_READ_CONCURRENCY";
+#[cfg(target_os = "linux")]
+const KTLS_COALESCE_DISTANCE_ENV: &str = "VORTEX_S3_COALESCE_DISTANCE";
+#[cfg(target_os = "linux")]
+const KTLS_COALESCE_MAX_SIZE_ENV: &str = "VORTEX_S3_COALESCE_MAX_SIZE";
+#[cfg(target_os = "linux")]
+const KTLS_COALESCE_DISABLE_ENV: &str = "VORTEX_S3_COALESCE_DISABLE";
+
+#[cfg(target_os = "linux")]
+#[derive(Clone)]
+struct KtlsS3ReadSource {
+    store: std::sync::Arc<AmazonS3>,
+    path: ObjectStorePath,
+    uri: std::sync::Arc<str>,
+    concurrency: usize,
+    coalesce_config: Option<CoalesceConfig>,
+    tls: std::sync::Arc<TlsConnector>,
+    host: std::sync::Arc<str>,
+    host_header: std::sync::Arc<str>,
+    port: u16,
+    request_target: std::sync::Arc<str>,
+    request_counter: std::sync::Arc<AtomicUsize>,
+}
+
+#[cfg(target_os = "linux")]
+impl KtlsS3ReadSource {
+    async fn new(store: std::sync::Arc<AmazonS3>, path: ObjectStorePath) -> Result<Self> {
+        let signed = store
+            .signed_url(
+                reqwest::Method::GET,
+                &path,
+                Duration::from_secs(6 * 60 * 60),
+            )
+            .await?;
+        let host = signed
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("signed S3 URL is missing host"))?
+            .to_string();
+        let port = signed
+            .port_or_known_default()
+            .ok_or_else(|| anyhow::anyhow!("could not determine S3 port from signed URL"))?;
+        let request_target = match signed.query() {
+            Some(query) => format!("{}?{query}", signed.path()),
+            None => signed.path().to_string(),
+        };
+        let host_header = if port == 443 {
+            host.clone()
+        } else {
+            format!("{host}:{port}")
+        };
+
+        let mut roots = RootCertStore::empty();
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let tls = TlsConnector::from(std::sync::Arc::new(
+            ClientConfig::builder()
+                .with_root_certificates(roots)
+                .with_no_client_auth(),
+        ));
+
+        let mut coalesce_config = Some(DEFAULT_KTLS_COALESCING_CONFIG);
+        if read_env_bool(KTLS_COALESCE_DISABLE_ENV, false) {
+            coalesce_config = None;
+        } else if let Some(defaults) = coalesce_config.as_mut() {
+            if let Some(distance) = read_env_u64(KTLS_COALESCE_DISTANCE_ENV) {
+                defaults.distance = distance;
+            }
+            if let Some(max_size) = read_env_u64(KTLS_COALESCE_MAX_SIZE_ENV) {
+                defaults.max_size = max_size;
+            }
+        }
+
+        Ok(Self {
+            store,
+            path: path.clone(),
+            uri: std::sync::Arc::from(path.to_string()),
+            concurrency: read_env_usize(KTLS_READ_CONCURRENCY_ENV)
+                .unwrap_or(DEFAULT_KTLS_CONCURRENCY),
+            coalesce_config,
+            tls: std::sync::Arc::new(tls),
+            host: std::sync::Arc::from(host),
+            host_header: std::sync::Arc::from(host_header),
+            port,
+            request_target: std::sync::Arc::from(request_target),
+            request_counter: std::sync::Arc::new(AtomicUsize::new(0)),
+        })
+    }
+
+    async fn read_range_into(&self, offset: u64, target: &mut [u8]) -> Result<()> {
+        if target.is_empty() {
+            return Ok(());
+        }
+
+        let end = offset + (target.len() as u64) - 1;
+        let addr = format!("{}:{}", self.host, self.port);
+        let tcp = TcpStream::connect(addr).await?;
+        tcp.set_nodelay(true)?;
+
+        let server_name = ServerName::try_from(self.host.as_ref().to_string())
+            .map_err(|e| anyhow::anyhow!("invalid TLS server name '{}': {e}", self.host))?;
+        let tls_stream = self.tls.connect(server_name, CorkStream::new(tcp)).await?;
+        let mut stream = ktls::config_ktls_client(tls_stream).await?;
+        let request = format!(
+            "GET {} HTTP/1.1\r\nHost: {}\r\nRange: bytes={offset}-{end}\r\nAccept: */*\r\nConnection: close\r\n\r\n",
+            self.request_target, self.host_header
+        );
+        stream.write_all(request.as_bytes()).await?;
+        stream.flush().await?;
+
+        let mut response_buf = Vec::with_capacity(16 * 1024);
+        let mut scratch = [0u8; 8192];
+        let header_end = loop {
+            let read = stream.read(&mut scratch).await?;
+            if read == 0 {
+                anyhow::bail!("unexpected EOF while reading S3 HTTP response headers");
+            }
+            response_buf.extend_from_slice(&scratch[..read]);
+            if let Some(pos) = find_header_end(&response_buf) {
+                break pos + 4;
+            }
+            if response_buf.len() > 256 * 1024 {
+                anyhow::bail!("S3 HTTP headers exceeded 256KB");
+            }
+        };
+
+        let headers = &response_buf[..header_end];
+        let status = parse_status_code(headers)?;
+        if status != 206 {
+            anyhow::bail!("expected HTTP 206 for ranged S3 read, got {status}");
+        }
+        if header_has_chunked_encoding(headers) {
+            anyhow::bail!("chunked S3 responses are not supported in kTLS path");
+        }
+        let content_length = parse_content_length(headers)?;
+        if content_length != target.len() {
+            anyhow::bail!(
+                "S3 content-length mismatch: expected {}, got {}",
+                target.len(),
+                content_length
+            );
+        }
+
+        let mut filled = 0usize;
+        let prefetched = &response_buf[header_end..];
+        if !prefetched.is_empty() {
+            let copy_len = prefetched.len().min(target.len());
+            target[..copy_len].copy_from_slice(&prefetched[..copy_len]);
+            filled += copy_len;
+        }
+        while filled < target.len() {
+            let read = stream.read(&mut target[filled..]).await?;
+            if read == 0 {
+                anyhow::bail!(
+                    "unexpected EOF while reading S3 body (read {} of {} bytes)",
+                    filled,
+                    target.len()
+                );
+            }
+            filled += read;
+        }
+
+        self.request_counter.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl VortexReadAt for KtlsS3ReadSource {
+    fn uri(&self) -> Option<&std::sync::Arc<str>> {
+        Some(&self.uri)
+    }
+
+    fn coalesce_config(&self) -> Option<CoalesceConfig> {
+        self.coalesce_config
+    }
+
+    fn concurrency(&self) -> usize {
+        self.concurrency
+    }
+
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        let store = self.store.clone();
+        let path = self.path.clone();
+        Box::pin(async move {
+            Ok(store
+                .head(&path)
+                .await
+                .map_err(|e| vortex_err!("s3 head failed: {e}"))?
+                .size)
+        })
+    }
+
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
+        // SAFETY: we fill the full target before returning.
+        unsafe { buffer.set_len(length) };
+        let target: Box<dyn WriteTarget> = Box::new(buffer);
+        self.read_at_into(offset, target)
+    }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let source = self.clone();
+        Box::pin(async move {
+            let mut target = target;
+            source
+                .read_range_into(offset, target.as_mut_slice())
+                .await
+                .map_err(|e| vortex_err!("kTLS S3 ranged read failed at offset {offset}: {e}"))?;
+            target.into_handle()
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn find_header_end(buf: &[u8]) -> Option<usize> {
+    buf.windows(4).position(|window| window == b"\r\n\r\n")
+}
+
+#[cfg(target_os = "linux")]
+fn parse_status_code(headers: &[u8]) -> Result<u16> {
+    let header_str = std::str::from_utf8(headers)?;
+    let status_line = header_str
+        .split("\r\n")
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("missing HTTP status line"))?;
+    let code = status_line
+        .split_whitespace()
+        .nth(1)
+        .ok_or_else(|| anyhow::anyhow!("missing HTTP status code"))?;
+    Ok(u16::from_str(code)?)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_content_length(headers: &[u8]) -> Result<usize> {
+    let header_str = std::str::from_utf8(headers)?;
+    for line in header_str.split("\r\n").skip(1) {
+        if line.is_empty() {
+            break;
+        }
+        if let Some((name, value)) = line.split_once(':')
+            && name.eq_ignore_ascii_case("content-length")
+        {
+            return Ok(value.trim().parse::<usize>()?);
+        }
+    }
+    anyhow::bail!("missing content-length header")
+}
+
+#[cfg(target_os = "linux")]
+fn header_has_chunked_encoding(headers: &[u8]) -> bool {
+    let Ok(header_str) = std::str::from_utf8(headers) else {
+        return false;
+    };
+
+    for line in header_str.split("\r\n").skip(1) {
+        if line.is_empty() {
+            break;
+        }
+        if let Some((name, value)) = line.split_once(':')
+            && name.eq_ignore_ascii_case("transfer-encoding")
+        {
+            return value
+                .split(',')
+                .any(|encoding| encoding.trim().eq_ignore_ascii_case("chunked"));
+        }
+    }
+    false
 }
 
 #[derive(Clone)]

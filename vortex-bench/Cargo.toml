@@ -67,3 +67,9 @@ vortex = { workspace = true, features = [
 ] }
 vortex-cuda = { workspace = true }
 vortex-scan = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ktls = { version = "6.0.2", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23.36", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring", "tls12"] }
+webpki-roots = "1.0.4"

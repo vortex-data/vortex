@@ -4910,6 +4910,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "ktls"
+version = "6.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5b79b6ec9c9d56656298df28f92dbaf2e83816be6d12c5b896461087e52d701"
+dependencies = [
+ "futures-util",
+ "ktls-sys",
+ "libc",
+ "memoffset",
+ "nix 0.29.0",
+ "num_enum",
+ "pin-project-lite",
+ "rustls",
+ "smallvec",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+]
+
+[[package]]
+name = "ktls-sys"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ed84c81d133bc00e291085cff51c15cb07d3cede0aade1f2d82dd33df82d7e7"
+
+[[package]]
 name = "lab"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9983,6 +10010,7 @@ dependencies = [
  "humansize",
  "indicatif",
  "itertools 0.14.0",
+ "ktls",
  "mimalloc",
  "noodles-bgzf",
  "noodles-vcf",
@@ -9992,12 +10020,14 @@ dependencies = [
  "rand 0.9.2",
  "regex",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "sysinfo 0.37.2",
  "tabled",
  "target-lexicon",
  "tokio",
+ "tokio-rustls",
  "tokio-stream",
  "tokio-util",
  "tpchgen",
@@ -10010,6 +10040,7 @@ dependencies = [
  "vortex",
  "vortex-cuda",
  "vortex-scan",
+ "webpki-roots",
 ]
 
 [[package]]
