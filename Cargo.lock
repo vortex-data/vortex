@@ -10167,7 +10167,6 @@ dependencies = [
  "rstest",
  "tracing",
  "vortex-buffer",
- "vortex-dtype",
  "vortex-error",
  "vortex-mask",
 ]

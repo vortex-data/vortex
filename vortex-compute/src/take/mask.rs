@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::UnsignedPType;
+use num_traits::AsPrimitive;
+use num_traits::Unsigned;
 use vortex_mask::Mask;
 
 use crate::take::Take;
 
-impl<I: UnsignedPType> Take<[I]> for &Mask {
+impl<I: Unsigned + AsPrimitive<usize>> Take<[I]> for &Mask {
     type Output = Mask;
 
     fn take(self, indices: &[I]) -> Mask {

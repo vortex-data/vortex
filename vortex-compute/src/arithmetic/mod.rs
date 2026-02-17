@@ -3,7 +3,7 @@
 
 //! Arithmetic operations on buffers and vectors.
 
-use vortex_dtype::half::f16;
+use half::f16;
 
 mod buffer;
 mod buffer_checked;

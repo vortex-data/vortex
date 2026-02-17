@@ -334,6 +334,12 @@ pub fn vortex_compute::comparison::ComparableItem::is_equal(lhs: &Self, rhs: &Se
 
 pub fn vortex_compute::comparison::ComparableItem::is_less_than(lhs: &Self, rhs: &Self) -> bool
 
+impl vortex_compute::comparison::ComparableItem for arrow_buffer::bigint::i256
+
+pub fn arrow_buffer::bigint::i256::is_equal(lhs: &Self, rhs: &Self) -> bool
+
+pub fn arrow_buffer::bigint::i256::is_less_than(lhs: &Self, rhs: &Self) -> bool
+
 impl vortex_compute::comparison::ComparableItem for f32
 
 pub fn f32::is_equal(lhs: &Self, rhs: &Self) -> bool
@@ -411,12 +417,6 @@ impl vortex_compute::comparison::ComparableItem for u8
 pub fn u8::is_equal(lhs: &Self, rhs: &Self) -> bool
 
 pub fn u8::is_less_than(lhs: &Self, rhs: &Self) -> bool
-
-impl vortex_compute::comparison::ComparableItem for vortex_dtype::bigint::i256
-
-pub fn vortex_dtype::bigint::i256::is_equal(lhs: &Self, rhs: &Self) -> bool
-
-pub fn vortex_dtype::bigint::i256::is_less_than(lhs: &Self, rhs: &Self) -> bool
 
 pub trait vortex_compute::comparison::Compare<Op, Rhs>
 
@@ -854,25 +854,25 @@ pub type vortex_compute::take::Take::Output
 
 pub fn vortex_compute::take::Take::take(self, indices: &Indices) -> Self::Output
 
-impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_buffer::bit::buf::BitBuffer
+impl<I: num_traits::sign::Unsigned + num_traits::cast::AsPrimitive<usize>> vortex_compute::take::Take<[I]> for &vortex_buffer::bit::buf::BitBuffer
 
 pub type &vortex_buffer::bit::buf::BitBuffer::Output = vortex_buffer::bit::buf::BitBuffer
 
 pub fn &vortex_buffer::bit::buf::BitBuffer::take(self, indices: &[I]) -> vortex_buffer::bit::buf::BitBuffer
 
-impl<I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_mask::Mask
+impl<I: num_traits::sign::Unsigned + num_traits::cast::AsPrimitive<usize>> vortex_compute::take::Take<[I]> for &vortex_mask::Mask
 
 pub type &vortex_mask::Mask::Output = vortex_mask::Mask
 
 pub fn &vortex_mask::Mask::take(self, indices: &[I]) -> vortex_mask::Mask
 
-impl<T: core::marker::Copy, I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &[T]
+impl<T: core::marker::Copy, I: num_traits::sign::Unsigned + num_traits::cast::AsPrimitive<usize>> vortex_compute::take::Take<[I]> for &[T]
 
 pub type &[T]::Output = vortex_buffer::buffer::Buffer<T>
 
 pub fn &[T]::take(self, indices: &[I]) -> vortex_buffer::buffer::Buffer<T>
 
-impl<T: core::marker::Copy, I: vortex_dtype::ptype::UnsignedPType> vortex_compute::take::Take<[I]> for &vortex_buffer::buffer::Buffer<T>
+impl<T: core::marker::Copy, I: num_traits::sign::Unsigned + num_traits::cast::AsPrimitive<usize>> vortex_compute::take::Take<[I]> for &vortex_buffer::buffer::Buffer<T>
 
 pub type &vortex_buffer::buffer::Buffer<T>::Output = vortex_buffer::buffer::Buffer<T>
 

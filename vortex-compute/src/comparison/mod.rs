@@ -3,8 +3,8 @@
 
 //! Comparison operations for Vortex vectors.
 
-use vortex_dtype::half::f16;
-use vortex_dtype::i256;
+use arrow_buffer::i256;
+use half::f16;
 
 mod collection;
 

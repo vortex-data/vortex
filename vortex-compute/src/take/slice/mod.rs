@@ -3,19 +3,22 @@
 
 //! Take function implementations on slices.
 
+use num_traits::AsPrimitive;
+use num_traits::Unsigned;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::UnsignedPType;
 
 use crate::take::Take;
 
-#[doc(hidden)]
-#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-pub mod avx2;
-pub mod portable;
+// TODO(connor): At some point we need to bring this back. But since this code depends on
+// `vortex-dtype` it has to be modified heavily. For now, this is dead code.
+// #[doc(hidden)]
+// #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+// pub mod avx2;
+// pub mod portable;
 
 /// Specialized implementation for non-nullable indices.
-impl<T: Copy, I: UnsignedPType> Take<[I]> for &[T] {
+impl<T: Copy, I: Unsigned + AsPrimitive<usize>> Take<[I]> for &[T] {
     type Output = Buffer<T>;
 
     fn take(self, indices: &[I]) -> Buffer<T> {
@@ -46,7 +49,10 @@ impl<T: Copy, I: UnsignedPType> Take<[I]> for &[T] {
     unused,
     reason = "Compiler may see this as unused based on enabled features"
 )]
-fn take_scalar<T: Copy, I: UnsignedPType>(buffer: &[T], indices: &[I]) -> Buffer<T> {
+fn take_scalar<T: Copy, I: Unsigned + AsPrimitive<usize>>(
+    buffer: &[T],
+    indices: &[I],
+) -> Buffer<T> {
     // NB: The simpler `indices.iter().map(|idx| buff1er[idx.as_()]).collect()` generates suboptimal
     // assembly where the buffer length is repeatedly loaded from the stack on each iteration.
 

@@ -3,20 +3,21 @@
 
 //! Take operation on [`BitBuffer`].
 //!
-//! NB: We do NOT implement `impl<I: UnsignedPType> Take<PVector<I>> for &BitBuffer`, specifically
+//! NB: We do NOT implement `impl<I: Unsigned> Take<PVector<I>> for &BitBuffer`, specifically
 //! because there is a very similar implementation on `Mask` that has special logic for working with
 //! null indices. That logic could also be implemented on `BitBuffer`, but since it is not
 //! immediately clear what should happen in the case of a null index when taking a `BitBuffer` (do
 //! you set it to true or false?), we do not implement this at all.
 
+use num_traits::AsPrimitive;
+use num_traits::Unsigned;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::get_bit;
-use vortex_dtype::UnsignedPType;
 
 use crate::take::LINUX_PAGE_SIZE;
 use crate::take::Take;
 
-impl<I: UnsignedPType> Take<[I]> for &BitBuffer {
+impl<I: Unsigned + AsPrimitive<usize>> Take<[I]> for &BitBuffer {
     type Output = BitBuffer;
 
     fn take(self, indices: &[I]) -> BitBuffer {
@@ -34,7 +35,7 @@ impl<I: UnsignedPType> Take<[I]> for &BitBuffer {
 /// # Panics
 ///
 /// Panics if an index is out of bounds.
-fn take_byte_bool<I: UnsignedPType>(bools: Vec<bool>, indices: &[I]) -> BitBuffer {
+fn take_byte_bool<I: Unsigned + AsPrimitive<usize>>(bools: Vec<bool>, indices: &[I]) -> BitBuffer {
     BitBuffer::collect_bool(indices.len(), |idx| {
         // SAFETY: We are iterating within the bounds of the `indices` array, so we are always
         // within bounds of `indices`.
@@ -46,7 +47,7 @@ fn take_byte_bool<I: UnsignedPType>(bools: Vec<bool>, indices: &[I]) -> BitBuffe
 /// # Panics
 ///
 /// Panics if an index is out of bounds.
-fn take_bool<I: UnsignedPType>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
+fn take_bool<I: Unsigned + AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
     // We dereference to the underlying buffer to avoid incurring an access cost on every index.
     let buffer = bools.inner().as_ref();
     let offset = bools.offset();
