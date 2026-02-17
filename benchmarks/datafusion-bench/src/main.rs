@@ -308,7 +308,7 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
 
         let multi_ds = MultiFileDataSource::new(SESSION.clone())
             .with_filesystem(fs)
-            .with_glob_url(glob_pattern)
+            .with_glob(glob_pattern)
             .build()
             .await?;
 

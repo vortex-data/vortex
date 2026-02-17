@@ -123,15 +123,13 @@ impl TableFunction for VortexScanApiTableFunction {
 
         let mut base_url = glob_url.clone();
         base_url.set_path("");
-        tracing::warn!("GLOB: {}", glob_url);
-        tracing::warn!("BASE: {}", base_url);
 
         let fs = Arc::new(DuckDbFileSystem::new(base_url, ctx.clone()));
 
         let data_source: DataSourceRef = RUNTIME.block_on(async {
             let builder = MultiFileDataSource::new(SESSION.clone())
                 .with_filesystem(fs)
-                .with_glob_url(glob_url);
+                .with_glob(glob_url.path());
             let ds = builder.build().await?;
             VortexResult::Ok(Arc::new(ds))
         })?;
