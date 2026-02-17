@@ -26,7 +26,7 @@ use datafusion_physical_plan::filter_pushdown::PushedDownPredicate;
 use datafusion_physical_plan::metrics::ExecutionPlanMetricsSet;
 use object_store::ObjectStore;
 use object_store::path::Path;
-use vortex::error::VortexExpect as _;
+use vortex::error::VortexExpect;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
 use vortex::metrics::DefaultMetricsRegistry;
@@ -35,10 +35,11 @@ use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use super::opener::VortexOpener;
-use crate::DefaultVortexReaderFactory;
-use crate::VortexReaderFactory;
+use crate::VortexTableOptions;
 use crate::convert::exprs::DefaultExpressionConvertor;
 use crate::convert::exprs::ExpressionConvertor;
+use crate::persistent::reader::DefaultVortexReaderFactory;
+use crate::persistent::reader::VortexReaderFactory;
 
 /// Execution plan for reading one or more Vortex files, intended to be consumed by [`DataSourceExec`].
 ///
@@ -65,7 +66,7 @@ pub struct VortexSource {
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
     file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
     /// Whether to enable expression pushdown into the underlying Vortex scan.
-    projection_pushdown: bool,
+    options: VortexTableOptions,
 }
 
 impl VortexSource {
@@ -91,13 +92,13 @@ impl VortexSource {
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             file_metadata_cache: None,
-            projection_pushdown: false,
+            options: VortexTableOptions::default(),
         }
     }
 
     /// Enable or disable expression pushdown into the underlying Vortex scan.
     pub fn with_projection_pushdown(mut self, enabled: bool) -> Self {
-        self.projection_pushdown = enabled;
+        self.options.projection_pushdown = enabled;
         self
     }
 
@@ -132,6 +133,23 @@ impl VortexSource {
         file_metadata_cache: Arc<dyn FileMetadataCache>,
     ) -> Self {
         self.file_metadata_cache = Some(file_metadata_cache);
+        self
+    }
+
+    /// Set the underlying scan concurrency. This limit is used per Vortex scan operations.
+    pub fn with_scan_concurrency(mut self, scan_concurrency: usize) -> Self {
+        self.options.scan_concurrency = Some(scan_concurrency);
+        self
+    }
+
+    /// Returns the table options for this source.
+    pub fn options(&self) -> &VortexTableOptions {
+        &self.options
+    }
+
+    /// Set the table options for this source.
+    pub fn with_options(mut self, opts: VortexTableOptions) -> Self {
+        self.options = opts;
         self
     }
 }
@@ -173,7 +191,8 @@ impl FileSource for VortexSource {
             has_output_ordering: !base_config.output_ordering.is_empty(),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: self.file_metadata_cache.clone(),
-            projection_pushdown: self.projection_pushdown,
+            projection_pushdown: self.options.projection_pushdown,
+            scan_concurrency: self.options.scan_concurrency,
         };
 
         Ok(Arc::new(opener))
