@@ -17,7 +17,7 @@ pub use crate::expr::StrictComparison;
 ///
 /// The `BetweenOptions` defines if the lower or upper bounds are strict (exclusive) or non-strict
 /// (inclusive).
-#[deprecated(note = "Use expr::between_canonical with an ExecutionCtx instead")]
+#[deprecated(note = "Use ArrayBuiltins::between instead")]
 pub fn between(
     arr: &dyn Array,
     lower: &dyn Array,
