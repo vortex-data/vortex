@@ -18,15 +18,15 @@ fn test_basic_display() {
 
         assert!(
             display.contains("Other error: this is bad"),
-            "should contain error message"
+            "should contain error message. Instead got: {display}"
         );
         assert!(
             display.contains("Backtrace:"),
-            "should contain backtrace header"
+            "should contain backtrace header. Instead got: {display}."
         );
         assert!(
             display.contains("test_basic_display"),
-            "backtrace should include test function"
+            "backtrace should include test function. Instead got: {display}."
         );
     });
 }
