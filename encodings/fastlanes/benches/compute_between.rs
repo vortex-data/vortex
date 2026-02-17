@@ -65,6 +65,10 @@ mod primitive {
     use num_traits::NumCast;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
+    use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::RecursiveCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::BetweenOptions;
@@ -73,7 +77,6 @@ mod primitive {
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::boolean;
     use vortex_array::compute::compare;
-    use vortex_array::{IntoArray, LEGACY_SESSION, RecursiveCanonical, VortexSessionExecute};
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
@@ -152,6 +155,10 @@ mod bitpack {
     use num_traits::NumCast;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
+    use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::RecursiveCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::BetweenOptions;
@@ -160,7 +167,6 @@ mod bitpack {
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::boolean;
     use vortex_array::compute::compare;
-    use vortex_array::{IntoArray, LEGACY_SESSION, RecursiveCanonical, VortexSessionExecute};
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
@@ -238,6 +244,10 @@ mod alp {
     use num_traits::NumCast;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
+    use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::RecursiveCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::BetweenOptions;
@@ -246,7 +256,6 @@ mod alp {
     use vortex_array::compute::StrictComparison::NonStrict;
     use vortex_array::compute::boolean;
     use vortex_array::compute::compare;
-    use vortex_array::{IntoArray, LEGACY_SESSION, RecursiveCanonical, VortexSessionExecute};
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 

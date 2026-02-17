@@ -204,10 +204,6 @@ impl vortex_array::compute::is_constant::IsConstantKernel for vortex_fastlanes::
 
 pub fn vortex_fastlanes::BitPackedVTable::is_constant(&self, array: &vortex_fastlanes::BitPackedArray, opts: &vortex_array::compute::is_constant::IsConstantOpts) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::expr::exprs::between::kernel::BetweenKernel for vortex_fastlanes::BitPackedVTable
-
-pub fn vortex_fastlanes::BitPackedVTable::between(array: &vortex_fastlanes::BitPackedArray, lower: &dyn vortex_array::array::Array, upper: &dyn vortex_array::array::Array, options: &vortex_array::expr::exprs::between::BetweenOptions, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
 impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_fastlanes::BitPackedVTable
 
 pub fn vortex_fastlanes::BitPackedVTable::cast(array: &vortex_fastlanes::BitPackedArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>

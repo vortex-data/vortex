@@ -27,6 +27,7 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalVTable;
 use crate::arrays::PrimitiveVTable;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::BooleanOperator;
 use crate::compute::Options;
 use crate::compute::compare;
@@ -288,6 +289,15 @@ impl VTable for Between {
             .inputs
             .try_into()
             .map_err(|_| vortex_err!("Expected 3 arguments for Between expression",))?;
+
+        // canonicalize the arr and we might be able to run a between kernels over that.
+        if !arr.is_canonical() {
+            return arr.execute::<Canonical>(args.ctx)?.into_array().between(
+                lower,
+                upper,
+                options.clone(),
+            );
+        }
 
         between_canonical(
             arr.as_ref(),

@@ -17,6 +17,7 @@ use crate::FoRArray;
 use crate::FoRVTable;
 
 pub(super) const PARENT_RULES: ParentRuleSet<FoRVTable> = ParentRuleSet::new(&[
+    // TODO: add BetweenReduceAdaptor(FoRVTable)
     ParentRuleSet::lift(&FoRFilterPushDownRule),
     ParentRuleSet::lift(&FilterReduceAdaptor(FoRVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(FoRVTable)),

@@ -252,13 +252,13 @@ impl vortex_array::arrays::slice::SliceKernel for vortex_alp::ALPVTable
 
 pub fn vortex_alp::ALPVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::compute::between::BetweenKernel for vortex_alp::ALPVTable
-
-pub fn vortex_alp::ALPVTable::between(&self, array: &vortex_alp::ALPArray, lower: &dyn vortex_array::array::Array, upper: &dyn vortex_array::array::Array, options: &vortex_array::compute::between::BetweenOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
 impl vortex_array::compute::nan_count::NaNCountKernel for vortex_alp::ALPVTable
 
 pub fn vortex_alp::ALPVTable::nan_count(&self, array: &vortex_alp::ALPArray) -> vortex_error::VortexResult<usize>
+
+impl vortex_array::expr::exprs::between::kernel::BetweenReduce for vortex_alp::ALPVTable
+
+pub fn vortex_alp::ALPVTable::between(array: &vortex_alp::ALPArray, lower: &dyn vortex_array::array::Array, upper: &dyn vortex_array::array::Array, options: &vortex_array::expr::exprs::between::BetweenOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::expr::exprs::binary::compare::CompareKernel for vortex_alp::ALPVTable
 

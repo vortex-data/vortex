@@ -21,8 +21,9 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ScalarFnArray;
+use crate::expr::Binary;
 use crate::expr::ScalarFn;
-use crate::expr::{Binary, operators};
+use crate::expr::operators;
 
 /// Compares two arrays and returns a new boolean array with the result of the comparison.
 ///

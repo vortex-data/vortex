@@ -5,13 +5,12 @@ use std::fmt::Debug;
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::compute::BetweenKernel;
 use vortex_array::compute::BetweenOptions;
 use vortex_array::compute::StrictComparison;
+use vortex_array::expr::BetweenReduce;
 use vortex_dtype::NativeDType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
@@ -23,13 +22,12 @@ use crate::ALPFloat;
 use crate::ALPVTable;
 use crate::match_each_alp_float_ptype;
 
-impl BetweenKernel for ALPVTable {
+impl BetweenReduce for ALPVTable {
     fn between(
         array: &ALPArray,
         lower: &dyn Array,
         upper: &dyn Array,
         options: &BetweenOptions,
-        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {
             return Ok(None);
