@@ -366,10 +366,28 @@ pub fn between(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+    use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_scalar::DecimalValue;
+    use vortex_scalar::Scalar;
+
     use super::*;
+    use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::ToCanonical;
+    use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
+    use crate::arrays::DecimalArray;
+    use crate::assert_arrays_eq;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;
+    use crate::test_harness::to_int_indices;
+    use crate::validity::Validity;
 
     #[test]
     fn test_display() {
@@ -394,5 +412,157 @@ mod tests {
             },
         );
         assert_eq!(expr2.to_string(), "(0i32 < $ <= 100i32)");
+    }
+
+    #[rstest]
+    #[case(StrictComparison::NonStrict, StrictComparison::NonStrict, vec![0, 1, 2, 3])]
+    #[case(StrictComparison::NonStrict, StrictComparison::Strict, vec![0, 1])]
+    #[case(StrictComparison::Strict, StrictComparison::NonStrict, vec![0, 2])]
+    #[case(StrictComparison::Strict, StrictComparison::Strict, vec![0])]
+    fn test_bounds(
+        #[case] lower_strict: StrictComparison,
+        #[case] upper_strict: StrictComparison,
+        #[case] expected: Vec<u64>,
+    ) {
+        let lower = buffer![0, 0, 0, 0, 2].into_array();
+        let array = buffer![1, 0, 1, 0, 1].into_array();
+        let upper = buffer![2, 1, 1, 0, 0].into_array();
+
+        let matches = between_canonical(
+            array.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
+            &BetweenOptions {
+                lower_strict,
+                upper_strict,
+            },
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+        .to_bool();
+
+        let indices = to_int_indices(matches).unwrap();
+        assert_eq!(indices, expected);
+    }
+
+    #[test]
+    fn test_constants() {
+        let lower = buffer![0, 0, 2, 0, 2].into_array();
+        let array = buffer![1, 0, 1, 0, 1].into_array();
+
+        // upper is null
+        let upper = ConstantArray::new(
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+            5,
+        );
+
+        let matches = between_canonical(
+            array.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
+            &BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+        .to_bool();
+
+        let indices = to_int_indices(matches).unwrap();
+        assert!(indices.is_empty());
+
+        // upper is a fixed constant
+        let upper = ConstantArray::new(Scalar::from(2), 5);
+        let matches = between_canonical(
+            array.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
+            &BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+        .to_bool();
+        let indices = to_int_indices(matches).unwrap();
+        assert_eq!(indices, vec![0, 1, 3]);
+
+        // lower is also a constant
+        let lower = ConstantArray::new(Scalar::from(0), 5);
+
+        let matches = between_canonical(
+            array.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
+            &BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+        .to_bool();
+        let indices = to_int_indices(matches).unwrap();
+        assert_eq!(indices, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_between_decimal() {
+        let values = buffer![100i128, 200i128, 300i128, 400i128];
+        let decimal_type = DecimalDType::new(3, 2);
+        let array = DecimalArray::new(values, decimal_type, Validity::NonNullable);
+
+        let lower = ConstantArray::new(
+            Scalar::decimal(
+                DecimalValue::I128(100i128),
+                decimal_type,
+                Nullability::NonNullable,
+            ),
+            array.len(),
+        );
+        let upper = ConstantArray::new(
+            Scalar::decimal(
+                DecimalValue::I128(400i128),
+                decimal_type,
+                Nullability::NonNullable,
+            ),
+            array.len(),
+        );
+
+        // Strict lower bound, non-strict upper bound
+        let between_strict = between_canonical(
+            array.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
+            &BetweenOptions {
+                lower_strict: StrictComparison::Strict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
+        assert_arrays_eq!(
+            between_strict,
+            BoolArray::from_iter([false, true, true, true])
+        );
+
+        // Non-strict lower bound, strict upper bound
+        let between_strict = between_canonical(
+            array.as_ref(),
+            lower.as_ref(),
+            upper.as_ref(),
+            &BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::Strict,
+            },
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
+        assert_arrays_eq!(
+            between_strict,
+            BoolArray::from_iter([true, true, true, false])
+        );
     }
 }
