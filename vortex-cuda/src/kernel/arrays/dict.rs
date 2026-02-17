@@ -178,9 +178,6 @@ async fn execute_dict_decimal_typed<
     assert!(!codes.is_empty());
     let codes_len = codes.len();
     let codes_len_u64 = codes_len as u64;
-    if codes_len == 0 {
-        vortex_bail!("Cannot execute dict on empty codes array");
-    }
 
     let DecimalArrayParts {
         values: values_buffer,

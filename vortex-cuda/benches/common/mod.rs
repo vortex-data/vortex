@@ -13,13 +13,7 @@ use vortex_error::VortexResult;
 
 #[derive(Debug, Default)]
 pub struct TimedLaunchStrategy {
-    total_time_ns: Arc<AtomicU64>,
-}
-
-impl TimedLaunchStrategy {
-    pub fn get(&self) -> &Arc<AtomicU64> {
-        &self.total_time_ns
-    }
+    pub total_time_ns: Arc<AtomicU64>,
 }
 
 impl LaunchStrategy for TimedLaunchStrategy {

@@ -92,7 +92,7 @@ impl CudaExecutionCtx {
     /// Perform an external kernel launch, with events created and logged via the configured
     /// [`LaunchStrategy`].
     ///
-    /// We use CUB and NVCOMP routines, and those don't match the normaal `cudarc` entrypoints, so
+    /// We use CUB and NVCOMP routines, and those don't match the normal `cudarc` entrypoints, so
     /// to inject the configured launch strategy we need to bracket it ourselves.
     pub fn launch_external<F: FnMut() -> VortexResult<()>>(
         &self,
