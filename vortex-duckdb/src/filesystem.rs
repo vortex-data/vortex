@@ -23,6 +23,8 @@ use vortex::file::filesystem::FileListing;
 use vortex::file::filesystem::FileSystem;
 use vortex::io::CoalesceConfig;
 use vortex::io::VortexReadAt;
+use vortex::io::file::object_store;
+use vortex::io::file::std_file;
 use vortex::io::runtime::BlockingRuntime;
 
 use crate::RUNTIME;
@@ -31,14 +33,6 @@ use crate::duckdb::ClientContext;
 use crate::duckdb::FsFileHandle;
 use crate::duckdb::duckdb_fs_list_dir;
 use crate::duckdb::fs_error;
-
-// NOTE(ngates): this is not at all tuned, but taken from the ObjectStore defaults until we
-//  can investigate how better to configure these numbers.
-const DEFAULT_COALESCE: CoalesceConfig = CoalesceConfig {
-    distance: 1024 * 1024,      // 1 MB
-    max_size: 16 * 1024 * 1024, // 16 MB
-};
-const DEFAULT_CONCURRENCY: usize = 192;
 
 pub struct DuckDbFileSystem {
     base_url: Url,
@@ -138,6 +132,7 @@ fn list_recursive(
 pub(crate) struct DuckDbFsReader {
     handle: Arc<FsFileHandle>,
     uri: Arc<str>,
+    is_local: bool,
     size: Arc<OnceLock<u64>>,
 }
 
@@ -153,9 +148,12 @@ impl DuckDbFsReader {
             return Err(fs_error(err));
         }
 
+        let is_local = url.scheme() == "file";
+
         Ok(Self {
             handle: Arc::new(unsafe { FsFileHandle::own(handle) }),
             uri: Arc::from(url.as_str()),
+            is_local,
             size: Arc::new(OnceLock::new()),
         })
     }
@@ -167,11 +165,19 @@ impl VortexReadAt for DuckDbFsReader {
     }
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
-        Some(DEFAULT_COALESCE)
+        Some(if self.is_local {
+            CoalesceConfig::local()
+        } else {
+            CoalesceConfig::object_storage()
+        })
     }
 
     fn concurrency(&self) -> usize {
-        DEFAULT_CONCURRENCY
+        if self.is_local {
+            std_file::DEFAULT_CONCURRENCY
+        } else {
+            object_store::DEFAULT_CONCURRENCY
+        }
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
