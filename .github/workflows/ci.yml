@@ -297,6 +297,18 @@ jobs:
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --locked --all-targets -- -D warnings
 
+  cuda-lint:
+    name: "CUDA (lint)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: CUDA Lint - clang-format
+        run: |
+          git ls-files vortex-cuda \
+            | grep -E '\.(cu|cuh|h)$' \
+            | xargs clang-format --dry-run --Werror --style=file
+
   rust-lint-no-default:
     name: "Rust (lint, no default)"
     timeout-minutes: 120
@@ -659,7 +671,7 @@ jobs:
       matrix:
         include:
           - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-dtype vortex-error" }
-          - { shard: 2, name: "Array types", packages: "vortex-array vortex-scalar vortex-vector", features: "--features _test-harness" }
+          - { shard: 2, name: "Array types", packages: "vortex-array vortex-scalar", features: "--features _test-harness" }
           - { shard: 3, name: "Main library", packages: "vortex vortex-compute" }
           - { shard: 4, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
           - { shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }

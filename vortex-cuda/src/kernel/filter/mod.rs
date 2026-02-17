@@ -91,12 +91,7 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
     mask: Mask,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<BufferHandle> {
-    // Return  a buffer handle back once this has completed.
-    let d_input = if input.is_on_device() {
-        input
-    } else {
-        ctx.move_to_device(input)?.await?
-    };
+    let d_input = ctx.ensure_on_device(input).await?;
 
     // Construct the inputs for the cub::DeviceSelect::Flagged call.
     let output_len = mask.true_count();

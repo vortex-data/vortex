@@ -22,6 +22,7 @@ use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::CudaBufferExt;
@@ -57,7 +58,7 @@ where
     A::ALPInt: NativePType + DeviceRepr + Send + Sync + 'static,
 {
     let array_len = array.encoded().len();
-    assert!(array_len > 0);
+    vortex_ensure!(array_len > 0, "ALP array must not be empty");
 
     // Get the exponent factors from the lookup tables.
     let exponents = array.exponents();
@@ -71,11 +72,7 @@ where
         buffer, validity, ..
     } = primitive.into_parts();
 
-    let device_input: BufferHandle = if buffer.is_on_device() {
-        buffer
-    } else {
-        ctx.move_to_device(buffer)?.await?
-    };
+    let device_input = ctx.ensure_on_device(buffer).await?;
 
     // Get CUDA view of input
     let input_view = device_input.cuda_view::<A::ALPInt>()?;

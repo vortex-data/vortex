@@ -41,6 +41,7 @@ use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::VirtualColumnsResult;
 use crate::exporter::ConversionCache;
+use crate::filesystem::DuckDbFileSystem;
 use crate::scan::EMPTY_COLUMN_IDX;
 use crate::scan::EMPTY_COLUMN_NAME;
 use crate::scan::VortexGlobalData;
@@ -49,7 +50,6 @@ use crate::scan::extract_projection_expr_from;
 use crate::scan::extract_schema_from_dtype;
 use crate::scan::extract_table_filter_expr_from;
 use crate::scan::scan_shared;
-use crate::utils::object_store::s3_store;
 
 /// Bind data for the scan API table function, holding a [`DataSourceRef`] instead of
 /// per-file URLs.
@@ -89,30 +89,6 @@ impl Debug for VortexScanApiBindData {
     }
 }
 
-/// Creates an S3-backed [`FileSystemRef`] and extracts the glob pattern from the URL path.
-///
-/// Returns `None` for local paths (the builder handles local filesystem creation internally).
-fn create_s3_filesystem_and_glob(url_glob: &str) -> VortexResult<Option<(FileSystemRef, String)>> {
-    if url_glob.starts_with("s3://") {
-        let url = url::Url::parse(url_glob)?;
-        let bucket = url
-            .host_str()
-            .ok_or_else(|| vortex_err!("Failed to extract bucket name from URL: {url}"))?;
-        let store = s3_store(bucket)?;
-        let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(store, RUNTIME.handle()));
-        let glob_pattern = url
-            .path()
-            .strip_prefix('/')
-            .ok_or_else(|| vortex_err!("Invalid S3 path: {url}"))?
-            .to_string();
-        Ok(Some((fs, glob_pattern)))
-    } else if url_glob.starts_with("gs://") {
-        vortex_bail!("GCS glob expansion not yet implemented")
-    } else {
-        Ok(None)
-    }
-}
-
 #[derive(Debug)]
 pub struct VortexScanApiTableFunction;
 
@@ -130,14 +106,15 @@ impl TableFunction for VortexScanApiTableFunction {
     }
 
     fn bind(
-        _ctx: &ClientContext,
+        ctx: &ClientContext,
         input: &BindInput,
         result: &mut BindResult,
     ) -> VortexResult<Self::BindData> {
+        let fs = DuckDbFileSystem::new();
+
         let file_glob_string = input
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
-
         let glob_str = file_glob_string.as_ref().as_string();
 
         let data_source: DataSourceRef = RUNTIME.block_on(async {

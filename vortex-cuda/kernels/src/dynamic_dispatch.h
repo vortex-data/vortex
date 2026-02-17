@@ -13,7 +13,9 @@ extern "C" {
 
 /// Source ops: Fills shared memory from input (exactly one, required)
 union SourceParams {
-    struct BitunpackParams { uint8_t bit_width; } bitunpack;
+    struct BitunpackParams {
+        uint8_t bit_width;
+    } bitunpack;
 };
 
 struct SourceOp {
@@ -23,8 +25,13 @@ struct SourceOp {
 
 /// Scalar ops: Element-wise transforms in registers (0 or more)
 union ScalarParams {
-    struct FoRParams { uint64_t reference; } frame_of_ref;
-    struct AlpParams { float f; float e; } alp;
+    struct FoRParams {
+        uint64_t reference;
+    } frame_of_ref;
+    struct AlpParams {
+        float f;
+        float e;
+    } alp;
 };
 
 struct ScalarOp {
@@ -37,7 +44,7 @@ struct ScalarOp {
 
 struct DynamicDispatchPlan {
     struct SourceOp source;
-    uint8_t         num_scalar_ops;
+    uint8_t num_scalar_ops;
     struct ScalarOp scalar_ops[MAX_SCALAR_OPS];
 };
 

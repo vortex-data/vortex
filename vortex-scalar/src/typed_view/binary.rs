@@ -90,38 +90,6 @@ impl<'a> BinaryScalar<'a> {
         self.value
     }
 
-    /// Constructs the next [`Scalar`] at most `max_length` bytes that's lexicographically greater
-    /// than this.
-    ///
-    /// Returns `None` if the value is null or if constructing a greater value would overflow.
-    pub fn upper_bound(&self, max_length: usize) -> Option<Scalar> {
-        let value = self.value()?;
-        let sliced = value.slice(0..max_length);
-        let mut sliced_mut = sliced.into_mut();
-        for b in sliced_mut.iter_mut().rev() {
-            let (incr, overflow) = b.overflowing_add(1);
-            *b = incr;
-            if !overflow {
-                return Some(Scalar::binary(
-                    sliced_mut.freeze(),
-                    self.dtype().nullability(),
-                ));
-            }
-        }
-        None
-    }
-
-    /// Construct a [`Scalar`] at most `max_length` in size that's less than or equal to
-    /// ourselves.
-    ///
-    /// Returns a null [`Scalar`] if the value is null.
-    pub fn lower_bound(&self, max_length: usize) -> Scalar {
-        match self.value() {
-            Some(value) => Scalar::binary(value.slice(0..max_length), self.dtype().nullability()),
-            None => Scalar::null(self.dtype().clone()),
-        }
-    }
-
     /// Casts this scalar to the given `dtype`.
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if !matches!(dtype, DType::Binary(..)) {
@@ -162,26 +130,6 @@ mod tests {
     use crate::PValue;
     use crate::Scalar;
     use crate::ScalarValue;
-
-    #[test]
-    fn lower_bound() {
-        let binary = Scalar::binary(buffer![0u8, 5, 47, 33, 129], Nullability::NonNullable);
-        let expected = Scalar::binary(buffer![0u8, 5], Nullability::NonNullable);
-        assert_eq!(binary.as_binary().lower_bound(2), expected,);
-    }
-
-    #[test]
-    fn upper_bound() {
-        let binary = Scalar::binary(buffer![0u8, 5, 255, 234, 23], Nullability::NonNullable);
-        let expected = Scalar::binary(buffer![0u8, 6, 0], Nullability::NonNullable);
-        assert_eq!(binary.as_binary().upper_bound(3).unwrap(), expected,);
-    }
-
-    #[test]
-    fn upper_bound_overflow() {
-        let binary = Scalar::binary(buffer![255u8, 255, 255], Nullability::NonNullable);
-        assert!(binary.as_binary().upper_bound(2).is_none());
-    }
 
     #[rstest]
     #[case(&[1u8, 2, 3], &[1u8, 2, 3], true)]
@@ -314,20 +262,6 @@ mod tests {
 
         let scalar = Scalar::primitive(42i32, Nullability::NonNullable);
         assert!(scalar.as_binary_opt().is_none());
-    }
-
-    #[test]
-    fn test_upper_bound_null() {
-        let null_binary = Scalar::null(vortex_dtype::DType::Binary(Nullability::Nullable));
-        let scalar = null_binary.as_binary();
-        assert!(scalar.upper_bound(10).is_none());
-    }
-
-    #[test]
-    fn test_lower_bound_null() {
-        let null_binary = Scalar::null(vortex_dtype::DType::Binary(Nullability::Nullable));
-        let scalar = null_binary.as_binary();
-        assert!(scalar.lower_bound(10).is_null());
     }
 
     #[test]

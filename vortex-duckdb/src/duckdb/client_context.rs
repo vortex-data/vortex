@@ -14,8 +14,17 @@ wrapper!(
     /// A DuckDB client context wrapper.
     ClientContext,
     cpp::duckdb_vx_client_context,
-    |_| {}
+    |_| {
+        // No cleanup is necessary since the client context is owned by the connection and will
+        // be valid for the connection's lifetime.
+    }
 );
+
+// SAFETY: SendableClientContext carries the same opaque pointer as ClientContext. It is safe to
+// send/share across threads under the same guarantees as ClientContext: the underlying DuckDB
+// context is valid for the connection lifetime and DuckDB synchronizes internal state.
+unsafe impl Send for ClientContext {}
+unsafe impl Sync for ClientContext {}
 
 impl ClientContext {
     /// Get the object cache for this client context.

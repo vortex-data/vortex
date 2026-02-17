@@ -11,12 +11,12 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
-use vortex_array::buffer::BufferHandle;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_simd_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_fastlanes::FoRArray;
 use vortex_fastlanes::FoRVTable;
@@ -55,7 +55,7 @@ where
     P: NativePType + DeviceRepr + Send + Sync + 'static,
 {
     let array_len = array.encoded().len();
-    assert!(array_len > 0);
+    vortex_ensure!(array_len > 0, "FoR encoded array must not be empty");
 
     let reference: P = array
         .reference_scalar()
@@ -70,11 +70,7 @@ where
         buffer, validity, ..
     } = primitive.into_parts();
 
-    let device_buffer: BufferHandle = if buffer.is_on_device() {
-        buffer
-    } else {
-        ctx.move_to_device(buffer)?.await?
-    };
+    let device_buffer = ctx.ensure_on_device(buffer).await?;
 
     // Get CUDA view of the buffer
     let cuda_view = device_buffer.cuda_view::<P>()?;

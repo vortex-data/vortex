@@ -2,10 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod cast;
-mod compare;
 mod fill_null;
 mod filter;
-mod mask;
 mod min_max;
 mod not;
 pub(crate) mod rules;

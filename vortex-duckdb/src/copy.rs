@@ -29,9 +29,11 @@ use crate::RUNTIME;
 use crate::SESSION;
 use crate::convert::data_chunk_to_vortex;
 use crate::convert::from_duckdb_table;
+use crate::duckdb::ClientContext;
 use crate::duckdb::CopyFunction;
 use crate::duckdb::DataChunk;
 use crate::duckdb::LogicalType;
+use crate::duckdb::duckdb_fs_create_writer;
 
 #[derive(Debug)]
 pub struct VortexCopyFunction;
@@ -118,6 +120,7 @@ impl CopyFunction for VortexCopyFunction {
     }
 
     fn init_global(
+        client_context: ClientContext,
         bind_data: &Self::BindData,
         file_path: String,
     ) -> VortexResult<Self::GlobalState> {
@@ -126,9 +129,14 @@ impl CopyFunction for VortexCopyFunction {
         let array_stream = ArrayStreamAdapter::new(bind_data.dtype.clone(), rx.into_stream());
 
         let handle = SESSION.handle();
+        let ctx_ptr = client_context.as_sendable();
         let write_task = handle.spawn(async move {
-            let mut file = async_fs::File::create(file_path).await?;
-            SESSION.write_options().write(&mut file, array_stream).await
+            // Use DuckDB FS exclusively to match the DuckDB client context configuration.
+            let writer =
+                unsafe { duckdb_fs_create_writer(ctx_ptr.as_ptr(), &file_path) }.map_err(|e| {
+                    vortex_err!("Failed to create DuckDB FS writer for {file_path}: {e}")
+                })?;
+            SESSION.write_options().write(writer, array_stream).await
         });
 
         let worker_pool = RUNTIME.new_pool();

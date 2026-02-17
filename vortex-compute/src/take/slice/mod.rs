@@ -10,6 +10,7 @@ use vortex_dtype::UnsignedPType;
 use crate::take::Take;
 
 #[doc(hidden)]
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 pub mod avx2;
 pub mod portable;
 

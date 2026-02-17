@@ -35,7 +35,7 @@ use crate::executor::CudaExecutionCtx;
 use crate::kernel::launch_cuda_kernel_with_config;
 use crate::kernel::patches::execute_patches;
 
-/// CUDA decoder for ALP (Adaptive Lossless floating-Point) decompression.
+/// CUDA decoder for bit-packed arrays.
 #[derive(Debug)]
 pub struct BitPackedExecutor;
 
@@ -107,11 +107,7 @@ where
     vortex_ensure!(len > 0, "Non empty array");
     let offset = offset as usize;
 
-    let device_input: BufferHandle = if packed.is_on_device() {
-        packed
-    } else {
-        ctx.move_to_device(packed)?.await?
-    };
+    let device_input = ctx.ensure_on_device(packed).await?;
 
     // Get CUDA view of input
     let input_view = device_input.cuda_view::<A::Physical>()?;

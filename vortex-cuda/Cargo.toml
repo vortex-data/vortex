@@ -12,6 +12,7 @@ readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
+publish = false
 
 [lints]
 workspace = true
@@ -28,9 +29,11 @@ arrow-schema = { workspace = true, features = ["ffi"] }
 async-trait = { workspace = true }
 cudarc = { workspace = true, features = ["f16"] }
 fastlanes = { workspace = true }
+flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 kanal = { workspace = true }
 paste = { workspace = true }
+prost = { workspace = true }
 tracing = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
@@ -42,7 +45,9 @@ vortex-decimal-byte-parts = { workspace = true }
 vortex-dtype = { workspace = true, features = ["cudarc"] }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
+vortex-flatbuffers = { workspace = true }
 vortex-io = { workspace = true }
+vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-nvcomp = { path = "nvcomp" }
 vortex-runend = { workspace = true }
@@ -97,4 +102,8 @@ harness = false
 
 [[bench]]
 name = "dynamic_dispatch_cuda"
+harness = false
+
+[[bench]]
+name = "throughput_cuda"
 harness = false

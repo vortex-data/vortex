@@ -16,6 +16,7 @@ use vortex_error::vortex_err;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
@@ -24,21 +25,19 @@ use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
-use crate::compute::CompareKernel;
-use crate::compute::CompareKernelAdapter;
 use crate::compute::Operator;
 use crate::compute::compare;
 use crate::compute::compare_lengths_to_empty;
-use crate::register_kernel;
+use crate::expr::CompareKernel;
 use crate::vtable::ValidityHelper;
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareKernel for VarBinVTable {
     fn compare(
-        &self,
         lhs: &VarBinArray,
         rhs: &dyn Array,
         operator: Operator,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(rhs_const) = rhs.as_constant() {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
@@ -121,8 +120,6 @@ impl CompareKernel for VarBinVTable {
         }
     }
 }
-
-register_kernel!(CompareKernelAdapter(VarBinVTable).lift());
 
 fn compare_offsets_to_empty<P: IntegerPType>(
     offsets: PrimitiveArray,

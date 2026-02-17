@@ -40,7 +40,7 @@ pub type FileSystemRef = Arc<dyn FileSystem>;
 /// An `open_write` method will be added once [`VortexWrite`](vortex_io::VortexWrite) is
 /// object-safe (it currently uses `impl Future` return types which prevent trait-object usage).
 #[async_trait]
-pub trait FileSystem: Send + Sync + 'static {
+pub trait FileSystem: Send + Sync {
     /// List files whose paths start with `prefix`.
     ///
     /// Returns a stream of [`FileListing`] entries. The stream may yield entries in any order;

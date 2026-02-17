@@ -105,17 +105,8 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
     } = codes.into_parts();
 
     // Get device buffers for values and codes
-    let values_device = if values_buffer.is_on_device() {
-        values_buffer
-    } else {
-        ctx.move_to_device(values_buffer)?.await?
-    };
-
-    let codes_device = if codes_buffer.is_on_device() {
-        codes_buffer
-    } else {
-        ctx.move_to_device(codes_buffer)?.await?
-    };
+    let values_device = ctx.ensure_on_device(values_buffer).await?;
+    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
 
     // Allocate output buffer on device
     let output_slice = ctx.device_alloc::<V>(codes_len)?;
@@ -203,18 +194,8 @@ async fn execute_dict_decimal_typed<
     } = codes.into_parts();
 
     // Copy buffers to device if needed
-    // Note: We use u8 for the buffer type since we're treating these as raw bytes
-    let values_device = if values_buffer.is_on_device() {
-        values_buffer
-    } else {
-        ctx.move_to_device(values_buffer)?.await?
-    };
-
-    let codes_device = if codes_buffer.is_on_device() {
-        codes_buffer
-    } else {
-        ctx.move_to_device(codes_buffer)?.await?
-    };
+    let values_device = ctx.ensure_on_device(values_buffer).await?;
+    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
 
     // Allocate output buffer on device (codes_len * value_byte_width bytes)
     let output_slice = ctx.device_alloc::<V>(codes_len)?;
@@ -286,17 +267,8 @@ async fn execute_dict_varbinview(
     } = codes_prim.into_parts();
 
     // Move buffers to device if needed.
-    let values_device = if values_views_handle.is_on_device() {
-        values_views_handle
-    } else {
-        ctx.move_to_device(values_views_handle)?.await?
-    };
-
-    let codes_device = if codes_buffer.is_on_device() {
-        codes_buffer
-    } else {
-        ctx.move_to_device(codes_buffer)?.await?
-    };
+    let values_device = ctx.ensure_on_device(values_views_handle).await?;
+    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
 
     // Allocate output: one i128 per code.
     let output_slice = ctx.device_alloc::<i128>(codes_len)?;

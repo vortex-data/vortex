@@ -6,17 +6,7 @@
 use vortex_dtype::half::f16;
 use vortex_dtype::i256;
 
-mod binaryview_scalar;
-mod binaryview_vector;
-mod bool;
 mod collection;
-mod datum;
-mod decimal_scalar;
-mod decimal_vector;
-mod dvector;
-mod primitive_scalar;
-mod primitive_vector;
-mod pvector;
 
 /// Trait for comparison operations.
 pub trait Compare<Op, Rhs = Self> {

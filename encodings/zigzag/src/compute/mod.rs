@@ -8,11 +8,11 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterReduce;
+use vortex_array::arrays::ScalarFnArrayExt;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::compute::MaskKernel;
-use vortex_array::compute::MaskKernelAdapter;
-use vortex_array::compute::mask;
-use vortex_array::register_kernel;
+use vortex_array::compute::MaskReduce;
+use vortex_array::expr::EmptyOptions;
+use vortex_array::expr::Mask as MaskExpr;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -37,14 +37,16 @@ impl TakeExecute for ZigZagVTable {
     }
 }
 
-impl MaskKernel for ZigZagVTable {
-    fn mask(&self, array: &ZigZagArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {
-        let encoded = mask(array.encoded(), filter_mask)?;
-        Ok(ZigZagArray::try_new(encoded)?.into_array())
+impl MaskReduce for ZigZagVTable {
+    fn mask(array: &ZigZagArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let masked_encoded = MaskExpr.try_new_array(
+            array.encoded().len(),
+            EmptyOptions,
+            [array.encoded().clone(), mask.clone()],
+        )?;
+        Ok(Some(ZigZagArray::try_new(masked_encoded)?.into_array()))
     }
 }
-
-register_kernel!(MaskKernelAdapter(ZigZagVTable).lift());
 
 pub(crate) trait ZigZagEncoded {
     type Int: zigzag::ZigZag;

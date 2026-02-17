@@ -28,7 +28,6 @@ pub mod duckdb;
 pub mod exporter;
 mod scan;
 mod scan_api;
-mod utils;
 
 #[rustfmt::skip]
 #[path = "./cpp.rs"]
@@ -39,6 +38,7 @@ mod cpp;
 mod copy;
 #[cfg(test)]
 mod e2e_test;
+mod filesystem;
 
 // A global runtime for Vortex operations within DuckDB.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
