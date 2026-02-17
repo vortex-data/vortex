@@ -404,7 +404,7 @@ pub type vortex_io::SizeLimitedStream<Fut>::Item = <Fut as core::future::future:
 
 pub fn vortex_io::SizeLimitedStream<Fut>::poll_next(self: core::pin::Pin<&mut Self>, cx: &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<core::option::Option<Self::Item>>
 
-pub unsafe trait vortex_io::IoBuf: core::marker::Unpin + 'static
+pub unsafe trait vortex_io::IoBuf: core::marker::Unpin + core::marker::Send + 'static
 
 pub fn vortex_io::IoBuf::as_slice(&self) -> &[u8]
 
@@ -438,7 +438,7 @@ pub fn bytes::bytes::Bytes::bytes_init(&self) -> usize
 
 pub fn bytes::bytes::Bytes::read_ptr(&self) -> *const u8
 
-impl<T: core::marker::Unpin + 'static> vortex_io::IoBuf for vortex_buffer::buffer::Buffer<T>
+impl<T: core::marker::Unpin + core::marker::Send + 'static> vortex_io::IoBuf for vortex_buffer::buffer::Buffer<T>
 
 pub fn vortex_buffer::buffer::Buffer<T>::as_slice(&self) -> &[u8]
 
