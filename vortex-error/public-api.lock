@@ -50,8 +50,6 @@ pub vortex_error::VortexError::Serde(vortex_error::ErrString, alloc::boxed::Box<
 
 pub vortex_error::VortexError::Shared(alloc::sync::Arc<vortex_error::VortexError>)
 
-pub vortex_error::VortexError::TryFromInt(core::num::error::TryFromIntError, alloc::boxed::Box<std::backtrace::Backtrace>)
-
 impl vortex_error::VortexError
 
 pub fn vortex_error::VortexError::with_context<T: core::convert::Into<vortex_error::ErrString>>(self, msg: T) -> Self
@@ -71,10 +69,6 @@ pub fn vortex_error::VortexError::from(value: arrow_schema::error::ArrowError) -
 impl core::convert::From<core::convert::Infallible> for vortex_error::VortexError
 
 pub fn vortex_error::VortexError::from(_: core::convert::Infallible) -> Self
-
-impl core::convert::From<core::num::error::TryFromIntError> for vortex_error::VortexError
-
-pub fn vortex_error::VortexError::from(value: core::num::error::TryFromIntError) -> Self
 
 impl core::convert::From<flatbuffers::verifier::InvalidFlatbuffer> for vortex_error::VortexError
 

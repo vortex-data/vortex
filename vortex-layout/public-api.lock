@@ -1030,11 +1030,9 @@ impl core::convert::From<u32> for vortex_layout::segments::SegmentId
 
 pub fn vortex_layout::segments::SegmentId::from(value: u32) -> Self
 
-impl core::convert::TryFrom<usize> for vortex_layout::segments::SegmentId
+impl core::convert::From<usize> for vortex_layout::segments::SegmentId
 
-pub type vortex_layout::segments::SegmentId::Error = vortex_error::VortexError
-
-pub fn vortex_layout::segments::SegmentId::try_from(value: usize) -> core::result::Result<Self, Self::Error>
+pub fn vortex_layout::segments::SegmentId::from(value: usize) -> Self
 
 impl core::default::Default for vortex_layout::segments::SegmentId
 
