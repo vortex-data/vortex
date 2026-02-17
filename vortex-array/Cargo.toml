@@ -80,7 +80,6 @@ serde = [
     "dep:serde",
     "vortex-buffer/serde",
     "vortex-dtype/serde",
-    "vortex-error/serde",
     "vortex-mask/serde",
 ]
 

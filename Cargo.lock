@@ -10393,7 +10393,6 @@ dependencies = [
  "object_store",
  "prost 0.14.3",
  "pyo3",
- "serde_json",
  "serial_test",
  "temp-env",
  "tokio",

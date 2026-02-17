@@ -364,11 +364,36 @@ fn bytes_from_proto(bytes: &[u8], dtype: &DType) -> VortexResult<ScalarValue> {
         // TODO(connor): This is incorrect, we need to verify this matches the `dtype`.
         DType::Decimal(..) => Ok(ScalarValue::Decimal(match bytes.len() {
             1 => DecimalValue::I8(bytes[0] as i8),
-            2 => DecimalValue::I16(i16::from_le_bytes(bytes.try_into()?)),
-            4 => DecimalValue::I32(i32::from_le_bytes(bytes.try_into()?)),
-            8 => DecimalValue::I64(i64::from_le_bytes(bytes.try_into()?)),
-            16 => DecimalValue::I128(i128::from_le_bytes(bytes.try_into()?)),
-            32 => DecimalValue::I256(i256::from_le_bytes(bytes.try_into()?)),
+            2 => DecimalValue::I16(i16::from_le_bytes(
+                bytes
+                    .try_into()
+                    .ok()
+                    .vortex_expect("Buffer has invalid number of bytes"),
+            )),
+            4 => DecimalValue::I32(i32::from_le_bytes(
+                bytes
+                    .try_into()
+                    .ok()
+                    .vortex_expect("Buffer has invalid number of bytes"),
+            )),
+            8 => DecimalValue::I64(i64::from_le_bytes(
+                bytes
+                    .try_into()
+                    .ok()
+                    .vortex_expect("Buffer has invalid number of bytes"),
+            )),
+            16 => DecimalValue::I128(i128::from_le_bytes(
+                bytes
+                    .try_into()
+                    .ok()
+                    .vortex_expect("Buffer has invalid number of bytes"),
+            )),
+            32 => DecimalValue::I256(i256::from_le_bytes(
+                bytes
+                    .try_into()
+                    .ok()
+                    .vortex_expect("Buffer has invalid number of bytes"),
+            )),
             l => vortex_bail!(Serde: "invalid decimal byte length: {l}"),
         })),
         _ => vortex_bail!(

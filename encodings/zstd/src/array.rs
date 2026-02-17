@@ -289,6 +289,7 @@ pub fn reconstruct_views(buffer: &ByteBuffer) -> Buffer<BinaryView> {
                 .get(offset..offset + size_of::<ViewLen>())
                 .vortex_expect("corrupted zstd length")
                 .try_into()
+                .ok()
                 .vortex_expect("must fit ViewLen size"),
         ) as usize;
         offset += size_of::<ViewLen>();

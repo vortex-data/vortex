@@ -255,7 +255,7 @@ where
         AllOr::All => {
             for chunk in &mut chunks {
                 inner_loop_nonnull(
-                    chunk.try_into().vortex_expect("chunk size must be 64"),
+                    chunk.try_into().ok().vortex_expect("chunk size must be 64"),
                     count_distinct_values,
                     &mut loop_state,
                 )
@@ -281,13 +281,13 @@ where
                     0 => continue,
                     // Inner loop for when validity check can be elided
                     64 => inner_loop_nonnull(
-                        chunk.try_into().vortex_expect("chunk size must be 64"),
+                        chunk.try_into().ok().vortex_expect("chunk size must be 64"),
                         count_distinct_values,
                         &mut loop_state,
                     ),
                     // Inner loop for when we need to check validity
                     _ => inner_loop_nullable(
-                        chunk.try_into().vortex_expect("chunk size must be 64"),
+                        chunk.try_into().ok().vortex_expect("chunk size must be 64"),
                         count_distinct_values,
                         &validity,
                         &mut loop_state,

@@ -20,7 +20,6 @@ use std::io;
 use std::num::TryFromIntError;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::sync::PoisonError;
 
 /// A string that can be used as an error message.
 #[derive(Debug)]
@@ -90,8 +89,6 @@ pub enum VortexError {
     Compute(ErrString, Box<Backtrace>),
     /// An invalid argument was provided.
     InvalidArgument(ErrString, Box<Backtrace>),
-    /// The system has reached an invalid state,
-    InvalidState(ErrString, Box<Backtrace>),
     /// An error occurred while serializing or deserializing.
     Serde(ErrString, Box<Backtrace>),
     /// An unimplemented function was called.
@@ -113,8 +110,6 @@ pub enum VortexError {
     Fmt(fmt::Error, Box<Backtrace>),
     /// A wrapper for IO errors.
     Io(io::Error, Box<Backtrace>),
-    /// A wrapper for errors from the standard library when converting a slice to an array.
-    TryFromSlice(std::array::TryFromSliceError, Box<Backtrace>),
     /// A wrapper for errors from the Object Store library.
     #[cfg(feature = "object_store")]
     ObjectStore(object_store::Error, Box<Backtrace>),
@@ -127,9 +122,6 @@ pub enum VortexError {
     TryFromInt(TryFromIntError, Box<Backtrace>),
     /// Wrap protobuf-related errors
     Prost(Box<dyn Error + Send + Sync + 'static>, Box<Backtrace>),
-    /// Wrap serde and serde json errors
-    #[cfg(feature = "serde")]
-    SerdeJson(serde_json::Error, Box<Backtrace>),
 }
 
 impl VortexError {
@@ -148,7 +140,6 @@ impl VortexError {
             OutOfBounds(..) => "Out of bounds error: ",
             Compute(..) => "Compute error: ",
             InvalidArgument(..) => "Invalid argument error: ",
-            InvalidState(..) => "Invalid state error: ",
             Serde(..) => "Serde error: ",
             NotImplemented(..) => "Not implemented error: ",
             MismatchedTypes(..) => "Mismatched types error: ",
@@ -159,7 +150,6 @@ impl VortexError {
             FlatBuffers(..) => "Flat buffers error: ",
             Fmt(..) => "Fmt: ",
             Io(..) => "Io: ",
-            TryFromSlice(..) => "Try from slice error: ",
             #[cfg(feature = "object_store")]
             ObjectStore(..) => "Object store error: ",
             Jiff(..) => "Jiff error: ",
@@ -167,8 +157,6 @@ impl VortexError {
             Join(..) => "Tokio join error:",
             TryFromInt(..) => "Try from int error:",
             Prost(..) => "Prost error:",
-            #[cfg(feature = "serde")]
-            SerdeJson(..) => "JSON serde error:",
         }
     }
 
@@ -181,7 +169,6 @@ impl VortexError {
             OutOfBounds(.., bt) => Some(bt.as_ref()),
             Compute(.., bt) => Some(bt.as_ref()),
             InvalidArgument(.., bt) => Some(bt.as_ref()),
-            InvalidState(.., bt) => Some(bt.as_ref()),
             Serde(.., bt) => Some(bt.as_ref()),
             NotImplemented(.., bt) => Some(bt.as_ref()),
             MismatchedTypes(.., bt) => Some(bt.as_ref()),
@@ -191,7 +178,6 @@ impl VortexError {
             FlatBuffers(.., bt) => Some(bt.as_ref()),
             Fmt(.., bt) => Some(bt.as_ref()),
             Io(.., bt) => Some(bt.as_ref()),
-            TryFromSlice(.., bt) => Some(bt.as_ref()),
             #[cfg(feature = "object_store")]
             ObjectStore(.., bt) => Some(bt.as_ref()),
             Jiff(.., bt) => Some(bt.as_ref()),
@@ -199,8 +185,6 @@ impl VortexError {
             Join(.., bt) => Some(bt.as_ref()),
             TryFromInt(.., bt) => Some(bt.as_ref()),
             Prost(.., bt) => Some(bt.as_ref()),
-            #[cfg(feature = "serde")]
-            SerdeJson(.., bt) => Some(bt.as_ref()),
             Context(_, inner) => inner.backtrace(),
             Shared(inner) => inner.backtrace(),
         }
@@ -215,11 +199,7 @@ impl VortexError {
             OutOfBounds(idx, start, stop, _) => {
                 format!("index {idx} out of bounds from {start} to {stop}")
             }
-            Compute(msg, _)
-            | InvalidArgument(msg, _)
-            | InvalidState(msg, _)
-            | Serde(msg, _)
-            | AssertionFailed(msg, _) => {
+            Compute(msg, _) | InvalidArgument(msg, _) | Serde(msg, _) | AssertionFailed(msg, _) => {
                 format!("{msg}")
             }
             NotImplemented(func, by_whom, _) => {
@@ -245,9 +225,6 @@ impl VortexError {
             Io(err, _) => {
                 format!("{err}")
             }
-            TryFromSlice(err, _) => {
-                format!("{err}")
-            }
             #[cfg(feature = "object_store")]
             ObjectStore(err, _) => {
                 format!("{err}")
@@ -260,10 +237,6 @@ impl VortexError {
                 format!("{err}")
             }
             TryFromInt(err, _) => {
-                format!("{err}")
-            }
-            #[cfg(feature = "serde")]
-            SerdeJson(err, _) => {
                 format!("{err}")
             }
             Prost(err, _) => {
@@ -310,8 +283,6 @@ impl Error for VortexError {
             Jiff(err, _) => Some(err),
             #[cfg(feature = "tokio")]
             Join(err, _) => Some(err),
-            #[cfg(feature = "serde")]
-            SerdeJson(err, _) => Some(err),
             Prost(err, _) => Some(err.as_ref()),
             _ => None,
         }
@@ -549,12 +520,6 @@ impl From<io::Error> for VortexError {
     }
 }
 
-impl From<std::array::TryFromSliceError> for VortexError {
-    fn from(value: std::array::TryFromSliceError) -> Self {
-        VortexError::TryFromSlice(value, Box::new(Backtrace::capture()))
-    }
-}
-
 #[cfg(feature = "object_store")]
 impl From<object_store::Error> for VortexError {
     fn from(value: object_store::Error) -> Self {
@@ -585,13 +550,6 @@ impl From<TryFromIntError> for VortexError {
     }
 }
 
-#[cfg(feature = "serde")]
-impl From<serde_json::Error> for VortexError {
-    fn from(value: serde_json::Error) -> Self {
-        VortexError::SerdeJson(value, Box::new(Backtrace::capture()))
-    }
-}
-
 impl From<prost::EncodeError> for VortexError {
     fn from(value: prost::EncodeError) -> Self {
         Self::Prost(Box::new(value), Box::new(Backtrace::capture()))
@@ -619,12 +577,5 @@ pub mod __private {
     #[must_use]
     pub const fn must_use(error: crate::VortexError) -> crate::VortexError {
         error
-    }
-}
-
-impl<T> From<PoisonError<T>> for VortexError {
-    fn from(_value: PoisonError<T>) -> Self {
-        // We don't include the value since it may be sensitive.
-        Self::InvalidState("Lock poisoned".into(), Box::new(Backtrace::capture()))
     }
 }

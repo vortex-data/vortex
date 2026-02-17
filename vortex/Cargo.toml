@@ -83,7 +83,6 @@ serde = [
     "vortex-dtype/serde",
     "vortex-buffer/serde",
     "vortex-mask/serde",
-    "vortex-error/serde",
 ]
 # This feature enabled unstable encodings for which we don't guarantee stability.
 unstable_encodings = [
