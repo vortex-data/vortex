@@ -120,7 +120,6 @@ fn take_primitive_scalar<T: NativePType, I: IntegerPType>(array: &[T], indices: 
 mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::IntoArray;
