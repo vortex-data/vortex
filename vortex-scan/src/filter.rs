@@ -10,7 +10,6 @@ use sketches_ddsketch::DDSketch;
 use vortex_array::expr::DynamicExprUpdates;
 use vortex_array::expr::Expression;
 use vortex_array::expr::forms::conjuncts;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 

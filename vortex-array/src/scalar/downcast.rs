@@ -5,7 +5,6 @@
 
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::scalar::BinaryScalar;

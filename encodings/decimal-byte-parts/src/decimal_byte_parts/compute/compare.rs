@@ -19,7 +19,6 @@ use vortex_dtype::PType;
 use vortex_dtype::ToI256;
 use vortex_dtype::match_each_decimal_value;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DecimalBytePartsVTable;

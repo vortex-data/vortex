@@ -13,7 +13,6 @@ use vortex_array::arrays::TakeExecute;
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar::Scalar;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 

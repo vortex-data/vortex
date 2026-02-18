@@ -290,7 +290,6 @@ mod tests {
     use vortex_dtype::DecimalDType;
     use vortex_dtype::FieldNames;
     use vortex_dtype::datetime::TimeUnit;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 

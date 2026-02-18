@@ -26,7 +26,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_native_simd_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -312,7 +311,6 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_dtype::DecimalDType;
     use vortex_dtype::i256;
-    use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
     use super::*;

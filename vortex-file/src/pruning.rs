@@ -16,7 +16,6 @@ use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
 use vortex_dtype::FieldPath;
 use vortex_dtype::StructFields;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;

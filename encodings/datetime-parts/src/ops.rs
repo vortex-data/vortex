@@ -6,7 +6,6 @@ use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_dtype::DType;
 use vortex_dtype::datetime::Timestamp;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 

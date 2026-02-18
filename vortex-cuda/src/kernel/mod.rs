@@ -287,7 +287,6 @@ mod tests {
 
     use cudarc::driver::CudaContext;
     use cudarc::driver::PushKernelArg;
-    use vortex_error::VortexExpect;
 
     use super::KernelLoader;
 

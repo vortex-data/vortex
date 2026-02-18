@@ -6,7 +6,6 @@ use vortex_buffer::BitBufferMut;
 use vortex_dtype::Nullability;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::Nullability::Nullable;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 

@@ -33,7 +33,6 @@ use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_utils::aliases::hash_map::HashMap;

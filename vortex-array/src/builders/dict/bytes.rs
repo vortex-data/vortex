@@ -11,7 +11,6 @@ use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::UnsignedPType;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_utils::aliases::hash_map::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashTable;

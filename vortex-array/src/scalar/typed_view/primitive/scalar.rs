@@ -21,7 +21,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;

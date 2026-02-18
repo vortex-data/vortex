@@ -10,7 +10,6 @@ use std::hash::Hash;
 use vortex_dtype::DType;
 use vortex_dtype::datetime::AnyTemporal;
 use vortex_dtype::extension::ExtDTypeRef;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 

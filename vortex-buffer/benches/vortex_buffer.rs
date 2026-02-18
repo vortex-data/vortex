@@ -12,7 +12,6 @@ use divan::Bencher;
 use num_traits::PrimInt;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 
 fn main() {

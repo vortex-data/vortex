@@ -16,7 +16,6 @@ mod accessor;
 
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 
 use crate::scalar::Scalar;

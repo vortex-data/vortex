@@ -290,9 +290,17 @@ impl Error for VortexError {
 }
 
 /// A type alias for Results that return VortexErrors as their error type.
+#[expect(
+    clippy::disallowed_types,
+    reason = "We use VortexResult everywhere we'd use std::result::Result so that it carries a backtrace"
+)]
 pub type VortexResult<T> = Result<T, VortexError>;
 
 /// A vortex result that can be shared or cloned.
+#[expect(
+    clippy::disallowed_types,
+    reason = "SharedVortexResult is allowed because it carries a backtrace"
+)]
 pub type SharedVortexResult<T> = Result<T, Arc<VortexError>>;
 
 impl From<Arc<VortexError>> for VortexError {

@@ -128,7 +128,6 @@ mod tests {
     use vortex_array::buffer::BufferHandle;
     use vortex_array::validity::Validity::NonNullable;
     use vortex_buffer::Buffer;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_fastlanes::BitPackedArray;
     use vortex_fastlanes::FoRArray;

@@ -17,7 +17,6 @@ use vortex_array::buffer::DeviceBuffer;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -49,7 +48,6 @@ mod private {
     use cudarc::driver::CudaView;
     use cudarc::driver::DeviceRepr;
     use vortex_buffer::Alignment;
-    use vortex_error::VortexExpect;
 
     pub trait DeviceAllocation: Debug + Send + Sync + 'static {
         /// Get the minimum alignment of the allocation.

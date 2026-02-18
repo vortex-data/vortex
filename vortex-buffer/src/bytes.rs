@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use bytes::Buf;
-use vortex_error::VortexExpect;
 
 use crate::Alignment;
 use crate::ByteBuffer;

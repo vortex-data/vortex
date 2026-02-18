@@ -22,7 +22,6 @@ use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_dtype::DType;
 use vortex_dtype::datetime::Timestamp;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DateTimePartsArray;

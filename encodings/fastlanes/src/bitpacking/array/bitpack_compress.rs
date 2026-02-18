@@ -18,7 +18,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::AllOr;

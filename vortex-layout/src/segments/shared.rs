@@ -10,7 +10,6 @@ use futures::future::WeakShared;
 use vortex_array::buffer::BufferHandle;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 

@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::Array;
@@ -227,7 +226,6 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_error::VortexExpect;
 
     use crate::array::IntoArray;
     use crate::arrays::ChunkedArray;

@@ -21,7 +21,6 @@ use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;

@@ -10,7 +10,6 @@ use std::task::Poll;
 use futures::Stream;
 use pin_project_lite::pin_project;
 use vortex_buffer::Alignment;
-use vortex_error::VortexExpect;
 use vortex_io::CoalesceConfig;
 use vortex_utils::aliases::hash_set::HashSet;
 

@@ -4,7 +4,6 @@
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::FoRVTable;

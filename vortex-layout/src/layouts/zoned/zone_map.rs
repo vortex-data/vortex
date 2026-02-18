@@ -19,7 +19,6 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::StructFields;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -285,7 +284,6 @@ mod tests {
     use vortex_dtype::FieldPathSet;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_error::VortexExpect;
 
     use crate::layouts::zoned::MAX_IS_TRUNCATED;
     use crate::layouts::zoned::MIN_IS_TRUNCATED;

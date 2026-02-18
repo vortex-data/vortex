@@ -12,7 +12,6 @@ use vortex_dtype::StructFields;
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::Timestamp;
 use vortex_dtype::half::f16;
-use vortex_error::VortexExpect;
 
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;

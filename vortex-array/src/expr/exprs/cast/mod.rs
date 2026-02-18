@@ -8,7 +8,6 @@ use std::fmt::Formatter;
 pub use kernel::*;
 use prost::Message;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;

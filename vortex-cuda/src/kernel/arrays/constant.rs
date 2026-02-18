@@ -197,7 +197,6 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::scalar::Scalar;
     use vortex_dtype::NativePType;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 

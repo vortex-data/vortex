@@ -3,7 +3,6 @@
 
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
-use vortex_error::VortexExpect;
 
 use crate::expr::Expression;
 use crate::expr::exprs::get_item::col;

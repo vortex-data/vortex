@@ -12,7 +12,6 @@ use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 
 use crate::RunEndArray;
 

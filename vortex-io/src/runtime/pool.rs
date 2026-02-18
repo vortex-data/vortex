@@ -8,7 +8,6 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 use smol::block_on;
-use vortex_error::VortexExpect;
 
 #[derive(Clone)]
 pub struct CurrentThreadWorkerPool {

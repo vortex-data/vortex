@@ -270,7 +270,6 @@ mod test {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_error::VortexExpect;
 
     use crate::IntoArray as _;
     use crate::arrays::BoolArray;

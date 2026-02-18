@@ -3,7 +3,6 @@
 
 use vortex_buffer::buffer;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 
 use crate::Array;
 use crate::Canonical;

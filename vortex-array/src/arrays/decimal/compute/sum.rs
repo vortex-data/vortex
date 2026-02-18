@@ -11,7 +11,6 @@ use vortex_dtype::DecimalDType;
 use vortex_dtype::DecimalType;
 use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::match_each_decimal_value_type;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -131,7 +130,6 @@ mod tests {
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
     use vortex_dtype::i256;
-    use vortex_error::VortexExpect;
 
     use crate::arrays::DecimalArray;
     use crate::compute::sum;

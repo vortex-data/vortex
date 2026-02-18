@@ -9,7 +9,6 @@ use parking_lot::Mutex;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 

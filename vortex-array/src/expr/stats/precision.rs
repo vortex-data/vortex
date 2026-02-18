@@ -6,7 +6,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::expr::stats::precision::Precision::Exact;

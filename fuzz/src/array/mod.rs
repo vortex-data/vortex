@@ -51,7 +51,6 @@ use vortex_array::search_sorted::SearchSortedSide;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;

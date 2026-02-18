@@ -6,7 +6,6 @@ use std::fmt::Display;
 use std::marker::PhantomData;
 use std::num::NonZero;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;

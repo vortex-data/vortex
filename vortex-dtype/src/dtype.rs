@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use DType::*;
 use itertools::Itertools;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::FieldDType;

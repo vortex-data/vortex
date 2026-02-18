@@ -29,7 +29,6 @@ use vortex_cuda::dynamic_dispatch::ScalarOp;
 use vortex_cuda::dynamic_dispatch::SourceOp;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_fastlanes::BitPackedArray;

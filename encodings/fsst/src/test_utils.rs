@@ -14,7 +14,6 @@ use vortex_array::arrays::VarBinArray;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 
 use crate::fsst_compress;
 use crate::fsst_train_compressor;

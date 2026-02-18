@@ -17,7 +17,6 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 pub use matcher::*;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 pub use vtable::*;

@@ -13,7 +13,6 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
 use vortex_dtype::NativePType;
-use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 
 fn main() {
@@ -77,7 +76,6 @@ mod primitive {
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::StrictComparison::NonStrict;
     use vortex_dtype::NativePType;
-    use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
     use crate::generate_primitive_array;
@@ -167,7 +165,6 @@ mod bitpack {
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::StrictComparison::NonStrict;
     use vortex_dtype::NativePType;
-    use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
     use crate::generate_bit_pack_primitive_array;
@@ -256,7 +253,6 @@ mod alp {
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::StrictComparison::NonStrict;
     use vortex_dtype::NativePType;
-    use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
     use crate::generate_alp_bit_pack_primitive_array;

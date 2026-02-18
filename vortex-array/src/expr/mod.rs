@@ -16,7 +16,6 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::FieldName;
-use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::expr::traversal::NodeExt;

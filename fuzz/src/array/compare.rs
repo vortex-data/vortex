@@ -17,7 +17,6 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Operator) -> ArrayRef {

@@ -49,7 +49,6 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::match_smallest_offset_type;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -528,7 +527,6 @@ mod test {
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType;
     use vortex_dtype::StructFields;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 

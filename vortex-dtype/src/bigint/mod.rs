@@ -25,7 +25,6 @@ use num_traits::One;
 use num_traits::WrappingAdd;
 use num_traits::WrappingSub;
 use num_traits::Zero;
-use vortex_error::VortexExpect;
 
 /// Signed 256-bit integer type.
 ///

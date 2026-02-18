@@ -30,7 +30,6 @@ use vortex_dtype::FieldMask;
 use vortex_dtype::FieldName;
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;

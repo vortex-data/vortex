@@ -9,7 +9,6 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::half::f16;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 

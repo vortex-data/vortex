@@ -4,7 +4,6 @@
 use std::ops::Not;
 
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;

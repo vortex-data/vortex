@@ -44,7 +44,6 @@ mod tests {
     use vortex_array::arrays::FilterArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;

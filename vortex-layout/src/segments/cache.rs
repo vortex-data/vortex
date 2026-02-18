@@ -11,7 +11,6 @@ use moka::policy::EvictionPolicy;
 use rustc_hash::FxBuildHasher;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_metrics::Counter;
 use vortex_metrics::Label;

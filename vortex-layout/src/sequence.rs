@@ -20,7 +20,6 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::stream::ArrayStream;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 

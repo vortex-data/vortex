@@ -4,7 +4,6 @@
 use std::ops::BitAnd;
 
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 

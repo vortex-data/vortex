@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 use vortex_mask::MaskIter;
 use vortex_mask::MaskValues;

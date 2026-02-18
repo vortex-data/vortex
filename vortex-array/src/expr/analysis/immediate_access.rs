@@ -3,7 +3,6 @@
 
 use vortex_dtype::FieldName;
 use vortex_dtype::StructFields;
-use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::expr::Expression;

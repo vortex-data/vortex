@@ -12,7 +12,6 @@ use rand::prelude::IndexedRandom;
 use rand::prelude::StdRng;
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::ChunkedArray;

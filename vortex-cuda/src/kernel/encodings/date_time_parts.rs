@@ -214,7 +214,6 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_datetime_parts::DateTimePartsArray;
     use vortex_dtype::datetime::TimeUnit;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 

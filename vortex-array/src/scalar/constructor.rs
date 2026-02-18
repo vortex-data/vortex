@@ -15,7 +15,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::extension::ExtDTypeVTable;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::scalar::DecimalValue;

@@ -22,7 +22,6 @@ use std::thread;
 
 use futures::Stream;
 use pin_project_lite::pin_project;
-use vortex_error::VortexExpect;
 
 /// Get a handle to the current Tokio runtime, or create a new global single-thread runtime if one
 /// is not found.

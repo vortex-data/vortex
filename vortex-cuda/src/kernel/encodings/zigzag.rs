@@ -103,7 +103,6 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity::NonNullable;
     use vortex_buffer::Buffer;
-    use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
     use vortex_zigzag::ZigZagArray;
 

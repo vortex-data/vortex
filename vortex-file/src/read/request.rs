@@ -10,7 +10,6 @@ use std::sync::Arc;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 /// An I/O request, either a single read or a coalesced set of reads.

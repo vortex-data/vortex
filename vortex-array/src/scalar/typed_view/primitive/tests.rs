@@ -11,7 +11,6 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::ToBytes;
 use vortex_dtype::half::f16;
-use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::pvalue::CoercePValue;

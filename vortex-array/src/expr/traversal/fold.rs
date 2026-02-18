@@ -140,7 +140,7 @@ impl<T: NodeFolder> NodeFolderContext for NodeFolderContextWrapper<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_error::VortexExpect;
+
     use vortex_error::vortex_bail;
 
     use super::*;

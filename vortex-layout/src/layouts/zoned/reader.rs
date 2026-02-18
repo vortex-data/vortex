@@ -28,7 +28,6 @@ use vortex_dtype::FieldPath;
 use vortex_dtype::FieldPathSet;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;

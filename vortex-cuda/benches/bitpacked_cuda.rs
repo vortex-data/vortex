@@ -27,7 +27,6 @@ use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 use vortex_dtype::NativePType;
-use vortex_error::VortexExpect;
 use vortex_fastlanes::BitPackedArray;
 use vortex_fastlanes::unpack_iter::BitPacked;
 use vortex_session::VortexSession;

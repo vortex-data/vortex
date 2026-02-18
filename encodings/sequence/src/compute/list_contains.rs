@@ -7,7 +7,6 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::compute::ListContainsKernel;
 use vortex_array::compute::ListContainsKernelAdapter;
 use vortex_array::register_kernel;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::array::SequenceVTable;

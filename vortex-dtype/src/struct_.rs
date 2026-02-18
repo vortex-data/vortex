@@ -8,7 +8,6 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use itertools::Itertools;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;

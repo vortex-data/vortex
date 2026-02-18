@@ -22,7 +22,6 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_dtype::StructFields;
-    use vortex_error::VortexExpect;
 
     use crate::Array;
     use crate::Canonical;

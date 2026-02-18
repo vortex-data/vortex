@@ -31,7 +31,6 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::Timestamp;
-use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
 use crate::common::TimedLaunchStrategy;

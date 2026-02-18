@@ -98,7 +98,6 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
     use vortex_cuda::CanonicalCudaExt;
     use vortex_cuda::CudaSession;
     use vortex_cuda::executor::CudaArrayExt;
-    use vortex_error::VortexExpect;
 
     if !vortex_cuda::cuda_available() {
         return Err(VortexFuzzError::VortexError(

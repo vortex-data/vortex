@@ -11,7 +11,6 @@ use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
 use vortex_dtype::NativeDType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect;
 
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;

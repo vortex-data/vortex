@@ -5,7 +5,6 @@ use vortex_buffer::BitBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -85,7 +84,6 @@ impl DictArray {
 
         #[cfg(debug_assertions)]
         {
-            use vortex_error::VortexExpect;
             self.validate_all_values_referenced()
                 .expect("validation should succeed when all values are referenced")
         }
@@ -241,7 +239,6 @@ mod test {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType;
     use vortex_dtype::UnsignedPType;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_panic;
     use vortex_mask::AllOr;

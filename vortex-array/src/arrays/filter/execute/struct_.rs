@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
 use crate::ArrayRef;

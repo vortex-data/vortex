@@ -16,7 +16,6 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::expr::Expression;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;

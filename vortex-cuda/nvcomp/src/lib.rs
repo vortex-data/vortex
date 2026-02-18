@@ -18,6 +18,11 @@
 //!
 //! The nvcomp library must be available at runtime.
 
+#![expect(
+    clippy::disallowed_types,
+    reason = "We allow returning Result<T, NvcompResult> because we cannot get backtraces from device anyway"
+)]
+
 use std::path::PathBuf;
 use std::sync::OnceLock;
 

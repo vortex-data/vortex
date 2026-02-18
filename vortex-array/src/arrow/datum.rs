@@ -5,7 +5,6 @@ use arrow_array::Array as ArrowArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::Datum as ArrowDatum;
 use arrow_schema::DataType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 

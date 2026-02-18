@@ -15,7 +15,6 @@ use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_simd_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -103,7 +102,6 @@ mod tests {
     use vortex_array::validity::Validity::NonNullable;
     use vortex_buffer::Buffer;
     use vortex_dtype::NativePType;
-    use vortex_error::VortexExpect;
     use vortex_fastlanes::FoRArray;
     use vortex_session::VortexSession;
 

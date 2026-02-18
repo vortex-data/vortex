@@ -3,7 +3,6 @@
 
 //! Execution logic for DictArray - takes from values using codes (indices).
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::Canonical;

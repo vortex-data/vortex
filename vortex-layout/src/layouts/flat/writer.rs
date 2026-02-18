@@ -20,7 +20,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::Handle;
@@ -216,7 +215,6 @@ mod tests {
     use vortex_dtype::FieldName;
     use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_mask::AllOr;

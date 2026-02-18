@@ -14,7 +14,6 @@ use num_traits::ToPrimitive;
 pub use precision::*;
 pub use types::*;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;

@@ -28,7 +28,6 @@ use vortex_dtype::Field;
 use vortex_dtype::FieldMask;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldPath;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;

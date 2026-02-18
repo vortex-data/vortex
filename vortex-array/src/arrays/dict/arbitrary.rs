@@ -10,7 +10,6 @@ use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 
 use super::DictArray;
 use crate::ArrayRef;

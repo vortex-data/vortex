@@ -13,7 +13,6 @@ use vortex_array::arrays::PrimitiveVTable;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::half::f16;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;

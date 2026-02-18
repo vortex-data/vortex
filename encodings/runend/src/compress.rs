@@ -22,7 +22,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 

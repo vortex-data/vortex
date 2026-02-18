@@ -15,7 +15,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_decimal_value_type;
-use vortex_error::VortexExpect;
 
 use super::BoolArray;
 use super::ChunkedArray;

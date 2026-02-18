@@ -62,7 +62,6 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_decimal_byte_parts::DecimalBytePartsArray;
     use vortex_dtype::DecimalDType;
-    use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
     use super::*;

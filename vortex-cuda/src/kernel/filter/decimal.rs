@@ -46,7 +46,6 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_dtype::DecimalDType;
     use vortex_dtype::i256;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;

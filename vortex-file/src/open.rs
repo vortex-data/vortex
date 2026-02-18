@@ -10,7 +10,6 @@ use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;

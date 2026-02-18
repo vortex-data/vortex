@@ -85,7 +85,6 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
-    use vortex_error::VortexExpect;
 
     use crate::IntoArray;
     use crate::ToCanonical;

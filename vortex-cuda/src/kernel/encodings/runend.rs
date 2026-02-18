@@ -168,7 +168,6 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_runend::RunEndArray;
     use vortex_session::VortexSession;

@@ -5,7 +5,7 @@ use std::fmt::Display;
 use std::ops::Deref;
 
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 /// Default alignment for device-to-host buffer copies.
@@ -143,7 +143,7 @@ impl From<Alignment> for u32 {
 impl TryFrom<u32> for Alignment {
     type Error = VortexError;
 
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
+    fn try_from(value: u32) -> VortexResult<Self> {
         let value = usize::try_from(value)
             .map_err(|_| vortex_err!("Alignment must fit into usize, got {value}"))?;
 

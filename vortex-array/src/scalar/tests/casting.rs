@@ -16,7 +16,6 @@ mod tests {
     use vortex_dtype::StructFields;
     use vortex_dtype::extension::ExtDTypeVTable;
     use vortex_dtype::half::f16;
-    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
     use crate::scalar::PValue;

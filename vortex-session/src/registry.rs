@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use parking_lot::Mutex;
-use vortex_error::VortexExpect;
 use vortex_utils::aliases::dash_map::DashMap;
 
 /// An identifier for an item in a registry.

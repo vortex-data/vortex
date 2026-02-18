@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
 use crate::arrays::PrimitiveArray;

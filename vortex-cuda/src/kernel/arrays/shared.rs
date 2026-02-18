@@ -6,7 +6,6 @@ use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::SharedVTable;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::executor::CudaArrayExt;

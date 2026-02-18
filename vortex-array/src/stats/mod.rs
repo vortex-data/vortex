@@ -14,7 +14,6 @@ pub mod flatbuffers;
 mod stats_set;
 
 pub use array::*;
-use vortex_error::VortexExpect;
 
 use crate::expr::stats::Stat;
 

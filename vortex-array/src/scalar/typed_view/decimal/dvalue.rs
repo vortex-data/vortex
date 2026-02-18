@@ -17,7 +17,6 @@ use vortex_dtype::NativeDecimalType;
 use vortex_dtype::ToI256;
 use vortex_dtype::i256;
 use vortex_dtype::match_each_decimal_value;
-use vortex_error::VortexExpect;
 
 /// A decimal value that can be stored in various integer widths.
 ///

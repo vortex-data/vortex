@@ -5,7 +5,6 @@ use vortex_array::arrays::varbin_scalar;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;

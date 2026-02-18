@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 
-use vortex_error::VortexExpect;
 use vortex_session::SessionExt;
 
 use crate::runtime::Handle;

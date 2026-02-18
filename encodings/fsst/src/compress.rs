@@ -12,7 +12,6 @@ use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 
 use crate::FSSTArray;
 

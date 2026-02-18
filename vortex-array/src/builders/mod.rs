@@ -33,7 +33,6 @@ use std::any::Any;
 use vortex_dtype::DType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;

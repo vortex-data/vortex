@@ -15,7 +15,6 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::session::ArraySession;
-use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::test_harness::make_array;
 use vortex_session::VortexSession;
 

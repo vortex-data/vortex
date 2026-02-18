@@ -9,7 +9,6 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
 use vortex_array::ArrayContext;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 

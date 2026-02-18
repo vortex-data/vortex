@@ -13,7 +13,6 @@ use bytes::Buf;
 use bytes::BufMut;
 use bytes::BytesMut;
 use bytes::buf::UninitSlice;
-use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::Alignment;

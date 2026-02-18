@@ -7,7 +7,6 @@ use std::ops::Not;
 use vortex_buffer::BitBuffer;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::match_each_decimal_value_type;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::cast::upcast_decimal_values;

@@ -25,7 +25,11 @@ use crate::buffer;
 
 /// An immutable bitset stored as a packed byte buffer.
 #[derive(Debug, Clone, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    allow(clippy::disallowed_types),
+    derive(serde::Serialize, serde::Deserialize)
+)]
 pub struct BitBuffer {
     buffer: ByteBuffer,
     /// Represents the offset of the bit buffer into the first byte.

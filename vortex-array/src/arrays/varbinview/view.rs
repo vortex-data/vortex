@@ -10,7 +10,6 @@ use std::ops::Range;
 
 use static_assertions::assert_eq_align;
 use static_assertions::assert_eq_size;
-use vortex_error::VortexExpect;
 
 /// A view over a variable-length binary value.
 ///

@@ -76,8 +76,6 @@ impl Scalar {
     /// Panics if the given [`DType`] and [`ScalarValue`] are incompatible.
     #[cfg(test)]
     pub fn new(dtype: DType, value: Option<ScalarValue>) -> Self {
-        use vortex_error::VortexExpect;
-
         Self::try_new(dtype, value).expect("Failed to create Scalar")
     }
 

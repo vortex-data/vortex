@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
 #![allow(clippy::panic)]
+#![allow(clippy::disallowed_types)]
 
 use std::borrow::ToOwned;
 use std::env;

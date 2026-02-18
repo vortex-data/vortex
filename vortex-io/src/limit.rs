@@ -14,7 +14,6 @@ use pin_project_lite::pin_project;
 use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::Semaphore;
 use tokio::sync::TryAcquireError;
-use vortex_error::VortexExpect;
 
 pin_project! {
     /// [`Future`] that carries the amount of memory it will require to hold the completed value.

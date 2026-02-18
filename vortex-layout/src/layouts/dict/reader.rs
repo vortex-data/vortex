@@ -24,7 +24,6 @@ use vortex_array::optimizer::ArrayOptimizer;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -258,7 +257,6 @@ mod tests {
     use vortex_dtype::FieldName;
     use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability;
-    use vortex_error::VortexExpect;
     use vortex_io::runtime::single::block_on;
 
     use crate::LayoutId;

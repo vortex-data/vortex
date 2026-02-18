@@ -92,7 +92,6 @@ fn compute_is_sorted<T: NativePType>(array: &PrimitiveArray, strict: bool) -> Vo
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_error::VortexExpect;
 
     use super::*;
     use crate::compute::is_sorted;
