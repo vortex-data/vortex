@@ -9921,7 +9921,6 @@ dependencies = [
  "vortex-buffer",
  "vortex-bytebool",
  "vortex-cuda",
- "vortex-cuda-macros",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dtype",
