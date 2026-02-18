@@ -4,8 +4,6 @@
 //! This module contains tests for the `vortex_scan` table function.
 
 use std::ffi::CStr;
-use std::io::Write;
-use std::net::TcpListener;
 use std::path::Path;
 use std::slice;
 use std::str::FromStr;
