@@ -75,6 +75,7 @@ fn arrow_execute_boolean(lhs: ArrayRef, rhs: ArrayRef, op: Operator) -> VortexRe
     ArrayRef::from_arrow(&array, nullable)
 }
 
+/// Constant-folds a boolean operation between two constant arrays.
 fn constant_boolean(
     lhs: &dyn Array,
     rhs: &dyn Array,
@@ -115,4 +116,63 @@ fn constant_boolean(
         .unwrap_or_else(|| Scalar::null(DType::Bool(nullable.into())));
 
     Ok(Some(ConstantArray::new(scalar, length).into_array()))
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::and_kleene;
+    use super::or_kleene;
+    use crate::ArrayRef;
+    use crate::IntoArray;
+    use crate::arrays::BoolArray;
+    use crate::canonical::ToCanonical;
+
+    #[rstest]
+    #[case(
+        BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
+        BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)]).into_array(),
+    )]
+    #[case(
+        BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)]).into_array(),
+        BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
+    )]
+    fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
+        let r = or_kleene(&lhs, &rhs).unwrap();
+        let r = r.to_bool().into_array();
+
+        let v0 = r.scalar_at(0).unwrap().as_bool().value();
+        let v1 = r.scalar_at(1).unwrap().as_bool().value();
+        let v2 = r.scalar_at(2).unwrap().as_bool().value();
+        let v3 = r.scalar_at(3).unwrap().as_bool().value();
+
+        assert!(v0.unwrap());
+        assert!(v1.unwrap());
+        assert!(v2.unwrap());
+        assert!(!v3.unwrap());
+    }
+
+    #[rstest]
+    #[case(
+        BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
+        BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)]).into_array(),
+    )]
+    #[case(
+        BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)]).into_array(),
+        BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
+    )]
+    fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
+        let r = and_kleene(&lhs, &rhs).unwrap().to_bool().into_array();
+
+        let v0 = r.scalar_at(0).unwrap().as_bool().value();
+        let v1 = r.scalar_at(1).unwrap().as_bool().value();
+        let v2 = r.scalar_at(2).unwrap().as_bool().value();
+        let v3 = r.scalar_at(3).unwrap().as_bool().value();
+
+        assert!(v0.unwrap());
+        assert!(!v1.unwrap());
+        assert!(!v2.unwrap());
+        assert!(!v3.unwrap());
+    }
 }
