@@ -7,12 +7,12 @@ use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_scalar::Scalar;
 
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 #[test]

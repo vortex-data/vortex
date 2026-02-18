@@ -4,7 +4,6 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -12,6 +11,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::NullArray;
 use crate::arrays::NullVTable;
 use crate::compute::CastReduce;
+use crate::scalar::Scalar;
 
 impl CastReduce for NullVTable {
     fn cast(array: &NullArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

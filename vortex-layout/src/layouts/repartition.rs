@@ -155,7 +155,7 @@ impl LayoutStrategy for RepartitionStrategy {
                 }
                 if canonical_stream.as_mut().peek().await.is_none() {
                     let to_flush = ChunkedArray::try_new(
-                        chunks.data.drain(..).collect(),
+                        chunks.data.drain(..).map(|(arr, _)| arr).collect(),
                         dtype_clone.clone(),
                     )?;
                     if !to_flush.is_empty() {
@@ -189,7 +189,10 @@ impl LayoutStrategy for RepartitionStrategy {
 }
 
 struct ChunksBuffer {
-    data: VecDeque<ArrayRef>,
+    /// Each entry stores the chunk and the `nbytes()` snapshot taken at push time.
+    /// This avoids accounting mismatches when interior-mutable arrays (e.g. `SharedArray`)
+    /// change their reported size after being pushed.
+    data: VecDeque<(ArrayRef, u64)>,
     row_count: usize,
     nbytes: u64,
     block_size_minimum: u64,
@@ -216,7 +219,7 @@ impl ChunksBuffer {
         let mut res = Vec::with_capacity(self.data.len());
         let mut remaining = nblocks * self.block_len_multiple;
         while remaining > 0 {
-            let chunk = self
+            let (chunk, _) = self
                 .pop_front()
                 .vortex_expect("must have at least one chunk");
             let len = chunk.len();
@@ -236,22 +239,24 @@ impl ChunksBuffer {
     }
 
     fn push_back(&mut self, chunk: ArrayRef) {
+        let nb = chunk.nbytes();
         self.row_count += chunk.len();
-        self.nbytes += chunk.nbytes();
-        self.data.push_back(chunk);
+        self.nbytes += nb;
+        self.data.push_back((chunk, nb));
     }
 
     fn push_front(&mut self, chunk: ArrayRef) {
+        let nb = chunk.nbytes();
         self.row_count += chunk.len();
-        self.nbytes += chunk.nbytes();
-        self.data.push_front(chunk);
+        self.nbytes += nb;
+        self.data.push_front((chunk, nb));
     }
 
-    fn pop_front(&mut self) -> Option<ArrayRef> {
+    fn pop_front(&mut self) -> Option<(ArrayRef, u64)> {
         let res = self.data.pop_front();
-        if let Some(chunk) = res.as_ref() {
+        if let Some((chunk, nb)) = res.as_ref() {
             self.row_count -= chunk.len();
-            self.nbytes -= chunk.nbytes();
+            self.nbytes -= nb;
         }
         res
     }
@@ -261,10 +266,13 @@ impl ChunksBuffer {
 mod tests {
     use std::sync::Arc;
 
+    use vortex_array::Array;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::SharedArray;
     use vortex_array::validity::Validity;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::NonNullable;
@@ -440,6 +448,41 @@ mod tests {
         assert_eq!(layout.nchildren(), 2);
         assert_eq!(layout.child(0)?.row_count(), 8192);
         assert_eq!(layout.child(1)?.row_count(), 1808);
+
+        Ok(())
+    }
+
+    /// Regression test: `SharedArray` slices sharing an `Arc<Mutex<SharedState>>` can
+    /// transition from Source to Cached when any one of them is canonicalized. This caused
+    /// `pop_front` to panic with `attempt to subtract with overflow` because the buffer's
+    /// running `nbytes` total was accumulated with the smaller Source-era values while
+    /// `pop_front` subtracted the larger Cached-era values.
+    #[test]
+    fn chunks_buffer_pop_front_no_panic_after_shared_execution() -> VortexResult<()> {
+        let n = 20_000usize;
+        let block_len = 10_000usize;
+
+        let constant = ConstantArray::new(42i64, n);
+        let shared = SharedArray::new(constant.into_array());
+        let shared_handle = shared.clone();
+        let arr = shared.into_array();
+
+        let s1 = arr.slice(0..block_len)?;
+        let s2 = arr.slice(block_len..n)?;
+
+        let mut buf = ChunksBuffer::new(0, block_len);
+        buf.push_back(s1);
+        buf.push_back(s2);
+
+        let _output = buf.pop_front().unwrap();
+
+        // Transition SharedState from Source to Cached for ALL slices sharing this Arc.
+        shared_handle.get_or_compute(|source| source.to_canonical())?;
+
+        // Before the fix this panicked with "attempt to subtract with overflow".
+        let _s2 = buf.pop_front().unwrap();
+        assert_eq!(buf.nbytes, 0);
+        assert_eq!(buf.row_count, 0);
 
         Ok(())
     }

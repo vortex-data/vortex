@@ -3,34 +3,31 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::compute::CompareKernel;
-use vortex_array::compute::CompareKernelAdapter;
 use vortex_array::compute::Operator;
 use vortex_array::compute::and_kleene;
 use vortex_array::compute::compare;
 use vortex_array::compute::or_kleene;
-use vortex_array::register_kernel;
+use vortex_array::expr::CompareKernel;
+use vortex_array::scalar::Scalar;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::datetime::Timestamp;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::array::DateTimePartsArray;
 use crate::array::DateTimePartsVTable;
 use crate::timestamp;
 
 impl CompareKernel for DateTimePartsVTable {
-    /// Compares two arrays and returns a new boolean array with the result of the comparison.
-    /// Or, returns None if comparison is not supported.
     fn compare(
-        &self,
         lhs: &DateTimePartsArray,
         rhs: &dyn Array,
         operator: Operator,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
@@ -70,8 +67,6 @@ impl CompareKernel for DateTimePartsVTable {
         }
     }
 }
-
-register_kernel!(CompareKernelAdapter(DateTimePartsVTable).lift());
 
 fn compare_eq(
     lhs: &DateTimePartsArray,

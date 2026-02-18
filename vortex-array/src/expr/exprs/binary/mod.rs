@@ -14,7 +14,6 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::compute;
 use crate::compute::BooleanOperator;
-use crate::compute::compare;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -29,6 +28,8 @@ use crate::expr::stats::Stat;
 
 mod boolean;
 pub(crate) use boolean::*;
+mod compare;
+pub use compare::*;
 mod numeric;
 pub(crate) use numeric::*;
 
@@ -99,6 +100,14 @@ impl VTable for Binary {
             );
         }
 
+        if operator.is_comparison()
+            && !lhs.eq_ignore_nullability(rhs)
+            && !lhs.is_extension()
+            && !rhs.is_extension()
+        {
+            vortex_bail!("Cannot compare different DTypes {} and {}", lhs, rhs);
+        }
+
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 
@@ -108,18 +117,18 @@ impl VTable for Binary {
         };
 
         match op {
-            Operator::Eq => compare(lhs, rhs, compute::Operator::Eq),
-            Operator::NotEq => compare(lhs, rhs, compute::Operator::NotEq),
-            Operator::Lt => compare(lhs, rhs, compute::Operator::Lt),
-            Operator::Lte => compare(lhs, rhs, compute::Operator::Lte),
-            Operator::Gt => compare(lhs, rhs, compute::Operator::Gt),
-            Operator::Gte => compare(lhs, rhs, compute::Operator::Gte),
+            Operator::Eq => execute_compare(lhs, rhs, compute::Operator::Eq),
+            Operator::NotEq => execute_compare(lhs, rhs, compute::Operator::NotEq),
+            Operator::Lt => execute_compare(lhs, rhs, compute::Operator::Lt),
+            Operator::Lte => execute_compare(lhs, rhs, compute::Operator::Lte),
+            Operator::Gt => execute_compare(lhs, rhs, compute::Operator::Gt),
+            Operator::Gte => execute_compare(lhs, rhs, compute::Operator::Gte),
             Operator::And => execute_boolean(lhs, rhs, BooleanOperator::AndKleene),
             Operator::Or => execute_boolean(lhs, rhs, BooleanOperator::OrKleene),
-            Operator::Add => execute_numeric(lhs, rhs, vortex_scalar::NumericOperator::Add),
-            Operator::Sub => execute_numeric(lhs, rhs, vortex_scalar::NumericOperator::Sub),
-            Operator::Mul => execute_numeric(lhs, rhs, vortex_scalar::NumericOperator::Mul),
-            Operator::Div => execute_numeric(lhs, rhs, vortex_scalar::NumericOperator::Div),
+            Operator::Add => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Add),
+            Operator::Sub => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Sub),
+            Operator::Mul => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Mul),
+            Operator::Div => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Div),
         }
     }
 
@@ -550,14 +559,15 @@ pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
 mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
 
     use super::*;
     use crate::assert_arrays_eq;
+    use crate::compute::compare;
     use crate::expr::Expression;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
     use crate::expr::test_harness;
+    use crate::scalar::Scalar;
 
     #[test]
     fn and_collect_balanced() {

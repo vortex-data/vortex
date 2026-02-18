@@ -15,9 +15,7 @@ mod stream;
 pub use access_plan::VortexAccessPlan;
 pub use format::VortexFormat;
 pub use format::VortexFormatFactory;
-pub use format::VortexOptions;
-pub use reader::DefaultVortexReaderFactory;
-pub use reader::VortexReaderFactory;
+pub use format::VortexTableOptions;
 pub use source::VortexSource;
 
 #[cfg(test)]

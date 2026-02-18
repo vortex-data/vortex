@@ -11,6 +11,8 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
 use futures::future::try_join_all;
+use tracing::debug;
+use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::BinaryView;
@@ -186,7 +188,7 @@ pub async fn zstd_kernel_prepare(
 
 /// CUDA executor for ZSTD decompression using nvCOMP.
 #[derive(Debug)]
-pub struct ZstdExecutor;
+pub(crate) struct ZstdExecutor;
 
 impl ZstdExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ZstdArray> {
@@ -196,6 +198,7 @@ impl ZstdExecutor {
 
 #[async_trait]
 impl CudaExecute for ZstdExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -205,9 +208,9 @@ impl CudaExecute for ZstdExecutor {
 
         match zstd.as_ref().dtype() {
             DType::Binary(_) | DType::Utf8(_) => decode_zstd(zstd, ctx).await,
-            other => {
-                tracing::debug!(
-                    dtype = %other,
+            _other => {
+                debug!(
+                    dtype = %_other,
                     "Only Binary/Utf8 ZSTD arrays supported on GPU, falling back to CPU"
                 );
                 zstd.decompress()?.to_canonical()
@@ -250,21 +253,24 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
 
     let stream = ctx.stream();
 
-    unsafe {
-        nvcomp_zstd::decompress_async(
-            exec.frame_ptrs_ptr as _,
-            exec.frame_sizes_ptr as _,
-            exec.output_sizes_ptr as _,
-            exec.device_actual_sizes.device_ptr_mut(stream).0 as _,
-            exec.num_frames,
-            exec.nvcomp_temp_buffer.device_ptr_mut(stream).0 as _,
-            exec.nvcomp_temp_buffer_size,
-            exec.output_ptrs_ptr as _,
-            exec.device_statuses.device_ptr_mut(stream).0 as _,
-            stream.cu_stream().cast(),
-        )
-        .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))?;
-    }
+    ctx.launch_external(n_rows, || {
+        // SAFETY: zstd_kernel_prepare makes sure to return valid kernel params.
+        unsafe {
+            nvcomp_zstd::decompress_async(
+                exec.frame_ptrs_ptr as _,
+                exec.frame_sizes_ptr as _,
+                exec.output_sizes_ptr as _,
+                exec.device_actual_sizes.device_ptr_mut(stream).0 as _,
+                exec.num_frames,
+                exec.nvcomp_temp_buffer.device_ptr_mut(stream).0 as _,
+                exec.nvcomp_temp_buffer_size,
+                exec.output_ptrs_ptr as _,
+                exec.device_statuses.device_ptr_mut(stream).0 as _,
+                stream.cu_stream().cast(),
+            )
+            .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))
+        }
+    })?;
 
     // Unconditionally copy back to the host as Zstd arrays are fully
     // self-contained. They neither have any parent or child encodings.

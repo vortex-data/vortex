@@ -6,7 +6,6 @@ use std::ops::Not;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -15,6 +14,7 @@ use crate::ToCanonical;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::expr::FillNullKernel;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -49,7 +49,6 @@ impl FillNullKernel for PrimitiveVTable {
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::arrays::BoolArray;
@@ -57,6 +56,7 @@ mod test {
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]

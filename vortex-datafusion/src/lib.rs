@@ -75,7 +75,7 @@ mod common_tests {
     use vortex::session::VortexSession;
 
     use crate::VortexFormatFactory;
-    use crate::VortexOptions;
+    use crate::VortexTableOptions;
 
     static VX_SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
@@ -94,7 +94,7 @@ mod common_tests {
         /// Create a new test session context with the given projection pushdown setting.
         pub fn new(projection_pushdown: bool) -> Self {
             let store = Arc::new(InMemory::new());
-            let opts = VortexOptions {
+            let opts = VortexTableOptions {
                 projection_pushdown,
                 ..Default::default()
             };

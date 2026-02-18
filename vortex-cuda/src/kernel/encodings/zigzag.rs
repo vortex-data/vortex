@@ -6,17 +6,17 @@ use std::fmt::Debug;
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
+use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
-use vortex_array::buffer::BufferHandle;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_zigzag::ZigZagArray;
 use vortex_zigzag::ZigZagVTable;
@@ -25,11 +25,10 @@ use crate::CudaBufferExt;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel_impl;
 
 /// CUDA decoder for ZigZag decoding.
 #[derive(Debug)]
-pub struct ZigZagExecutor;
+pub(crate) struct ZigZagExecutor;
 
 impl ZigZagExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ZigZagArray> {
@@ -39,6 +38,7 @@ impl ZigZagExecutor {
 
 #[async_trait]
 impl CudaExecute for ZigZagExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -66,7 +66,7 @@ where
     U: NativePType + DeviceRepr + Send + Sync + 'static,
 {
     let array_len = array.encoded().len();
-    assert!(array_len > 0);
+    vortex_ensure!(array_len > 0, "ZigZag array must not be empty");
 
     // Execute child and copy to device
     let canonical = array.encoded().clone().execute_cuda(ctx).await?;
@@ -75,28 +75,18 @@ where
         buffer, validity, ..
     } = primitive.into_parts();
 
-    let device_buffer: BufferHandle = if buffer.is_on_device() {
-        buffer
-    } else {
-        ctx.move_to_device(buffer)?.await?
-    };
+    let device_buffer = ctx.ensure_on_device(buffer).await?;
 
     // Get CUDA view of the buffer
     let cuda_view = device_buffer.cuda_view::<U>()?;
     let array_len_u64 = array_len as u64;
 
     // Load kernel function
-    let kernel_ptypes = [U::PTYPE];
-    let cuda_function = ctx.load_function_ptype("zigzag", &kernel_ptypes)?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
+    let cuda_function = ctx.load_function_ptype("zigzag", &[U::PTYPE])?;
 
-    // Build launch args: buffer, length
-    launch_builder.arg(&cuda_view);
-    launch_builder.arg(&array_len_u64);
-
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+    ctx.launch_kernel(&cuda_function, array_len, |args| {
+        args.arg(&cuda_view).arg(&array_len_u64);
+    })?;
 
     // Build result - in-place, reinterpret as signed
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(

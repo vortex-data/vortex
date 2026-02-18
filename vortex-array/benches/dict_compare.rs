@@ -6,6 +6,7 @@
 use std::str::from_utf8;
 
 use vortex_array::Canonical;
+use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ConstantArray;
@@ -50,15 +51,20 @@ fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, u
     let primitive_arr = gen_primitive_for_dict::<i32>(len, uniqueness);
     let dict = dict_encode(primitive_arr.as_ref()).unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
+    let session = VortexSession::empty();
 
-    bencher.with_inputs(|| &dict).bench_refs(|dict| {
-        compare(
-            dict.as_ref(),
-            ConstantArray::new(value, len).as_ref(),
-            Operator::Eq,
-        )
-        .unwrap()
-    })
+    bencher
+        .with_inputs(|| (&dict, session.create_execution_ctx()))
+        .bench_refs(|(dict, ctx)| {
+            compare(
+                dict.as_ref(),
+                ConstantArray::new(value, len).as_ref(),
+                Operator::Eq,
+            )
+            .unwrap()
+            .execute::<Canonical>(ctx)
+            .unwrap()
+        })
 }
 
 #[divan::bench(args = LENGTH_AND_UNIQUE_VALUES)]
@@ -67,15 +73,20 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usiz
     let dict = dict_encode(varbin_arr.as_ref()).unwrap();
     let bytes = varbin_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
+    let session = VortexSession::empty();
 
-    bencher.with_inputs(|| &dict).bench_refs(|dict| {
-        compare(
-            dict.as_ref(),
-            ConstantArray::new(value, len).as_ref(),
-            Operator::Eq,
-        )
-        .unwrap()
-    })
+    bencher
+        .with_inputs(|| (&dict, session.create_execution_ctx()))
+        .bench_refs(|(dict, ctx)| {
+            compare(
+                dict.as_ref(),
+                ConstantArray::new(value, len).as_ref(),
+                Operator::Eq,
+            )
+            .unwrap()
+            .execute::<RecursiveCanonical>(ctx)
+            .unwrap()
+        })
 }
 
 #[divan::bench(args = LENGTH_AND_UNIQUE_VALUES)]
@@ -84,14 +95,20 @@ fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, 
     let dict = dict_encode(varbinview_arr.as_ref()).unwrap();
     let bytes = varbinview_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
-    bencher.with_inputs(|| &dict).bench_refs(|dict| {
-        compare(
-            dict.as_ref(),
-            ConstantArray::new(value, len).as_ref(),
-            Operator::Eq,
-        )
-        .unwrap()
-    })
+    let session = VortexSession::empty();
+
+    bencher
+        .with_inputs(|| (&dict, session.create_execution_ctx()))
+        .bench_refs(|(dict, ctx)| {
+            compare(
+                dict.as_ref(),
+                ConstantArray::new(value, len).as_ref(),
+                Operator::Eq,
+            )
+            .unwrap()
+            .execute::<RecursiveCanonical>(ctx)
+            .unwrap()
+        })
 }
 
 const CODES_AND_VALUES_LENGTHS: &[(usize, usize)] = &[
@@ -117,13 +134,14 @@ fn bench_compare_sliced_dict_primitive(
     let value = primitive_arr.as_slice::<i32>()[0];
     let session = VortexSession::empty();
 
-    bencher.with_inputs(|| &dict).bench_refs(|dict| {
-        let mut ctx = session.create_execution_ctx();
-        dict.apply(&eq(root(), lit(value)))
-            .unwrap()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-    })
+    bencher
+        .with_inputs(|| (&dict, session.create_execution_ctx()))
+        .bench_refs(|(dict, ctx)| {
+            dict.apply(&eq(root(), lit(value)))
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap()
+        })
 }
 
 #[divan::bench(args = CODES_AND_VALUES_LENGTHS)]
@@ -138,11 +156,12 @@ fn bench_compare_sliced_dict_varbinview(
     let value = from_utf8(bytes.as_slice()).unwrap();
     let session = VortexSession::empty();
 
-    bencher.with_inputs(|| &dict).bench_refs(|dict| {
-        let mut ctx = session.create_execution_ctx();
-        dict.apply(&eq(root(), lit(value)))
-            .unwrap()
-            .execute::<Canonical>(&mut ctx)
-            .unwrap()
-    })
+    bencher
+        .with_inputs(|| (&dict, session.create_execution_ctx()))
+        .bench_refs(|(dict, ctx)| {
+            dict.apply(&eq(root(), lit(value)))
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap()
+        })
 }

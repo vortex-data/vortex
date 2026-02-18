@@ -19,8 +19,6 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_scalar::ListScalar;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -40,6 +38,8 @@ use crate::compute::Kernel;
 use crate::compute::Operator;
 use crate::compute::Output;
 use crate::compute::{self};
+use crate::scalar::ListScalar;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 use crate::vtable::VTable;
 use crate::vtable::ValidityHelper;
@@ -75,10 +75,10 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// # use vortex_array::{Array, IntoArray, ToCanonical};
 /// # use vortex_array::arrays::{ConstantArray, ListViewArray, VarBinArray};
 /// # use vortex_array::compute;
+/// # use vortex_array::scalar::Scalar;
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::{buffer, bitbuffer};
 /// # use vortex_dtype::DType;
-/// # use vortex_scalar::Scalar;
 /// #
 /// let elements = VarBinArray::from_vec(
 ///         vec!["a", "a", "b", "a", "c"], DType::Utf8(false.into())).into_array();
@@ -420,7 +420,6 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::ArrayRef;
@@ -436,6 +435,7 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
     use crate::compute::list_contains;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {

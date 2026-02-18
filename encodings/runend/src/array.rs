@@ -16,6 +16,7 @@ use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::scalar::PValue;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::serde::ArrayChildren;
@@ -35,7 +36,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_scalar::PValue;
 use vortex_session::VortexSession;
 
 use crate::compress::runend_decode_bools;
@@ -215,6 +215,21 @@ impl RunEndArray {
             );
             return Ok(());
         }
+
+        debug_assert!({
+            // Run ends must be strictly sorted for binary search to work correctly.
+            let pre_validation = ends.statistics().to_owned();
+
+            let is_sorted = ends
+                .statistics()
+                .compute_is_strict_sorted()
+                .unwrap_or(false);
+
+            // Preserve the original statistics since compute_is_strict_sorted may have mutated them.
+            // We don't want to run with different stats in debug mode and outside.
+            ends.statistics().inherit(pre_validation.iter());
+            is_sorted
+        });
 
         // Skip host-only validation when ends are not host-resident.
         if !ends.is_host() {

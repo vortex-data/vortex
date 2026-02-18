@@ -17,21 +17,21 @@ extern "C" {
 /// @param key The configuration key to retrieve
 /// @param out_value Pointer to store the resulting DuckDB value
 /// @return DuckDBSuccess on success, DuckDBError if the key doesn't exist or on error
-duckdb_state duckdb_vx_get_config_value(duckdb_config config, const char* key, duckdb_value* out_value);
+duckdb_state duckdb_vx_get_config_value(duckdb_config config, const char *key, duckdb_value *out_value);
 
 /// Check if a configuration key exists in the given config object.
 ///
-/// @param config The DuckDB configuration object  
+/// @param config The DuckDB configuration object
 /// @param key The configuration key to check
 /// @return 1 if the key exists, 0 if it doesn't exist or on error
-int duckdb_vx_config_has_key(duckdb_config config, const char* key);
+int duckdb_vx_config_has_key(duckdb_config config, const char *key);
 
 /// Convert a DuckDB value to a string representation.
 /// The returned string must be freed with duckdb_free.
 ///
 /// @param value The DuckDB value to convert
 /// @return A newly allocated string containing the value's string representation, or NULL on error
-char* duckdb_vx_value_to_string(duckdb_value value);
+char *duckdb_vx_value_to_string(duckdb_value value);
 
 /// Add an extension-specific configuration option to DuckDB.
 /// This allows extensions to register custom SET variables.
@@ -43,10 +43,10 @@ char* duckdb_vx_value_to_string(duckdb_value value);
 /// @param default_value The default value for the option
 /// @return DuckDBSuccess on success, DuckDBError on error
 duckdb_state duckdb_vx_add_extension_option(duckdb_config config,
-                                             const char *name,
-                                             const char *description,
-                                             duckdb_logical_type logical_type,
-                                             duckdb_value default_value);
+                                            const char *name,
+                                            const char *description,
+                                            duckdb_logical_type logical_type,
+                                            duckdb_value default_value);
 
 #ifdef __cplusplus
 }

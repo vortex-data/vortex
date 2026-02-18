@@ -3,14 +3,13 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::CompareKernel;
-use vortex_array::compute::CompareKernelAdapter;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
-use vortex_array::register_kernel;
+use vortex_array::expr::CompareKernel;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;
@@ -19,10 +18,10 @@ use crate::compress::runend_decode_bools;
 
 impl CompareKernel for RunEndVTable {
     fn compare(
-        &self,
         lhs: &RunEndArray,
         rhs: &dyn Array,
         operator: Operator,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(const_scalar) = rhs.as_constant() {
@@ -44,8 +43,6 @@ impl CompareKernel for RunEndVTable {
         Ok(None)
     }
 }
-
-register_kernel!(CompareKernelAdapter(RunEndVTable).lift());
 
 #[cfg(test)]
 mod test {

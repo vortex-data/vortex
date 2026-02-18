@@ -28,6 +28,8 @@ pub fn vortex_io::file::object_store::ObjectStoreSource::size(&self) -> futures_
 
 pub fn vortex_io::file::object_store::ObjectStoreSource::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
 
+pub const vortex_io::file::object_store::DEFAULT_CONCURRENCY: usize
+
 pub mod vortex_io::file::std_file
 
 pub struct vortex_io::file::std_file::FileReadAdapter
@@ -47,6 +49,8 @@ pub fn vortex_io::file::std_file::FileReadAdapter::read_at(&self, offset: u64, l
 pub fn vortex_io::file::std_file::FileReadAdapter::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
 
 pub fn vortex_io::file::std_file::FileReadAdapter::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+
+pub const vortex_io::file::std_file::DEFAULT_CONCURRENCY: usize
 
 pub mod vortex_io::kanal_ext
 
@@ -308,11 +312,11 @@ pub vortex_io::CoalesceConfig::max_size: u64
 
 impl vortex_io::CoalesceConfig
 
-pub fn vortex_io::CoalesceConfig::local() -> Self
+pub const fn vortex_io::CoalesceConfig::local() -> Self
 
-pub fn vortex_io::CoalesceConfig::new(distance: u64, max_size: u64) -> Self
+pub const fn vortex_io::CoalesceConfig::new(distance: u64, max_size: u64) -> Self
 
-pub fn vortex_io::CoalesceConfig::object_storage() -> Self
+pub const fn vortex_io::CoalesceConfig::object_storage() -> Self
 
 impl core::clone::Clone for vortex_io::CoalesceConfig
 
@@ -400,7 +404,7 @@ pub type vortex_io::SizeLimitedStream<Fut>::Item = <Fut as core::future::future:
 
 pub fn vortex_io::SizeLimitedStream<Fut>::poll_next(self: core::pin::Pin<&mut Self>, cx: &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<core::option::Option<Self::Item>>
 
-pub unsafe trait vortex_io::IoBuf: core::marker::Unpin + 'static
+pub unsafe trait vortex_io::IoBuf: core::marker::Unpin + core::marker::Send + 'static
 
 pub fn vortex_io::IoBuf::as_slice(&self) -> &[u8]
 
@@ -434,7 +438,7 @@ pub fn bytes::bytes::Bytes::bytes_init(&self) -> usize
 
 pub fn bytes::bytes::Bytes::read_ptr(&self) -> *const u8
 
-impl<T: core::marker::Unpin + 'static> vortex_io::IoBuf for vortex_buffer::buffer::Buffer<T>
+impl<T: core::marker::Unpin + core::marker::Send + 'static> vortex_io::IoBuf for vortex_buffer::buffer::Buffer<T>
 
 pub fn vortex_buffer::buffer::Buffer<T>::as_slice(&self) -> &[u8]
 

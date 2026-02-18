@@ -12,7 +12,8 @@
 
 using namespace duckdb;
 
-extern "C" idx_t duckdb_vx_table_filter_set_get(duckdb_vx_table_filter_set ffi_filter_set, size_t index,
+extern "C" idx_t duckdb_vx_table_filter_set_get(duckdb_vx_table_filter_set ffi_filter_set,
+                                                size_t index,
                                                 duckdb_vx_table_filter *table_filter_out) {
     auto filter_set = reinterpret_cast<TableFilterSet *>(ffi_filter_set);
     auto it = std::next(filter_set->filters.begin(), index);

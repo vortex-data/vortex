@@ -9,8 +9,6 @@ use vortex_dtype::NativeDecimalType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::Scalar;
 
 use super::cast::upcast_decimal_values;
 use crate::ArrayRef;
@@ -20,6 +18,8 @@ use crate::ToCanonical;
 use crate::arrays::DecimalVTable;
 use crate::arrays::decimal::DecimalArray;
 use crate::expr::FillNullKernel;
+use crate::scalar::DecimalValue;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -88,13 +88,13 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
 
     use crate::arrays::decimal::DecimalArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
+    use crate::scalar::DecimalValue;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]

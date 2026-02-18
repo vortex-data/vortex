@@ -11,9 +11,9 @@ use std::fmt::Formatter;
 use std::hint;
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::Array;
+use crate::scalar::Scalar;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SearchSortedSide {

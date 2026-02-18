@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::ByteBufferMut;
-use vortex_scalar::ScalarValue;
 
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
@@ -10,6 +9,7 @@ use crate::ArrayRef;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::buffer::BufferHandle;
+use crate::scalar::ScalarValue;
 use crate::vtable::VisitorVTable;
 
 impl VisitorVTable<ConstantVTable> for ConstantVTable {

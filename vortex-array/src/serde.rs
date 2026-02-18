@@ -461,6 +461,35 @@ impl ArrayParts {
             .unwrap_or_default()
     }
 
+    /// Validate and align the array tree flatbuffer, returning the aligned buffer and root location.
+    fn validate_array_tree(array_tree: impl Into<ByteBuffer>) -> VortexResult<(FlatBuffer, usize)> {
+        let fb_buffer = FlatBuffer::align_from(array_tree.into());
+        let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
+        let fb_root = fb_array
+            .root()
+            .ok_or_else(|| vortex_err!("Array must have a root node"))?;
+        let flatbuffer_loc = fb_root._tab.loc();
+        Ok((fb_buffer, flatbuffer_loc))
+    }
+
+    /// Create an [`ArrayParts`] from a pre-existing array tree flatbuffer and pre-resolved buffer
+    /// handles.
+    ///
+    /// The caller is responsible for resolving buffers from whatever source (device segments, host
+    /// overrides, or a mix). The buffers must be in the same order as the `Array.buffers` descriptor
+    /// list in the flatbuffer.
+    pub fn from_flatbuffer_with_buffers(
+        array_tree: impl Into<ByteBuffer>,
+        buffers: Vec<BufferHandle>,
+    ) -> VortexResult<Self> {
+        let (flatbuffer, flatbuffer_loc) = Self::validate_array_tree(array_tree)?;
+        Ok(ArrayParts {
+            flatbuffer,
+            flatbuffer_loc,
+            buffers: buffers.into(),
+        })
+    }
+
     /// Create an [`ArrayParts`] from a raw array tree flatbuffer (metadata only).
     ///
     /// This constructor creates an `ArrayParts` with no buffer data, useful for
@@ -470,15 +499,9 @@ impl ArrayParts {
     /// Note: Calling `buffer()` on the returned `ArrayParts` will fail since
     /// no actual buffer data is available.
     pub fn from_array_tree(array_tree: impl Into<ByteBuffer>) -> VortexResult<Self> {
-        let fb_buffer = FlatBuffer::align_from(array_tree.into());
-        let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
-        let fb_root = fb_array
-            .root()
-            .ok_or_else(|| vortex_err!("Array must have a root node"))?;
-        let flatbuffer_loc = fb_root._tab.loc();
-
+        let (flatbuffer, flatbuffer_loc) = Self::validate_array_tree(array_tree)?;
         Ok(ArrayParts {
-            flatbuffer: fb_buffer,
+            flatbuffer,
             flatbuffer_loc,
             buffers: Arc::new([]),
         })
@@ -510,35 +533,27 @@ impl ArrayParts {
         // for host-resident buffers. Device buffers are sliced directly.
         let segment = segment.ensure_aligned(Alignment::none())?;
 
-        let fb_buffer = FlatBuffer::align_from(array_tree);
+        // this can't return the validated array because there is no lifetime to give it, so we
+        // need to cast it below, which is safe.
+        let (fb_buffer, flatbuffer_loc) = Self::validate_array_tree(array_tree)?;
+        // SAFETY: fb_buffer was already validated by validate_array_tree above.
+        let fb_array = unsafe { fba::root_as_array_unchecked(fb_buffer.as_ref()) };
 
-        // Parse the flatbuffer to extract buffer descriptors and root location.
-        let (flatbuffer_loc, buffers) = {
-            let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
-            let fb_root = fb_array.root().vortex_expect("Array must have a root node");
-            let flatbuffer_loc = fb_root._tab.loc();
-
-            let mut offset = 0;
-            let buffers = fb_array
-                .buffers()
-                .unwrap_or_default()
-                .iter()
-                .map(|fb_buf| {
-                    // Skip padding
-                    offset += fb_buf.padding() as usize;
-
-                    let buffer_len = fb_buf.length() as usize;
-
-                    // Extract a buffer and ensure it's aligned, copying if necessary
-                    let buffer = segment.slice(offset..(offset + buffer_len));
-                    let buffer = buffer
-                        .ensure_aligned(Alignment::from_exponent(fb_buf.alignment_exponent()))?;
-                    offset += buffer_len;
-                    Ok(buffer)
-                })
-                .collect::<VortexResult<Arc<[_]>>>()?;
-            (flatbuffer_loc, buffers)
-        };
+        let mut offset = 0;
+        let buffers = fb_array
+            .buffers()
+            .unwrap_or_default()
+            .iter()
+            .map(|fb_buf| {
+                offset += fb_buf.padding() as usize;
+                let buffer_len = fb_buf.length() as usize;
+                let buffer = segment.slice(offset..(offset + buffer_len));
+                let buffer =
+                    buffer.ensure_aligned(Alignment::from_exponent(fb_buf.alignment_exponent()))?;
+                offset += buffer_len;
+                Ok(buffer)
+            })
+            .collect::<VortexResult<Arc<[_]>>>()?;
 
         Ok(ArrayParts {
             flatbuffer: fb_buffer,

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -10,6 +9,7 @@ use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::expr::FillNullReduce;
+use crate::scalar::Scalar;
 
 impl FillNullReduce for ChunkedVTable {
     fn fill_null(array: &ChunkedArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
@@ -32,12 +32,12 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
 
     use crate::array::Array;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::builtins::ArrayBuiltins;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]

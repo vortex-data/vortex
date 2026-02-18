@@ -2,13 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::expr::NotReduce;
+use crate::scalar::Scalar;
 
 impl NotReduce for ConstantVTable {
     fn invert(array: &ConstantArray) -> VortexResult<Option<ArrayRef>> {

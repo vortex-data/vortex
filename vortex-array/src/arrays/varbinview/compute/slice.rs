@@ -5,10 +5,10 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::BinaryView;
 use crate::arrays::SliceReduce;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;

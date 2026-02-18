@@ -11,7 +11,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::AnyColumnar;
@@ -31,6 +30,7 @@ use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::scalar::Scalar;
 
 /// An expression that replaces null values in the input with a fill value.
 pub struct FillNull;

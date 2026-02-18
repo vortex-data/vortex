@@ -12,6 +12,7 @@ use crate::arrays::FilterReduceAdaptor;
 use crate::arrays::FilterVTable;
 use crate::arrays::SliceReduceAdaptor;
 use crate::compute::CastReduceAdaptor;
+use crate::expr::MaskReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 
@@ -19,6 +20,7 @@ pub(crate) const PARENT_RULES: ParentRuleSet<ExtensionVTable> = ParentRuleSet::n
     ParentRuleSet::lift(&ExtensionFilterPushDownRule),
     ParentRuleSet::lift(&CastReduceAdaptor(ExtensionVTable)),
     ParentRuleSet::lift(&FilterReduceAdaptor(ExtensionVTable)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(ExtensionVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(ExtensionVTable)),
 ]);
 
@@ -59,7 +61,6 @@ mod tests {
     use vortex_dtype::extension::ExtDTypeVTable;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::IntoArray;
@@ -73,6 +74,7 @@ mod tests {
     use crate::expr::Binary;
     use crate::expr::Operator;
     use crate::optimizer::ArrayOptimizer;
+    use crate::scalar::Scalar;
 
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct TestExt;

@@ -189,7 +189,7 @@ impl VarBinArray {
         // Check nullability matches
         vortex_ensure!(
             dtype.is_nullable() != (validity == &Validity::NonNullable),
-            "incorrect validity {:?} for dtype {}",
+            InvalidArgument: "incorrect validity {:?} for dtype {}",
             validity,
             dtype
         );
@@ -197,13 +197,8 @@ impl VarBinArray {
         // Check offsets has at least one element
         vortex_ensure!(
             !offsets.is_empty(),
-            "Offsets must have at least one element"
+            InvalidArgument: "Offsets must have at least one element"
         );
-
-        // Check offsets are sorted
-        if let Some(is_sorted) = offsets.statistics().compute_is_sorted() {
-            vortex_ensure!(is_sorted, "offsets must be sorted");
-        }
 
         // Skip host-only validation when offsets/bytes are not host-resident.
         if offsets.is_host() && bytes.is_on_host() {
@@ -211,10 +206,12 @@ impl VarBinArray {
                 .scalar_at(offsets.len() - 1)?
                 .as_primitive()
                 .as_::<usize>()
-                .ok_or_else(|| vortex_err!("Last offset must be convertible to usize"))?;
+                .ok_or_else(
+                    || vortex_err!(InvalidArgument: "Last offset must be convertible to usize"),
+                )?;
             vortex_ensure!(
                 last_offset <= bytes.len(),
-                "Last offset {} exceeds bytes length {}",
+                InvalidArgument: "Last offset {} exceeds bytes length {}",
                 last_offset,
                 bytes.len()
             );

@@ -12,7 +12,6 @@ use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::ArrayBufferVisitor;
@@ -25,6 +24,7 @@ use crate::Precision;
 use crate::arrays::BoolArray;
 use crate::arrow::FromArrowArray;
 use crate::buffer::BufferHandle;
+use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;

@@ -3,11 +3,11 @@
 
 use vortex_error::VortexError;
 use vortex_error::vortex_panic;
-use vortex_scalar::Scalar;
 
 use super::StatType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
+use crate::scalar::Scalar;
 
 pub trait StatsProvider {
     fn get(&self, stat: Stat) -> Option<Precision<Scalar>>;

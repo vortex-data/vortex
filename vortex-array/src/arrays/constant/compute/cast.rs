@@ -22,11 +22,11 @@ impl CastReduce for ConstantVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::scalar::Scalar;
 
     #[rstest]
     #[case(ConstantArray::new(Scalar::from(42u32), 5).into_array())]

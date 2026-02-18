@@ -6,6 +6,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
+use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::DecimalArray;
@@ -34,14 +35,14 @@ use crate::CudaDeviceBuffer;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel_impl;
 
 /// CUDA executor for dictionary-encoded arrays.
 #[derive(Debug)]
-pub struct DictExecutor;
+pub(crate) struct DictExecutor;
 
 #[async_trait]
 impl CudaExecute for DictExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -105,17 +106,8 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
     } = codes.into_parts();
 
     // Get device buffers for values and codes
-    let values_device = if values_buffer.is_on_device() {
-        values_buffer
-    } else {
-        ctx.move_to_device(values_buffer)?.await?
-    };
-
-    let codes_device = if codes_buffer.is_on_device() {
-        codes_buffer
-    } else {
-        ctx.move_to_device(codes_buffer)?.await?
-    };
+    let values_device = ctx.ensure_on_device(values_buffer).await?;
+    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
 
     // Allocate output buffer on device
     let output_slice = ctx.device_alloc::<V>(codes_len)?;
@@ -127,15 +119,14 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
     let output_view = output_device.as_view::<V>();
 
     let codes_len_u64 = codes_len as u64;
-    // Launch the dict kernel
-    let _cuda_events = crate::launch_cuda_kernel!(
-        execution_ctx: ctx,
-        module: "dict",
-        ptypes: &[value_ptype, I::PTYPE],
-        launch_args: [codes_view, codes_len_u64, values_view, output_view],
-        event_recording: cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING,
-        array_len: codes_len
-    );
+
+    let kernel_function = ctx.load_function_ptype("dict", &[value_ptype, I::PTYPE])?;
+    ctx.launch_kernel(&kernel_function, codes_len, |args| {
+        args.arg(&codes_view)
+            .arg(&codes_len_u64)
+            .arg(&values_view)
+            .arg(&output_view);
+    })?;
 
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         BufferHandle::new_device(Arc::new(output_device)),
@@ -186,9 +177,7 @@ async fn execute_dict_decimal_typed<
 ) -> VortexResult<Canonical> {
     assert!(!codes.is_empty());
     let codes_len = codes.len();
-    if codes_len == 0 {
-        vortex_bail!("Cannot execute dict on empty codes array");
-    }
+    let codes_len_u64 = codes_len as u64;
 
     let DecimalArrayParts {
         values: values_buffer,
@@ -203,18 +192,8 @@ async fn execute_dict_decimal_typed<
     } = codes.into_parts();
 
     // Copy buffers to device if needed
-    // Note: We use u8 for the buffer type since we're treating these as raw bytes
-    let values_device = if values_buffer.is_on_device() {
-        values_buffer
-    } else {
-        ctx.move_to_device(values_buffer)?.await?
-    };
-
-    let codes_device = if codes_buffer.is_on_device() {
-        codes_buffer
-    } else {
-        ctx.move_to_device(codes_buffer)?.await?
-    };
+    let values_device = ctx.ensure_on_device(values_buffer).await?;
+    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
 
     // Allocate output buffer on device (codes_len * value_byte_width bytes)
     let output_slice = ctx.device_alloc::<V>(codes_len)?;
@@ -230,18 +209,13 @@ async fn execute_dict_decimal_typed<
         "dict",
         &[&V::DECIMAL_TYPE.to_string(), &C::PTYPE.to_string()],
     )?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
 
-    launch_builder.arg(&codes_view);
-    launch_builder.arg(&codes_len);
-    launch_builder.arg(&values_view);
-    launch_builder.arg(&output_view);
-
-    let _cuda_events = launch_cuda_kernel_impl(
-        &mut launch_builder,
-        cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING,
-        codes_len,
-    )?;
+    ctx.launch_kernel(&cuda_function, codes_len, |args| {
+        args.arg(&codes_view)
+            .arg(&codes_len_u64)
+            .arg(&values_view)
+            .arg(&output_view);
+    })?;
 
     Ok(Canonical::Decimal(DecimalArray::new_handle(
         BufferHandle::new_device(Arc::new(output_device)),
@@ -286,17 +260,8 @@ async fn execute_dict_varbinview(
     } = codes_prim.into_parts();
 
     // Move buffers to device if needed.
-    let values_device = if values_views_handle.is_on_device() {
-        values_views_handle
-    } else {
-        ctx.move_to_device(values_views_handle)?.await?
-    };
-
-    let codes_device = if codes_buffer.is_on_device() {
-        codes_buffer
-    } else {
-        ctx.move_to_device(codes_buffer)?.await?
-    };
+    let values_device = ctx.ensure_on_device(values_views_handle).await?;
+    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
 
     // Allocate output: one i128 per code.
     let output_slice = ctx.device_alloc::<i128>(codes_len)?;
@@ -311,19 +276,15 @@ async fn execute_dict_varbinview(
 
         let codes_ptype_str = C::PTYPE.to_string();
         let cuda_function = ctx.load_function("dict", &["i128", &codes_ptype_str])?;
-        let mut launch_builder = ctx.launch_builder(&cuda_function);
 
         let codes_len_u64 = codes_len as u64;
-        launch_builder.arg(&codes_view);
-        launch_builder.arg(&codes_len_u64);
-        launch_builder.arg(&values_view);
-        launch_builder.arg(&output_view);
 
-        let _cuda_events = launch_cuda_kernel_impl(
-            &mut launch_builder,
-            cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING,
-            codes_len,
-        )?;
+        ctx.launch_kernel(&cuda_function, codes_len, |args| {
+            args.arg(&codes_view);
+            args.arg(&codes_len_u64);
+            args.arg(&values_view);
+            args.arg(&output_view);
+        })?;
     });
 
     // Output views gathered by the kernel share the values' data buffers.

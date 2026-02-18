@@ -45,10 +45,8 @@ ArrowArrayStream CreateTestDataStream() {
         NANOARROW_THROW_NOT_OK(ArrowArrayAppendInt(field_b.get(), data_b[i]));
     }
 
-    NANOARROW_THROW_NOT_OK(
-        ArrowArrayFinishBuilding(field_a.get(), NANOARROW_VALIDATION_LEVEL_NONE, nullptr));
-    NANOARROW_THROW_NOT_OK(
-        ArrowArrayFinishBuilding(field_b.get(), NANOARROW_VALIDATION_LEVEL_NONE, nullptr));
+    NANOARROW_THROW_NOT_OK(ArrowArrayFinishBuilding(field_a.get(), NANOARROW_VALIDATION_LEVEL_NONE, nullptr));
+    NANOARROW_THROW_NOT_OK(ArrowArrayFinishBuilding(field_b.get(), NANOARROW_VALIDATION_LEVEL_NONE, nullptr));
 
     // Create struct array
     nanoarrow::UniqueArray struct_array;

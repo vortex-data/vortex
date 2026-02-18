@@ -67,7 +67,7 @@ fn cast<F: NativePType, T: NativePType>(array: &[F], mask: Mask) -> VortexResult
             let mut buffer = BufferMut::with_capacity(array.len());
             for item in array {
                 let item = T::from(*item).ok_or_else(
-                    || vortex_err!(ComputeError: "Failed to cast {} to {:?}", item, T::PTYPE),
+                    || vortex_err!(Compute: "Failed to cast {} to {:?}", item, T::PTYPE),
                 )?;
                 // SAFETY: we've pre-allocated the required capacity
                 unsafe { buffer.push_unchecked(item) }
@@ -81,7 +81,7 @@ fn cast<F: NativePType, T: NativePType>(array: &[F], mask: Mask) -> VortexResult
             for (item, valid) in array.iter().zip(b.iter()) {
                 if valid {
                     let item = T::from(*item).ok_or_else(
-                        || vortex_err!(ComputeError: "Failed to cast {} to {:?}", item, T::PTYPE),
+                        || vortex_err!(Compute: "Failed to cast {} to {:?}", item, T::PTYPE),
                     )?;
                     // SAFETY: we've pre-allocated the required capacity
                     unsafe { buffer.push_unchecked(item) }
@@ -180,12 +180,9 @@ mod test {
         let error = arr
             .cast(PType::U32.into())
             .and_then(|a| a.to_canonical().map(|c| c.into_array()))
-            .err()
-            .unwrap();
-        let VortexError::ComputeError(s, _) = error else {
-            unreachable!()
-        };
-        assert_eq!(s.to_string(), "Failed to cast -1 to U32");
+            .unwrap_err();
+        assert!(matches!(error, VortexError::Compute(..)));
+        assert!(error.to_string().contains("Failed to cast -1 to U32"));
     }
 
     #[test]
@@ -196,12 +193,11 @@ mod test {
             .cast(PType::I32.into())
             .and_then(|a| a.to_canonical().map(|c| c.into_array()))
             .unwrap_err();
-        let VortexError::InvalidArgument(s, _) = err else {
-            unreachable!()
-        };
-        assert_eq!(
-            s.to_string(),
-            "Cannot cast array with invalid values to non-nullable type."
+
+        assert!(matches!(err, VortexError::InvalidArgument(..)));
+        assert!(
+            err.to_string()
+                .contains("Cannot cast array with invalid values to non-nullable type.")
         );
     }
 

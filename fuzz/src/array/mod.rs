@@ -44,6 +44,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::compute::MinMaxResult;
 use vortex_array::compute::Operator;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::arbitrary::random_scalar;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -52,8 +54,6 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
-use vortex_scalar::arbitrary::random_scalar;
 use vortex_utils::aliases::hash_set::HashSet;
 
 #[derive(Debug)]
@@ -555,7 +555,6 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::compare;
-    use vortex_array::compute::mask;
     use vortex_array::compute::min_max;
     use vortex_array::compute::sum;
     let FuzzArrayAction { array, actions } = fuzz_action;
@@ -644,7 +643,8 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Mask(mask_val) => {
-                current_array = mask(&current_array, &mask_val)
+                current_array = current_array
+                    .mask(mask_val.into_array())
                     .vortex_expect("mask operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }

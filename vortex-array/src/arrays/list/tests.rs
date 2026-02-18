@@ -11,7 +11,6 @@ use vortex_dtype::PType::I32;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use super::*;
 use crate::Canonical;
@@ -24,6 +23,7 @@ use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 #[test]

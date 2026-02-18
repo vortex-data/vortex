@@ -26,11 +26,9 @@ prost = { workspace = true }
 rand = { workspace = true, optional = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-compute = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
-vortex-scalar = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]

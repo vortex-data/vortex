@@ -8,7 +8,6 @@ use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::Timestamp;
 use vortex_dtype::datetime::TimestampOptions;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::IntoArray;
 use crate::ToCanonical;
@@ -18,6 +17,7 @@ use crate::arrays::TemporalArray;
 use crate::assert_arrays_eq;
 use crate::expr::root;
 use crate::expr::*;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
