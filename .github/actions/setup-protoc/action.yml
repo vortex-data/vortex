@@ -29,6 +29,7 @@ runs:
         wget -q -O /tmp/protoc.zip "$PROTOC_URL"
         unzip -o /tmp/protoc.zip -d /tmp/protoc
 
+        # This sometimes runs in a container where user is root and there's no sudo.
         if command -v sudo &>/dev/null
         then
           CMD=sudo
