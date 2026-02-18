@@ -622,7 +622,7 @@ pub fn vortex_array::arrays::ChunkedVTable::slice(array: &Self::Array, range: co
 
 impl vortex_array::arrays::TakeExecute for vortex_array::arrays::ChunkedVTable
 
-pub fn vortex_array::arrays::ChunkedVTable::take(array: &vortex_array::arrays::ChunkedArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::ChunkedVTable::take(array: &vortex_array::arrays::ChunkedArray, indices: &dyn vortex_array::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::compute::IsConstantKernel for vortex_array::arrays::ChunkedVTable
 
@@ -4056,7 +4056,7 @@ pub fn vortex_array::arrays::BoolVTable::take(array: &vortex_array::arrays::Bool
 
 impl vortex_array::arrays::TakeExecute for vortex_array::arrays::ChunkedVTable
 
-pub fn vortex_array::arrays::ChunkedVTable::take(array: &vortex_array::arrays::ChunkedArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::ChunkedVTable::take(array: &vortex_array::arrays::ChunkedArray, indices: &dyn vortex_array::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::arrays::TakeExecute for vortex_array::arrays::DecimalVTable
 
