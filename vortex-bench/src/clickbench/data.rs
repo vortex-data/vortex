@@ -181,7 +181,7 @@ impl Display for Flavor {
             f,
             "{}",
             self.to_possible_value()
-                .vortex_expect("Invalid flavour value")
+                .expect("Invalid flavour value")
                 .get_name()
                 .to_lowercase()
         )

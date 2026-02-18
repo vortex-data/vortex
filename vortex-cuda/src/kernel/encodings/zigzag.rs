@@ -114,7 +114,7 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_zigzag_decompression_u32() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         // ZigZag encoding: 0->0, 1->-1, 2->1, 3->-2, 4->2, ...
         // So encoded [0, 2, 4, 1, 3] should decode to [0, 1, 2, -1, -2]
@@ -129,7 +129,7 @@ mod tests {
         let gpu_result = ZigZagExecutor
             .execute(zigzag_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed")
+            .expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();

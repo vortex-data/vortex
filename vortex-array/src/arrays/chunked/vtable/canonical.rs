@@ -78,7 +78,7 @@ fn pack_struct_chunks(
             let field = struct_array
                 .unmasked_fields()
                 .get(field_idx)
-                .vortex_expect("Invalid field index")
+                .expect("Invalid field index")
                 .to_array();
             field_chunks.push(field);
         }
@@ -111,7 +111,7 @@ fn swizzle_list_chunks(
         chunks[0]
             .dtype()
             .as_list_element_opt()
-            .vortex_expect("DType was somehow not a list")
+            .expect("DType was somehow not a list")
             .as_ref(),
         elem_dtype
     );
@@ -143,14 +143,14 @@ fn swizzle_list_chunks(
             .offsets()
             .to_array()
             .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
-            .vortex_expect("Must be able to fit array offsets in u64")
+            .expect("Must be able to fit array offsets in u64")
             .execute::<PrimitiveArray>(ctx)?;
 
         let sizes_arr = chunk_array
             .sizes()
             .to_array()
             .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
-            .vortex_expect("Must be able to fit array offsets in u64")
+            .expect("Must be able to fit array offsets in u64")
             .execute::<PrimitiveArray>(ctx)?;
 
         let offsets_slice = offsets_arr.as_slice::<u64>();

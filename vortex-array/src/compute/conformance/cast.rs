@@ -60,7 +60,7 @@ pub fn test_cast_conformance(array: &dyn Array) {
 fn test_cast_identity(array: &dyn Array) {
     // Casting to the same type should be a no-op
     let result = cast_and_execute(&array.to_array(), array.dtype().clone())
-        .vortex_expect("cast should succeed in conformance test");
+        .expect("cast should succeed in conformance test");
     assert_eq!(result.len(), array.len());
     assert_eq!(result.dtype(), array.dtype());
 
@@ -69,10 +69,10 @@ fn test_cast_identity(array: &dyn Array) {
         assert_eq!(
             array
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             result
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
         );
     }
 }
@@ -80,7 +80,7 @@ fn test_cast_identity(array: &dyn Array) {
 fn test_cast_from_null(array: &dyn Array) {
     // Null can be cast to itself
     let result = cast_and_execute(&array.to_array(), DType::Null)
-        .vortex_expect("cast should succeed in conformance test");
+        .expect("cast should succeed in conformance test");
     assert_eq!(result.len(), array.len());
     assert_eq!(result.dtype(), &DType::Null);
 
@@ -95,7 +95,7 @@ fn test_cast_from_null(array: &dyn Array) {
 
     for dtype in nullable_types {
         let result = cast_and_execute(&array.to_array(), dtype.clone())
-            .vortex_expect("cast should succeed in conformance test");
+            .expect("cast should succeed in conformance test");
         assert_eq!(result.len(), array.len());
         assert_eq!(result.dtype(), &dtype);
 
@@ -104,7 +104,7 @@ fn test_cast_from_null(array: &dyn Array) {
             assert!(
                 result
                     .scalar_at(i)
-                    .vortex_expect("scalar_at should succeed in conformance test")
+                    .expect("scalar_at should succeed in conformance test")
                     .is_null()
             );
         }
@@ -124,11 +124,11 @@ fn test_cast_from_null(array: &dyn Array) {
 fn test_cast_to_non_nullable(array: &dyn Array) {
     if array
         .invalid_count()
-        .vortex_expect("invalid_count should succeed in conformance test")
+        .expect("invalid_count should succeed in conformance test")
         == 0
     {
         let non_nullable = cast_and_execute(&array.to_array(), array.dtype().as_nonnullable())
-            .vortex_expect("arrays without nulls can cast to non-nullable");
+            .expect("arrays without nulls can cast to non-nullable");
         assert_eq!(non_nullable.dtype(), &array.dtype().as_nonnullable());
         assert_eq!(non_nullable.len(), array.len());
 
@@ -136,15 +136,15 @@ fn test_cast_to_non_nullable(array: &dyn Array) {
             assert_eq!(
                 array
                     .scalar_at(i)
-                    .vortex_expect("scalar_at should succeed in conformance test"),
+                    .expect("scalar_at should succeed in conformance test"),
                 non_nullable
                     .scalar_at(i)
-                    .vortex_expect("scalar_at should succeed in conformance test")
+                    .expect("scalar_at should succeed in conformance test")
             );
         }
 
         let back_to_nullable = cast_and_execute(&non_nullable, array.dtype().clone())
-            .vortex_expect("non-nullable arrays can cast to nullable");
+            .expect("non-nullable arrays can cast to nullable");
         assert_eq!(back_to_nullable.dtype(), array.dtype());
         assert_eq!(back_to_nullable.len(), array.len());
 
@@ -152,10 +152,10 @@ fn test_cast_to_non_nullable(array: &dyn Array) {
             assert_eq!(
                 array
                     .scalar_at(i)
-                    .vortex_expect("scalar_at should succeed in conformance test"),
+                    .expect("scalar_at should succeed in conformance test"),
                 back_to_nullable
                     .scalar_at(i)
-                    .vortex_expect("scalar_at should succeed in conformance test")
+                    .expect("scalar_at should succeed in conformance test")
             );
         }
     } else {
@@ -177,7 +177,7 @@ fn test_cast_to_non_nullable(array: &dyn Array) {
 
 fn test_cast_to_nullable(array: &dyn Array) {
     let nullable = cast_and_execute(&array.to_array(), array.dtype().as_nullable())
-        .vortex_expect("arrays without nulls can cast to nullable");
+        .expect("arrays without nulls can cast to nullable");
     assert_eq!(nullable.dtype(), &array.dtype().as_nullable());
     assert_eq!(nullable.len(), array.len());
 
@@ -185,15 +185,15 @@ fn test_cast_to_nullable(array: &dyn Array) {
         assert_eq!(
             array
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             nullable
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
         );
     }
 
     let back = cast_and_execute(&nullable, array.dtype().clone())
-        .vortex_expect("casting to nullable and back should be a no-op");
+        .expect("casting to nullable and back should be a no-op");
     assert_eq!(back.dtype(), array.dtype());
     assert_eq!(back.len(), array.len());
 
@@ -201,9 +201,9 @@ fn test_cast_to_nullable(array: &dyn Array) {
         assert_eq!(
             array
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             back.scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
         );
     }
 }
@@ -241,7 +241,7 @@ fn fits(value: &Scalar, ptype: PType) -> bool {
 }
 
 fn test_cast_to_primitive(array: &dyn Array, target_ptype: PType, test_round_trip: bool) {
-    let maybe_min_max = min_max(array).vortex_expect("cast should succeed in conformance test");
+    let maybe_min_max = min_max(array).expect("cast should succeed in conformance test");
 
     if let Some(MinMaxResult { min, max }) = maybe_min_max
         && (!fits(&min, target_ptype) || !fits(&max, target_ptype))
@@ -279,22 +279,22 @@ fn test_cast_to_primitive(array: &dyn Array, target_ptype: PType, test_round_tri
     assert_eq!(
         array
             .validity_mask()
-            .vortex_expect("validity_mask should succeed in conformance test"),
+            .expect("validity_mask should succeed in conformance test"),
         casted
             .validity_mask()
-            .vortex_expect("validity_mask should succeed in conformance test")
+            .expect("validity_mask should succeed in conformance test")
     );
     for i in 0..array.len().min(10) {
         let original = array
             .scalar_at(i)
-            .vortex_expect("scalar_at should succeed in conformance test");
+            .expect("scalar_at should succeed in conformance test");
         let casted = casted
             .scalar_at(i)
-            .vortex_expect("scalar_at should succeed in conformance test");
+            .expect("scalar_at should succeed in conformance test");
         assert_eq!(
             original
                 .cast(casted.dtype())
-                .vortex_expect("cast should succeed in conformance test"),
+                .expect("cast should succeed in conformance test"),
             casted,
             "{i} {original} {casted}"
         );
@@ -303,7 +303,7 @@ fn test_cast_to_primitive(array: &dyn Array, target_ptype: PType, test_round_tri
                 original,
                 casted
                     .cast(original.dtype())
-                    .vortex_expect("cast should succeed in conformance test"),
+                    .expect("cast should succeed in conformance test"),
                 "{i} {original} {casted}"
             );
         }

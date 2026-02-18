@@ -163,7 +163,7 @@ impl FileSource for VortexSource {
     ) -> DFResult<Arc<dyn FileOpener>> {
         let batch_size = self
             .batch_size
-            .vortex_expect("batch_size must be supplied to VortexSource");
+            .expect("batch_size must be supplied to VortexSource");
 
         let expr_adapter_factory = base_config
             .expr_adapter_factory

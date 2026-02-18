@@ -37,7 +37,7 @@ impl DataChunk {
     /// Returns the column count of the data chunk.
     pub fn column_count(&self) -> usize {
         usize::try_from(unsafe { cpp::duckdb_data_chunk_get_column_count(self.as_ptr()) })
-            .vortex_expect("Column count exceeds usize")
+            .expect("Column count exceeds usize")
     }
 
     /// Set the length of the data chunk.

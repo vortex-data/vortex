@@ -36,7 +36,7 @@ pub struct FilterArray {
 
 impl FilterArray {
     pub fn new(array: ArrayRef, mask: Mask) -> Self {
-        Self::try_new(array, mask).vortex_expect("FilterArray construction failed")
+        Self::try_new(array, mask).expect("FilterArray construction failed")
     }
 
     pub fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {

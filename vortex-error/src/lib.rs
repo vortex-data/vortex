@@ -312,50 +312,6 @@ impl From<&Arc<VortexError>> for VortexError {
     }
 }
 
-/// A trait for expect-ing a VortexResult or an Option.
-pub trait VortexExpect {
-    /// The type of the value being expected.
-    type Output;
-
-    /// Returns the value of the result if it is Ok, otherwise panics with the error.
-    /// Should be called only in contexts where the error condition represents a bug (programmer error).
-    ///
-    /// # `&'static` message lifetime
-    ///
-    /// The panic string argument should be a string literal, hence the `&'static` lifetime. If
-    /// you'd like to panic with a dynamic format string, consider using `unwrap_or_else` combined
-    /// with the `vortex_panic!` macro instead.
-    fn vortex_expect(self, msg: &'static str) -> Self::Output;
-}
-
-impl<T, E> VortexExpect for Result<T, E>
-where
-    E: Into<VortexError>,
-{
-    type Output = T;
-
-    #[inline(always)]
-    fn vortex_expect(self, msg: &'static str) -> Self::Output {
-        self.map_err(|err| err.into())
-            .unwrap_or_else(|e| vortex_panic!(e.with_context(msg.to_string())))
-    }
-}
-
-impl<T> VortexExpect for Option<T> {
-    type Output = T;
-
-    #[inline(always)]
-    fn vortex_expect(self, msg: &'static str) -> Self::Output {
-        self.unwrap_or_else(|| {
-            let err = VortexError::AssertionFailed(
-                msg.to_string().into(),
-                Box::new(Backtrace::capture()),
-            );
-            vortex_panic!(err)
-        })
-    }
-}
-
 /// A convenient macro for creating a VortexError.
 #[macro_export]
 macro_rules! vortex_err {

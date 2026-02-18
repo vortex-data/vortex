@@ -24,7 +24,7 @@ impl OperationsVTable<FoRVTable> for FoRVTable {
                     v.wrapping_add(
                         reference
                             .typed_value::<P>()
-                            .vortex_expect("FoRArray Reference value cannot be null"),
+                            .expect("FoRArray Reference value cannot be null"),
                     )
                 })
                 .map(|v| Scalar::primitive::<P>(v, array.reference_scalar().dtype().nullability()))

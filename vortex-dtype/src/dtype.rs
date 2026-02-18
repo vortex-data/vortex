@@ -356,7 +356,7 @@ impl DType {
                     let element_size = f.element_size()?;
                     sum = sum
                         .checked_add(element_size)
-                        .vortex_expect("sum of field sizes is bigger than usize");
+                        .expect("sum of field sizes is bigger than usize");
                 }
                 Some(sum)
             }

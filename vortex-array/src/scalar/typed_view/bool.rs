@@ -89,7 +89,7 @@ impl<'a> BoolScalar<'a> {
             )
         }
         Ok(Scalar::bool(
-            self.value.vortex_expect("nullness handled in Scalar::cast"),
+            self.value.expect("nullness handled in Scalar::cast"),
             dtype.nullability(),
         ))
     }

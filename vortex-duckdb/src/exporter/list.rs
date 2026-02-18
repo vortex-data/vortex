@@ -181,7 +181,7 @@ mod tests {
         .into_array();
 
         let list_type = LogicalType::list_type(LogicalType::int32())
-            .vortex_expect("LogicalType creation should succeed for test data");
+            .expect("LogicalType creation should succeed for test data");
         let mut chunk = DataChunk::new([list_type]);
 
         new_array_exporter(
@@ -220,7 +220,7 @@ mod tests {
         .into_array();
 
         let list_type = LogicalType::list_type(LogicalType::varchar())
-            .vortex_expect("LogicalType creation should succeed for test data");
+            .expect("LogicalType creation should succeed for test data");
         let mut chunk = DataChunk::new([list_type]);
 
         new_array_exporter(

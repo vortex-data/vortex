@@ -134,9 +134,9 @@ fn test_primitive_cast(
     #[case] should_succeed: bool,
 ) {
     let source_pvalue = match source_type {
-        PType::I8 => PValue::I8(i8::try_from(source_value).vortex_expect("cannot cast")),
-        PType::U8 => PValue::U8(u8::try_from(source_value).vortex_expect("cannot cast")),
-        PType::U16 => PValue::U16(u16::try_from(source_value).vortex_expect("cannot cast")),
+        PType::I8 => PValue::I8(i8::try_from(source_value).expect("cannot cast")),
+        PType::U8 => PValue::U8(u8::try_from(source_value).expect("cannot cast")),
+        PType::U16 => PValue::U16(u16::try_from(source_value).expect("cannot cast")),
         PType::I32 => PValue::I32(source_value),
         _ => unreachable!("Test case uses unexpected source type"),
     };

@@ -284,7 +284,7 @@ where
         if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize
             && validity_mask.value(idx)
         {
-            indices.push(P::from(idx).vortex_expect("cast index from usize"));
+            indices.push(P::from(idx).expect("cast index from usize"));
             values.push(*value);
         }
     }

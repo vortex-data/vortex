@@ -73,7 +73,7 @@ impl BoolArray {
     ///
     /// Panics if the validity length is not equal to the bit buffer length.
     pub fn new(bits: BitBuffer, validity: Validity) -> Self {
-        Self::try_new(bits, validity).vortex_expect("Failed to create BoolArray")
+        Self::try_new(bits, validity).expect("Failed to create BoolArray")
     }
 
     /// Constructs a new `BoolArray` from a `BufferHandle`.
@@ -83,7 +83,7 @@ impl BoolArray {
     /// Panics if the validity length is not equal to the bit buffer length.
     pub fn new_handle(handle: BufferHandle, offset: usize, len: usize, validity: Validity) -> Self {
         Self::try_new_from_handle(handle, offset, len, validity)
-            .vortex_expect("Failed to create BoolArray from BufferHandle")
+            .expect("Failed to create BoolArray from BufferHandle")
     }
 
     /// Constructs a new `BoolArray`.
@@ -229,8 +229,8 @@ impl BoolArray {
 
     pub fn to_mask(&self) -> Mask {
         self.maybe_to_mask()
-            .vortex_expect("failed to check validity")
-            .vortex_expect("cannot convert nullable boolean array to mask")
+            .expect("failed to check validity")
+            .expect("cannot convert nullable boolean array to mask")
     }
 
     pub fn maybe_to_mask(&self) -> VortexResult<Option<Mask>> {

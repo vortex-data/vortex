@@ -57,7 +57,7 @@ impl CurrentThreadWorkerPool {
                             }
                         }))
                     })
-                    .vortex_expect("Failed to spawn current thread worker");
+                    .expect("Failed to spawn current thread worker");
 
                 state.workers.push(WorkerHandle { shutdown });
             }

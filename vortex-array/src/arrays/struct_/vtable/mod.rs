@@ -94,9 +94,7 @@ impl VTable for StructVTable {
 
         let children: Vec<_> = (0..struct_dtype.nfields())
             .map(|i| {
-                let child_dtype = struct_dtype
-                    .field_by_index(i)
-                    .vortex_expect("no out of bounds");
+                let child_dtype = struct_dtype.field_by_index(i).expect("no out of bounds");
                 children.get(non_data_children + i, &child_dtype, len)
             })
             .try_collect()?;

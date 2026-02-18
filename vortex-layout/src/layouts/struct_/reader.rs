@@ -160,7 +160,7 @@ impl StructReader {
                 let expr = replace(expr.clone(), &root(), self.expanded_root_expr.clone());
                 let expr = expr
                     .optimize_recursive(self.dtype())
-                    .vortex_expect("We should not fail to simplify expression over struct fields");
+                    .expect("We should not fail to simplify expression over struct fields");
 
                 // Partition the expression into expressions that can be evaluated over individual fields
                 let mut partitioned = partition(
@@ -169,10 +169,10 @@ impl StructReader {
                     make_free_field_annotator(
                         self.dtype()
                             .as_struct_fields_opt()
-                            .vortex_expect("We know it's a struct DType"),
+                            .expect("We know it's a struct DType"),
                     ),
                 )
-                .vortex_expect("We should not fail to partition expression over struct fields");
+                .expect("We should not fail to partition expression over struct fields");
 
                 if partitioned.partitions.len() == 1 {
                     // If there's only one partition, we step into the field scope of the original

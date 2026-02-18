@@ -61,8 +61,8 @@ impl VTable for VarBinVTable {
 
     fn metadata(array: &VarBinArray) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(VarBinMetadata {
-            offsets_ptype: PType::try_from(array.offsets().dtype())
-                .vortex_expect("Must be a valid PType") as i32,
+            offsets_ptype: PType::try_from(array.offsets().dtype()).expect("Must be a valid PType")
+                as i32,
         }))
     }
 

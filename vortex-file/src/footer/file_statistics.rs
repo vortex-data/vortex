@@ -116,7 +116,7 @@ impl FileStatistics {
 
             let array_stat = array_stats
                 .pop()
-                .vortex_expect("we just checked that there was 1 field");
+                .expect("we just checked that there was 1 field");
             let stats_set = StatsSet::from_flatbuffer(&array_stat, file_dtype)?;
 
             Ok(Self {

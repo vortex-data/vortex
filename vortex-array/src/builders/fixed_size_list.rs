@@ -149,7 +149,7 @@ impl FixedSizeListBuilder {
             self.nulls.finish_with_nullability(self.dtype.nullability()),
             final_len,
         )
-        .vortex_expect("tried to create an invalid `FixedSizeListArray` from a builder")
+        .expect("tried to create an invalid `FixedSizeListArray` from a builder")
     }
 
     /// The [`DType`] of the inner elements. Note that this is **not** the same as the [`DType`] of
@@ -244,7 +244,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
         self.nulls.append_validity_mask(
             array
                 .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .expect("validity_mask in extend_from_array_unchecked"),
         );
     }
 

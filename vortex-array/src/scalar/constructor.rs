@@ -28,7 +28,7 @@ impl Scalar {
     /// Creates a new boolean scalar with the given value and nullability.
     pub fn bool(value: bool, nullability: Nullability) -> Self {
         Self::try_new(DType::Bool(nullability), Some(ScalarValue::Bool(value)))
-            .vortex_expect("unable to construct a boolean `Scalar`")
+            .expect("unable to construct a boolean `Scalar`")
     }
 
     /// Creates a new primitive scalar from a native value.
@@ -45,7 +45,7 @@ impl Scalar {
             DType::Primitive(ptype, nullability),
             Some(ScalarValue::Primitive(value)),
         )
-        .vortex_expect("unable to construct a primitive `Scalar`")
+        .expect("unable to construct a primitive `Scalar`")
     }
 
     /// Creates a new decimal scalar with the given value, precision, scale, and nullability.
@@ -58,7 +58,7 @@ impl Scalar {
             DType::Decimal(decimal_type, nullability),
             Some(ScalarValue::Decimal(value)),
         )
-        .vortex_expect("unable to construct a decimal `Scalar`")
+        .expect("unable to construct a decimal `Scalar`")
     }
 
     /// Creates a new UTF-8 scalar from a string-like value.
@@ -89,7 +89,7 @@ impl Scalar {
             DType::Utf8(nullability),
             Some(ScalarValue::Utf8(str.try_into()?)),
         )
-        .vortex_expect("unable to construct a UTF-8 `Scalar`"))
+        .expect("unable to construct a UTF-8 `Scalar`"))
     }
 
     /// Creates a new binary scalar from a byte buffer.
@@ -98,7 +98,7 @@ impl Scalar {
             DType::Binary(nullability),
             Some(ScalarValue::Binary(buffer.into())),
         )
-        .vortex_expect("unable to construct a binary `Scalar`")
+        .expect("unable to construct a binary `Scalar`")
     }
 
     /// Creates a new list scalar with the given element type and children.
@@ -159,7 +159,7 @@ impl Scalar {
         let size: u32 = children
             .len()
             .try_into()
-            .vortex_expect("tried to create a list that was too large");
+            .expect("tried to create a list that was too large");
 
         let dtype = match list_kind {
             ListKind::Variable => DType::List(element_dtype, nullability),
@@ -167,15 +167,15 @@ impl Scalar {
         };
 
         Self::try_new(dtype, Some(ScalarValue::List(children)))
-            .vortex_expect("unable to construct a list `Scalar`")
+            .expect("unable to construct a list `Scalar`")
     }
 
     /// Creates a new extension scalar wrapping the given storage value.
     pub fn extension<V: ExtDTypeVTable + Default>(options: V::Metadata, value: Scalar) -> Self {
         let ext_dtype = ExtDType::<V>::try_new(options, value.dtype().clone())
-            .vortex_expect("Failed to create extension dtype");
+            .expect("Failed to create extension dtype");
         Self::try_new(DType::Extension(ext_dtype.erased()), value.into_value())
-            .vortex_expect("unable to construct an extension `Scalar`")
+            .expect("unable to construct an extension `Scalar`")
     }
 
     /// Creates a new extension scalar wrapping the given storage value.
@@ -186,7 +186,7 @@ impl Scalar {
     pub fn extension_ref(ext_dtype: ExtDTypeRef, value: Scalar) -> Self {
         assert_eq!(ext_dtype.storage_dtype(), value.dtype());
         Self::try_new(DType::Extension(ext_dtype), value.into_value())
-            .vortex_expect("unable to construct an extension `Scalar`")
+            .expect("unable to construct an extension `Scalar`")
     }
 }
 

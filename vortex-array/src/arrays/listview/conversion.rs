@@ -39,7 +39,7 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
     // We reset the offsets here because mostly for convenience, and also because callers of this
     // function might not expect the output `ListViewArray` to have a bunch of leading and trailing
     // garbage data when they turn it back into a `ListArray`.
-    let list = list.reset_offsets(false).vortex_expect("This can't fail");
+    let list = list.reset_offsets(false).expect("This can't fail");
 
     let list_offsets = list.offsets().clone();
 
@@ -160,8 +160,7 @@ unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
         let last_offset = offsets_slice[len - 1];
 
         let last_size = list_view.size_at(len - 1);
-        let last_size =
-            O::from_usize(last_size).vortex_expect("size somehow did not fit into offsets");
+        let last_size = O::from_usize(last_size).expect("size somehow did not fit into offsets");
 
         last_offset + last_size
     } else {
@@ -227,9 +226,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
                     fixed_size_list.validity().clone(),
                     fixed_size_list.len(),
                 )
-                .vortex_expect(
-                    "FixedSizeListArray reconstruction should not fail with valid components",
-                )
+                .expect("FixedSizeListArray reconstruction should not fail with valid components")
                 .into_array()
             } else {
                 fixed_size_list.into_array()
@@ -254,7 +251,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
                     struct_array.len(),
                     struct_array.validity().clone(),
                 )
-                .vortex_expect("StructArray reconstruction should not fail with valid components")
+                .expect("StructArray reconstruction should not fail with valid components")
                 .into_array()
             } else {
                 struct_array.into_array()

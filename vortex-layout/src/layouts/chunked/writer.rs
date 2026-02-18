@@ -85,7 +85,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
         let mut child_layouts: Vec<LayoutRef> = stream.buffered(usize::MAX).try_collect().await?;
 
         if child_layouts.len() == 1 {
-            Ok(child_layouts.pop().vortex_expect("must have one child"))
+            Ok(child_layouts.pop().expect("must have one child"))
         } else {
             let row_count = child_layouts.iter().map(|layout| layout.row_count()).sum();
             Ok(ChunkedLayout::new(

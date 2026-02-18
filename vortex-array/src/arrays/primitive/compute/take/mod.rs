@@ -168,18 +168,15 @@ mod test {
             Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
         );
         let actual = values.take(indices.to_array()).unwrap();
-        assert_eq!(
-            actual.scalar_at(0).vortex_expect("no fail"),
-            Scalar::from(Some(1))
-        );
+        assert_eq!(actual.scalar_at(0).expect("no fail"), Scalar::from(Some(1)));
         // position 3 is null
         assert_eq!(
-            actual.scalar_at(1).vortex_expect("no fail"),
+            actual.scalar_at(1).expect("no fail"),
             Scalar::null_native::<i32>()
         );
         // the third index is null
         assert_eq!(
-            actual.scalar_at(2).vortex_expect("no fail"),
+            actual.scalar_at(2).expect("no fail"),
             Scalar::null_native::<i32>()
         );
     }

@@ -100,7 +100,7 @@ impl ListArray {
     /// Panics if the provided components do not satisfy the invariants documented
     /// in [`ListArray::new_unchecked`].
     pub fn new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
-        Self::try_new(elements, offsets, validity).vortex_expect("ListArray new")
+        Self::try_new(elements, offsets, validity).expect("ListArray new")
     }
 
     /// Constructs a new `ListArray`.
@@ -141,7 +141,7 @@ impl ListArray {
     pub unsafe fn new_unchecked(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
         #[cfg(debug_assertions)]
         Self::validate(&elements, &offsets, &validity)
-            .vortex_expect("[Debug Assertion]: Invalid `ListViewArray` parameters");
+            .expect("[Debug Assertion]: Invalid `ListViewArray` parameters");
 
         Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
@@ -193,12 +193,12 @@ impl ListArray {
                         .max
                         .as_primitive()
                         .as_::<P>()
-                        .vortex_expect("offsets type must fit offsets values");
+                        .expect("offsets type must fit offsets values");
                     let min = min_max
                         .min
                         .as_primitive()
                         .as_::<P>()
-                        .vortex_expect("offsets type must fit offsets values");
+                        .expect("offsets type must fit offsets values");
 
                     vortex_ensure!(
                         min >= 0,

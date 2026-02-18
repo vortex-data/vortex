@@ -82,7 +82,7 @@ where
     (0..chunk_count)
         .map(|_| {
             gen_primitive_dict::<T, O>(len, unique_values)
-                .vortex_expect("operation should succeed in test")
+                .expect("operation should succeed in test")
                 .into_array()
         })
         .collect::<ChunkedArray>()

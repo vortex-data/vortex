@@ -23,7 +23,7 @@ impl IsConstantKernel for ChunkedVTable {
 
         let first_chunk = chunks
             .next()
-            .vortex_expect("Must have at least one non-empty chunk");
+            .expect("Must have at least one non-empty chunk");
 
         match is_constant_opts(first_chunk, opts)? {
             // Un-determined

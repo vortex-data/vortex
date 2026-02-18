@@ -361,7 +361,7 @@ pub fn between(
 ) -> Expression {
     Between
         .try_new_expr(options, [arr, lower, upper])
-        .vortex_expect("Failed to create Between expression")
+        .expect("Failed to create Between expression")
 }
 
 #[cfg(test)]

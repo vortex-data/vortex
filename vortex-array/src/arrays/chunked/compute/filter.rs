@@ -30,7 +30,7 @@ impl FilterKernel for ChunkedVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         let mask_values = mask
             .values()
-            .vortex_expect("AllTrue and AllFalse are handled by filter fn");
+            .expect("AllTrue and AllFalse are handled by filter fn");
 
         // Based on filter selectivity, we take the values between a range of slices, or
         // we take individual indices.
@@ -194,7 +194,7 @@ pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> VortexResult<(us
         .saturating_sub(1);
     let chunk_begin: usize = chunk_ends[chunk_id]
         .try_into()
-        .vortex_expect("chunk end must fit in usize");
+        .expect("chunk end must fit in usize");
     let chunk_offset = idx - chunk_begin;
 
     Ok((chunk_id, chunk_offset))

@@ -29,7 +29,7 @@ pub const PRUNING_STATS: &[Stat] = &[
 ];
 
 pub fn as_stat_bitset_bytes(stats: &[Stat]) -> Vec<u8> {
-    let max_stat = u8::from(last::<Stat>().vortex_expect("last stat")) as usize + 1;
+    let max_stat = u8::from(last::<Stat>().expect("last stat")) as usize + 1;
     // TODO(ngates): use vortex-buffer::BitBuffer
     let mut stat_bitset = BooleanBufferBuilder::new_from_buffer(
         MutableBuffer::from_len_zeroed(max_stat.div_ceil(8)),

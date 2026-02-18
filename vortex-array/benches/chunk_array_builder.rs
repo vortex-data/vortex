@@ -43,7 +43,7 @@ fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usi
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
         chunk
             .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
-            .vortex_expect("append failed");
+            .expect("append failed");
         builder.finish()
     })
 }
@@ -56,7 +56,7 @@ fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize,
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
         chunk
             .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
-            .vortex_expect("append failed");
+            .expect("append failed");
         builder.finish()
     })
 }
@@ -81,7 +81,7 @@ fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usiz
         );
         chunk
             .append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())
-            .vortex_expect("append failed");
+            .expect("append failed");
         builder.finish()
     })
 }
@@ -106,7 +106,7 @@ fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (
         );
         chunk
             .append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())
-            .vortex_expect("append failed");
+            .expect("append failed");
         builder.finish()
     })
 }

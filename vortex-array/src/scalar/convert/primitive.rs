@@ -102,9 +102,7 @@ macro_rules! primitive_scalar {
                     DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
                     Some(ScalarValue::Primitive(value.into())),
                 )
-                .vortex_expect(
-                    "somehow unable to construct a primitive `Scalar` from a native type",
-                )
+                .expect("somehow unable to construct a primitive `Scalar` from a native type")
             }
         }
 
@@ -115,9 +113,7 @@ macro_rules! primitive_scalar {
                     DType::Primitive(<$T>::PTYPE, Nullability::Nullable),
                     value.map(|value| ScalarValue::Primitive(value.into())),
                 )
-                .vortex_expect(
-                    "somehow unable to construct a primitive `Scalar` from a native type",
-                )
+                .expect("somehow unable to construct a primitive `Scalar` from a native type")
             }
         }
     };
@@ -197,7 +193,7 @@ impl From<usize> for Scalar {
             DType::Primitive(PType::U64, Nullability::NonNullable),
             Some(ScalarValue::Primitive((value as u64).into())),
         )
-        .vortex_expect("somehow unable to construct a primitive `Scalar` from a native type")
+        .expect("somehow unable to construct a primitive `Scalar` from a native type")
     }
 }
 
@@ -207,6 +203,6 @@ impl From<Option<usize>> for Scalar {
             DType::Primitive(PType::U64, Nullability::Nullable),
             value.map(|value| ScalarValue::Primitive((value as u64).into())),
         )
-        .vortex_expect("somehow unable to construct a primitive `Scalar` from a native type")
+        .expect("somehow unable to construct a primitive `Scalar` from a native type")
     }
 }

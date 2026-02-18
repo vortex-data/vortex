@@ -252,8 +252,7 @@ mod tests {
     #[test]
     fn test_empty_struct_is_constant() {
         let array = StructArray::new_fieldless_with_len(2);
-        let is_constant =
-            is_constant(array.as_ref()).vortex_expect("operation should succeed in test");
+        let is_constant = is_constant(array.as_ref()).expect("operation should succeed in test");
         assert_eq!(is_constant, Some(true));
     }
 

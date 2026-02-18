@@ -84,7 +84,7 @@ impl CompressorStats for FloatStats {
 
     fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
         Self::generate_opts_fallible(input, opts)
-            .vortex_expect("FloatStats::generate_opts should not fail")
+            .expect("FloatStats::generate_opts should not fail")
     }
 
     fn source(&self) -> &PrimitiveArray {
@@ -166,7 +166,7 @@ where
     let mut runs = 1;
     let head_idx = validity
         .first()
-        .vortex_expect("All null masks have been handled before");
+        .expect("All null masks have been handled before");
     let buff = array.to_buffer::<T>();
     let mut prev = buff[head_idx];
 

@@ -43,7 +43,7 @@ pub fn descendent_annotations<A: AnnotationFn>(
         annotations: Default::default(),
         annotate,
     };
-    expr.accept(&mut visitor).vortex_expect("Infallible");
+    expr.accept(&mut visitor).expect("Infallible");
     visitor.annotations
 }
 

@@ -317,8 +317,8 @@ impl DictStreamState {
                     }
                     EncodingState::Done((values, encoded, unencoded)) => {
                         // Encoder was created and consumed within start_encoding
-                        let ptype = PType::try_from(encoded.dtype())
-                            .vortex_expect("codes should be primitive");
+                        let ptype =
+                            PType::try_from(encoded.dtype()).expect("codes should be primitive");
                         res.push(labeler.codes(encoded, ptype));
                         res.push(labeler.values(values));
                         to_be_encoded = Some(unencoded);

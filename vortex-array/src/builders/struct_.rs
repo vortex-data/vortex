@@ -108,7 +108,7 @@ impl StructBuilder {
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
         StructArray::try_new_with_dtype(fields, self.struct_fields().clone(), len, validity)
-            .vortex_expect("Fields must all have same length.")
+            .expect("Fields must all have same length.")
     }
 
     /// The [`StructFields`] of this struct builder.
@@ -179,7 +179,7 @@ impl ArrayBuilder for StructBuilder {
         self.nulls.append_validity_mask(
             array
                 .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .expect("validity_mask in extend_from_array_unchecked"),
         );
     }
 

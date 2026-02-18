@@ -233,7 +233,7 @@ impl RDEncoder {
         // SAFETY: by construction, all values in left_parts can be packed to left_bit_width.
         let packed_left = unsafe {
             bitpack_encode_unchecked(primitive_left, left_bit_width as _)
-                .vortex_expect("bitpack_encode_unchecked should succeed for left parts")
+                .expect("bitpack_encode_unchecked should succeed for left parts")
                 .into_array()
         };
 
@@ -241,7 +241,7 @@ impl RDEncoder {
         // SAFETY: by construction, all values in right_parts are right_bit_width + leading zeros.
         let packed_right = unsafe {
             bitpack_encode_unchecked(primitive_right, self.right_bit_width as _)
-                .vortex_expect("bitpack_encode_unchecked should succeed for right parts")
+                .expect("bitpack_encode_unchecked should succeed for right parts")
                 .into_array()
         };
 
@@ -256,9 +256,7 @@ impl RDEncoder {
             // SAFETY: We calculate bw such that it is wide enough to hold the largest position index.
             let packed_pos = unsafe {
                 bitpack_encode_unchecked(exc_pos_array, bw)
-                    .vortex_expect(
-                        "bitpack_encode_unchecked should succeed for exception positions",
-                    )
+                    .expect("bitpack_encode_unchecked should succeed for exception positions")
                     .into_array()
             };
 
@@ -270,7 +268,7 @@ impl RDEncoder {
                 // TODO(0ax1): handle chunk offsets
                 None,
             )
-            .vortex_expect("Patches construction in encode")
+            .expect("Patches construction in encode")
         });
 
         ALPRDArray::try_new(
@@ -281,7 +279,7 @@ impl RDEncoder {
             self.right_bit_width,
             exceptions,
         )
-        .vortex_expect("ALPRDArray construction in encode")
+        .expect("ALPRDArray construction in encode")
     }
 }
 

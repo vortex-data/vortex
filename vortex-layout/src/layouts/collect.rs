@@ -61,7 +61,7 @@ impl LayoutStrategy for CollectStrategy {
             }
 
             let collected = ChunkedArray::try_new(chunks, _dtype)?.to_array();
-            yield (latest_sequence_id.vortex_expect("must have visited at least one chunk"), collected);
+            yield (latest_sequence_id.expect("must have visited at least one chunk"), collected);
         };
 
         let adapted = Box::pin(SequentialStreamAdapter::new(dtype, collected_stream));

@@ -152,9 +152,9 @@ impl VTable for DateTimePartsVTable {
         );
 
         let mut children_iter = children.into_iter();
-        array.days = children_iter.next().vortex_expect("checked");
-        array.seconds = children_iter.next().vortex_expect("checked");
-        array.subseconds = children_iter.next().vortex_expect("checked");
+        array.days = children_iter.next().expect("checked");
+        array.seconds = children_iter.next().expect("checked");
+        array.subseconds = children_iter.next().expect("checked");
 
         Ok(())
     }

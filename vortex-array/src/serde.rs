@@ -104,7 +104,7 @@ impl dyn Array + '_ {
             };
 
             fb_buffers.push(fba::Buffer::new(
-                u16::try_from(padding).vortex_expect("padding fits into u16"),
+                u16::try_from(padding).expect("padding fits into u16"),
                 buffer.alignment().exponent(),
                 Compression::None,
                 u32::try_from(buffer.len())
@@ -410,7 +410,7 @@ impl ArrayParts {
         let children = self
             .flatbuffer()
             .children()
-            .vortex_expect("Expected array to have children");
+            .expect("Expected array to have children");
         if idx >= children.len() {
             vortex_panic!(
                 "Invalid child index {} for array with {} children",
@@ -454,7 +454,7 @@ impl ArrayParts {
     /// without needing to access the actual buffer data.
     pub fn buffer_lengths(&self) -> Vec<usize> {
         let fb_array = root::<fba::Array>(self.flatbuffer.as_ref())
-            .vortex_expect("ArrayParts flatbuffer must be a valid Array");
+            .expect("ArrayParts flatbuffer must be a valid Array");
         fb_array
             .buffers()
             .map(|buffers| buffers.iter().map(|b| b.length() as usize).collect())

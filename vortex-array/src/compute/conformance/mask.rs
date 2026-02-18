@@ -39,7 +39,7 @@ fn test_heterogenous_mask(array: &dyn Array) {
     let mask_pattern: Vec<bool> = (0..len).map(|i| i % 3 != 1).collect();
     let mask_array = Mask::from_iter(mask_pattern.clone());
 
-    let masked = mask(array, &mask_array).vortex_expect("mask should succeed in conformance test");
+    let masked = mask(array, &mask_array).expect("mask should succeed in conformance test");
     assert_eq!(masked.len(), array.len());
 
     // Verify masked elements are null and unmasked elements are preserved
@@ -48,16 +48,16 @@ fn test_heterogenous_mask(array: &dyn Array) {
             assert!(
                 !masked
                     .is_valid(i)
-                    .vortex_expect("is_valid should succeed in conformance test")
+                    .expect("is_valid should succeed in conformance test")
             );
         } else {
             assert_eq!(
                 masked
                     .scalar_at(i)
-                    .vortex_expect("scalar_at should succeed in conformance test"),
+                    .expect("scalar_at should succeed in conformance test"),
                 array
                     .scalar_at(i)
-                    .vortex_expect("scalar_at should succeed in conformance test")
+                    .expect("scalar_at should succeed in conformance test")
                     .into_nullable()
             );
         }
@@ -70,7 +70,7 @@ fn test_empty_mask(array: &dyn Array) {
     let all_unmasked = vec![false; len];
     let mask_array = Mask::from_iter(all_unmasked);
 
-    let masked = mask(array, &mask_array).vortex_expect("mask should succeed in conformance test");
+    let masked = mask(array, &mask_array).expect("mask should succeed in conformance test");
     assert_eq!(masked.len(), array.len());
 
     // All elements should be preserved
@@ -78,10 +78,10 @@ fn test_empty_mask(array: &dyn Array) {
         assert_eq!(
             masked
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             array
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
                 .into_nullable()
         );
     }
@@ -93,7 +93,7 @@ fn test_full_mask(array: &dyn Array) {
     let all_masked = vec![true; len];
     let mask_array = Mask::from_iter(all_masked);
 
-    let masked = mask(array, &mask_array).vortex_expect("mask should succeed in conformance test");
+    let masked = mask(array, &mask_array).expect("mask should succeed in conformance test");
     assert_eq!(masked.len(), array.len());
 
     // All elements should be null
@@ -101,7 +101,7 @@ fn test_full_mask(array: &dyn Array) {
         assert!(
             !masked
                 .is_valid(i)
-                .vortex_expect("is_valid should succeed in conformance test")
+                .expect("is_valid should succeed in conformance test")
         );
     }
 }
@@ -112,7 +112,7 @@ fn test_alternating_mask(array: &dyn Array) {
     let pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
     let mask_array = Mask::from_iter(pattern);
 
-    let masked = mask(array, &mask_array).vortex_expect("mask should succeed in conformance test");
+    let masked = mask(array, &mask_array).expect("mask should succeed in conformance test");
     assert_eq!(masked.len(), array.len());
 
     for i in 0..len {
@@ -120,16 +120,16 @@ fn test_alternating_mask(array: &dyn Array) {
             assert!(
                 !masked
                     .is_valid(i)
-                    .vortex_expect("is_valid should succeed in conformance test")
+                    .expect("is_valid should succeed in conformance test")
             );
         } else {
             assert_eq!(
                 masked
                     .scalar_at(i)
-                    .vortex_expect("scalar_at should succeed in conformance test"),
+                    .expect("scalar_at should succeed in conformance test"),
                 array
                     .scalar_at(i)
-                    .vortex_expect("scalar_at should succeed in conformance test")
+                    .expect("scalar_at should succeed in conformance test")
                     .into_nullable()
             );
         }
@@ -147,7 +147,7 @@ fn test_sparse_mask(array: &dyn Array) {
     let pattern: Vec<bool> = (0..len).map(|i| i % 10 == 0).collect();
     let mask_array = Mask::from_iter(pattern.clone());
 
-    let masked = mask(array, &mask_array).vortex_expect("mask should succeed in conformance test");
+    let masked = mask(array, &mask_array).expect("mask should succeed in conformance test");
     assert_eq!(masked.len(), array.len());
 
     // Count how many elements are valid after masking
@@ -155,7 +155,7 @@ fn test_sparse_mask(array: &dyn Array) {
         .filter(|&i| {
             masked
                 .is_valid(i)
-                .vortex_expect("is_valid should succeed in conformance test")
+                .expect("is_valid should succeed in conformance test")
         })
         .count();
 
@@ -167,7 +167,7 @@ fn test_sparse_mask(array: &dyn Array) {
             pattern[i]
                 || !array
                     .is_valid(i)
-                    .vortex_expect("is_valid should succeed in conformance test")
+                    .expect("is_valid should succeed in conformance test")
         })
         .count();
 
@@ -183,21 +183,21 @@ fn test_single_element_mask(array: &dyn Array) {
     pattern[0] = true;
     let mask_array = Mask::from_iter(pattern);
 
-    let masked = mask(array, &mask_array).vortex_expect("mask should succeed in conformance test");
+    let masked = mask(array, &mask_array).expect("mask should succeed in conformance test");
     assert!(
         !masked
             .is_valid(0)
-            .vortex_expect("is_valid should succeed in conformance test")
+            .expect("is_valid should succeed in conformance test")
     );
 
     for i in 1..len {
         assert_eq!(
             masked
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             array
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
                 .into_nullable()
         );
     }
@@ -214,9 +214,9 @@ fn test_double_mask(array: &dyn Array) {
     let mask1 = Mask::from_iter(mask1_pattern.clone());
     let mask2 = Mask::from_iter(mask2_pattern.clone());
 
-    let first_masked = mask(array, &mask1).vortex_expect("mask should succeed in conformance test");
+    let first_masked = mask(array, &mask1).expect("mask should succeed in conformance test");
     let double_masked =
-        mask(&first_masked, &mask2).vortex_expect("mask should succeed in conformance test");
+        mask(&first_masked, &mask2).expect("mask should succeed in conformance test");
 
     // Elements should be null if either mask is true
     for i in 0..len {
@@ -224,16 +224,16 @@ fn test_double_mask(array: &dyn Array) {
             assert!(
                 !double_masked
                     .is_valid(i)
-                    .vortex_expect("is_valid should succeed in conformance test")
+                    .expect("is_valid should succeed in conformance test")
             );
         } else {
             assert_eq!(
                 double_masked
                     .scalar_at(i)
-                    .vortex_expect("scalar_at should succeed in conformance test"),
+                    .expect("scalar_at should succeed in conformance test"),
                 array
                     .scalar_at(i)
-                    .vortex_expect("scalar_at should succeed in conformance test")
+                    .expect("scalar_at should succeed in conformance test")
                     .into_nullable()
             );
         }
@@ -256,7 +256,7 @@ fn test_nullable_mask_input(array: &dyn Array) {
     let nullable_mask = BoolArray::new(bool_array.to_bit_buffer(), validity);
 
     let mask_array = nullable_mask.to_mask_fill_null_false();
-    let masked = mask(array, &mask_array).vortex_expect("mask should succeed in conformance test");
+    let masked = mask(array, &mask_array).expect("mask should succeed in conformance test");
 
     // Elements are masked only if the mask is true AND valid
     for i in 0..len {
@@ -264,16 +264,16 @@ fn test_nullable_mask_input(array: &dyn Array) {
             assert!(
                 !masked
                     .is_valid(i)
-                    .vortex_expect("is_valid should succeed in conformance test")
+                    .expect("is_valid should succeed in conformance test")
             );
         } else {
             assert_eq!(
                 masked
                     .scalar_at(i)
-                    .vortex_expect("scalar_at should succeed in conformance test"),
+                    .expect("scalar_at should succeed in conformance test"),
                 array
                     .scalar_at(i)
-                    .vortex_expect("scalar_at should succeed in conformance test")
+                    .expect("scalar_at should succeed in conformance test")
                     .into_nullable()
             );
         }

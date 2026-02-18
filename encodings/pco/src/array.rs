@@ -171,7 +171,7 @@ impl VTable for PcoVTable {
             array.unsliced_validity = Validity::from(array.dtype.nullability());
         } else {
             array.unsliced_validity =
-                Validity::Array(children.into_iter().next().vortex_expect("validity child"));
+                Validity::Array(children.into_iter().next().expect("validity child"));
         }
 
         Ok(())
@@ -386,7 +386,7 @@ impl PcoArray {
         // may exceed the bounds of the slice, so we need to slice later.
         let (fd, _) = FileDecompressor::new(self.metadata.header.as_slice())
             .map_err(vortex_err_from_pco)
-            .vortex_expect("FileDecompressor::new should succeed with valid header");
+            .expect("FileDecompressor::new should succeed with valid header");
         let mut decompressed_values = BufferMut::<T>::with_capacity(slice_n_values);
         let mut page_idx = 0;
         let mut page_value_start = 0;
@@ -415,9 +415,7 @@ impl PcoArray {
                         let (new_cd, _) = fd
                             .chunk_decompressor(chunk_meta_bytes)
                             .map_err(vortex_err_from_pco)
-                            .vortex_expect(
-                                "chunk_decompressor should succeed with valid chunk metadata",
-                            );
+                            .expect("chunk_decompressor should succeed with valid chunk metadata");
                         cd = Some(new_cd);
                     }
                     let mut pd = cd
@@ -425,10 +423,10 @@ impl PcoArray {
                         .unwrap()
                         .page_decompressor(page, page_n_values)
                         .map_err(vortex_err_from_pco)
-                        .vortex_expect("page_decompressor should succeed with valid page data");
+                        .expect("page_decompressor should succeed with valid page data");
                     pd.read(&mut decompressed_values[old_len..new_len])
                         .map_err(vortex_err_from_pco)
-                        .vortex_expect("decompress should succeed with valid compressed data");
+                        .expect("decompress should succeed with valid compressed data");
                 } else {
                     n_skipped_values += page_n_values;
                 }

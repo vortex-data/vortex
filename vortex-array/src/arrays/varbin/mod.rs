@@ -25,7 +25,7 @@ pub fn varbin_scalar(value: ByteBuffer, dtype: &DType) -> Scalar {
     if matches!(dtype, DType::Utf8(_)) {
         Scalar::try_utf8(value, dtype.nullability())
             .map_err(|err| vortex_err!("Failed to create scalar from utf8 buffer: {}", err))
-            .vortex_expect("UTF-8 scalar creation should succeed")
+            .expect("UTF-8 scalar creation should succeed")
     } else {
         Scalar::binary(value, dtype.nullability())
     }

@@ -107,9 +107,7 @@ fn generate_duckdb(base_path: &Path, benchmark: &dyn Benchmark) -> anyhow::Resul
     let parquet_dir = base_path.join(Format::Parquet.name());
     let sql = generate_duckdb_registration_sql(
         benchmark,
-        parquet_dir
-            .to_str()
-            .vortex_expect("value must be str displayable"),
+        parquet_dir.to_str().expect("value must be str displayable"),
         Format::Parquet,
         "TABLE",
     );

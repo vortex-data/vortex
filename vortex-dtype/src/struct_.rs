@@ -65,16 +65,16 @@ impl PartialEq for FieldDTypeInner {
         match (self, other) {
             (Self::Owned(lhs), Self::Owned(rhs)) => lhs == rhs,
             (Self::View(lhs), Self::View(rhs)) => {
-                let lhs = DType::try_from(lhs.clone())
-                    .vortex_expect("Failed to parse FieldDType into DType");
-                let rhs = DType::try_from(rhs.clone())
-                    .vortex_expect("Failed to parse FieldDType into DType");
+                let lhs =
+                    DType::try_from(lhs.clone()).expect("Failed to parse FieldDType into DType");
+                let rhs =
+                    DType::try_from(rhs.clone()).expect("Failed to parse FieldDType into DType");
 
                 lhs == rhs
             }
             (Self::View(view), Self::Owned(owned)) | (Self::Owned(owned), Self::View(view)) => {
-                let view = DType::try_from(view.clone())
-                    .vortex_expect("Failed to parse FieldDType into DType");
+                let view =
+                    DType::try_from(view.clone()).expect("Failed to parse FieldDType into DType");
                 owned == &view
             }
         }
@@ -89,8 +89,8 @@ impl Hash for FieldDTypeInner {
                 owned.hash(state);
             }
             FieldDTypeInner::View(view) => {
-                let owned = DType::try_from(view.clone())
-                    .vortex_expect("Failed to parse FieldDType into DType");
+                let owned =
+                    DType::try_from(view.clone()).expect("Failed to parse FieldDType into DType");
                 owned.hash(state);
             }
         }
@@ -334,7 +334,7 @@ impl StructFields {
         Some(
             self.0.dtypes[index]
                 .value()
-                .vortex_expect("field DType must be valid"),
+                .expect("field DType must be valid"),
         )
     }
 
@@ -345,7 +345,7 @@ impl StructFields {
                 .dtypes
                 .get(index)?
                 .value()
-                .vortex_expect("field DType must be valid"),
+                .expect("field DType must be valid"),
         )
     }
 
@@ -354,7 +354,7 @@ impl StructFields {
         self.0
             .dtypes
             .iter()
-            .map(|dt| dt.value().vortex_expect("field DType must be valid"))
+            .map(|dt| dt.value().expect("field DType must be valid"))
     }
 
     /// Project a subset of fields from the struct

@@ -71,7 +71,7 @@ mod tests {
         #[case] mask: Mask,
     ) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create CUDA execution context");
+            .expect("failed to create CUDA execution context");
 
         let filter_array = FilterArray::try_new(input.into_array(), mask.clone())?;
 
@@ -80,7 +80,7 @@ mod tests {
         let gpu_result = FilterExecutor
             .execute(filter_array.into_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU filter failed")
+            .expect("GPU filter failed")
             .into_host()
             .await?
             .into_array();

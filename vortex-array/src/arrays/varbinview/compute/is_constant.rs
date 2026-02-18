@@ -19,9 +19,7 @@ impl IsConstantKernel for VarBinViewVTable {
         _opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
         let mut views_iter = array.views().iter();
-        let first_value = views_iter
-            .next()
-            .vortex_expect("Must have at least one value");
+        let first_value = views_iter.next().expect("Must have at least one value");
 
         // For the array to be constant, all views must be of the same type
         if first_value.is_inlined() {

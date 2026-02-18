@@ -72,8 +72,8 @@ pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
 
     database
         .register_vortex_scan_replacement()
-        .vortex_expect("failed to register vortex scan replacement");
-    initialize(&database).vortex_expect("Failed to initialize Vortex extension");
+        .expect("failed to register vortex scan replacement");
+    initialize(&database).expect("Failed to initialize Vortex extension");
 }
 
 /// The DuckDB extension ABI version function.

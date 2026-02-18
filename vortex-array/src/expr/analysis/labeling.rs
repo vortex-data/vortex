@@ -41,7 +41,7 @@ pub fn label_tree<L: Clone>(
         merge_child: &mut merge_child,
     };
     expr.accept(&mut visitor)
-        .vortex_expect("LabelingVisitor is infallible");
+        .expect("LabelingVisitor is infallible");
     visitor.labels
 }
 
@@ -70,10 +70,7 @@ where
         let self_label = (self.self_label)(node);
 
         let final_label = node.children().iter().fold(self_label, |acc, child| {
-            let child_label = self
-                .labels
-                .get(child)
-                .vortex_expect("child must have label");
+            let child_label = self.labels.get(child).expect("child must have label");
             (self.merge_child)(acc, child_label)
         });
 

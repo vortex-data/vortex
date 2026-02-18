@@ -57,7 +57,7 @@ impl LazyBitBufferBuilder {
         self.materialize_if_needed();
         self.inner
             .as_mut()
-            .vortex_expect("cannot append null to non-nullable builder")
+            .expect("cannot append null to non-nullable builder")
             .append_n(false, n);
     }
 
@@ -67,7 +67,7 @@ impl LazyBitBufferBuilder {
         self.materialize_if_needed();
         self.inner
             .as_mut()
-            .vortex_expect("cannot append null to non-nullable builder")
+            .expect("cannot append null to non-nullable builder")
             .append(false);
     }
 
@@ -77,7 +77,7 @@ impl LazyBitBufferBuilder {
         self.materialize_if_needed();
         self.inner
             .as_mut()
-            .vortex_expect("buffer just materialized")
+            .expect("buffer just materialized")
             .append_buffer(bool_buffer);
     }
 
@@ -95,7 +95,7 @@ impl LazyBitBufferBuilder {
         self.materialize_if_needed();
         self.inner
             .as_mut()
-            .vortex_expect("buffer just materialized")
+            .expect("buffer just materialized")
             .set_to(index, v);
     }
 
@@ -129,7 +129,7 @@ impl LazyBitBufferBuilder {
         } else {
             self.inner
                 .as_mut()
-                .vortex_expect("buffer just materialized")
+                .expect("buffer just materialized")
                 .reserve(additional);
         }
     }

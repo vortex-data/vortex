@@ -370,9 +370,7 @@ fn remove_nulls(data: arrow_data::ArrayData) -> arrow_data::ArrayData {
     if let Some(children) = children {
         builder = builder.child_data(children);
     }
-    builder
-        .build()
-        .vortex_expect("reconstructing array without nulls")
+    builder.build().expect("reconstructing array without nulls")
 }
 
 impl FromArrowArray<&ArrowStructArray> for ArrayRef {

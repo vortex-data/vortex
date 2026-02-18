@@ -95,7 +95,7 @@ impl FromStr for Target {
                         e
                     )
                 })
-                .vortex_expect("operation should succeed in benchmark"),
+                .expect("operation should succeed in benchmark"),
             format: Format::from_str(format_str, true)
                 .map_err(|e| {
                     vortex_err!(
@@ -105,7 +105,7 @@ impl FromStr for Target {
                         e
                     )
                 })
-                .vortex_expect("operation should succeed in benchmark"),
+                .expect("operation should succeed in benchmark"),
         })
     }
 }

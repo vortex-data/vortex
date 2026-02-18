@@ -262,7 +262,7 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
             let _ = self
                 .ancestor_sizes
                 .pop()
-                .vortex_expect("pushes and pops are matched");
+                .expect("pushes and pops are matched");
         }
 
         Ok(())

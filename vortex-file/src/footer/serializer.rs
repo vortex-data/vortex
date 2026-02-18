@@ -118,7 +118,7 @@ impl FooterSerializer {
         }
 
         let postscript_len = u16::try_from(postscript_buffer.len())
-            .vortex_expect("Postscript already verified to fit into u16");
+            .expect("Postscript already verified to fit into u16");
         buffers.push(postscript_buffer.into_inner());
 
         // And finally, the EOF 8-byte footer.

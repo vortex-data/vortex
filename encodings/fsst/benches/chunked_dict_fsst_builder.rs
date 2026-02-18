@@ -56,7 +56,7 @@ fn chunked_dict_fsst_canonical_into(
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
         chunk
             .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
-            .vortex_expect("append failed");
+            .expect("append failed");
         builder.finish()
     })
 }

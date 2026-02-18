@@ -114,18 +114,18 @@ fn metric_value_to_datafusion(name: &str, metric: &MetricValue) -> Vec<Datafusio
             res.push(df_counter(format!("{name}_count"), hist.count()));
 
             if !hist.is_empty() {
-                if let Some(max) = f_to_u(hist.quantile(1.0).vortex_expect("must not be empty")) {
+                if let Some(max) = f_to_u(hist.quantile(1.0).expect("must not be empty")) {
                     res.push(df_gauge(format!("{name}_max"), max));
                 }
 
-                if let Some(min) = f_to_u(hist.quantile(0.0).vortex_expect("must not be empty")) {
+                if let Some(min) = f_to_u(hist.quantile(0.0).expect("must not be empty")) {
                     res.push(df_gauge(format!("{name}_min"), min));
                 }
 
-                if let Some(p95) = f_to_u(hist.quantile(0.95).vortex_expect("must not be empty")) {
+                if let Some(p95) = f_to_u(hist.quantile(0.95).expect("must not be empty")) {
                     res.push(df_gauge(format!("{name}_p95"), p95));
                 }
-                if let Some(p99) = f_to_u(hist.quantile(0.99).vortex_expect("must not be empty")) {
+                if let Some(p99) = f_to_u(hist.quantile(0.99).expect("must not be empty")) {
                     res.push(df_gauge(format!("{name}_p99"), p99));
                 }
             }
@@ -137,16 +137,16 @@ fn metric_value_to_datafusion(name: &str, metric: &MetricValue) -> Vec<Datafusio
             res.push(df_counter(format!("{name}_count"), timer.count()));
 
             if !timer.is_empty() {
-                let max = timer.quantile(1.0).vortex_expect("must not be empty");
+                let max = timer.quantile(1.0).expect("must not be empty");
                 res.push(df_timer(format!("{name}_max"), max));
 
-                let min = timer.quantile(0.0).vortex_expect("must not be empty");
+                let min = timer.quantile(0.0).expect("must not be empty");
                 res.push(df_timer(format!("{name}_min"), min));
 
-                let p95 = timer.quantile(0.95).vortex_expect("must not be empty");
+                let p95 = timer.quantile(0.95).expect("must not be empty");
                 res.push(df_timer(format!("{name}_p95"), p95));
 
-                let p99 = timer.quantile(0.99).vortex_expect("must not be empty");
+                let p99 = timer.quantile(0.99).expect("must not be empty");
                 res.push(df_timer(format!("{name}_p99"), p99));
             }
 

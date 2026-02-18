@@ -78,7 +78,7 @@ impl Scalar {
     pub fn new(dtype: DType, value: Option<ScalarValue>) -> Self {
         use vortex_error::VortexExpect;
 
-        Self::try_new(dtype, value).vortex_expect("Failed to create Scalar")
+        Self::try_new(dtype, value).expect("Failed to create Scalar")
     }
 
     /// Attempts to create a new [`Scalar`] with the given [`DType`] and potentially null

@@ -44,7 +44,7 @@ impl Timestamp {
             },
             DType::Primitive(PType::I64, nullability),
         )
-        .vortex_expect("failed to create timestamp dtype")
+        .expect("failed to create timestamp dtype")
     }
 }
 
@@ -104,7 +104,7 @@ impl ExtDTypeVTable for Timestamp {
         let tz_len_bytes: [u8; 2] = data[1..3]
             .try_into()
             .ok()
-            .vortex_expect("Verified to have two bytes");
+            .expect("Verified to have two bytes");
         let tz_len = u16::from_le_bytes(tz_len_bytes) as usize;
         if tz_len == 0 {
             return Ok(TimestampOptions {

@@ -33,11 +33,11 @@ fn runtime_handle() -> tokio::runtime::Handle {
         thread::Builder::new()
             .name("vortex-async-compat".into())
             .spawn(|| TOKIO.block_on(Pending))
-            .vortex_expect("cannot start tokio runtime thread");
+            .expect("cannot start tokio runtime thread");
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .vortex_expect("cannot start tokio runtime")
+            .expect("cannot start tokio runtime")
     });
 
     tokio::runtime::Handle::try_current().unwrap_or_else(|_| TOKIO.handle().clone())
@@ -82,21 +82,21 @@ impl<T> Compat<T> {
     fn inner(&self) -> &T {
         self.inner
             .as_ref()
-            .vortex_expect("inner is only None when Compat is about to drop")
+            .expect("inner is only None when Compat is about to drop")
     }
 
     #[inline]
     fn inner_mut(&mut self) -> &mut T {
         self.inner
             .as_mut()
-            .vortex_expect("inner is only None when Compat is about to drop")
+            .expect("inner is only None when Compat is about to drop")
     }
 
     fn get_pin_mut(self: Pin<&mut Self>) -> Pin<&mut T> {
         self.project()
             .inner
             .as_pin_mut()
-            .vortex_expect("inner is only None when Compat is about to drop")
+            .expect("inner is only None when Compat is about to drop")
     }
 }
 

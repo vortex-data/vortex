@@ -34,7 +34,7 @@ impl SumKernel for BoolVTable {
         let acc_value = accumulator
             .as_primitive()
             .as_::<u64>()
-            .vortex_expect("cannot be null");
+            .expect("cannot be null");
         let result = true_count.and_then(|tc| acc_value.checked_add(tc));
         Ok(match result {
             Some(v) => Scalar::primitive(v, Nullability::Nullable),

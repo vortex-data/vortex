@@ -47,14 +47,14 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let expected_array = {
         let bool_mask = array_data
             .apply(&filter_expr.clone().unwrap_or_else(|| lit(true)))
-            .vortex_expect("filter expression evaluation should succeed in fuzz test");
+            .expect("filter expression evaluation should succeed in fuzz test");
         let mask = bool_mask.to_bool().to_mask_fill_null_false();
         let filtered = array_data
             .filter(mask)
-            .vortex_expect("filter operation should succeed in fuzz test");
+            .expect("filter operation should succeed in fuzz test");
         filtered
             .apply(&projection_expr.clone().unwrap_or_else(root))
-            .vortex_expect("projection expression evaluation should succeed in fuzz test")
+            .expect("projection expression evaluation should succeed in fuzz test")
     };
 
     let write_options = match compressor_strategy {
@@ -71,24 +71,24 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let _footer = write_options
         .blocking(&*RUNTIME)
         .write(&mut full_buff, array_data.to_array_iterator())
-        .vortex_expect("file write should succeed in fuzz test");
+        .expect("file write should succeed in fuzz test");
 
     let mut output = SESSION
         .open_options()
         .open_buffer(full_buff)
-        .vortex_expect("open_buffer should succeed in fuzz test")
+        .expect("open_buffer should succeed in fuzz test")
         .scan()
-        .vortex_expect("scan should succeed in fuzz test")
+        .expect("scan should succeed in fuzz test")
         .with_projection(projection_expr.unwrap_or_else(root))
         .with_some_filter(filter_expr)
         .into_array_iter(&*RUNTIME)
-        .vortex_expect("into_array_iter should succeed in fuzz test")
+        .expect("into_array_iter should succeed in fuzz test")
         .try_collect::<_, Vec<_>, _>()
-        .vortex_expect("collect should succeed in fuzz test");
+        .expect("collect should succeed in fuzz test");
 
     let output_array = match output.len() {
         0 => Canonical::empty(expected_array.dtype()).into_array(),
-        1 => output.pop().vortex_expect("one output"),
+        1 => output.pop().expect("one output"),
         _ => ChunkedArray::from_iter(output).into_array(),
     };
 
@@ -108,12 +108,12 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     );
 
     let bool_result = compare(&expected_array, &output_array, Operator::Eq)
-        .vortex_expect("compare operation should succeed in fuzz test")
+        .expect("compare operation should succeed in fuzz test")
         .to_bool();
     let true_count = bool_result.to_bit_buffer().true_count();
     if true_count != expected_array.len()
-        && (bool_result.all_valid().vortex_expect("all_valid")
-            || expected_array.all_valid().vortex_expect("all_valid"))
+        && (bool_result.all_valid().expect("all_valid")
+            || expected_array.all_valid().expect("all_valid"))
     {
         vortex_panic!(
             "Failed to match original array {}with{}",

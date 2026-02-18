@@ -412,55 +412,55 @@ pub trait ToCanonical {
 impl<A: Array + ?Sized> ToCanonical for A {
     fn to_null(&self) -> NullArray {
         self.to_canonical()
-            .vortex_expect("to_canonical failed")
+            .expect("to_canonical failed")
             .into_null()
     }
 
     fn to_bool(&self) -> BoolArray {
         self.to_canonical()
-            .vortex_expect("to_canonical failed")
+            .expect("to_canonical failed")
             .into_bool()
     }
 
     fn to_primitive(&self) -> PrimitiveArray {
         self.to_canonical()
-            .vortex_expect("to_canonical failed")
+            .expect("to_canonical failed")
             .into_primitive()
     }
 
     fn to_decimal(&self) -> DecimalArray {
         self.to_canonical()
-            .vortex_expect("to_canonical failed")
+            .expect("to_canonical failed")
             .into_decimal()
     }
 
     fn to_struct(&self) -> StructArray {
         self.to_canonical()
-            .vortex_expect("to_canonical failed")
+            .expect("to_canonical failed")
             .into_struct()
     }
 
     fn to_listview(&self) -> ListViewArray {
         self.to_canonical()
-            .vortex_expect("to_canonical failed")
+            .expect("to_canonical failed")
             .into_listview()
     }
 
     fn to_fixed_size_list(&self) -> FixedSizeListArray {
         self.to_canonical()
-            .vortex_expect("to_canonical failed")
+            .expect("to_canonical failed")
             .into_fixed_size_list()
     }
 
     fn to_varbinview(&self) -> VarBinViewArray {
         self.to_canonical()
-            .vortex_expect("to_canonical failed")
+            .expect("to_canonical failed")
             .into_varbinview()
     }
 
     fn to_extension(&self) -> ExtensionArray {
         self.to_canonical()
-            .vortex_expect("to_canonical failed")
+            .expect("to_canonical failed")
             .into_extension()
     }
 }

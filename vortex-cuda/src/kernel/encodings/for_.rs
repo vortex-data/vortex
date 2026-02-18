@@ -62,7 +62,7 @@ where
         .reference_scalar()
         .as_primitive()
         .as_::<P>()
-        .vortex_expect("Cannot have a null reference");
+        .expect("Cannot have a null reference");
 
     // Execute child and copy to device
     let canonical = array.encoded().clone().execute_cuda(ctx).await?;
@@ -127,14 +127,14 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_for_decompression(#[case] for_array: FoRArray) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let cpu_result = for_array.to_canonical()?;
 
         let gpu_result = FoRExecutor
             .execute(for_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed")
+            .expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();

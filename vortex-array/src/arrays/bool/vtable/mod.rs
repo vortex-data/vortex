@@ -58,7 +58,7 @@ impl VTable for BoolVTable {
     fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {
         assert!(array.offset < 8, "Offset must be <8, got {}", array.offset);
         Ok(ProstMetadata(BoolMetadata {
-            offset: u32::try_from(array.offset).vortex_expect("checked"),
+            offset: u32::try_from(array.offset).expect("checked"),
         }))
     }
 
@@ -112,7 +112,7 @@ impl VTable for BoolVTable {
         array.validity = if children.is_empty() {
             Validity::from(array.dtype().nullability())
         } else {
-            Validity::Array(children.into_iter().next().vortex_expect("checked"))
+            Validity::Array(children.into_iter().next().expect("checked"))
         };
 
         Ok(())

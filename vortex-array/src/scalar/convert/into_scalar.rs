@@ -39,7 +39,7 @@ macro_rules! impl_into_scalar {
                     DType::$variant(Nullability::NonNullable),
                     Some(ScalarValue::from(value)),
                 )
-                .vortex_expect("unable to construct a `Scalar`")
+                .expect("unable to construct a `Scalar`")
             }
         }
 
@@ -49,7 +49,7 @@ macro_rules! impl_into_scalar {
                     DType::$variant(Nullability::Nullable),
                     value.map(ScalarValue::from),
                 )
-                .vortex_expect("unable to construct a `Scalar`")
+                .expect("unable to construct a `Scalar`")
             }
         }
     };
@@ -100,7 +100,7 @@ where
             DType::List(Arc::from(T::dtype()), Nullability::NonNullable),
             Some(ScalarValue::from(vec)),
         )
-        .vortex_expect("unable to construct a list `Scalar` from `Vec<T>`")
+        .expect("unable to construct a list `Scalar` from `Vec<T>`")
     }
 }
 
@@ -114,7 +114,7 @@ where
             DType::List(Arc::from(T::dtype()), Nullability::Nullable),
             vec.map(ScalarValue::from),
         )
-        .vortex_expect("unable to construct a list `Scalar` from `Option<Vec<T>>`")
+        .expect("unable to construct a list `Scalar` from `Option<Vec<T>>`")
     }
 }
 
@@ -135,7 +135,7 @@ impl From<DecimalValue> for Scalar {
             DType::Decimal(dtype, Nullability::NonNullable),
             Some(ScalarValue::Decimal(value)),
         )
-        .vortex_expect("unable to construct a decimal `Scalar` from `DecimalValue`")
+        .expect("unable to construct a decimal `Scalar` from `DecimalValue`")
     }
 }
 
@@ -156,6 +156,6 @@ impl From<Option<DecimalValue>> for Scalar {
             DType::Decimal(dtype, Nullability::Nullable),
             Some(ScalarValue::Decimal(value)),
         )
-        .vortex_expect("unable to construct a decimal `Scalar` from `Option<DecimalValue>`")
+        .expect("unable to construct a decimal `Scalar` from `Option<DecimalValue>`")
     }
 }

@@ -66,7 +66,7 @@ pub fn decompress(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<Prim
             .reference_scalar()
             .as_primitive()
             .typed_value::<T>()
-            .vortex_expect("reference must be non-null");
+            .expect("reference must be non-null");
         if min == 0 {
             encoded
         } else {
@@ -89,7 +89,7 @@ pub(crate) fn fused_decompress<
         .reference_scalar()
         .as_primitive()
         .as_::<T>()
-        .vortex_expect("cannot be null");
+        .expect("cannot be null");
 
     let strategy = FoRStrategy { reference: ref_ };
 

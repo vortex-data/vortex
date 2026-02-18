@@ -134,7 +134,7 @@ impl StatsSet {
             v.map(|v| {
                 T::try_from(
                     &Scalar::try_new(dtype.clone(), Some(v))
-                        .vortex_expect("failed to construct a scalar statistic"),
+                        .expect("failed to construct a scalar statistic"),
                 )
                 .unwrap_or_else(|err| {
                     vortex_panic!(
@@ -231,10 +231,10 @@ impl StatsProvider for TypedStatsSetRef<'_, '_> {
             p.map(|sv| {
                 Scalar::try_new(
                     stat.dtype(self.dtype)
-                        .vortex_expect("Must have valid dtype if value is present"),
+                        .expect("Must have valid dtype if value is present"),
                     Some(sv),
                 )
-                .vortex_expect("failed to construct a scalar statistic")
+                .expect("failed to construct a scalar statistic")
             })
         })
     }
@@ -267,10 +267,10 @@ impl StatsProvider for MutTypedStatsSetRef<'_, '_> {
             p.map(|sv| {
                 Scalar::try_new(
                     stat.dtype(self.dtype)
-                        .vortex_expect("Must have valid dtype if value is present"),
+                        .expect("Must have valid dtype if value is present"),
                     Some(sv),
                 )
-                .vortex_expect("failed to construct a scalar statistic")
+                .expect("failed to construct a scalar statistic")
             })
         })
     }
@@ -357,26 +357,22 @@ impl MutTypedStatsSetRef<'_, '_> {
             (Some(m1), Some(m2)) => {
                 let meet = m1
                     .intersection(&m2)
-                    .vortex_expect("can always compare scalar")
+                    .expect("can always compare scalar")
                     .ok_or_else(|| {
                         vortex_err!("{:?} bounds ({m1:?}, {m2:?}) do not overlap", S::STAT)
                     })?;
                 if meet != m1 {
                     self.set(
                         S::STAT,
-                        meet.into_value().map(|s| {
-                            s.into_value()
-                                .vortex_expect("stat scalar value cannot be null")
-                        }),
+                        meet.into_value()
+                            .map(|s| s.into_value().expect("stat scalar value cannot be null")),
                     );
                 }
             }
             (None, Some(m)) => self.set(
                 S::STAT,
-                m.into_value().map(|s| {
-                    s.into_value()
-                        .vortex_expect("stat scalar value cannot be null")
-                }),
+                m.into_value()
+                    .map(|s| s.into_value().expect("stat scalar value cannot be null")),
             ),
             (Some(_), _) => (),
             (None, None) => self.clear(S::STAT),
@@ -395,7 +391,7 @@ impl MutTypedStatsSetRef<'_, '_> {
             (Some(m1), Some(m2)) => {
                 let intersection = m1
                     .intersection(&m2)
-                    .vortex_expect("can always compare boolean")
+                    .expect("can always compare boolean")
                     .ok_or_else(|| {
                         vortex_err!("{:?} bounds ({m1:?}, {m2:?}) do not overlap", S::STAT)
                     })?;
@@ -416,14 +412,12 @@ impl MutTypedStatsSetRef<'_, '_> {
             other.get_scalar_bound::<Min>(),
         ) {
             (Some(m1), Some(m2)) => {
-                let meet = m1.union(&m2).vortex_expect("can compare scalar");
+                let meet = m1.union(&m2).expect("can compare scalar");
                 if meet != m1 {
                     self.set(
                         Stat::Min,
-                        meet.into_value().map(|s| {
-                            s.into_value()
-                                .vortex_expect("stat scalar value cannot be null")
-                        }),
+                        meet.into_value()
+                            .map(|s| s.into_value().expect("stat scalar value cannot be null")),
                     );
                 }
             }
@@ -437,14 +431,12 @@ impl MutTypedStatsSetRef<'_, '_> {
             other.get_scalar_bound::<Max>(),
         ) {
             (Some(m1), Some(m2)) => {
-                let meet = m1.union(&m2).vortex_expect("can compare scalar");
+                let meet = m1.union(&m2).expect("can compare scalar");
                 if meet != m1 {
                     self.set(
                         Stat::Max,
-                        meet.into_value().map(|s| {
-                            s.into_value()
-                                .vortex_expect("stat scalar value cannot be null")
-                        }),
+                        meet.into_value()
+                            .map(|s| s.into_value().expect("stat scalar value cannot be null")),
                     );
                 }
             }

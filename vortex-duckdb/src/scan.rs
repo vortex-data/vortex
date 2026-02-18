@@ -165,7 +165,7 @@ fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> Vortex
                 init.bind_data()
                     .column_names
                     .get(idx)
-                    .vortex_expect("prune idx in column names")
+                    .expect("prune idx in column names")
             })
             .map(|s| Arc::from(s.as_str()))
             .collect::<FieldNames>(),
@@ -185,11 +185,7 @@ fn extract_table_filter_expr(
                 .map(|(idx, ex)| {
                     let idx_u: usize = idx.as_();
                     let col_idx: usize = column_ids[idx_u].as_();
-                    let name = init
-                        .bind_data()
-                        .column_names
-                        .get(col_idx)
-                        .vortex_expect("exists");
+                    let name = init.bind_data().column_names.get(col_idx).expect("exists");
                     try_from_table_filter(
                         &ex,
                         &col(name.as_str()),
@@ -377,7 +373,7 @@ impl TableFunction for VortexTableFunction {
             let exporter = local_state
                 .exporter
                 .as_mut()
-                .vortex_expect("error: exporter missing");
+                .expect("error: exporter missing");
 
             let has_more_data = exporter.export(chunk)?;
 

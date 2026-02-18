@@ -43,7 +43,7 @@ impl ClickBenchBenchmark {
                 let basepath = format!("clickbench_{flavor}").to_data_path();
                 Ok(Url::parse(&format!(
                     "file:{}/",
-                    basepath.to_str().vortex_expect("path should be utf8")
+                    basepath.to_str().expect("path should be utf8")
                 ))?)
             }
             Some(remote_data_dir) => {

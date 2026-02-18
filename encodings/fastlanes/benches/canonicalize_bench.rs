@@ -50,9 +50,7 @@ fn into_canonical_non_nullable(
     let mut rng = StdRng::seed_from_u64(0);
 
     let chunks = (0..chunk_count)
-        .map(|_| {
-            make_array(&mut rng, chunk_len, fraction_patched, 0.0).vortex_expect("make_array works")
-        })
+        .map(|_| make_array(&mut rng, chunk_len, fraction_patched, 0.0).expect("make_array works"))
         .collect::<Vec<_>>();
 
     bencher
@@ -69,9 +67,7 @@ fn canonical_into_non_nullable(
     let mut rng = StdRng::seed_from_u64(0);
 
     let chunks = (0..chunk_count)
-        .map(|_| {
-            make_array(&mut rng, chunk_len, fraction_patched, 0.0).vortex_expect("make_array works")
-        })
+        .map(|_| make_array(&mut rng, chunk_len, fraction_patched, 0.0).expect("make_array works"))
         .collect::<Vec<_>>();
 
     bencher
@@ -86,7 +82,7 @@ fn canonical_into_non_nullable(
         .bench_refs(|(chunked, primitive_builder)| {
             chunked
                 .append_to_builder(primitive_builder, &mut SESSION.create_execution_ctx())
-                .vortex_expect("append failed");
+                .expect("append failed");
             primitive_builder.finish()
         });
 }
@@ -110,10 +106,7 @@ fn into_canonical_nullable(
     let mut rng = StdRng::seed_from_u64(0);
 
     let chunks = (0..chunk_count)
-        .map(|_| {
-            make_array(&mut rng, chunk_len, fraction_patched, 0.05)
-                .vortex_expect("make_array works")
-        })
+        .map(|_| make_array(&mut rng, chunk_len, fraction_patched, 0.05).expect("make_array works"))
         .collect::<Vec<_>>();
 
     bencher
@@ -130,10 +123,7 @@ fn canonical_into_nullable(
     let mut rng = StdRng::seed_from_u64(0);
 
     let chunks = (0..chunk_count)
-        .map(|_| {
-            make_array(&mut rng, chunk_len, fraction_patched, 0.05)
-                .vortex_expect("make_array works")
-        })
+        .map(|_| make_array(&mut rng, chunk_len, fraction_patched, 0.05).expect("make_array works"))
         .collect::<Vec<_>>();
 
     bencher
@@ -148,7 +138,7 @@ fn canonical_into_nullable(
         .bench_refs(|(chunked, primitive_builder)| {
             chunked
                 .append_to_builder(primitive_builder, &mut SESSION.create_execution_ctx())
-                .vortex_expect("append failed");
+                .expect("append failed");
             primitive_builder.finish()
         });
 }

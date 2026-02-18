@@ -33,7 +33,7 @@ pub trait RuntimeSessionExt: SessionExt {
     fn handle(&self) -> Handle {
         self.get::<RuntimeSession>().handle
                 .as_ref()
-                .vortex_expect("Runtime handle not configured in Vortex session. Please setup a `CurrentThreadRuntime`, or configure the session for `with_tokio`.")
+                .expect("Runtime handle not configured in Vortex session. Please setup a `CurrentThreadRuntime`, or configure the session for `with_tokio`.")
                 .clone()
     }
 

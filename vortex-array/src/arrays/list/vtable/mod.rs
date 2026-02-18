@@ -131,12 +131,8 @@ impl VTable for ListVTable {
         );
 
         let mut iter = children.into_iter();
-        let elements = iter
-            .next()
-            .vortex_expect("children length already validated");
-        let offsets = iter
-            .next()
-            .vortex_expect("children length already validated");
+        let elements = iter.next().expect("children length already validated");
+        let offsets = iter.next().expect("children length already validated");
         let validity = if let Some(validity_array) = iter.next() {
             Validity::Array(validity_array)
         } else {

@@ -247,11 +247,8 @@ impl Shr<Self> for i256 {
         use num_traits::ToPrimitive;
 
         Self(
-            self.0.shr(
-                rhs.0
-                    .to_u8()
-                    .vortex_expect("Can't shift more than 256 bits"),
-            ),
+            self.0
+                .shr(rhs.0.to_u8().expect("Can't shift more than 256 bits")),
         )
     }
 }
@@ -263,7 +260,7 @@ impl Shl<usize> for i256 {
         use num_traits::ToPrimitive;
         Self(
             self.0
-                .shl(rhs.to_u8().vortex_expect("Can't shift more than 256 bits")),
+                .shl(rhs.to_u8().expect("Can't shift more than 256 bits")),
         )
     }
 }

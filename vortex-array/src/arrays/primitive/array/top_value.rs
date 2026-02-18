@@ -60,6 +60,6 @@ where
     let (&top_value, &top_count) = distinct_values
         .iter()
         .max_by_key(|&(_, &count)| count)
-        .vortex_expect("non-empty");
+        .expect("non-empty");
     (top_value.0, top_count)
 }

@@ -32,5 +32,5 @@ fn tpch_query(query_idx: usize) -> String {
         .join("tpch")
         .join(format!("q{query_idx}"))
         .with_extension("sql");
-    fs::read_to_string(manifest_dir).vortex_expect("cannot load tpch query from file")
+    fs::read_to_string(manifest_dir).expect("cannot load tpch query from file")
 }

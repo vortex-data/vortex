@@ -255,7 +255,7 @@ impl<V: EncodingSubclass> AsArrayRef<<V::VTable as VTable>::Array> for PyRef<'_,
             .inner()
             .as_any()
             .downcast_ref::<ArrayAdapter<V::VTable>>()
-            .vortex_expect("Failed to downcast array")
+            .expect("Failed to downcast array")
             .as_inner()
     }
 }

@@ -175,9 +175,7 @@ impl VTable for MaskedVTable {
         );
 
         let mut iter = children.into_iter();
-        let child = iter
-            .next()
-            .vortex_expect("children length already validated");
+        let child = iter.next().expect("children length already validated");
         let validity = if let Some(validity_array) = iter.next() {
             Validity::Array(validity_array)
         } else {

@@ -17,7 +17,7 @@ impl ScalarFunction {
             std::ffi::CStr::from_ptr(name_ptr)
                 .to_str()
                 .map_err(|e| vortex_err!("invalid utf-8: {e}"))
-                .vortex_expect("scalar function name should be valid UTF-8")
+                .expect("scalar function name should be valid UTF-8")
         }
     }
 

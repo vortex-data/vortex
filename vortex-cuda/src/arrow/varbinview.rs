@@ -129,7 +129,7 @@ pub(crate) async fn copy_varbinview_to_varbin(
     let n_blocks = len
         .div_ceil(threads_per_blocks as usize)
         .try_into()
-        .vortex_expect("n_blocks should never overflow u32");
+        .expect("n_blocks should never overflow u32");
     let fully_parallel_cfg = LaunchConfig {
         grid_dim: (n_blocks, 1, 1),
         block_dim: (threads_per_blocks, 1, 1),

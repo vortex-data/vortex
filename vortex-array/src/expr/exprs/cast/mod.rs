@@ -105,7 +105,7 @@ impl VTable for Cast {
         let input = args
             .inputs
             .pop()
-            .vortex_expect("missing input for Cast expression");
+            .expect("missing input for Cast expression");
 
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
             return input
@@ -233,7 +233,7 @@ fn cast_constant(array: &ConstantArray, dtype: &DType) -> VortexResult<Option<Ar
 /// ```
 pub fn cast(child: Expression, target: DType) -> Expression {
     Cast.try_new_expr(target, [child])
-        .vortex_expect("Failed to create Cast expression")
+        .expect("Failed to create Cast expression")
 }
 
 #[cfg(test)]
@@ -267,7 +267,7 @@ mod tests {
     fn replace_children() {
         let expr = cast(root(), DType::Bool(Nullability::Nullable));
         expr.with_children(vec![root()])
-            .vortex_expect("operation should succeed in test");
+            .expect("operation should succeed in test");
     }
 
     #[test]

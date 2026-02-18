@@ -16,11 +16,11 @@ struct SequenceExporter {
 
 pub(crate) fn new_exporter(array: &SequenceArray) -> VortexResult<Box<dyn ColumnExporter>> {
     Ok(Box::new(SequenceExporter {
-        start: array.base().as_i64().vortex_expect("cannot have null base"),
+        start: array.base().as_i64().expect("cannot have null base"),
         step: array
             .multiplier()
             .as_i64()
-            .vortex_expect("cannot have null multiplier"),
+            .expect("cannot have null multiplier"),
     }))
 }
 

@@ -42,7 +42,7 @@ fn take_inner<T: IntegerPType, S: NativePType>(
                 if i.as_() >= len {
                     vortex_panic!(OutOfBounds: i.as_(), 0, len);
                 }
-                let i = <S as NumCast>::from::<T>(*i).vortex_expect("all indices fit");
+                let i = <S as NumCast>::from::<T>(*i).expect("all indices fit");
                 base + i * mul
             })),
             Validity::from(result_nullability),
@@ -61,8 +61,7 @@ fn take_inner<T: IntegerPType, S: NativePType>(
                             vortex_panic!(OutOfBounds: i.as_(), 0, len);
                         }
 
-                        let i =
-                            <S as NumCast>::from::<T>(*i).vortex_expect("all valid indices fit");
+                        let i = <S as NumCast>::from::<T>(*i).expect("all valid indices fit");
                         base + i * mul
                     } else {
                         S::zero()

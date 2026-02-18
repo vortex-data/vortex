@@ -35,10 +35,10 @@ impl FilterKernel for SequenceVTable {
 fn filter_impl<T: NativePType>(mul: T, base: T, mask: &Mask, validity: Validity) -> ArrayRef {
     let mask_values = mask
         .values()
-        .vortex_expect("FilterKernel precondition: mask is Mask::Values");
+        .expect("FilterKernel precondition: mask is Mask::Values");
     let mut buffer = BufferMut::<T>::with_capacity(mask_values.true_count());
     buffer.extend(mask_values.indices().iter().map(|&idx| {
-        let i = T::from_usize(idx).vortex_expect("all valid indices fit");
+        let i = T::from_usize(idx).expect("all valid indices fit");
         base + i * mul
     }));
     PrimitiveArray::new(buffer.freeze(), validity).into_array()

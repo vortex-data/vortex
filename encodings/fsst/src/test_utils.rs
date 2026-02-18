@@ -57,5 +57,5 @@ pub fn gen_dict_fsst_test_data<T: NativePType>(
         .map(|_| T::from(rng.random_range(0..unique_values)).unwrap())
         .collect::<PrimitiveArray>();
     DictArray::try_new(codes.into_array(), values)
-        .vortex_expect("DictArray::try_new should succeed for test data")
+        .expect("DictArray::try_new should succeed for test data")
 }

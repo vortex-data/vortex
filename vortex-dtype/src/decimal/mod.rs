@@ -105,7 +105,7 @@ impl DecimalDType {
         (self.precision.get() as f32 * 10.0f32.log(2.0))
             .ceil()
             .to_usize()
-            .vortex_expect("too many bits required")
+            .expect("too many bits required")
     }
 }
 

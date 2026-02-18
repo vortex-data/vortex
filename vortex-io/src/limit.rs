@@ -84,7 +84,7 @@ where
         let permits = self
             .bytes_available
             .clone()
-            .acquire_many_owned(bytes.try_into().vortex_expect("bytes must fit in u32"))
+            .acquire_many_owned(bytes.try_into().expect("bytes must fit in u32"))
             .await
             .unwrap_or_else(|_| unreachable!("pushing to closed semaphore"));
 
@@ -105,7 +105,7 @@ where
         match self
             .bytes_available
             .clone()
-            .try_acquire_many_owned(bytes.try_into().vortex_expect("bytes must fit in u32"))
+            .try_acquire_many_owned(bytes.try_into().expect("bytes must fit in u32"))
         {
             Ok(permits) => {
                 let sized_fut = SizedFut {

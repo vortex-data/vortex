@@ -431,7 +431,7 @@ impl FileWriter for VortexWriter {
         let array = ArrayRef::from_arrow(batch, false)?;
         self.sender
             .as_ref()
-            .vortex_expect("sender closed early")
+            .expect("sender closed early")
             .send(Ok(array))
             .await
             .map_err(|_| anyhow!("Failed to send array to write task"))

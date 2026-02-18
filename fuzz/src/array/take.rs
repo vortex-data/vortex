@@ -133,7 +133,7 @@ pub fn take_canonical_array(
                         &array
                             .scalar_at(*idx)?
                             .cast(&array.dtype().union_nullability(nullable))
-                            .vortex_expect("cannot cast scalar nullability"),
+                            .expect("cannot cast scalar nullability"),
                     )?;
                 } else {
                     builder.append_null()

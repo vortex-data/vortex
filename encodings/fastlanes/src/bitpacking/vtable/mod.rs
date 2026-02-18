@@ -255,7 +255,7 @@ impl VTable for BitPackedVTable {
                 builder
                     .as_any_mut()
                     .downcast_mut()
-                    .vortex_expect("bit packed array must canonicalize into a primitive array"),
+                    .expect("bit packed array must canonicalize into a primitive array"),
                 ctx,
             )
         })

@@ -318,7 +318,7 @@ mod tests {
         let kernel_loader = KernelLoader::new();
         let function = kernel_loader
             .load_function("config_check", &[], &ctx)
-            .vortex_expect("failed to load config_check kernel");
+            .expect("failed to load config_check kernel");
 
         let config = cudarc::driver::LaunchConfig {
             grid_dim: (1, 1, 1),

@@ -159,9 +159,7 @@ impl Precision<ScalarValue> {
     /// Convert this [`Precision<ScalarValue>`] into a [`Precision<Scalar>`] with the given
     /// [`DType`].
     pub fn into_scalar(self, dtype: DType) -> Precision<Scalar> {
-        self.map(|v| {
-            Scalar::try_new(dtype, Some(v)).vortex_expect("`Precision<ScalarValue>` was invalid")
-        })
+        self.map(|v| Scalar::try_new(dtype, Some(v)).expect("`Precision<ScalarValue>` was invalid"))
     }
 }
 
@@ -170,8 +168,7 @@ impl Precision<&ScalarValue> {
     /// [`DType`].
     pub fn into_scalar(self, dtype: DType) -> Precision<Scalar> {
         self.map(|v| {
-            Scalar::try_new(dtype, Some(v.clone()))
-                .vortex_expect("`Precision<ScalarValue>` was invalid")
+            Scalar::try_new(dtype, Some(v.clone())).expect("`Precision<ScalarValue>` was invalid")
         })
     }
 }

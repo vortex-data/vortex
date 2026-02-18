@@ -47,10 +47,7 @@ pub fn unpack_to_primitive_typed<P: BitPacked>(array: &BitPackedArray) -> Primit
     // SAFETY: `decode_into` initialized exactly `len` elements into the spare (existing) capacity.
     unsafe { elements.set_len(len) };
 
-    let mut validity = array
-        .validity_mask()
-        .vortex_expect("validity_mask")
-        .into_mut();
+    let mut validity = array.validity_mask().expect("validity_mask").into_mut();
     debug_assert_eq!(validity.len(), len);
 
     // TODO(connor): Implement a fused version of patching instead.
@@ -198,7 +195,7 @@ pub fn unpack_single(array: &BitPackedArray, index: usize) -> Scalar {
         }
     });
     // Cast to fix signedness and nullability
-    scalar.cast(array.dtype()).vortex_expect("cast failure")
+    scalar.cast(array.dtype()).expect("cast failure")
 }
 
 /// # Safety

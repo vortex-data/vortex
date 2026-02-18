@@ -88,7 +88,7 @@ impl VTable for ExtensionVTable {
         array.storage = children
             .into_iter()
             .next()
-            .vortex_expect("children length already validated");
+            .expect("children length already validated");
         Ok(())
     }
 

@@ -171,7 +171,7 @@ impl VTable for ZstdVTable {
         array.unsliced_validity = if children.is_empty() {
             Validity::from(array.dtype.nullability())
         } else {
-            Validity::Array(children.into_iter().next().vortex_expect("checked"))
+            Validity::Array(children.into_iter().next().expect("checked"))
         };
 
         Ok(())
@@ -256,7 +256,7 @@ fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usi
         AllOr::None => (Buffer::empty(), Vec::new()),
         _ => {
             let mut buffer = BufferMut::with_capacity(
-                usize::try_from(vbv.nbytes()).vortex_expect("must fit into buffer")
+                usize::try_from(vbv.nbytes()).expect("must fit into buffer")
                     + mask.true_count() * size_of::<ViewLen>(),
             );
             let mut value_byte_indices = Vec::new();
@@ -287,17 +287,17 @@ pub fn reconstruct_views(buffer: &ByteBuffer) -> Buffer<BinaryView> {
         let str_len = ViewLen::from_le_bytes(
             buffer
                 .get(offset..offset + size_of::<ViewLen>())
-                .vortex_expect("corrupted zstd length")
+                .expect("corrupted zstd length")
                 .try_into()
                 .ok()
-                .vortex_expect("must fit ViewLen size"),
+                .expect("must fit ViewLen size"),
         ) as usize;
         offset += size_of::<ViewLen>();
         let value = &buffer[offset..offset + str_len];
         res.push(BinaryView::make_view(
             value,
             0,
-            u32::try_from(offset).vortex_expect("offset must fit in u32"),
+            u32::try_from(offset).expect("offset must fit in u32"),
         ));
         offset += str_len;
     }
@@ -627,12 +627,12 @@ impl ZstdArray {
             }
 
             let frame_uncompressed_size = usize::try_from(frame_meta.uncompressed_size)
-                .vortex_expect("Uncompressed size must fit in usize");
+                .expect("Uncompressed size must fit in usize");
             let frame_n_values = if frame_meta.n_values == 0 {
                 // possibly older primitive-only metadata that just didn't store this
                 frame_uncompressed_size / byte_width
             } else {
-                usize::try_from(frame_meta.n_values).vortex_expect("frame size must fit usize")
+                usize::try_from(frame_meta.n_values).expect("frame size must fit usize")
             };
 
             let value_idx_stop = value_idx_start + frame_n_values;
@@ -652,7 +652,7 @@ impl ZstdArray {
         } else {
             zstd::bulk::Decompressor::new()
         }
-        .vortex_expect("Decompressor encountered io error");
+        .expect("Decompressor encountered io error");
         let mut decompressed = ByteBufferMut::with_capacity_aligned(
             uncompressed_size_to_decompress,
             Alignment::new(byte_width),
@@ -666,7 +666,7 @@ impl ZstdArray {
         for frame in frames_to_decompress {
             let uncompressed_written = decompressor
                 .decompress_to_buffer(frame.as_slice(), &mut decompressed[uncompressed_start..])
-                .vortex_expect("error while decompressing zstd array");
+                .expect("error while decompressing zstd array");
             uncompressed_start += uncompressed_written;
         }
         if uncompressed_start != uncompressed_size_to_decompress {

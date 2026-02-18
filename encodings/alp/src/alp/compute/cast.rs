@@ -146,7 +146,7 @@ mod tests {
     #[case(buffer![42.42f64].into_array())]
     #[case(buffer![0.0f32, -1.5, 2.5, -3.5, 4.5].into_array())]
     fn test_cast_alp_conformance(#[case] array: vortex_array::ArrayRef) -> VortexResult<()> {
-        let alp = alp_encode(&array.to_primitive(), None).vortex_expect("cannot fail");
+        let alp = alp_encode(&array.to_primitive(), None).expect("cannot fail");
         test_cast_conformance(alp.as_ref());
 
         Ok(())

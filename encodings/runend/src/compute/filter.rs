@@ -34,7 +34,7 @@ impl FilterKernel for RunEndVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         let mask_values = mask
             .values()
-            .vortex_expect("FilterKernel precondition: mask is Mask::Values");
+            .expect("FilterKernel precondition: mask is Mask::Values");
 
         let runs_ratio = mask_values.true_count() as f64 / array.ends().len() as f64;
 
@@ -92,7 +92,7 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 
         // Safety: predicate must be the same length as the array the ends have been taken from
         for pred in (start..end).map(|i| unsafe {
-            mask.value_unchecked(i.try_into().vortex_expect("index must fit in usize"))
+            mask.value_unchecked(i.try_into().expect("index must fit in usize"))
         }) {
             count += <R as From<bool>>::from(pred);
             keep |= pred

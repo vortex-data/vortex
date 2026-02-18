@@ -29,7 +29,7 @@ impl Scalar {
     /// Panics if the scalar does not have a [`Bool`](vortex_dtype::DType::Bool) type.
     pub fn as_bool(&self) -> BoolScalar<'_> {
         self.as_bool_opt()
-            .vortex_expect("Failed to convert scalar to bool")
+            .expect("Failed to convert scalar to bool")
     }
 
     /// Returns a view of the scalar as a boolean scalar if it has a boolean type.
@@ -44,7 +44,7 @@ impl Scalar {
     /// Panics if the scalar does not have a [`Primitive`](vortex_dtype::DType::Primitive) type.
     pub fn as_primitive(&self) -> PrimitiveScalar<'_> {
         self.as_primitive_opt()
-            .vortex_expect("Failed to convert scalar to primitive")
+            .expect("Failed to convert scalar to primitive")
     }
 
     /// Returns a view of the scalar as a primitive scalar if it has a primitive type.
@@ -59,7 +59,7 @@ impl Scalar {
     /// Panics if the scalar does not have a [`Decimal`](vortex_dtype::DType::Decimal) type.
     pub fn as_decimal(&self) -> DecimalScalar<'_> {
         self.as_decimal_opt()
-            .vortex_expect("Failed to convert scalar to decimal")
+            .expect("Failed to convert scalar to decimal")
     }
 
     /// Returns a view of the scalar as a decimal scalar if it has a decimal type.
@@ -74,7 +74,7 @@ impl Scalar {
     /// Panics if the scalar does not have a [`Utf8`](vortex_dtype::DType::Utf8) type.
     pub fn as_utf8(&self) -> Utf8Scalar<'_> {
         self.as_utf8_opt()
-            .vortex_expect("Failed to convert scalar to utf8")
+            .expect("Failed to convert scalar to utf8")
     }
 
     /// Returns a view of the scalar as a UTF-8 string scalar if it has a UTF-8 type.
@@ -89,7 +89,7 @@ impl Scalar {
     /// Panics if the scalar does not have a [`Binary`](vortex_dtype::DType::Binary) type.
     pub fn as_binary(&self) -> BinaryScalar<'_> {
         self.as_binary_opt()
-            .vortex_expect("Failed to convert scalar to binary")
+            .expect("Failed to convert scalar to binary")
     }
 
     /// Returns a view of the scalar as a binary scalar if it has a binary type.
@@ -104,7 +104,7 @@ impl Scalar {
     /// Panics if the scalar does not have a [`Struct`](vortex_dtype::DType::Struct) type.
     pub fn as_struct(&self) -> StructScalar<'_> {
         self.as_struct_opt()
-            .vortex_expect("Failed to convert scalar to struct")
+            .expect("Failed to convert scalar to struct")
     }
 
     /// Returns a view of the scalar as a struct scalar if it has a struct type.
@@ -122,7 +122,7 @@ impl Scalar {
     /// Panics if the scalar does not have a [`List`](vortex_dtype::DType::List) or [`FixedSizeList`](vortex_dtype::DType::FixedSizeList) type.
     pub fn as_list(&self) -> ListScalar<'_> {
         self.as_list_opt()
-            .vortex_expect("Failed to convert scalar to list")
+            .expect("Failed to convert scalar to list")
     }
 
     /// Returns a view of the scalar as a list scalar if it has a list type.
@@ -140,7 +140,7 @@ impl Scalar {
     /// Panics if the scalar does not have a [`Extension`](vortex_dtype::DType::Extension) type.
     pub fn as_extension(&self) -> ExtScalar<'_> {
         self.as_extension_opt()
-            .vortex_expect("Failed to convert scalar to extension")
+            .expect("Failed to convert scalar to extension")
     }
 
     /// Returns a view of the scalar as an extension scalar if it has an extension type.

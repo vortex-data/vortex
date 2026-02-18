@@ -80,21 +80,21 @@ mod tests {
         #[case] scale: i8,
     ) {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("create execution context");
+            .expect("create execution context");
 
         let decimal_dtype = DecimalDType::new(precision, scale);
         let dbp_array = DecimalBytePartsArray::try_new(
             PrimitiveArray::new(encoded, Validity::NonNullable).into_array(),
             decimal_dtype,
         )
-        .vortex_expect("create DecimalBytePartsArray");
+        .expect("create DecimalBytePartsArray");
 
-        let cpu_result = dbp_array.to_canonical().vortex_expect("CPU canonicalize");
+        let cpu_result = dbp_array.to_canonical().expect("CPU canonicalize");
 
         let gpu_result = DecimalBytePartsExecutor
             .execute(dbp_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decode");
+            .expect("GPU decode");
 
         assert_arrays_eq!(cpu_result.into_array(), gpu_result.into_array());
     }

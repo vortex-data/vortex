@@ -107,7 +107,7 @@ impl DataSourceScan for LayoutReaderScan {
             let fut = self
                 .splits
                 .pop_front()
-                .vortex_expect("Checked length above ensures we have enough splits");
+                .expect("Checked length above ensures we have enough splits");
             splits.push(Box::new(LayoutReaderSplit {
                 dtype: self.dtype.clone(),
                 fut,

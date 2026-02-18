@@ -145,7 +145,7 @@ impl VTable for Select {
         let child = args
             .inputs
             .pop()
-            .vortex_expect("Missing input child")
+            .expect("Missing input child")
             .execute::<StructArray>(args.ctx)?;
 
         let result = match selection {
@@ -186,7 +186,7 @@ impl VTable for Select {
         let all_included_fields_are_nullable = included_fields.iter().all(|name| {
             struct_fields
                 .field(name)
-                .vortex_expect(
+                .expect(
                     "`normalize_to_included_fields` checks that the included fields already exist \
                      in `struct_fields`",
                 )
@@ -250,7 +250,7 @@ impl VTable for Select {
 pub fn select(field_names: impl Into<FieldNames>, child: Expression) -> Expression {
     Select
         .try_new_expr(FieldSelection::Include(field_names.into()), [child])
-        .vortex_expect("Failed to create Select expression")
+        .expect("Failed to create Select expression")
 }
 
 /// Creates an expression that excludes specific fields from an array.
@@ -264,7 +264,7 @@ pub fn select(field_names: impl Into<FieldNames>, child: Expression) -> Expressi
 pub fn select_exclude(fields: impl Into<FieldNames>, child: Expression) -> Expression {
     Select
         .try_new_expr(FieldSelection::Exclude(fields.into()), [child])
-        .vortex_expect("Failed to create Select expression")
+        .expect("Failed to create Select expression")
 }
 
 impl FieldSelection {

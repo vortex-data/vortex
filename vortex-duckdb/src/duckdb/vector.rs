@@ -102,7 +102,7 @@ impl Vector {
     pub fn set_dictionary_id(&mut self, dict_id: String) {
         let dict_id = CString::new(dict_id)
             .map_err(|e| vortex_err!("cstr creation error {e}"))
-            .vortex_expect("dictionary ID should be valid C string");
+            .expect("dictionary ID should be valid C string");
         unsafe {
             cpp::duckdb_vx_set_dictionary_vector_id(
                 self.ptr,

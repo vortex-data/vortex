@@ -247,7 +247,7 @@ impl State {
                     .polled_requests
                     .get(&req_id)
                     .or_else(|| self.requests.get(&req_id))
-                    .vortex_expect("Missing request in requests_by_offset");
+                    .expect("Missing request in requests_by_offset");
 
                 // Skip any cancelled requests
                 if req.callback.is_closed() {
@@ -279,7 +279,7 @@ impl State {
                         .polled_requests
                         .remove(&req_id)
                         .or_else(|| self.requests.remove(&req_id))
-                        .vortex_expect("Missing request in requests_by_offset");
+                        .expect("Missing request in requests_by_offset");
 
                     requests.push(req);
                     if ids_to_remove.insert(req_id) {

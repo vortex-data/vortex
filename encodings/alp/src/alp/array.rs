@@ -298,7 +298,7 @@ impl ALPArray {
     /// See [`ALPArray::try_new`] for reference on preconditions that must pass before
     /// calling this method.
     pub fn new(encoded: ArrayRef, exponents: Exponents, patches: Option<Patches>) -> Self {
-        Self::try_new(encoded, exponents, patches).vortex_expect("ALPArray new")
+        Self::try_new(encoded, exponents, patches).expect("ALPArray new")
     }
 
     /// Build a new `ALPArray` from components:

@@ -30,10 +30,7 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
 
     match array.dtype() {
         DType::Bool(_) => {
-            let bool = value
-                .as_bool()
-                .value()
-                .vortex_expect("nulls handled before");
+            let bool = value.as_bool().value().expect("nulls handled before");
             compare_to(
                 array
                     .to_bool()
@@ -42,7 +39,7 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
                     .zip(
                         array
                             .validity_mask()
-                            .vortex_expect("validity_mask")
+                            .expect("validity_mask")
                             .to_bit_buffer()
                             .iter(),
                     )
@@ -56,9 +53,7 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
             let primitive = value.as_primitive();
             let primitive_array = array.to_primitive();
             match_each_native_ptype!(p, |P| {
-                let pval = primitive
-                    .typed_value::<P>()
-                    .vortex_expect("nulls handled before");
+                let pval = primitive.typed_value::<P>().expect("nulls handled before");
                 compare_to(
                     primitive_array
                         .as_slice::<P>()
@@ -67,7 +62,7 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
                         .zip(
                             array
                                 .validity_mask()
-                                .vortex_expect("validity_mask")
+                                .expect("validity_mask")
                                 .to_bit_buffer()
                                 .iter(),
                         )
@@ -84,7 +79,7 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let dval = decimal
                     .decimal_value()
-                    .vortex_expect("nulls handled before")
+                    .expect("nulls handled before")
                     .cast::<D>()
                     .unwrap_or_else(|| vortex_panic!("todo: handle upcast of decimal array"));
                 let buf = decimal_array.buffer::<D>();
@@ -95,7 +90,7 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
                         .zip(
                             array
                                 .validity_mask()
-                                .vortex_expect("validity_mask")
+                                .expect("validity_mask")
                                 .to_bit_buffer()
                                 .iter(),
                         )
@@ -110,7 +105,7 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
             let utf8_value = value.as_utf8();
             compare_to(
                 iter.map(|v| v.map(|b| unsafe { str::from_utf8_unchecked(b) })),
-                utf8_value.value().vortex_expect("nulls handled before"),
+                utf8_value.value().expect("nulls handled before"),
                 operator,
                 result_nullability,
             )
@@ -121,14 +116,14 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
                 // Don't understand the lifetime problem here but identity map makes it go away
                 #[allow(clippy::map_identity)]
                 iter.map(|v| v),
-                binary_value.value().vortex_expect("nulls handled before"),
+                binary_value.value().expect("nulls handled before"),
                 operator,
                 result_nullability,
             )
         }),
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
             let scalar_vals: Vec<Scalar> = (0..array.len())
-                .map(|i| array.scalar_at(i).vortex_expect("scalar_at"))
+                .map(|i| array.scalar_at(i).expect("scalar_at"))
                 .collect();
             BoolArray::from_iter(
                 scalar_vals
@@ -159,12 +154,7 @@ fn compare_to<T: PartialOrd>(
     };
 
     if !nullability.is_nullable() {
-        BoolArray::from_iter(
-            values
-                .map(|val| val.vortex_expect("non nullable"))
-                .map(eval_fn),
-        )
-        .into_array()
+        BoolArray::from_iter(values.map(|val| val.expect("non nullable")).map(eval_fn)).into_array()
     } else {
         BoolArray::from_iter(values.map(|val| val.map(eval_fn))).into_array()
     }

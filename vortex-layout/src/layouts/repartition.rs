@@ -219,9 +219,7 @@ impl ChunksBuffer {
         let mut res = Vec::with_capacity(self.data.len());
         let mut remaining = nblocks * self.block_len_multiple;
         while remaining > 0 {
-            let (chunk, _) = self
-                .pop_front()
-                .vortex_expect("must have at least one chunk");
+            let (chunk, _) = self.pop_front().expect("must have at least one chunk");
             let len = chunk.len();
 
             if len > remaining {

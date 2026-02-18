@@ -93,10 +93,7 @@ pub async fn zstd_kernel_prepare(
     let output_sizes: Vec<usize> = metadata
         .frames
         .iter()
-        .map(|m| {
-            usize::try_from(m.uncompressed_size)
-                .vortex_expect("uncompressed size must fit in usize")
-        })
+        .map(|m| usize::try_from(m.uncompressed_size).expect("uncompressed size must fit in usize"))
         .collect();
     let output_size_total: usize = output_sizes.iter().sum();
     let output_size_max = output_sizes.iter().copied().max().unwrap_or(0);
@@ -323,7 +320,7 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_zstd_decompression_utf8() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let strings = VarBinViewArray::from_iter_str([
             "hello",
@@ -348,7 +345,7 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_zstd_decompression_multiple_frames() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let strings = VarBinViewArray::from_iter_str([
             "the quick brown fox jumps over the lazy dog",
@@ -383,7 +380,7 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_zstd_decompression_sliced() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let strings = VarBinViewArray::from_iter_str([
             "the quick brown fox jumps over the lazy dog",

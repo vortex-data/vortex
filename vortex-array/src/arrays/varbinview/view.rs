@@ -51,7 +51,7 @@ impl Inlined {
     fn new<const N: usize>(value: &[u8]) -> Self {
         debug_assert_eq!(value.len(), N);
         let mut inlined = Self {
-            size: N.try_into().vortex_expect("inlined size must fit in u32"),
+            size: N.try_into().expect("inlined size must fit in u32"),
             data: [0u8; BinaryView::MAX_INLINED_SIZE],
         };
         inlined.data[..N].copy_from_slice(&value[..N]);
@@ -153,11 +153,11 @@ impl BinaryView {
             },
             _ => Self {
                 _ref: Ref {
-                    size: u32::try_from(value.len()).vortex_expect("value length must fit in u32"),
+                    size: u32::try_from(value.len()).expect("value length must fit in u32"),
                     prefix: value[0..4]
                         .try_into()
                         .ok()
-                        .vortex_expect("prefix must be exactly 4 bytes"),
+                        .expect("prefix must be exactly 4 bytes"),
                     buffer_index: block,
                     offset,
                 },

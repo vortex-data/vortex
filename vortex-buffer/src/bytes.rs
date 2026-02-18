@@ -40,7 +40,7 @@ pub trait AlignedBuf: Buf {
         // The default implementation uses copy_to_bytes, and then returns a ByteBuffer with
         // alignment of 1. This will be zero-copy if the underlying `copy_to_bytes` is zero-copy.
         ConstBuffer::try_from(self.copy_to_aligned(len, Alignment::new(A)))
-            .vortex_expect("we just aligned the buffer")
+            .expect("we just aligned the buffer")
     }
 }
 

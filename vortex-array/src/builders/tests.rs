@@ -232,7 +232,7 @@ where
     let canonical_indirect = builder2
         .finish()
         .to_canonical()
-        .vortex_expect("to_canonical failed");
+        .expect("to_canonical failed");
 
     // Convert both to arrays for comparison.
     let array_direct = canonical_direct.into_array();

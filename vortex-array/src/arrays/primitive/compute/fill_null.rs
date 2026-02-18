@@ -34,7 +34,7 @@ impl FillNullKernel for PrimitiveVTable {
                     let fill_value = fill_value
                         .as_primitive()
                         .typed_value::<T>()
-                        .vortex_expect("top-level fill_null ensure non-null fill value");
+                        .expect("top-level fill_null ensure non-null fill value");
                     for invalid_index in is_invalid.set_indices() {
                         buffer[invalid_index] = fill_value;
                     }

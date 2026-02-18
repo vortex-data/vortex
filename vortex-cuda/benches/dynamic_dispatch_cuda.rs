@@ -57,8 +57,7 @@ fn make_bitpacked_array_u32(bit_width: u8, len: usize) -> BitPackedArray {
         .map(|i| (i as u64 % (max_val + 1)) as u32)
         .collect();
     let primitive = PrimitiveArray::new(Buffer::from(values), NonNullable);
-    BitPackedArray::encode(primitive.as_ref(), bit_width)
-        .vortex_expect("failed to create BitPacked array")
+    BitPackedArray::encode(primitive.as_ref(), bit_width).expect("failed to create BitPacked array")
 }
 
 /// Launch the dynamic_dispatch kernel and return GPU-timed duration.
@@ -130,19 +129,19 @@ fn run_dynamic_dispatch_bitpacked_timed(
     let device_input = if packed.is_on_device() {
         packed
     } else {
-        block_on(cuda_ctx.move_to_device(packed)?).vortex_expect("failed to move to device")
+        block_on(cuda_ctx.move_to_device(packed)?).expect("failed to move to device")
     };
 
     let input_ptr = device_input
         .cuda_view::<u32>()
-        .vortex_expect("failed to get input view")
+        .expect("failed to get input view")
         .device_ptr(cuda_ctx.stream())
         .0;
 
     // Allocate output buffer (padded to 1024-element chunks).
     let output_slice = cuda_ctx
         .device_alloc::<u32>(len.next_multiple_of(1024))
-        .vortex_expect("failed to allocate output");
+        .expect("failed to allocate output");
     let output_buf = CudaDeviceBuffer::new(output_slice);
     let output_ptr = output_buf.as_view::<u32>().device_ptr(cuda_ctx.stream()).0;
 
@@ -174,7 +173,7 @@ fn bench_bitunpack_for_dynamic_dispatch(c: &mut Criterion) {
             &bitpacked,
             |b, array| {
                 let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                    .vortex_expect("failed to create execution context");
+                    .expect("failed to create execution context");
 
                 let device_plan = Arc::new(
                     cuda_ctx
@@ -192,7 +191,7 @@ fn bench_bitunpack_for_dynamic_dispatch(c: &mut Criterion) {
                             array,
                             &device_plan,
                         )
-                        .vortex_expect("bitunpack+for dynamic_dispatch failed");
+                        .expect("bitunpack+for dynamic_dispatch failed");
                         total_time += kernel_time;
                     }
 
@@ -228,7 +227,7 @@ fn bench_bitunpack_for_alp_dynamic_dispatch(c: &mut Criterion) {
             &bitpacked,
             |b, array| {
                 let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                    .vortex_expect("failed to create execution context");
+                    .expect("failed to create execution context");
 
                 let device_plan = Arc::new(
                     cuda_ctx
@@ -246,7 +245,7 @@ fn bench_bitunpack_for_alp_dynamic_dispatch(c: &mut Criterion) {
                             array,
                             &device_plan,
                         )
-                        .vortex_expect("bitunpack+for+alp dynamic_dispatch failed");
+                        .expect("bitunpack+for+alp dynamic_dispatch failed");
                         total_time += kernel_time;
                     }
 

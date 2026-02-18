@@ -111,8 +111,7 @@ impl DecimalArray {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Self::try_new(buffer, decimal_dtype, validity)
-            .vortex_expect("DecimalArray construction failed")
+        Self::try_new(buffer, decimal_dtype, validity).expect("DecimalArray construction failed")
     }
 
     /// Creates a new [`DecimalArray`] from a [`BufferHandle`] of values that may live in
@@ -129,7 +128,7 @@ impl DecimalArray {
         validity: Validity,
     ) -> Self {
         Self::try_new_handle(values, values_type, decimal_dtype, validity)
-            .vortex_expect("DecimalArray construction failed")
+            .expect("DecimalArray construction failed")
     }
 
     /// Constructs a new `DecimalArray`.
@@ -217,7 +216,7 @@ impl DecimalArray {
         #[cfg(debug_assertions)]
         {
             Self::validate(&values, values_type, &validity)
-                .vortex_expect("[Debug Assertion]: Invalid `DecimalArray` parameters");
+                .expect("[Debug Assertion]: Invalid `DecimalArray` parameters");
         }
 
         Self {
@@ -277,7 +276,7 @@ impl DecimalArray {
     }
 
     pub fn into_parts(self) -> DecimalArrayParts {
-        let decimal_dtype = self.dtype.into_decimal_opt().vortex_expect("cannot fail");
+        let decimal_dtype = self.dtype.into_decimal_opt().expect("cannot fail");
 
         DecimalArrayParts {
             decimal_dtype,
@@ -424,7 +423,7 @@ where
     }
 
     for (idx, value) in patch_indices.iter().zip_eq(patch_values.into_iter()) {
-        buffer[idx.as_() - patch_indices_offset] = <ValuesDVT as BigCast>::from(value).vortex_expect(
+        buffer[idx.as_() - patch_indices_offset] = <ValuesDVT as BigCast>::from(value).expect(
             "values of a given DecimalDType are representable in all compatible NativeDecimalType",
         );
     }

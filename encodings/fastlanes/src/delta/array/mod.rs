@@ -163,8 +163,7 @@ impl DeltaArray {
 
     #[inline]
     pub(crate) fn lanes(&self) -> usize {
-        let ptype =
-            PType::try_from(self.dtype()).vortex_expect("DeltaArray DType must be primitive");
+        let ptype = PType::try_from(self.dtype()).expect("DeltaArray DType must be primitive");
         lane_count(ptype)
     }
 

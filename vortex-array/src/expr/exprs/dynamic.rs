@@ -196,7 +196,7 @@ impl DynamicComparisonExpr {
     pub fn scalar(&self) -> Option<Scalar> {
         (self.rhs.value)().map(|v| {
             Scalar::try_new(self.rhs.dtype.clone(), Some(v))
-                .vortex_expect("`DynamicComparisonExpr` was invalid")
+                .expect("`DynamicComparisonExpr` was invalid")
         })
     }
 }
@@ -241,9 +241,8 @@ struct Rhs {
 
 impl Rhs {
     pub fn scalar(&self) -> Option<Scalar> {
-        (self.value)().map(|v| {
-            Scalar::try_new(self.dtype.clone(), Some(v)).vortex_expect("`Rhs` was invalid")
-        })
+        (self.value)()
+            .map(|v| Scalar::try_new(self.dtype.clone(), Some(v)).expect("`Rhs` was invalid"))
     }
 }
 
@@ -280,7 +279,7 @@ impl DynamicExprUpdates {
         }
 
         let mut visitor = Visitor::default();
-        expr.accept(&mut visitor).vortex_expect("Infallible");
+        expr.accept(&mut visitor).expect("Infallible");
 
         if visitor.0.is_empty() {
             return None;
@@ -292,7 +291,7 @@ impl DynamicExprUpdates {
             .map(|expr| {
                 (expr.rhs.value)().map(|v| {
                     Scalar::try_new(expr.rhs.dtype.clone(), Some(v))
-                        .vortex_expect("`DynamicExprUpdates` was invalid")
+                        .expect("`DynamicExprUpdates` was invalid")
                 })
             })
             .collect();

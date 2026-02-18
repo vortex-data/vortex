@@ -146,7 +146,7 @@ fn take<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
         let start = offsets[idx];
         let stop = offsets[idx + 1];
 
-        current_offset += NewOffset::from(stop - start).vortex_expect("offset type overflow");
+        current_offset += NewOffset::from(stop - start).expect("offset type overflow");
         new_offsets.push(current_offset);
     }
 
@@ -158,10 +158,10 @@ fn take<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
             .unwrap_or_else(|| vortex_panic!("Failed to convert index to usize: {}", idx));
         let start = offsets[idx]
             .to_usize()
-            .vortex_expect("Failed to cast max offset to usize");
+            .expect("Failed to cast max offset to usize");
         let stop = offsets[idx + 1]
             .to_usize()
-            .vortex_expect("Failed to cast max offset to usize");
+            .expect("Failed to cast max offset to usize");
         new_data.extend_from_slice(&data[start..stop]);
     }
 
@@ -210,7 +210,7 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPT
             validity_buffer.append(true);
             let start = offsets[data_idx_usize];
             let stop = offsets[data_idx_usize + 1];
-            current_offset += NewOffset::from(stop - start).vortex_expect("offset type overflow");
+            current_offset += NewOffset::from(stop - start).expect("offset type overflow");
             new_offsets.push(current_offset);
             valid_indices.push(data_idx_usize);
         } else {
@@ -225,10 +225,10 @@ fn take_nullable<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPT
     for data_idx in valid_indices {
         let start = offsets[data_idx]
             .to_usize()
-            .vortex_expect("Failed to cast max offset to usize");
+            .expect("Failed to cast max offset to usize");
         let stop = offsets[data_idx + 1]
             .to_usize()
-            .vortex_expect("Failed to cast max offset to usize");
+            .expect("Failed to cast max offset to usize");
         new_data.extend_from_slice(&data[start..stop]);
     }
 

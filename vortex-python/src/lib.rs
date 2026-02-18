@@ -41,7 +41,7 @@ use vortex::session::VortexSession;
 static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
     Runtime::new()
         .map_err(VortexError::from)
-        .vortex_expect("tokio runtime must not fail to start")
+        .expect("tokio runtime must not fail to start")
 });
 static RUNTIME: LazyLock<TokioRuntime> =
     LazyLock::new(|| TokioRuntime::new(TOKIO_RUNTIME.handle().clone()));

@@ -93,7 +93,7 @@ impl VTable for SharedVTable {
         let child = children
             .into_iter()
             .next()
-            .vortex_expect("children length already validated");
+            .expect("children length already validated");
         array.set_source(child);
         Ok(())
     }

@@ -117,9 +117,7 @@ impl MessageDecoder {
                             let body = bytes.copy_to_aligned(body_length, Alignment::new(1));
                             let parts = ArrayParts::try_from(body)?;
 
-                            let header = msg
-                                .header_as_array_message()
-                                .vortex_expect("header is array");
+                            let header = msg.header_as_array_message().expect("header is array");
 
                             let encoding_ids: Vec<_> = header
                                 .encodings()
@@ -141,7 +139,7 @@ impl MessageDecoder {
                                 body_length,
                                 Alignment::from_exponent(
                                     msg.header_as_buffer_message()
-                                        .vortex_expect("header is buffer")
+                                        .expect("header is buffer")
                                         .alignment_exponent(),
                                 ),
                             );

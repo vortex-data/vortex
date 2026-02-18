@@ -45,7 +45,7 @@ mod tests {
     impl Apples {
         fn new() -> ExtDType<Apples> {
             ExtDType::try_new(0, DType::Primitive(PType::U16, Nullability::NonNullable))
-                .vortex_expect("valid apples dtype")
+                .expect("valid apples dtype")
         }
     }
 
@@ -325,7 +325,7 @@ mod tests {
             .to_storage_scalar()
             .as_struct()
             .fields_iter()
-            .vortex_expect("non null")
+            .expect("non null")
             .collect::<Vec<_>>();
         assert_eq!(
             list_elems[0].as_primitive().pvalue().unwrap(),

@@ -21,9 +21,8 @@ pub(crate) unsafe extern "C-unwind" fn init_global_callback<T: TableFunction>(
     init_input: *const cpp::duckdb_vx_tfunc_init_input,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
-    let init_input = TableInitInput::new(
-        unsafe { init_input.as_ref() }.vortex_expect("init_input null pointer"),
-    );
+    let init_input =
+        TableInitInput::new(unsafe { init_input.as_ref() }.expect("init_input null pointer"));
 
     match T::init_global(&init_input) {
         Ok(init_data) => Data::from(Box::new(init_data)).as_ptr(),
@@ -43,12 +42,11 @@ pub(crate) unsafe extern "C-unwind" fn init_local_callback<T: TableFunction>(
     global_init_data: *mut c_void,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
-    let init_input = TableInitInput::new(
-        unsafe { init_input.as_ref() }.vortex_expect("init_input null pointer"),
-    );
+    let init_input =
+        TableInitInput::new(unsafe { init_input.as_ref() }.expect("init_input null pointer"));
 
     let global_init_data = unsafe { global_init_data.cast::<T::GlobalState>().as_mut() }
-        .vortex_expect("global_init_data null pointer");
+        .expect("global_init_data null pointer");
 
     match T::init_local(&init_input, global_init_data) {
         Ok(init_data) => Data::from(Box::new(init_data)).as_ptr(),

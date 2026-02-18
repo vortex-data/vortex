@@ -6,6 +6,7 @@ single-char-binding-names-threshold = 2
 disallowed-types = [
     { path = "std::collections::HashMap", reason = "Use the HashMap in vortex_utils::aliases for better performance" },
     { path = "std::collections::HashSet", reason = "Use the HashSet in vortex_utils::aliases for better performance" },
+    { path = "std::result::Result", reason = "Functions should always return VortexResult, which carries a backtrace" },
     { path = "std::sync::Mutex", reason = "Prefer using parking_lot Mutex for improved ergonomics and performance" },
     { path = "std::sync::RwLock", reason = "Prefer using parking_lot RwLock for improved ergonomics and performance" },
 ]

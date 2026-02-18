@@ -135,7 +135,7 @@ pub fn upcast_decimal_values(
 /// Since T is wider than F, this conversion never fails.
 fn upcast_decimal_buffer<F: NativeDecimalType, T: NativeDecimalType>(from: Buffer<F>) -> Buffer<T> {
     from.iter()
-        .map(|&v| T::from(v).vortex_expect("upcast should never fail"))
+        .map(|&v| T::from(v).expect("upcast should never fail"))
         .collect()
 }
 

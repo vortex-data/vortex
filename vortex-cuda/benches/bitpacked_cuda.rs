@@ -52,7 +52,7 @@ where
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable);
     BitPackedArray::encode(primitive_array.as_ref(), bit_width)
-        .vortex_expect("failed to create BitPacked array")
+        .expect("failed to create BitPacked array")
 }
 
 /// Generic benchmark function for a specific type and bit width
@@ -78,7 +78,7 @@ where
                 let timer = Arc::clone(&timed.total_time_ns);
 
                 let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                    .vortex_expect("failed to create execution context")
+                    .expect("failed to create execution context")
                     .with_launch_strategy(Arc::new(timed));
 
                 for _ in 0..iters {

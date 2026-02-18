@@ -115,31 +115,31 @@ impl ChunkedReader {
                 intersecting_row_range
                     .end
                     .checked_sub(intersecting_row_range.start)
-                    .vortex_expect("Invalid row range"),
+                    .expect("Invalid row range"),
             )
-            .vortex_expect("Row range length exceeds usize::MAX");
+            .expect("Row range length exceeds usize::MAX");
 
             // Figure out the offset into the mask.
             let mask_relative_start = usize::try_from(
                 intersecting_row_range
                     .start
                     .checked_sub(row_range.start)
-                    .vortex_expect("Invalid row range"),
+                    .expect("Invalid row range"),
             )
-            .vortex_expect("Mask offset exceeds usize::MAX");
+            .expect("Mask offset exceeds usize::MAX");
             let mask_relative_end = mask_relative_start
                 .checked_add(intersecting_len)
-                .vortex_expect("Mask range calculation overflow");
+                .expect("Mask range calculation overflow");
             let mask_range = mask_relative_start..mask_relative_end;
 
             // Figure out the row range within the chunk.
             let chunk_relative_start = intersecting_row_range
                 .start
                 .checked_sub(chunk_row_range.start)
-                .vortex_expect("Chunk range calculation underflow");
+                .expect("Chunk range calculation underflow");
             let chunk_relative_end = chunk_relative_start
                 .checked_add(intersecting_len as u64)
-                .vortex_expect("Chunk range calculation overflow");
+                .expect("Chunk range calculation overflow");
             let chunk_range = chunk_relative_start..chunk_relative_end;
 
             (chunk_idx, chunk_range, mask_range)
@@ -229,7 +229,7 @@ impl LayoutReader for ChunkedReader {
 
             // If there is only one mask, we can return it directly.
             if masks.len() == 1 {
-                return Ok(masks.into_iter().next().vortex_expect("one mask"));
+                return Ok(masks.into_iter().next().expect("one mask"));
             }
 
             // Combine the masks.
@@ -264,7 +264,7 @@ impl LayoutReader for ChunkedReader {
 
             // If there is only one mask, we can return it directly.
             if masks.len() == 1 {
-                return Ok(masks.into_iter().next().vortex_expect("one mask"));
+                return Ok(masks.into_iter().next().expect("one mask"));
             }
 
             // Combine the masks.
@@ -297,7 +297,7 @@ impl LayoutReader for ChunkedReader {
 
             // If there is only one chunk, we can return it directly.
             if chunks.len() == 1 {
-                return Ok(chunks.into_iter().next().vortex_expect("one chunk"));
+                return Ok(chunks.into_iter().next().expect("one chunk"));
             }
 
             // Combine the arrays.

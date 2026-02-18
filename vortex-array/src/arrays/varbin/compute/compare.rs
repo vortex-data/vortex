@@ -47,11 +47,11 @@ impl CompareKernel for VarBinVTable {
                 DType::Binary(_) => rhs_const
                     .as_binary()
                     .is_empty()
-                    .vortex_expect("RHS should not be null"),
+                    .expect("RHS should not be null"),
                 DType::Utf8(_) => rhs_const
                     .as_utf8()
                     .is_empty()
-                    .vortex_expect("RHS should not be null"),
+                    .expect("RHS should not be null"),
                 _ => vortex_bail!("VarBinArray can only have type of Binary or Utf8"),
             };
 

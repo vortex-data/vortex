@@ -58,7 +58,7 @@ impl FlatReader {
     /// Register the segment request and return a future that would resolve into the deserialised array.
     fn array_future(&self) -> SharedArrayFuture {
         let row_count =
-            usize::try_from(self.layout.row_count()).vortex_expect("row count must fit in usize");
+            usize::try_from(self.layout.row_count()).expect("row count must fit in usize");
 
         // We create the segment_fut here to ensure we give the segment reader visibility into
         // how to prioritize this segment, even if the `array` future has already been initialized.
@@ -126,9 +126,9 @@ impl LayoutReader for FlatReader {
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         let row_range = usize::try_from(row_range.start)
-            .vortex_expect("Row range begin must fit within FlatLayout size")
+            .expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
-                .vortex_expect("Row range end must fit within FlatLayout size");
+                .expect("Row range end must fit within FlatLayout size");
         let name = self.name.clone();
         let array = self.array_future();
         let expr = expr.clone();
@@ -184,9 +184,9 @@ impl LayoutReader for FlatReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let row_range = usize::try_from(row_range.start)
-            .vortex_expect("Row range begin must fit within FlatLayout size")
+            .expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
-                .vortex_expect("Row range end must fit within FlatLayout size");
+                .expect("Row range end must fit within FlatLayout size");
         let name = self.name.clone();
         let array = self.array_future();
         let expr = expr.clone();

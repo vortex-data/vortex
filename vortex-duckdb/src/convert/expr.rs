@@ -36,7 +36,7 @@ use crate::duckdb;
 const DUCKDB_FUNCTION_NAME_CONTAINS: &str = "contains";
 
 fn like_pattern_str(value: &duckdb::Expression) -> VortexResult<Option<String>> {
-    match value.as_class().vortex_expect("unknown class") {
+    match value.as_class().expect("unknown class") {
         duckdb::ExpressionClass::BoundConstant(constant) => {
             Ok(Some(format!("%{}%", constant.value.as_string().as_str())))
         }
@@ -177,10 +177,10 @@ pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Opt
             };
             match conj.op {
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_CONJUNCTION_AND => {
-                    and_collect(children).vortex_expect("cannot be empty")
+                    and_collect(children).expect("cannot be empty")
                 }
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_CONJUNCTION_OR => {
-                    or_collect(children).vortex_expect("cannot be empty")
+                    or_collect(children).expect("cannot be empty")
                 }
                 _ => vortex_bail!("unexpected operator {:?} in bound conjunction", conj.op),
             }

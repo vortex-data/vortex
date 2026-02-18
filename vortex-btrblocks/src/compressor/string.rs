@@ -103,7 +103,7 @@ impl CompressorStats for StringStats {
 
     fn generate_opts(input: &VarBinViewArray, opts: GenerateStatsOptions) -> Self {
         Self::generate_opts_fallible(input, opts)
-            .vortex_expect("StringStats::generate_opts should not fail")
+            .expect("StringStats::generate_opts should not fail")
     }
 
     fn source(&self) -> &VarBinViewArray {

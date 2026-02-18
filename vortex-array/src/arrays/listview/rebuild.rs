@@ -113,7 +113,7 @@ impl ListViewArray {
         let element_dtype = self
             .dtype()
             .as_list_element_opt()
-            .vortex_expect("somehow had a canonical list that was not a list");
+            .expect("somehow had a canonical list that was not a list");
 
         let offsets_canonical = self.offsets().to_primitive();
         let offsets_slice = offsets_canonical.as_slice::<O>();
@@ -133,7 +133,7 @@ impl ListViewArray {
         let elements_canonical = self
             .elements()
             .to_canonical()
-            .vortex_expect("canonicalize elements for rebuild")
+            .expect("canonicalize elements for rebuild")
             .into_array();
 
         // Note that we do not know what the exact capacity should be of the new elements since
@@ -161,7 +161,7 @@ impl ListViewArray {
             new_sizes.push(size);
             new_elements_builder.extend_from_array(&elements_canonical.slice(start..stop)?);
 
-            n_elements += num_traits::cast(size).vortex_expect("Cast failed");
+            n_elements += num_traits::cast(size).expect("Cast failed");
         }
 
         let offsets = new_offsets.into_array();
@@ -198,7 +198,7 @@ impl ListViewArray {
             // completely fine for us to use this as a lower-bounded start of the `elements`.
             self.offset_at(0)
         } else {
-            self.offsets().statistics().compute_min().vortex_expect(
+            self.offsets().statistics().compute_min().expect(
                 "[ListViewArray::rebuild]: `offsets` must report min statistic that is a `usize`",
             )
         };
@@ -212,25 +212,25 @@ impl ListViewArray {
         } else {
             let min_max = compute::min_max(
                 &compute::add(self.offsets(), self.sizes())
-                    .vortex_expect("`offsets + sizes` somehow overflowed"),
+                    .expect("`offsets + sizes` somehow overflowed"),
             )
-            .vortex_expect("Something went wrong while computing min and max")
-            .vortex_expect("We checked that the array was not empty in the top-level `rebuild`");
+            .expect("Something went wrong while computing min and max")
+            .expect("We checked that the array was not empty in the top-level `rebuild`");
 
             min_max
                 .max
                 .as_primitive()
                 .as_::<usize>()
-                .vortex_expect("unable to interpret the max `offset + size` as a `usize`")
+                .expect("unable to interpret the max `offset + size` as a `usize`")
         };
 
         let adjusted_offsets = match_each_integer_ptype!(self.offsets().dtype().as_ptype(), |O| {
             let offset = <O as FromPrimitive>::from_usize(start)
-                .vortex_expect("unable to convert the min offset `start` into a `usize`");
+                .expect("unable to convert the min offset `start` into a `usize`");
             let scalar = Scalar::primitive(offset, Nullability::NonNullable);
 
             compute::sub_scalar(self.offsets(), scalar)
-                .vortex_expect("was somehow unable to adjust offsets down by their minimum")
+                .expect("was somehow unable to adjust offsets down by their minimum")
         });
 
         let sliced_elements = self.elements().slice(start..end)?;

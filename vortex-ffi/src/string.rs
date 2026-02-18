@@ -35,7 +35,7 @@ pub unsafe extern "C-unwind" fn vx_string_new(ptr: *const c_char, len: usize) ->
     // TODO(joe): propagate this error up instead of expecting
     let string = String::from_utf8(slice.to_vec())
         .map_err(|e| vortex_err!("invalid utf-8: {e}"))
-        .vortex_expect("CString creation should succeed");
+        .expect("CString creation should succeed");
     vx_string::new(string.into())
 }
 
@@ -46,7 +46,7 @@ pub unsafe extern "C-unwind" fn vx_string_new_from_cstr(ptr: *const c_char) -> *
     let string = unsafe { CStr::from_ptr(ptr) }
         .to_str()
         .map_err(|e| vortex_err!("invalid utf-8: {e}"))
-        .vortex_expect("CString creation should succeed");
+        .expect("CString creation should succeed");
     vx_string::new(string.into())
 }
 

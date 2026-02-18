@@ -129,7 +129,7 @@ impl VTable for PrimitiveVTable {
         array.validity = if children.is_empty() {
             Validity::from(array.dtype().nullability())
         } else {
-            Validity::Array(children.into_iter().next().vortex_expect("checked"))
+            Validity::Array(children.into_iter().next().expect("checked"))
         };
 
         Ok(())

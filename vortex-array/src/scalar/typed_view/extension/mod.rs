@@ -104,7 +104,7 @@ impl<'a> ExtScalar<'a> {
     /// Returns the storage scalar of the extension scalar.
     pub fn to_storage_scalar(&self) -> Scalar {
         Scalar::try_new(self.ext_dtype.storage_dtype().clone(), self.value.cloned())
-            .vortex_expect("ExtScalar is invalid")
+            .expect("ExtScalar is invalid")
     }
 
     /// Return the [`DType`] of the extension scalar.

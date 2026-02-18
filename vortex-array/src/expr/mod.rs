@@ -62,7 +62,7 @@ impl VortexExprExt for Expression {
         let mut collector = ReferenceCollector::new();
         // The collector is infallible, so we can unwrap the result
         self.accept(&mut collector)
-            .vortex_expect("reference collector should never fail");
+            .expect("reference collector should never fail");
         collector.into_fields()
     }
 }

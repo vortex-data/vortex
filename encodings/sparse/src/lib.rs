@@ -148,8 +148,8 @@ impl VTable for SparseVTable {
         );
 
         let mut children_iter = children.into_iter();
-        let patch_indices = children_iter.next().vortex_expect("patch_indices child");
-        let patch_values = children_iter.next().vortex_expect("patch_values child");
+        let patch_indices = children_iter.next().expect("patch_indices child");
+        let patch_values = children_iter.next().expect("patch_values child");
 
         array.patches = Patches::new(
             array.patches.array_len(),
@@ -324,7 +324,7 @@ impl SparseArray {
                 AllOr::Some(values) => {
                     let buffer: Buffer<u32> = values
                         .iter()
-                        .map(|&v| v.try_into().vortex_expect("indices must fit in u32"))
+                        .map(|&v| v.try_into().expect("indices must fit in u32"))
                         .collect();
 
                     buffer.into_array()
@@ -347,7 +347,7 @@ impl SparseArray {
             let (top_pvalue, _) = array
                 .to_primitive()
                 .top_value()?
-                .vortex_expect("Non empty or all null array");
+                .expect("Non empty or all null array");
 
             Scalar::primitive_value(top_pvalue, top_pvalue.ptype(), array.dtype().nullability())
         };
@@ -620,7 +620,7 @@ mod test {
             ]),
         );
         let sparse = SparseArray::encode(&original.clone().into_array(), None)
-            .vortex_expect("SparseArray::encode should succeed for test data");
+            .expect("SparseArray::encode should succeed for test data");
         assert_eq!(
             sparse.validity_mask().unwrap(),
             Mask::from_iter(vec![

@@ -82,7 +82,7 @@ impl Expression {
                 let reduced_expr = reduced
                     .as_any()
                     .downcast_ref::<ExpressionReduceNode>()
-                    .vortex_expect("ReduceNode not an ExpressionReduceNode")
+                    .expect("ReduceNode not an ExpressionReduceNode")
                     .expression
                     .clone();
                 current = reduced_expr;
@@ -283,7 +283,7 @@ impl ReduceCtx for ExpressionReduceCtx {
                 .map(|c| {
                     c.as_any()
                         .downcast_ref::<ExpressionReduceNode>()
-                        .vortex_expect("ReduceNode not an ExpressionReduceNode")
+                        .expect("ReduceNode not an ExpressionReduceNode")
                         .expression
                         .clone()
                 })

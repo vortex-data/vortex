@@ -95,8 +95,7 @@ mod tests {
         let strings =
             VarBinViewArray::from_iter_str(vec!["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"])
                 .into_array();
-        let arr =
-            StructArray::from_fields(&[("a", prim), ("b", strings)]).vortex_expect("struct array");
+        let arr = StructArray::from_fields(&[("a", prim), ("b", strings)]).expect("struct array");
         let mut chunk = DataChunk::new([LogicalType::struct_type(
             vec![
                 LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER),
@@ -104,7 +103,7 @@ mod tests {
             ],
             vec![CString::new("col1").unwrap(), CString::new("col2").unwrap()],
         )
-        .vortex_expect("LogicalType creation should succeed for test data")]);
+        .expect("LogicalType creation should succeed for test data")]);
 
         new_exporter(
             arr,
@@ -160,7 +159,7 @@ mod tests {
                 true, true, true, false, false, false, true, true, true, true,
             ])),
         )
-        .vortex_expect("StructArray creation should succeed for test data");
+        .expect("StructArray creation should succeed for test data");
         let mut chunk = DataChunk::new([LogicalType::struct_type(
             vec![
                 LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER),
@@ -168,7 +167,7 @@ mod tests {
             ],
             vec![CString::new("col1").unwrap(), CString::new("col2").unwrap()],
         )
-        .vortex_expect("LogicalType creation should succeed for test data")]);
+        .expect("LogicalType creation should succeed for test data")]);
 
         new_exporter(
             arr,
@@ -195,7 +194,7 @@ mod tests {
             buffer![0u8, 1, 1, 2, 2, 2, 2, 3, 3, 4].into_array(),
             VarBinViewArray::from_iter_str(vec!["b", "c", "d", "g", "h"]).into_array(),
         )
-        .vortex_expect("DictArray creation should succeed for test data")
+        .expect("DictArray creation should succeed for test data")
         .into_array();
         let arr = StructArray::try_new(
             ["col1", "col2"].into(),
@@ -205,7 +204,7 @@ mod tests {
                 true, true, true, false, false, false, true, true, true, true,
             ])),
         )
-        .vortex_expect("StructArray creation should succeed for test data");
+        .expect("StructArray creation should succeed for test data");
         let mut chunk = DataChunk::new([LogicalType::struct_type(
             vec![
                 LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER),
@@ -213,7 +212,7 @@ mod tests {
             ],
             vec![CString::new("col1").unwrap(), CString::new("col2").unwrap()],
         )
-        .vortex_expect("LogicalType creation should succeed for test data")]);
+        .expect("LogicalType creation should succeed for test data")]);
 
         new_exporter(
             arr,

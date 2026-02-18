@@ -26,7 +26,7 @@ impl ListContainsKernel for SequenceVTable {
         let list_elements = list_scalar
             .as_list()
             .elements()
-            .vortex_expect("non-null element (checked in entry)");
+            .expect("non-null element (checked in entry)");
 
         let mut set_indices: Vec<usize> = Vec::new();
         for intercept in list_elements.iter() {

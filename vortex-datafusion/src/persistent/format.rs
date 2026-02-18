@@ -281,7 +281,7 @@ impl FileFormat for VortexFormat {
                     let inferred_schema = vxf.dtype().to_arrow_schema()?;
                     VortexResult::Ok((object.location, inferred_schema))
                 })
-                .map(|f| f.vortex_expect("Failed to spawn infer_schema"))
+                .map(|f| f.expect("Failed to spawn infer_schema"))
             })
             .buffer_unordered(state.config_options().execution.meta_fetch_concurrency)
             .try_collect::<Vec<_>>()
@@ -359,9 +359,7 @@ impl FileFormat for VortexFormat {
                 }
             };
 
-            let struct_dtype = dtype
-                .as_struct_fields_opt()
-                .vortex_expect("dtype is not a struct");
+            let struct_dtype = dtype.as_struct_fields_opt().expect("dtype is not a struct");
 
             // Evaluate the statistics for each column that we are able to return to DataFusion.
             let Some(file_stats) = file_stats else {
@@ -370,7 +368,7 @@ impl FileFormat for VortexFormat {
                     num_rows: Precision::Exact(
                         usize::try_from(row_count)
                             .map_err(|_| vortex_err!("Row count overflow"))
-                            .vortex_expect("Row count overflow"),
+                            .expect("Row count overflow"),
                     ),
                     total_byte_size: Precision::Absent,
                     column_statistics: vec![ColumnStatistics::default(); struct_dtype.nfields()],
@@ -410,12 +408,12 @@ impl FileFormat for VortexFormat {
                             Scalar::try_new(
                                 Stat::Min
                                     .dtype(stats_dtype)
-                                    .vortex_expect("must have a valid dtype"),
+                                    .expect("must have a valid dtype"),
                                 Some(stat_val),
                             )
-                            .vortex_expect("`Stat::Min` somehow had an incompatible `DType`")
+                            .expect("`Stat::Min` somehow had an incompatible `DType`")
                             .cast(&DType::from_arrow(field.as_ref()))
-                            .vortex_expect("Unable to cast to target type that DataFusion wants")
+                            .expect("Unable to cast to target type that DataFusion wants")
                             .try_to_df()
                             .ok()
                         })
@@ -429,12 +427,12 @@ impl FileFormat for VortexFormat {
                             Scalar::try_new(
                                 Stat::Max
                                     .dtype(stats_dtype)
-                                    .vortex_expect("must have a valid dtype"),
+                                    .expect("must have a valid dtype"),
                                 Some(stat_val),
                             )
-                            .vortex_expect("`Stat::Max` somehow had an incompatible `DType`")
+                            .expect("`Stat::Max` somehow had an incompatible `DType`")
                             .cast(&DType::from_arrow(field.as_ref()))
-                            .vortex_expect("Unable to cast to target type that DataFusion wants")
+                            .expect("Unable to cast to target type that DataFusion wants")
                             .try_to_df()
                             .ok()
                         })
@@ -463,14 +461,14 @@ impl FileFormat for VortexFormat {
                 num_rows: Precision::Exact(
                     usize::try_from(row_count)
                         .map_err(|_| vortex_err!("Row count overflow"))
-                        .vortex_expect("Row count overflow"),
+                        .expect("Row count overflow"),
                 ),
                 total_byte_size,
                 column_statistics,
             })
         })
         .await
-        .vortex_expect("Failed to spawn infer_stats")
+        .expect("Failed to spawn infer_stats")
     }
 
     async fn create_physical_plan(

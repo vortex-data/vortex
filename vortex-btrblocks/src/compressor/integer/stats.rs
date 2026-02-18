@@ -89,7 +89,7 @@ impl ErasedStats {
             ErasedStats::I16(x) => (x.max as i32 - x.min as i32) as u64,
             ErasedStats::I32(x) => (x.max as i64 - x.min as i64) as u64,
             ErasedStats::I64(x) => u64::try_from(x.max as i128 - x.min as i128)
-                .vortex_expect("max minus min result bigger than u64"),
+                .expect("max minus min result bigger than u64"),
         }
     }
 
@@ -156,7 +156,7 @@ impl CompressorStats for IntegerStats {
 
     fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
         Self::generate_opts_fallible(input, opts)
-            .vortex_expect("IntegerStats::generate_opts should not fail")
+            .expect("IntegerStats::generate_opts should not fail")
     }
 
     fn source(&self) -> &PrimitiveArray {
@@ -235,7 +235,7 @@ where
     // Initialize loop state
     let head_idx = validity
         .first()
-        .vortex_expect("All null masks have been handled before");
+        .expect("All null masks have been handled before");
     let buffer = array.to_buffer::<T>();
     let head = buffer[head_idx];
 
@@ -255,7 +255,7 @@ where
         AllOr::All => {
             for chunk in &mut chunks {
                 inner_loop_nonnull(
-                    chunk.try_into().ok().vortex_expect("chunk size must be 64"),
+                    chunk.try_into().ok().expect("chunk size must be 64"),
                     count_distinct_values,
                     &mut loop_state,
                 )
@@ -281,13 +281,13 @@ where
                     0 => continue,
                     // Inner loop for when validity check can be elided
                     64 => inner_loop_nonnull(
-                        chunk.try_into().ok().vortex_expect("chunk size must be 64"),
+                        chunk.try_into().ok().expect("chunk size must be 64"),
                         count_distinct_values,
                         &mut loop_state,
                     ),
                     // Inner loop for when we need to check validity
                     _ => inner_loop_nullable(
-                        chunk.try_into().ok().vortex_expect("chunk size must be 64"),
+                        chunk.try_into().ok().expect("chunk size must be 64"),
                         count_distinct_values,
                         &validity,
                         &mut loop_state,
@@ -310,7 +310,7 @@ where
             .distinct_values
             .iter()
             .max_by_key(|&(_, &count)| count)
-            .vortex_expect("non-empty");
+            .expect("non-empty");
         (top_value.0, top_count)
     } else {
         (T::default(), 0)
@@ -326,12 +326,12 @@ where
     let min = array
         .statistics()
         .compute_as::<T>(Stat::Min)
-        .vortex_expect("min should be computed");
+        .expect("min should be computed");
 
     let max = array
         .statistics()
         .compute_as::<T>(Stat::Max)
-        .vortex_expect("max should be computed");
+        .expect("max should be computed");
 
     let typed = TypedStats {
         min,

@@ -324,7 +324,7 @@ mod test {
             ],
             DType::Primitive(PType::I32, Nullability::NonNullable),
         )
-        .vortex_expect("operation should succeed in test");
+        .expect("operation should succeed in test");
         // compute sum with accumulator to populate stats
         sum_with_accumulator(
             array.as_ref(),

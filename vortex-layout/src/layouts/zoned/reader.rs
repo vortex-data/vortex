@@ -128,13 +128,13 @@ impl ZonedReader {
                 let zones_eval = self
                     .lazy_children
                     .get(1)
-                    .vortex_expect("failed to get zone child")
+                    .expect("failed to get zone child")
                     .projection_evaluation(
                         &(0..nzones as u64),
                         &root(),
                         MaskFuture::new_true(nzones),
                     )
-                    .vortex_expect("Failed construct zone map evaluation");
+                    .expect("Failed construct zone map evaluation");
 
                 async move {
                     let zones_array = zones_eval.await?.to_struct();

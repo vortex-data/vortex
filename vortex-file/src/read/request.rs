@@ -37,8 +37,9 @@ impl IoRequest {
     pub fn len(&self) -> usize {
         match &self.0 {
             IoRequestInner::Single(r) => r.length,
-            IoRequestInner::Coalesced(r) => usize::try_from(r.range.end - r.range.start)
-                .vortex_expect("range too big for usize"),
+            IoRequestInner::Coalesced(r) => {
+                usize::try_from(r.range.end - r.range.start).expect("range too big for usize")
+            }
         }
     }
 
@@ -70,8 +71,7 @@ impl IoRequest {
     pub(crate) fn range(&self) -> Range<u64> {
         match &self.0 {
             IoRequestInner::Single(r) => {
-                r.offset
-                    ..(r.offset + u64::try_from(r.length).vortex_expect("length too big for u64"))
+                r.offset..(r.offset + u64::try_from(r.length).expect("length too big for u64"))
             }
             IoRequestInner::Coalesced(r) => r.range.clone(),
         }
@@ -147,8 +147,8 @@ impl CoalescedRequest {
                 };
 
                 for req in self.requests.into_iter() {
-                    let start = usize::try_from(req.offset - self.range.start)
-                        .vortex_expect("invalid offset");
+                    let start =
+                        usize::try_from(req.offset - self.range.start).expect("invalid offset");
                     let end = start + req.length;
                     let slice = match base.slice(start..end).ensure_aligned(req.alignment) {
                         Ok(slice) => slice,

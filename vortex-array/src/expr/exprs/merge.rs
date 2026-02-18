@@ -200,9 +200,7 @@ impl VTable for Merge {
                 )
             }
 
-            let child_dtype = child_dtype
-                .as_struct_fields_opt()
-                .vortex_expect("expected struct");
+            let child_dtype = child_dtype.as_struct_fields_opt().expect("expected struct");
 
             for name in child_dtype.names().iter() {
                 if let Some(idx) = names.iter().position(|n| n == name) {

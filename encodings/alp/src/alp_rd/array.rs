@@ -90,7 +90,7 @@ impl VTable for ALPRDVTable {
             dict_len: array.left_parts_dictionary().len() as u32,
             dict,
             left_parts_ptype: PType::try_from(array.left_parts().dtype())
-                .vortex_expect("Must be a valid PType") as i32,
+                .expect("Must be a valid PType") as i32,
             patches: array
                 .left_parts_patches()
                 .map(|p| p.to_metadata(array.len(), array.left_parts().dtype()))

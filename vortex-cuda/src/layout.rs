@@ -239,7 +239,7 @@ pub struct CudaFlatReader {
 impl CudaFlatReader {
     fn array_future(&self) -> SharedArrayFuture {
         let row_count =
-            usize::try_from(self.layout.row_count).vortex_expect("row count must fit in usize");
+            usize::try_from(self.layout.row_count).expect("row count must fit in usize");
 
         let segment_fut = self.segment_source.request(self.layout.segment_id);
 
@@ -306,9 +306,9 @@ impl LayoutReader for CudaFlatReader {
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         let row_range = usize::try_from(row_range.start)
-            .vortex_expect("Row range begin must fit within CudaFlatLayout size")
+            .expect("Row range begin must fit within CudaFlatLayout size")
             ..usize::try_from(row_range.end)
-                .vortex_expect("Row range end must fit within CudaFlatLayout size");
+                .expect("Row range end must fit within CudaFlatLayout size");
         let name = self.name.clone();
         let array = self.array_future();
         let expr = expr.clone();
@@ -354,9 +354,9 @@ impl LayoutReader for CudaFlatReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let row_range = usize::try_from(row_range.start)
-            .vortex_expect("Row range begin must fit within CudaFlatLayout size")
+            .expect("Row range begin must fit within CudaFlatLayout size")
             ..usize::try_from(row_range.end)
-                .vortex_expect("Row range end must fit within CudaFlatLayout size");
+                .expect("Row range end must fit within CudaFlatLayout size");
         let name = self.name.clone();
         let array = self.array_future();
         let expr = expr.clone();
@@ -404,7 +404,7 @@ fn resolve_buffers_with_host_overrides(
             offset += fb_buf.padding() as usize;
             let buffer_len = fb_buf.length() as usize;
 
-            let idx = u32::try_from(idx).vortex_expect("buffer count must fit in u32");
+            let idx = u32::try_from(idx).expect("buffer count must fit in u32");
             let alignment = Alignment::from_exponent(fb_buf.alignment_exponent());
             let handle = if let Some(host_data) = host_overrides.get(&idx) {
                 // Inlined host buffers lose segment padding alignment after protobuf
@@ -498,16 +498,14 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
             DType::Utf8(n) => {
                 truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
                     lower_bound(
-                        BufferString::from_scalar(v)
-                            .vortex_expect("utf8 scalar must be a BufferString"),
+                        BufferString::from_scalar(v).expect("utf8 scalar must be a BufferString"),
                         self.max_variable_length_statistics_size,
                         *n,
                     )
                 });
                 truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
                     upper_bound(
-                        BufferString::from_scalar(v)
-                            .vortex_expect("utf8 scalar must be a BufferString"),
+                        BufferString::from_scalar(v).expect("utf8 scalar must be a BufferString"),
                         self.max_variable_length_statistics_size,
                         *n,
                     )
@@ -516,16 +514,14 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
             DType::Binary(n) => {
                 truncate_scalar_stat(chunk.statistics(), Stat::Min, |v| {
                     lower_bound(
-                        ByteBuffer::from_scalar(v)
-                            .vortex_expect("binary scalar must be a ByteBuffer"),
+                        ByteBuffer::from_scalar(v).expect("binary scalar must be a ByteBuffer"),
                         self.max_variable_length_statistics_size,
                         *n,
                     )
                 });
                 truncate_scalar_stat(chunk.statistics(), Stat::Max, |v| {
                     upper_bound(
-                        ByteBuffer::from_scalar(v)
-                            .vortex_expect("binary scalar must be a ByteBuffer"),
+                        ByteBuffer::from_scalar(v).expect("binary scalar must be a ByteBuffer"),
                         self.max_variable_length_statistics_size,
                         *n,
                     )
@@ -598,7 +594,7 @@ fn extract_constant_buffers(chunk: &dyn Array) -> Vec<InlinedBuffer> {
                 buffer_idx += 1;
             }
         } else {
-            buffer_idx += u32::try_from(n).vortex_expect("buffer count must fit in u32");
+            buffer_idx += u32::try_from(n).expect("buffer count must fit in u32");
         }
     }
     result

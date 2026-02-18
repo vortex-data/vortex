@@ -55,7 +55,7 @@ fn random_dtype(u: &mut Unstructured<'_>, depth: u8) -> Result<DType> {
         // 8 => DType::FixedSizeList(
         //     Arc::new(random_dtype(u, depth - 1)?),
         //     // We limit the list size to 3 rather (following random struct fields).
-        //     u.choose_index(3)?.try_into().vortex_expect("impossible"),
+        //     u.choose_index(3)?.try_into().expect("impossible"),
         //     u.arbitrary()?,
         // ),
         // Null,

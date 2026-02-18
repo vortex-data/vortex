@@ -104,7 +104,7 @@ impl VTable for StructVTable {
                 layout
                     .struct_fields()
                     .field_name(schema_index)
-                    .vortex_expect("Field index out of bounds")
+                    .expect("Field index out of bounds")
                     .clone(),
             )
         }
@@ -193,7 +193,7 @@ impl StructLayout {
     pub fn struct_fields(&self) -> &StructFields {
         self.dtype
             .as_struct_fields_opt()
-            .vortex_expect("Struct layout dtype must be a struct")
+            .expect("Struct layout dtype must be a struct")
     }
 
     #[inline]

@@ -226,7 +226,7 @@ fn constant_list_scalar_contains(
     values: &dyn Array,
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
-    let elements = list_scalar.elements().vortex_expect("non null");
+    let elements = list_scalar.elements().expect("non null");
 
     let len = values.len();
     let mut result: Option<ArrayRef> = None;

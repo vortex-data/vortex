@@ -38,7 +38,7 @@ impl CompareKernel for FoRVTable {
                     lhs,
                     constant
                         .typed_value::<T>()
-                        .vortex_expect("null scalar handled in adaptor"),
+                        .expect("null scalar handled in adaptor"),
                     rhs.dtype().nullability(),
                     operator,
                 );

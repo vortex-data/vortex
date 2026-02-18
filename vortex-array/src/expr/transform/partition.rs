@@ -173,10 +173,7 @@ where
         match self.annotations.get(&node) {
             // If this expression only accesses a single field, then we can skip the children
             Some(annotations) if annotations.len() == 1 => {
-                let annotation = annotations
-                    .iter()
-                    .next()
-                    .vortex_expect("expected one field");
+                let annotation = annotations.iter().next().expect("expected one field");
                 let sub_exprs = self.sub_expressions.entry(annotation.clone()).or_default();
                 let idx = sub_exprs.len();
                 sub_exprs.push(node.clone());

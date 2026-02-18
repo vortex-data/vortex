@@ -84,9 +84,7 @@ impl LayoutCursor {
 
         // Traverse the layout tree at each element of the path.
         for component in path.iter().copied() {
-            layout = layout
-                .child(component)
-                .vortex_expect("Failed to get child layout");
+            layout = layout.child(component).expect("Failed to get child layout");
         }
 
         Self {
@@ -124,9 +122,9 @@ impl LayoutCursor {
     pub fn flatbuffer_size(&self) -> usize {
         let segment_id = self.layout.as_::<FlatVTable>().segment_id();
         let segment = block_on(self.segment_source.request(segment_id))
-            .vortex_expect("operation should succeed in TUI");
+            .expect("operation should succeed in TUI");
         ArrayParts::try_from(segment)
-            .vortex_expect("operation should succeed in TUI")
+            .expect("operation should succeed in TUI")
             .metadata()
             .len()
     }
@@ -163,7 +161,7 @@ impl LayoutCursor {
     fn layout_segments(&self) -> Vec<SegmentId> {
         self.layout
             .depth_first_traversal()
-            .map(|layout| layout.vortex_expect("Failed to load layout"))
+            .map(|layout| layout.expect("Failed to load layout"))
             .flat_map(|layout| layout.segment_ids().into_iter())
             .collect()
     }

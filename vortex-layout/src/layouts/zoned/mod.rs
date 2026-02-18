@@ -63,7 +63,7 @@ impl VTable for ZonedVTable {
 
     fn metadata(layout: &Self::Layout) -> Self::Metadata {
         ZonedMetadata {
-            zone_len: u32::try_from(layout.zone_len).vortex_expect("Invalid zone length"),
+            zone_len: u32::try_from(layout.zone_len).expect("Invalid zone length"),
             present_stats: layout.present_stats.clone(),
         }
     }
@@ -172,7 +172,7 @@ impl ZonedLayout {
     }
 
     pub fn nzones(&self) -> usize {
-        usize::try_from(self.children.child_row_count(1)).vortex_expect("Invalid number of zones")
+        usize::try_from(self.children.child_row_count(1)).expect("Invalid number of zones")
     }
 
     /// Returns an array of stats that exist in the layout's data, must be sorted.

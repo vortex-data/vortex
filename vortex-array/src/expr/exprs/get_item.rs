@@ -109,7 +109,7 @@ impl VTable for GetItem {
         let input = args
             .inputs
             .pop()
-            .vortex_expect("missing input for GetItem expression")
+            .expect("missing input for GetItem expression")
             .execute::<StructArray>(args.ctx)?;
         let field = input.unmasked_field_by_name(field_name).cloned()?;
 

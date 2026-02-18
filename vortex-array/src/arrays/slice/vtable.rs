@@ -104,7 +104,7 @@ impl VTable for SliceVTable {
         array.child = children
             .into_iter()
             .next()
-            .vortex_expect("children length already validated");
+            .expect("children length already validated");
         Ok(())
     }
 

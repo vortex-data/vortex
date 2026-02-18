@@ -92,7 +92,7 @@ impl CopyFunction for VortexCopyFunction {
             init_global
                 .sink
                 .as_mut()
-                .vortex_expect("sink closed early")
+                .expect("sink closed early")
                 .send(chunk)
                 .await
                 .map_err(|e| vortex_err!("send error {}", e.to_string()))
@@ -113,7 +113,7 @@ impl CopyFunction for VortexCopyFunction {
                 .write_task
                 .lock()
                 .take()
-                .vortex_expect("no file to close");
+                .expect("no file to close");
             task.await?;
             Ok(())
         })

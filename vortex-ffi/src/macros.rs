@@ -70,7 +70,7 @@ macro_rules! arc_dyn_wrapper {
                     use vortex::error::VortexExpect;
                     // TODO(joe): propagate this error up instead of expecting
                     &unsafe { ptr.as_ref() }
-                        .vortex_expect("null pointer")
+                        .expect("null pointer")
                         .0
                 }
 
@@ -132,7 +132,7 @@ macro_rules! arc_wrapper {
                     use vortex::error::VortexExpect;
                     // TODO(joe): propagate this error up instead of expecting
                     &unsafe { ptr.as_ref() }
-                        .vortex_expect("null pointer")
+                        .expect("null pointer")
                         .0
                 }
 
@@ -197,7 +197,7 @@ macro_rules! box_dyn_wrapper {
                     use vortex::error::VortexExpect;
                     // TODO(joe): propagate this error up instead of expecting
                     unsafe { ptr.as_ref() }
-                        .vortex_expect("null pointer")
+                        .expect("null pointer")
                         .0
                         .as_ref()
                 }
@@ -207,7 +207,7 @@ macro_rules! box_dyn_wrapper {
                     use vortex::error::VortexExpect;
                     // TODO(joe): propagate this error up instead of expecting
                     unsafe { ptr.as_mut() }
-                        .vortex_expect("null pointer")
+                        .expect("null pointer")
                         .0
                         .as_mut()
                 }
@@ -259,7 +259,7 @@ macro_rules! box_wrapper {
                     use vortex::error::VortexExpect;
                     // TODO(joe): propagate this error up instead of expecting
                     &unsafe { ptr.as_ref() }
-                        .vortex_expect("null pointer")
+                        .expect("null pointer")
                         .0
                 }
 
@@ -268,7 +268,7 @@ macro_rules! box_wrapper {
                     use vortex::error::VortexExpect;
                     // TODO(joe): propagate this error up instead of expecting
                     &mut unsafe { ptr.as_mut() }
-                        .vortex_expect("null pointer")
+                        .expect("null pointer")
                         .0
                 }
 

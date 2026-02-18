@@ -59,7 +59,7 @@ impl Display for ListScalar<'_> {
                     elems
                         .iter()
                         .map(|e| Scalar::try_new(self.element_dtype().clone(), e.clone())
-                            .vortex_expect("`ListScalar` is already a valid `Scalar`"))
+                            .expect("`ListScalar` is already a valid `Scalar`"))
                         .format(", ")
                 )
             }

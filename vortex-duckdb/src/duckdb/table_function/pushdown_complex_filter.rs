@@ -17,7 +17,7 @@ pub(crate) unsafe extern "C-unwind" fn pushdown_complex_filter_callback<T: Table
     error_out: *mut cpp::duckdb_vx_error,
 ) -> bool {
     let bind_data =
-        unsafe { bind_data.cast::<T::BindData>().as_mut() }.vortex_expect("bind_data null pointer");
+        unsafe { bind_data.cast::<T::BindData>().as_mut() }.expect("bind_data null pointer");
     let expr = unsafe { Expression::borrow(expr) };
     try_or(error_out, || T::pushdown_complex_filter(bind_data, &expr))
 }

@@ -199,7 +199,7 @@ fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
     array
         .as_any()
         .downcast_ref::<ArrayAdapter<V>>()
-        .vortex_expect("Failed to downcast array to expected encoding type")
+        .expect("Failed to downcast array to expected encoding type")
         .as_inner()
 }
 

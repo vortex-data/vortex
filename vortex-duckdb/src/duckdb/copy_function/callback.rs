@@ -61,8 +61,8 @@ pub(crate) unsafe extern "C-unwind" fn global_callback<T: CopyFunction>(
     let file_path = unsafe { CStr::from_ptr(file_path) }
         .to_string_lossy()
         .into_owned();
-    let bind_data = unsafe { bind_data.cast::<T::BindData>().as_ref() }
-        .vortex_expect("global_init_data null pointer");
+    let bind_data =
+        unsafe { bind_data.cast::<T::BindData>().as_ref() }.expect("global_init_data null pointer");
     try_or_null(error_out, || {
         let ctx = unsafe { ClientContext::borrow(client_context) };
         let bind_data = T::init_global(ctx, bind_data, file_path)?;
@@ -75,7 +75,7 @@ pub(crate) unsafe extern "C-unwind" fn local_callback<T: CopyFunction>(
     error_out: *mut duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
     let bind_data =
-        unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null pointer");
+        unsafe { bind_data.cast::<T::BindData>().as_ref() }.expect("bind_data null pointer");
     try_or_null(error_out, || {
         let bind_data = T::init_local(bind_data)?;
         Ok(Data::from(Box::new(bind_data)).as_ptr())
@@ -90,11 +90,11 @@ pub(crate) unsafe extern "C-unwind" fn copy_to_sink_callback<T: CopyFunction>(
     error_out: *mut duckdb_vx_error,
 ) {
     let bind_data =
-        unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null pointer");
-    let global_data = unsafe { global_data.cast::<T::GlobalState>().as_mut() }
-        .vortex_expect("bind_data null pointer");
-    let local_data = unsafe { local_data.cast::<T::LocalState>().as_mut() }
-        .vortex_expect("bind_data null pointer");
+        unsafe { bind_data.cast::<T::BindData>().as_ref() }.expect("bind_data null pointer");
+    let global_data =
+        unsafe { global_data.cast::<T::GlobalState>().as_mut() }.expect("bind_data null pointer");
+    let local_data =
+        unsafe { local_data.cast::<T::LocalState>().as_mut() }.expect("bind_data null pointer");
 
     try_or(error_out, || {
         T::copy_to_sink(bind_data, global_data, local_data, &mut unsafe {
@@ -110,9 +110,9 @@ pub(crate) unsafe extern "C-unwind" fn copy_to_finalize_callback<T: CopyFunction
     error_out: *mut duckdb_vx_error,
 ) {
     let bind_data =
-        unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null pointer");
-    let global_data = unsafe { global_data.cast::<T::GlobalState>().as_mut() }
-        .vortex_expect("bind_data null pointer");
+        unsafe { bind_data.cast::<T::BindData>().as_ref() }.expect("bind_data null pointer");
+    let global_data =
+        unsafe { global_data.cast::<T::GlobalState>().as_mut() }.expect("bind_data null pointer");
 
     try_or(error_out, || {
         T::copy_to_finalize(bind_data, global_data)?;

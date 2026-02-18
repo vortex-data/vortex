@@ -62,12 +62,12 @@ impl ArrayParentReduceRule<DateTimePartsVTable> for DTPFilterPushDownRule {
             child.dtype().clone(),
             child.days().clone().filter(parent.filter_mask().clone())?,
             ConstantArray::new(
-                child.seconds().as_constant().vortex_expect("constant"),
+                child.seconds().as_constant().expect("constant"),
                 parent.filter_mask().true_count(),
             )
             .into_array(),
             ConstantArray::new(
-                child.subseconds().as_constant().vortex_expect("constant"),
+                child.subseconds().as_constant().expect("constant"),
                 parent.filter_mask().true_count(),
             )
             .into_array(),

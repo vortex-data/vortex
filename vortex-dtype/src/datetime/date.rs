@@ -34,7 +34,7 @@ impl Date {
     ///
     /// Panics if the `time_unit` is not supported by date types.
     pub fn new(time_unit: TimeUnit, nullability: Nullability) -> ExtDType<Self> {
-        Self::try_new(time_unit, nullability).vortex_expect("failed to create date dtype")
+        Self::try_new(time_unit, nullability).expect("failed to create date dtype")
     }
 }
 

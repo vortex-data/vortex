@@ -25,6 +25,6 @@ impl OperationsVTable<DictVTable> for DictVTable {
             .values()
             .scalar_at(dict_index)?
             .cast(array.dtype())
-            .vortex_expect("Array dtype will only differ by nullability"))
+            .expect("Array dtype will only differ by nullability"))
     }
 }

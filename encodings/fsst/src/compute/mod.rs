@@ -35,7 +35,7 @@ impl TakeExecute for FSSTVTable {
                 array.symbols().clone(),
                 array.symbol_lengths().clone(),
                 VarBinVTable::take(array.codes(), indices, _ctx)?
-                    .vortex_expect("cannot fail")
+                    .expect("cannot fail")
                     .try_into::<VarBinVTable>()
                     .map_err(|_| vortex_err!("take for codes must return varbin array"))?,
                 array

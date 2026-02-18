@@ -12,9 +12,7 @@ use crate::arrays::filter::execute::buffer;
 use crate::arrays::filter::execute::filter_validity;
 
 pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> PrimitiveArray {
-    let validity = array
-        .validity()
-        .vortex_expect("missing PrimitiveArray validity");
+    let validity = array.validity().expect("missing PrimitiveArray validity");
     let filtered_validity = filter_validity(validity, mask);
 
     match_each_native_ptype!(array.ptype(), |T| {

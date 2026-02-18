@@ -116,7 +116,7 @@ impl dyn LayoutEncoding + '_ {
 
     pub fn as_<V: VTable>(&self) -> &V::Encoding {
         self.as_opt::<V>()
-            .vortex_expect("LayoutEncoding is not of the expected type")
+            .expect("LayoutEncoding is not of the expected type")
     }
 
     pub fn as_opt<V: VTable>(&self) -> Option<&V::Encoding> {

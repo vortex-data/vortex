@@ -52,7 +52,7 @@ impl MokaSegmentCache {
                 .name("vortex-segment-cache")
                 // Weight each segment by the number of bytes in the buffer.
                 .weigher(|_, buffer: &ByteBuffer| {
-                    u32::try_from(buffer.len().min(u32::MAX as usize)).vortex_expect("must fit")
+                    u32::try_from(buffer.len().min(u32::MAX as usize)).expect("must fit")
                 })
                 // We configure LFU (vs LRU) since the cache is mostly used when re-reading the
                 // same file - it is _not_ used when reading the same segments during a single

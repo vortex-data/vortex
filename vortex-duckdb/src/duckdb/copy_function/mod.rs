@@ -71,7 +71,7 @@ impl Database {
         extension: &CStr,
     ) -> VortexResult<()> {
         let vtab: &mut cpp::duckdb_vx_copy_func_vtab_t =
-            unsafe { cpp::get_vtab_one().as_mut() }.vortex_expect("copy vtab cannot be null");
+            unsafe { cpp::get_vtab_one().as_mut() }.expect("copy vtab cannot be null");
 
         vtab.name = name.as_ptr();
         vtab.extension = extension.as_ptr();

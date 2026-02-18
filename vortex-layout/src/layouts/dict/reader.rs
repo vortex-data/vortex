@@ -94,7 +94,7 @@ impl DictReader {
                         &root(),
                         MaskFuture::new_true(values_len),
                     )
-                    .vortex_expect("must construct dict values array evaluation")
+                    .expect("must construct dict values array evaluation")
                     .map_err(Arc::new)
                     .map(move |array| {
                         let array = array?;
@@ -482,7 +482,7 @@ mod tests {
             assert_arrays_eq!(
                 actual
                     .to_canonical()
-                    .vortex_expect("to_canonical failed")
+                    .expect("to_canonical failed")
                     .into_array(),
                 expected
             );

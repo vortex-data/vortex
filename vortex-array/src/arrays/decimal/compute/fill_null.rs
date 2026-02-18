@@ -37,7 +37,7 @@ impl FillNullKernel for DecimalVTable {
                 let decimal_scalar = fill_value.as_decimal();
                 let decimal_value = decimal_scalar
                     .decimal_value()
-                    .vortex_expect("fill_null requires a non-null fill value");
+                    .expect("fill_null requires a non-null fill value");
                 match_each_decimal_value_type!(array.values_type(), |T| {
                     fill_invalid_positions::<T>(
                         array,

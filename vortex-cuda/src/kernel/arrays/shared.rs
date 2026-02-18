@@ -28,7 +28,7 @@ impl CudaExecute for SharedExecutor {
         let shared = array
             .try_into::<SharedVTable>()
             .ok()
-            .vortex_expect("Array is not a Shared array");
+            .expect("Array is not a Shared array");
 
         shared
             .get_or_compute_async(|source| source.execute_cuda(ctx))

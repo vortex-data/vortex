@@ -66,7 +66,7 @@ impl DuckClient {
         path: Option<PathBuf>,
         threads: Option<usize>,
     ) -> Result<(Database, Connection)> {
-        let mut config = Config::new().vortex_expect("failed to create duckdb config");
+        let mut config = Config::new().expect("failed to create duckdb config");
 
         // Set DuckDB thread count if specified
         if let Some(thread_count) = threads {
@@ -144,7 +144,7 @@ impl DuckClient {
         let result = self.connection.query(query)?;
         let query_time = time_instant.elapsed();
 
-        let row_count = usize::try_from(result.row_count()).vortex_expect("row count overflow");
+        let row_count = usize::try_from(result.row_count()).expect("row count overflow");
 
         // TODO: Extract DuckDB's internal timing from profiling info if available
         Ok((row_count, Some(query_time)))

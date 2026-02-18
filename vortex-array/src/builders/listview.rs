@@ -137,11 +137,10 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
         self.elements_builder.extend_from_array(array);
         self.nulls.append_non_null();
 
-        self.offsets_builder.append_value(
-            O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
-        );
+        self.offsets_builder
+            .append_value(O::from_usize(curr_offset).expect("Failed to convert from usize to `O`"));
         self.sizes_builder.append_value(
-            S::from_usize(num_elements).vortex_expect("Failed to convert from usize to `S`"),
+            S::from_usize(num_elements).expect("Failed to convert from usize to `S`"),
         );
 
         Ok(())
@@ -177,11 +176,10 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
         }
         self.nulls.append_non_null();
 
-        self.offsets_builder.append_value(
-            O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
-        );
+        self.offsets_builder
+            .append_value(O::from_usize(curr_offset).expect("Failed to convert from usize to `O`"));
         self.sizes_builder.append_value(
-            S::from_usize(num_elements).vortex_expect("Failed to convert from usize to `S`"),
+            S::from_usize(num_elements).expect("Failed to convert from usize to `S`"),
         );
 
         Ok(())
@@ -251,7 +249,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         // `offsets` and `sizes` metadata to add an empty list.
         for _ in 0..n {
             self.offsets_builder.append_value(
-                O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
+                O::from_usize(curr_offset).expect("Failed to convert from usize to `O`"),
             );
             self.sizes_builder.append_value(S::zero());
         }
@@ -269,7 +267,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         // A null list can have any representation, but we choose to use the zero representation.
         for _ in 0..n {
             self.offsets_builder.append_value(
-                O::from_usize(curr_offset).vortex_expect("Failed to convert from usize to `O`"),
+                O::from_usize(curr_offset).expect("Failed to convert from usize to `O`"),
             );
             self.sizes_builder.append_value(S::zero());
         }
@@ -302,10 +300,10 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
             for i in 0..listview.len() {
                 let list = listview
                     .scalar_at(i)
-                    .vortex_expect("scalar_at failed in extend_from_array_unchecked");
+                    .expect("scalar_at failed in extend_from_array_unchecked");
 
                 self.append_scalar(&list)
-                    .vortex_expect("was unable to extend the `ListViewBuilder`")
+                    .expect("was unable to extend the `ListViewBuilder`")
             }
 
             return;
@@ -315,13 +313,13 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         // the entire array.
         let listview = listview
             .rebuild(ListViewRebuildMode::MakeExact)
-            .vortex_expect("ListViewArray::rebuild(MakeExact) failed in extend_from_array");
+            .expect("ListViewArray::rebuild(MakeExact) failed in extend_from_array");
         debug_assert!(listview.is_zero_copy_to_list());
 
         self.nulls.append_validity_mask(
             array
                 .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .expect("validity_mask in extend_from_array_unchecked"),
         );
 
         // Bulk append the new elements (which should have no gaps or overlaps).
@@ -341,9 +339,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
             .sizes()
             .to_array()
             .cast(self.sizes_builder.dtype().clone())
-            .vortex_expect(
-                "was somehow unable to cast the new sizes to the type of the builder sizes",
-            );
+            .expect("was somehow unable to cast the new sizes to the type of the builder sizes");
         self.sizes_builder.extend_from_array(cast_sizes.as_ref());
 
         // Now we need to adjust all of the offsets by adding the current number of elements in the
@@ -395,17 +391,17 @@ fn adjust_and_extend_offsets<'a, O: IntegerPType, A: IntegerPType>(
 ) {
     let new_offsets_slice = new_offsets.as_slice::<A>();
     let old_elements_len = O::from_usize(old_elements_len)
-        .vortex_expect("the old elements length did not fit into the offset type (impossible)");
+        .expect("the old elements length did not fit into the offset type (impossible)");
     let new_elements_len = O::from_usize(new_elements_len)
-        .vortex_expect("the current elements length did not fit into the offset type (impossible)");
+        .expect("the current elements length did not fit into the offset type (impossible)");
 
     for i in 0..uninit_range.len() {
         let new_offset = O::from_usize(
             new_offsets_slice[i]
                 .to_usize()
-                .vortex_expect("Offsets must always fit in usize"),
+                .expect("Offsets must always fit in usize"),
         )
-        .vortex_expect("New offset somehow did not fit into the builder's offset type");
+        .expect("New offset somehow did not fit into the builder's offset type");
 
         // We have to check this even in release mode to ensure the final `new_unchecked`
         // construction in `finish_into_listview` is valid.

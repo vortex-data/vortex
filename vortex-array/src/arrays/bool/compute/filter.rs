@@ -30,7 +30,7 @@ impl FilterKernel for BoolVTable {
 
         let mask_values = mask
             .values()
-            .vortex_expect("AllTrue and AllFalse are handled by filter fn");
+            .expect("AllTrue and AllFalse are handled by filter fn");
 
         let buffer = match mask_values.threshold_iter(FILTER_SLICES_DENSITY_THRESHOLD) {
             MaskIter::Indices(indices) => filter_indices(
@@ -61,7 +61,7 @@ pub fn filter_indices(
     BitBuffer::collect_bool(indices_len, |_idx| {
         let idx = indices
             .next()
-            .vortex_expect("iterator is guaranteed to be within the length of the array.");
+            .expect("iterator is guaranteed to be within the length of the array.");
         get_bit(buffer, bools.offset() + idx)
     })
 }

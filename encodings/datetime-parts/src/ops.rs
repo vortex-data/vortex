@@ -37,19 +37,19 @@ impl OperationsVTable<DateTimePartsVTable> for DateTimePartsVTable {
             .scalar_at(index)?
             .as_primitive()
             .as_::<i64>()
-            .vortex_expect("days fits in i64");
+            .expect("days fits in i64");
         let seconds: i64 = array
             .seconds()
             .scalar_at(index)?
             .as_primitive()
             .as_::<i64>()
-            .vortex_expect("seconds fits in i64");
+            .expect("seconds fits in i64");
         let subseconds: i64 = array
             .subseconds()
             .scalar_at(index)?
             .as_primitive()
             .as_::<i64>()
-            .vortex_expect("subseconds fits in i64");
+            .expect("subseconds fits in i64");
 
         let ts = timestamp::combine(
             TimestampParts {

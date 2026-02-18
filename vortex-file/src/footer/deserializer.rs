@@ -85,9 +85,7 @@ impl FooterDeserializer {
             postscript
         } else {
             self.postscript = Some(self.parse_postscript(&self.buffer)?);
-            self.postscript
-                .as_ref()
-                .vortex_expect("Just set postscript")
+            self.postscript.as_ref().expect("Just set postscript")
         };
 
         // If we haven't been provided a DType, we must read one from the file.
@@ -137,7 +135,7 @@ impl FooterDeserializer {
         let dtype = dtype_segment
             .map(|segment| self.parse_dtype(initial_offset, &self.buffer, segment))
             .transpose()?
-            .unwrap_or_else(|| self.dtype.clone().vortex_expect("DType was provided"));
+            .unwrap_or_else(|| self.dtype.clone().expect("DType was provided"));
         let file_stats = postscript
             .statistics
             .as_ref()

@@ -50,11 +50,8 @@ fn compare_fsst_constant(
         DType::Binary(_) => right
             .as_binary()
             .is_empty()
-            .vortex_expect("RHS should not be null"),
-        DType::Utf8(_) => right
-            .as_utf8()
-            .is_empty()
-            .vortex_expect("RHS should not be null"),
+            .expect("RHS should not be null"),
+        DType::Utf8(_) => right.as_utf8().is_empty().expect("RHS should not be null"),
         _ => vortex_bail!("VarBinArray can only have type of Binary or Utf8"),
     };
     if is_rhs_empty {
@@ -92,17 +89,11 @@ fn compare_fsst_constant(
     let compressor = left.compressor();
     let encoded_buffer = match left.dtype() {
         DType::Utf8(_) => {
-            let value = right
-                .as_utf8()
-                .value()
-                .vortex_expect("Expected non-null scalar");
+            let value = right.as_utf8().value().expect("Expected non-null scalar");
             ByteBuffer::from(compressor.compress(value.as_bytes()))
         }
         DType::Binary(_) => {
-            let value = right
-                .as_binary()
-                .value()
-                .vortex_expect("Expected non-null scalar");
+            let value = right.as_binary().value().expect("Expected non-null scalar");
             ByteBuffer::from(compressor.compress(value.as_slice()))
         }
         _ => unreachable!("FSSTArray can only have string or binary data type"),

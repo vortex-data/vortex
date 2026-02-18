@@ -102,7 +102,7 @@ impl FilterExpr {
                     .read()
                     .quantile(self.selectivity_quantile)
                     .map_err(|e| vortex_err!("{e}")) // Only errors when the quantile is out of range
-                    .vortex_expect("quantile out of range")
+                    .expect("quantile out of range")
                     // If the sketch is empty, its selectivity is 0.
                     .unwrap_or_default()
             })
@@ -120,7 +120,7 @@ impl FilterExpr {
         ordering.sort_unstable_by(|&l_idx, &r_idx| {
             all_selectivity[l_idx]
                 .partial_cmp(&all_selectivity[r_idx])
-                .vortex_expect("Can't compare selectivity values")
+                .expect("Can't compare selectivity values")
         });
 
         tracing::debug!(

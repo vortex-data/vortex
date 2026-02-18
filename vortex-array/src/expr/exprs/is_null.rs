@@ -76,7 +76,7 @@ impl VTable for IsNull {
     }
 
     fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let child = args.inputs.pop().vortex_expect("Missing input child");
+        let child = args.inputs.pop().expect("Missing input child");
         if let Some(scalar) = child.as_constant() {
             return Ok(ConstantArray::new(scalar.is_null(), args.row_count).into_array());
         }
@@ -160,7 +160,7 @@ mod tests {
     fn replace_children() {
         let expr = is_null(root());
         expr.with_children([root()])
-            .vortex_expect("operation should succeed in test");
+            .expect("operation should succeed in test");
     }
 
     #[test]

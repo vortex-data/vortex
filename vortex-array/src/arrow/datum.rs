@@ -105,7 +105,7 @@ where
     Ok(ConstantArray::new(
         array
             .scalar_at(0)
-            .vortex_expect("array of length 1 must support scalar_at(0)"),
+            .expect("array of length 1 must support scalar_at(0)"),
         len,
     )
     .into_array())

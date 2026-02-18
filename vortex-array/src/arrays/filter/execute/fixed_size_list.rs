@@ -41,7 +41,7 @@ pub fn filter_fixed_size_list(
             // Allow the child array to filter itself.
             let new_elements = elements
                 .filter(elements_mask)
-                .vortex_expect("FixedSizeListArray elements are guaranteed to support filter");
+                .expect("FixedSizeListArray elements are guaranteed to support filter");
             debug_assert_eq!(new_elements.len(), new_len * list_size as usize);
 
             new_elements

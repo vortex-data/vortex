@@ -244,9 +244,9 @@ unsafe extern "C-unwind" fn function<T: TableFunction>(
     let client_context = unsafe { ClientContext::borrow(duckdb_client_context) };
     let bind_data = unsafe { &*(bind_data as *const T::BindData) };
     let global_init_data = unsafe { global_init_data.cast::<T::GlobalState>().as_mut() }
-        .vortex_expect("global_init_data null pointer");
+        .expect("global_init_data null pointer");
     let local_init_data = unsafe { local_init_data.cast::<T::LocalState>().as_mut() }
-        .vortex_expect("local_init_data null pointer");
+        .expect("local_init_data null pointer");
     let mut data_chunk = unsafe { DataChunk::borrow(output) };
 
     match T::scan(

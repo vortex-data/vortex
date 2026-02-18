@@ -76,7 +76,7 @@ mod private {
             let bytes_len = self.len() * size_of::<T>();
             // SAFETY: all types can be reinterpreted as a byte slice
             let result = unsafe { self.as_view().transmute::<u8>(bytes_len) };
-            result.vortex_expect("Downcasting CudaSlice<T> => CudaSlice<u8> must succeed")
+            result.expect("Downcasting CudaSlice<T> => CudaSlice<u8> must succeed")
         }
     }
 }
@@ -113,7 +113,7 @@ impl CudaDeviceBuffer {
                 .as_bytes_view()
                 .slice(self.offset..self.offset + self.len)
                 .transmute::<T>(new_len)
-                .vortex_expect("Failed to transmute from CudaView<u8> to CudaView<T>")
+                .expect("Failed to transmute from CudaView<u8> to CudaView<T>")
         }
     }
 }
@@ -289,8 +289,7 @@ impl DeviceBuffer for CudaDeviceBuffer {
         let new_len = range.end - range.start;
 
         let trailing = (self.device_ptr + new_offset as u64).trailing_zeros();
-        let exponent =
-            u8::try_from(min(15, trailing)).vortex_expect("min(15, x) always fits in u8");
+        let exponent = u8::try_from(min(15, trailing)).expect("min(15, x) always fits in u8");
         let slice_align = Alignment::from_exponent(exponent);
 
         assert!(

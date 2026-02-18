@@ -102,7 +102,7 @@ impl<'a> BinaryScalar<'a> {
             Some(ScalarValue::Binary(
                 self.value()
                     .cloned()
-                    .vortex_expect("nullness handled in Scalar::cast"),
+                    .expect("nullness handled in Scalar::cast"),
             )),
         )
     }

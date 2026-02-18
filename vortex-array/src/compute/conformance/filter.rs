@@ -64,7 +64,7 @@ fn test_all_filter(array: &dyn Array) {
     let mask = Mask::new_true(len);
     let filtered = array
         .filter(mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
     assert_arrays_eq!(filtered, array);
 }
 
@@ -74,7 +74,7 @@ fn test_none_filter(array: &dyn Array) {
     let mask = Mask::new_false(len);
     let filtered = array
         .filter(mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), 0);
     assert_eq!(filtered.dtype(), array.dtype());
 }
@@ -91,7 +91,7 @@ fn test_selective_filter(array: &dyn Array) {
     let mask = Mask::from_iter(mask_values);
     let filtered = array
         .filter(mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), expected_count);
 
     // Verify correct elements are kept
@@ -99,10 +99,10 @@ fn test_selective_filter(array: &dyn Array) {
         assert_eq!(
             filtered
                 .scalar_at(filtered_idx)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             array
                 .scalar_at(i)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
         );
     }
 
@@ -114,23 +114,23 @@ fn test_selective_filter(array: &dyn Array) {
         let mask = Mask::from_iter(mask_values);
         let filtered = array
             .filter(mask)
-            .vortex_expect("filter should succeed in conformance test");
+            .expect("filter should succeed in conformance test");
         assert_eq!(filtered.len(), 2);
         assert_eq!(
             filtered
                 .scalar_at(0)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             array
                 .scalar_at(0)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
         );
         assert_eq!(
             filtered
                 .scalar_at(1)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             array
                 .scalar_at(len - 1)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
         );
     }
 }
@@ -147,15 +147,15 @@ fn test_single_element_filter(array: &dyn Array) {
     let mask = Mask::from_iter(mask_values);
     let filtered = array
         .filter(mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), 1);
     assert_eq!(
         filtered
             .scalar_at(0)
-            .vortex_expect("scalar_at should succeed in conformance test"),
+            .expect("scalar_at should succeed in conformance test"),
         array
             .scalar_at(0)
-            .vortex_expect("scalar_at should succeed in conformance test")
+            .expect("scalar_at should succeed in conformance test")
     );
 
     // Test selecting only the last element
@@ -165,15 +165,15 @@ fn test_single_element_filter(array: &dyn Array) {
         let mask = Mask::from_iter(mask_values);
         let filtered = array
             .filter(mask)
-            .vortex_expect("filter should succeed in conformance test");
+            .expect("filter should succeed in conformance test");
         assert_eq!(filtered.len(), 1);
         assert_eq!(
             filtered
                 .scalar_at(0)
-                .vortex_expect("scalar_at should succeed in conformance test"),
+                .expect("scalar_at should succeed in conformance test"),
             array
                 .scalar_at(len - 1)
-                .vortex_expect("scalar_at should succeed in conformance test")
+                .expect("scalar_at should succeed in conformance test")
         );
     }
 }
@@ -185,13 +185,13 @@ fn test_empty_array_filter(dtype: &DType) {
     let empty_mask = Mask::new_false(0);
     let filtered = empty_array
         .filter(empty_mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), 0);
 
     let empty_mask = Mask::new_true(0);
     let filtered = empty_array
         .filter(empty_mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), 0);
 }
 
@@ -226,7 +226,7 @@ fn test_alternating_pattern_filter(array: &dyn Array) {
     let mask = Mask::from_iter(pattern.clone());
     let filtered = array
         .filter(mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), expected_count);
 
     // Verify correct elements are kept
@@ -236,10 +236,10 @@ fn test_alternating_pattern_filter(array: &dyn Array) {
             assert_eq!(
                 filtered
                     .scalar_at(filtered_idx)
-                    .vortex_expect("scalar_at should succeed in conformance test"),
+                    .expect("scalar_at should succeed in conformance test"),
                 array
                     .scalar_at(i)
-                    .vortex_expect("scalar_at should succeed in conformance test")
+                    .expect("scalar_at should succeed in conformance test")
             );
             filtered_idx += 1;
         }
@@ -260,7 +260,7 @@ fn test_runs_pattern_filter(array: &dyn Array) {
     let mask = Mask::from_iter(pattern);
     let filtered = array
         .filter(mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), expected_count);
 }
 
@@ -278,7 +278,7 @@ fn test_sparse_true_filter(array: &dyn Array) {
     let mask = Mask::from_iter(pattern);
     let filtered = array
         .filter(mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), expected_count);
 }
 
@@ -296,7 +296,7 @@ fn test_sparse_false_filter(array: &dyn Array) {
     let mask = Mask::from_iter(pattern);
     let filtered = array
         .filter(mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), expected_count);
 }
 
@@ -313,6 +313,6 @@ fn test_random_pattern_filter(array: &dyn Array) {
     let mask = Mask::from_iter(pattern);
     let filtered = array
         .filter(mask)
-        .vortex_expect("filter should succeed in conformance test");
+        .expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), expected_count);
 }

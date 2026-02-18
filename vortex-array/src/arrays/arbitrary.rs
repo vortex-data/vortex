@@ -77,7 +77,7 @@ fn random_array(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Resu
     } else {
         let dtype = chunks[0].dtype().clone();
         Ok(ChunkedArray::try_new(chunks, dtype)
-            .vortex_expect("operation should succeed in arbitrary impl")
+            .expect("operation should succeed in arbitrary impl")
             .into_array())
     }
 }
@@ -120,9 +120,9 @@ fn random_array_chunk(
                     let mut builder = DecimalBuilder::new::<DVT>(*decimal, *n);
                     for _i in 0..elem_len {
                         let random_decimal = random_scalar(u, d)?;
-                        builder.append_scalar(&random_decimal).vortex_expect(
-                            "was somehow unable to append a decimal to a decimal builder",
-                        );
+                        builder
+                            .append_scalar(&random_decimal)
+                            .expect("was somehow unable to append a decimal to a decimal builder");
                     }
                     Ok(builder.finish())
                 }
@@ -157,7 +157,7 @@ fn random_array_chunk(
                 resolved_len,
                 random_validity(u, *n, resolved_len)?,
             )
-            .vortex_expect("operation should succeed in arbitrary impl")
+            .expect("operation should succeed in arbitrary impl")
             .into_array())
         }
         DType::List(elem_dtype, null) => random_list(u, elem_dtype, *null, chunk_len),
@@ -191,7 +191,7 @@ fn random_fixed_size_list(
         } else {
             builder
                 .append_value(random_list_scalar(u, elem_dtype, list_size, null)?.as_list())
-                .vortex_expect("can append value");
+                .expect("can append value");
         }
     }
 
@@ -238,7 +238,7 @@ fn random_list_with_offset_type<O: IntegerPType>(
             let list_size = u.int_in_range(0..=20)?;
             builder
                 .append_value(random_list_scalar(u, elem_dtype, list_size, null)?.as_list())
-                .vortex_expect("can append value");
+                .expect("can append value");
         }
     }
 

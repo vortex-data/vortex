@@ -65,6 +65,6 @@ impl Scalar {
     pub fn into_nullable(self) -> Scalar {
         let (dtype, value) = self.into_parts();
         Self::try_new(dtype.as_nullable(), value)
-            .vortex_expect("Casting to nullable should always succeed")
+            .expect("Casting to nullable should always succeed")
     }
 }

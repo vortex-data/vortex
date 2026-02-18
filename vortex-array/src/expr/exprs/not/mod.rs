@@ -85,7 +85,7 @@ impl VTable for Not {
     }
 
     fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let child = args.inputs.pop().vortex_expect("Missing input child");
+        let child = args.inputs.pop().expect("Missing input child");
 
         // For constant boolean
         if let Some(scalar) = child.as_constant() {

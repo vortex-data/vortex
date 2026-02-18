@@ -368,14 +368,14 @@ impl<'a> GnomADBuilder<'a> {
                     all_fields.remove(name);
                     self.info_builder
                         .get_mut(name)
-                        .vortex_expect("key must exist")
+                        .expect("key must exist")
                         .push(value)?;
                 }
 
                 for missing_field in all_fields {
                     self.info_builder
                         .get_mut(missing_field)
-                        .vortex_expect("key must exist")
+                        .expect("key must exist")
                         .push(None)?;
                 }
 
@@ -432,7 +432,7 @@ impl<'a> GnomADBuilder<'a> {
             .map(|field| {
                 self.info_builder
                     .remove(field.name().as_str())
-                    .vortex_expect("field must exist")
+                    .expect("field must exist")
                     .finish()
             });
 

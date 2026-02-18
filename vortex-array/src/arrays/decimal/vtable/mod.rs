@@ -129,7 +129,7 @@ impl VTable for DecimalVTable {
                 children
                     .into_iter()
                     .next()
-                    .vortex_expect("children length already validated"),
+                    .expect("children length already validated"),
             );
         }
         Ok(())

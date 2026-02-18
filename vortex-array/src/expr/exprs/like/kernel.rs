@@ -69,7 +69,7 @@ where
         }
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
-            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
+            .expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let children = scalar_fn_array.children();
         let pattern = &*children[1];
         let options = *parent.options;
@@ -99,7 +99,7 @@ where
         }
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
-            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
+            .expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let children = scalar_fn_array.children();
         let pattern = &*children[1];
         let options = *parent.options;

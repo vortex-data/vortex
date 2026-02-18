@@ -52,8 +52,7 @@ fn range_len(start: isize, stop: isize, step: isize) -> Option<usize> {
         }
 
         let len = (stop - start + step - 1) / step;
-        let len =
-            usize::try_from(len).vortex_expect("stop >= start, step > 0, so len is non-negative");
+        let len = usize::try_from(len).expect("stop >= start, step > 0, so len is non-negative");
         Some(len)
     } else {
         assert!(step != 0);
@@ -63,8 +62,7 @@ fn range_len(start: isize, stop: isize, step: isize) -> Option<usize> {
         }
 
         let len = (start - stop + -step - 1) / -step;
-        let len =
-            usize::try_from(len).vortex_expect("start >= stop, step < 0, so len is non-negative");
+        let len = usize::try_from(len).expect("start >= stop, step < 0, so len is non-negative");
         Some(len)
     }
 }

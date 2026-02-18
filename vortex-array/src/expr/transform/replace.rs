@@ -27,7 +27,7 @@ pub fn replace(expr: Expression, needle: &Expression, replacement: Expression) -
             Ok(Transformed::no(node))
         }
     })
-    .vortex_expect("ReplaceVisitor should not fail")
+    .expect("ReplaceVisitor should not fail")
     .into_inner()
 }
 

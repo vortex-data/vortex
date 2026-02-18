@@ -38,7 +38,7 @@ impl FilterKernel for VarBinVTable {
 fn filter_select_var_bin(arr: &VarBinArray, mask: &Mask) -> VortexResult<VarBinArray> {
     match mask
         .values()
-        .vortex_expect("AllTrue and AllFalse are handled by filter fn")
+        .expect("AllTrue and AllFalse are handled by filter fn")
         .threshold_iter(0.5)
     {
         MaskIter::Indices(indices) => {

@@ -221,7 +221,7 @@ mod tests {
     fn replace_children() {
         let expr = fill_null(root(), lit(0i32));
         expr.with_children(vec![root(), lit(0i32)])
-            .vortex_expect("operation should succeed in test");
+            .expect("operation should succeed in test");
     }
 
     #[test]

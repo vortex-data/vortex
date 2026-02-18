@@ -215,7 +215,7 @@ pub trait ArrayBuilder: Send {
     fn finish_into_canonical(&mut self) -> Canonical {
         self.finish()
             .to_canonical()
-            .vortex_expect("finish_into_canonical failed")
+            .expect("finish_into_canonical failed")
     }
 }
 

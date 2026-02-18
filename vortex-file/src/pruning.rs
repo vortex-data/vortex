@@ -47,7 +47,7 @@ pub fn extract_relevant_file_stats_as_struct_row(
             .ok_or_else(|| vortex_err!("Missing field: {field}"))?;
         let field_dtype = struct_dtype
             .field_by_index(field_idx)
-            .vortex_expect("Field must exist");
+            .expect("Field must exist");
 
         let Some(stat_set) = stats_sets.get(field_idx) else {
             vortex_bail!("missing stat field {} from stats set", field)

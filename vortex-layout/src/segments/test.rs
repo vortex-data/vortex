@@ -51,8 +51,7 @@ impl SegmentSink for TestSegments {
         }
 
         let mut segments = self.segments.lock();
-        let segment_id =
-            SegmentId::from(u32::try_from(segments.len()).vortex_expect("Too many segments"));
+        let segment_id = SegmentId::from(u32::try_from(segments.len()).expect("Too many segments"));
         segments.push(buffer.freeze());
 
         Ok(segment_id)

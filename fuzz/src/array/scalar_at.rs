@@ -48,10 +48,10 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
                 .map(|i| {
                     scalar_at_canonical_array(
                         list.to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
+                            .expect("to_canonical should succeed in fuzz test"),
                         i,
                     )
-                    .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
+                    .expect("scalar_at_canonical_array should succeed in fuzz test")
                 })
                 .collect();
             Scalar::list(
@@ -66,10 +66,10 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
                 .map(|i| {
                     scalar_at_canonical_array(
                         list.to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
+                            .expect("to_canonical should succeed in fuzz test"),
                         i,
                     )
-                    .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
+                    .expect("scalar_at_canonical_array should succeed in fuzz test")
                 })
                 .collect();
             Scalar::fixed_size_list(list.dtype().clone(), children, array.dtype().nullability())
@@ -82,10 +82,10 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
                     scalar_at_canonical_array(
                         field
                             .to_canonical()
-                            .vortex_expect("to_canonical should succeed in fuzz test"),
+                            .expect("to_canonical should succeed in fuzz test"),
                         index,
                     )
-                    .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
+                    .expect("scalar_at_canonical_array should succeed in fuzz test")
                 })
                 .collect();
             Scalar::struct_(array.dtype().clone(), field_scalars)

@@ -95,7 +95,7 @@ impl SessionExt for VortexSession {
                 (**v)
                     .as_any()
                     .downcast_ref::<V>()
-                    .vortex_expect("Type mismatch - this is a bug")
+                    .expect("Type mismatch - this is a bug")
             }));
         }
 
@@ -109,7 +109,7 @@ impl SessionExt for VortexSession {
                 (**v)
                     .as_any()
                     .downcast_ref::<V>()
-                    .vortex_expect("Type mismatch - this is a bug")
+                    .expect("Type mismatch - this is a bug")
             }))
     }
 
@@ -119,7 +119,7 @@ impl SessionExt for VortexSession {
                 (**v)
                     .as_any()
                     .downcast_ref::<V>()
-                    .vortex_expect("Type mismatch - this is a bug")
+                    .expect("Type mismatch - this is a bug")
             }))
         })
     }
@@ -136,7 +136,7 @@ impl SessionExt for VortexSession {
                     (**v)
                         .as_any_mut()
                         .downcast_mut::<V>()
-                        .vortex_expect("Type mismatch - this is a bug")
+                        .expect("Type mismatch - this is a bug")
                 }),
         )
     }
@@ -147,7 +147,7 @@ impl SessionExt for VortexSession {
                 (**v)
                     .as_any_mut()
                     .downcast_mut::<V>()
-                    .vortex_expect("Type mismatch - this is a bug")
+                    .expect("Type mismatch - this is a bug")
             }))
         })
     }

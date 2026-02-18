@@ -46,7 +46,7 @@ impl CompareKernel for SequenceVTable {
             constant
                 .as_primitive()
                 .pvalue()
-                .vortex_expect("null constant handled in adaptor"),
+                .expect("null constant handled in adaptor"),
         );
 
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
@@ -98,7 +98,7 @@ fn find_intersection<P: NativePType>(
         vortex_bail!("len == 0")
     }
 
-    let count = P::from_usize(len - 1).vortex_expect("idx must fit into type");
+    let count = P::from_usize(len - 1).expect("idx must fit into type");
     let end_element = base + (multiplier * count);
 
     // Handle ascending vs descending sequences

@@ -54,7 +54,7 @@ impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
                     e.insert(
                         future
                             .downgrade()
-                            .vortex_expect("just created, cannot be polled to completion"),
+                            .expect("just created, cannot be polled to completion"),
                     );
                     return future.map_err(VortexError::from).boxed();
                 }

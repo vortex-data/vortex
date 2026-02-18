@@ -247,7 +247,7 @@ mod tests {
             seconds_arr,
             subseconds_arr,
         )
-        .vortex_expect("Failed to create DateTimePartsArray")
+        .expect("Failed to create DateTimePartsArray")
     }
 
     #[rstest]
@@ -283,7 +283,7 @@ mod tests {
         #[case] time_unit: TimeUnit,
     ) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let dtp_array = make_datetimeparts_array(days, seconds, subseconds, time_unit);
         let cpu_result = dtp_array.to_canonical()?;
@@ -291,7 +291,7 @@ mod tests {
         let gpu_result = DateTimePartsExecutor
             .execute(dtp_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed")
+            .expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();
@@ -304,7 +304,7 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_datetimeparts_large_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let len = 2050;
         let days: Vec<i32> = (0..len).collect();
@@ -317,7 +317,7 @@ mod tests {
         let gpu_result = DateTimePartsExecutor
             .execute(dtp_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed")
+            .expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();
@@ -330,7 +330,7 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_datetimeparts_with_nulls() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let days_arr = PrimitiveArray::new(
             buffer![1i32, 2, 3, 4, 5],
@@ -358,14 +358,14 @@ mod tests {
             seconds_arr,
             subseconds_arr,
         )
-        .vortex_expect("Failed to create DateTimePartsArray");
+        .expect("Failed to create DateTimePartsArray");
 
         let cpu_result = dtp_array.to_canonical()?;
 
         let gpu_result = DateTimePartsExecutor
             .execute(dtp_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed")
+            .expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();

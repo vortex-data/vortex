@@ -112,7 +112,7 @@ pub async fn launch_from(
                 clap::error::ErrorKind::Io,
                 format!(
                     "File '{}' does not exist.",
-                    path.to_str().vortex_expect("file path")
+                    path.to_str().expect("file path")
                 ),
             )
             .exit()

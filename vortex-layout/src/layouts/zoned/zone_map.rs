@@ -251,7 +251,7 @@ impl StatsAccumulator {
 
         Ok(Some(ZoneMap {
             array: StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)
-                .vortex_expect("Failed to create zone map"),
+                .expect("Failed to create zone map"),
             stats: stats.into(),
         }))
     }
@@ -306,9 +306,9 @@ mod tests {
         let mut acc =
             StatsAccumulator::new(builder.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
         acc.push_chunk(&builder.finish())
-            .vortex_expect("push_chunk should succeed for test data");
+            .expect("push_chunk should succeed for test data");
         acc.push_chunk(&builder2.finish())
-            .vortex_expect("push_chunk should succeed for test data");
+            .expect("push_chunk should succeed for test data");
         let stats_table = acc
             .as_stats_table()
             .unwrap()
@@ -341,7 +341,7 @@ mod tests {
         let array = buffer![0, 1, 2].into_array();
         let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
         acc.push_chunk(&array)
-            .vortex_expect("push_chunk should succeed for test array");
+            .expect("push_chunk should succeed for test array");
         let stats_table = acc
             .as_stats_table()
             .unwrap()

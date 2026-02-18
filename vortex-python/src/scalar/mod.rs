@@ -86,7 +86,7 @@ where
 {
     fn as_scalar_ref(&self) -> <T as ScalarSubclass>::Scalar<'_> {
         <<T as ScalarSubclass>::Scalar<'_>>::try_from(self.as_super().inner())
-            .vortex_expect("Failed to downcast scalar")
+            .expect("Failed to downcast scalar")
     }
 }
 

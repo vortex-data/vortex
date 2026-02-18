@@ -178,7 +178,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         self.nulls.append_validity_mask(
             array
                 .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .expect("validity_mask in extend_from_array_unchecked"),
         );
     }
 

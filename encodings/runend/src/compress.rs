@@ -70,7 +70,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
 
     let ends = ends
         .narrow()
-        .vortex_expect("Ends must succeed downcasting")
+        .expect("Ends must succeed downcasting")
         .to_primitive();
 
     ends.statistics()

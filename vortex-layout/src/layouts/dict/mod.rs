@@ -57,7 +57,7 @@ impl VTable for DictVTable {
 
     fn metadata(layout: &Self::Layout) -> Self::Metadata {
         let mut metadata =
-            DictLayoutMetadata::new(PType::try_from(layout.codes.dtype()).vortex_expect("ptype"));
+            DictLayoutMetadata::new(PType::try_from(layout.codes.dtype()).expect("ptype"));
         metadata.is_nullable_codes = Some(layout.codes.dtype().is_nullable());
         metadata.all_values_referenced = Some(layout.all_values_referenced);
         ProstMetadata(metadata)

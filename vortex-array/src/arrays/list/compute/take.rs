@@ -90,10 +90,10 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
         // TODO(0ax1): optimize this
         elements_to_take.reserve_exact(additional);
         for i in 0..additional {
-            elements_to_take.append_value(start + O::from_usize(i).vortex_expect("i < additional"));
+            elements_to_take.append_value(start + O::from_usize(i).expect("i < additional"));
         }
         current_offset +=
-            OutputOffsetType::from_usize((stop - start).as_()).vortex_expect("offset conversion");
+            OutputOffsetType::from_usize((stop - start).as_()).expect("offset conversion");
         new_offsets.append_value(current_offset);
     }
 
@@ -159,10 +159,10 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
 
         elements_to_take.reserve_exact(additional);
         for i in 0..additional {
-            elements_to_take.append_value(start + O::from_usize(i).vortex_expect("i < additional"));
+            elements_to_take.append_value(start + O::from_usize(i).expect("i < additional"));
         }
         current_offset +=
-            OutputOffsetType::from_usize((stop - start).as_()).vortex_expect("offset conversion");
+            OutputOffsetType::from_usize((stop - start).as_()).expect("offset conversion");
         new_offsets.append_value(current_offset);
     }
 

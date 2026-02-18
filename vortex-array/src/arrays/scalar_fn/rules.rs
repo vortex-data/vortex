@@ -97,7 +97,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
                 reduced
                     .as_any()
                     .downcast_ref::<ArrayRef>()
-                    .vortex_expect("ReduceNode is not an ArrayRef")
+                    .expect("ReduceNode is not an ArrayRef")
                     .clone(),
             ));
         }
@@ -168,7 +168,7 @@ impl ReduceCtx for ArrayReduceCtx {
                     .map(|c| {
                         c.as_any()
                             .downcast_ref::<ArrayRef>()
-                            .vortex_expect("ReduceNode is not an ArrayRef")
+                            .expect("ReduceNode is not an ArrayRef")
                             .clone()
                     })
                     .collect(),
@@ -248,14 +248,14 @@ mod tests {
                         root(),
                         DType::Primitive(PType::U64, Nullability::Nullable),
                     ))
-                    .vortex_expect("casted"),
+                    .expect("casted"),
             ],
             DType::Primitive(PType::U64, Nullability::Nullable),
         )
-        .vortex_expect("construction")
+        .expect("construction")
         .to_array();
 
         let expr = is_null(root());
-        array.apply(&expr).vortex_expect("expr evaluation");
+        array.apply(&expr).expect("expr evaluation");
     }
 }

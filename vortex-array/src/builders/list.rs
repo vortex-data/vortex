@@ -102,8 +102,7 @@ impl<O: IntegerPType> ListBuilder<O> {
         self.elements_builder.extend_from_array(array);
         self.nulls.append_non_null();
         self.offsets_builder.append_value(
-            O::from_usize(self.elements_builder.len())
-                .vortex_expect("Failed to convert from usize to O"),
+            O::from_usize(self.elements_builder.len()).expect("Failed to convert from usize to O"),
         );
 
         Ok(())
@@ -128,7 +127,7 @@ impl<O: IntegerPType> ListBuilder<O> {
                 self.nulls.append_non_null();
                 self.offsets_builder.append_value(
                     O::from_usize(self.elements_builder.len())
-                        .vortex_expect("Failed to convert from usize to O"),
+                        .expect("Failed to convert from usize to O"),
                 );
             }
         }
@@ -149,7 +148,7 @@ impl<O: IntegerPType> ListBuilder<O> {
             self.offsets_builder.finish(),
             self.nulls.finish_with_nullability(self.dtype.nullability()),
         )
-        .vortex_expect("Buffer, offsets, and validity must have same length.")
+        .expect("Buffer, offsets, and validity must have same length.")
     }
 
     /// The [`DType`] of the inner elements. Note that this is **not** the same as the [`DType`] of
@@ -183,9 +182,8 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     fn append_zeros(&mut self, n: usize) {
         let curr_len = self.elements_builder.len();
         for _ in 0..n {
-            self.offsets_builder.append_value(
-                O::from_usize(curr_len).vortex_expect("Failed to convert from usize to <O>"),
-            )
+            self.offsets_builder
+                .append_value(O::from_usize(curr_len).expect("Failed to convert from usize to <O>"))
         }
         self.nulls.append_n_non_nulls(n);
     }
@@ -195,9 +193,8 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         for _ in 0..n {
             // A list with a null element is can be a list with a zero-span offset and a validity
             // bit set
-            self.offsets_builder.append_value(
-                O::from_usize(curr_len).vortex_expect("Failed to convert from usize to <O>"),
-            )
+            self.offsets_builder
+                .append_value(O::from_usize(curr_len).expect("Failed to convert from usize to <O>"))
         }
         self.nulls.append_n_nulls(n);
     }
@@ -223,7 +220,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         self.nulls.append_validity_mask(
             array
                 .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+                .expect("validity_mask in extend_from_array_unchecked"),
         );
 
         // Note that `ListViewArray` has `n` offsets and sizes, not `n+1` offsets like `ListArray`.
@@ -256,13 +253,12 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
                 if size > 0 {
                     let list_elements = new_elements
                         .slice(offset..offset + size)
-                        .vortex_expect("list builder slice");
+                        .expect("list builder slice");
                     builder.elements_builder.extend_from_array(&list_elements);
                     curr_offset += size;
                 }
 
-                let new_offset =
-                    O::from_usize(curr_offset).vortex_expect("Failed to convert offset");
+                let new_offset = O::from_usize(curr_offset).expect("Failed to convert offset");
 
                 offsets_range.set_value(i, new_offset);
             }

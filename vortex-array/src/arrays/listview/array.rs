@@ -152,7 +152,7 @@ impl ListViewArray {
     /// in [`ListViewArray::new_unchecked`].
     pub fn new(elements: ArrayRef, offsets: ArrayRef, sizes: ArrayRef, validity: Validity) -> Self {
         Self::try_new(elements, offsets, sizes, validity)
-            .vortex_expect("`ListViewArray` construction failed")
+            .expect("`ListViewArray` construction failed")
     }
 
     /// Constructs a new `ListViewArray`.
@@ -207,7 +207,7 @@ impl ListViewArray {
     ) -> Self {
         if cfg!(debug_assertions) {
             Self::validate(&elements, &offsets, &sizes, &validity)
-                .vortex_expect("Failed to crate `ListViewArray`");
+                .expect("Failed to crate `ListViewArray`");
         }
 
         Self {
@@ -309,7 +309,7 @@ impl ListViewArray {
                 self.offsets.to_primitive(),
                 self.sizes.to_primitive(),
             )
-            .vortex_expect("Failed to validate zero-copy to list flag");
+            .expect("Failed to validate zero-copy to list flag");
         }
         self.is_zero_copy_to_list = is_zctl;
         self
@@ -342,7 +342,7 @@ impl ListViewArray {
     }
 
     pub fn into_parts(self) -> ListViewArrayParts {
-        let dtype = self.dtype.into_list_element_opt().vortex_expect("is list");
+        let dtype = self.dtype.into_list_element_opt().expect("is list");
         ListViewArrayParts {
             elements_dtype: dtype,
             elements: self.elements,
@@ -372,10 +372,10 @@ impl ListViewArray {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
                 self.offsets
                     .scalar_at(index)
-                    .vortex_expect("offsets must support scalar_at")
+                    .expect("offsets must support scalar_at")
                     .as_primitive()
                     .as_::<usize>()
-                    .vortex_expect("offset must fit in usize")
+                    .expect("offset must fit in usize")
             })
     }
 
@@ -400,10 +400,10 @@ impl ListViewArray {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
                 self.sizes
                     .scalar_at(index)
-                    .vortex_expect("sizes must support scalar_at")
+                    .expect("sizes must support scalar_at")
                     .as_primitive()
                     .as_::<usize>()
-                    .vortex_expect("size must fit in usize")
+                    .expect("size must fit in usize")
             })
     }
 

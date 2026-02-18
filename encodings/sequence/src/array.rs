@@ -198,12 +198,9 @@ impl SequenceArray {
         assert!(idx < self.len, "index_value({idx}): index out of bounds");
 
         match_each_native_ptype!(self.ptype(), |P| {
-            let base = self.base.cast::<P>().vortex_expect("must be able to cast");
-            let multiplier = self
-                .multiplier
-                .cast::<P>()
-                .vortex_expect("must be able to cast");
-            let value = base + (multiplier * <P>::from_usize(idx).vortex_expect("must fit"));
+            let base = self.base.cast::<P>().expect("must be able to cast");
+            let multiplier = self.multiplier.cast::<P>().expect("must be able to cast");
+            let value = base + (multiplier * <P>::from_usize(idx).expect("must fit"));
 
             PValue::from(value)
         })
@@ -211,8 +208,7 @@ impl SequenceArray {
 
     /// Returns the validated final value of a sequence array
     pub fn last(&self) -> PValue {
-        Self::try_last(self.base, self.multiplier, self.ptype(), self.len)
-            .vortex_expect("validated array")
+        Self::try_last(self.base, self.multiplier, self.ptype(), self.len).expect("validated array")
     }
 
     pub fn into_parts(self) -> SequenceArrayParts {
@@ -283,7 +279,7 @@ impl VTable for SequenceVTable {
         )?
         .as_primitive()
         .pvalue()
-        .vortex_expect("non-nullable primitive");
+        .expect("non-nullable primitive");
 
         let multiplier = Scalar::from_proto_value(
             metadata
@@ -295,7 +291,7 @@ impl VTable for SequenceVTable {
         )?
         .as_primitive()
         .pvalue()
-        .vortex_expect("non-nullable primitive");
+        .expect("non-nullable primitive");
 
         Ok(SequenceArray::unchecked_new(
             base,
@@ -320,8 +316,7 @@ impl VTable for SequenceVTable {
             let base = array.base().cast::<P>()?;
             let multiplier = array.multiplier().cast::<P>()?;
             let values = BufferMut::from_iter(
-                (0..array.len())
-                    .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
+                (0..array.len()).map(|i| base + <P>::from_usize(i).expect("must fit") * multiplier),
             );
             PrimitiveArray::new(values, array.dtype.nullability().into())
         });

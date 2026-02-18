@@ -46,7 +46,7 @@ pub fn nan_count(array: &dyn Array) -> VortexResult<usize> {
         .unwrap_scalar()?
         .as_primitive()
         .as_::<usize>()
-        .vortex_expect("NaN count should not return null"))
+        .expect("NaN count should not return null"))
 }
 
 struct NaNCount;

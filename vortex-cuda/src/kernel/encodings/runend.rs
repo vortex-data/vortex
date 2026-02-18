@@ -199,14 +199,14 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_runend_types(#[case] runend_array: RunEndArray) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let cpu_result = runend_array.to_canonical()?;
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed")
+            .expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();
@@ -219,7 +219,7 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_runend_large_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let num_runs = 41;
         let run_length = 50;
@@ -236,7 +236,7 @@ mod tests {
         let gpu_result = RunEndExecutor
             .execute(runend_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed")
+            .expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();
@@ -249,7 +249,7 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_runend_single_run() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         let runend_array = make_runend_array(vec![100u32], vec![42i32]);
 
@@ -258,7 +258,7 @@ mod tests {
         let gpu_result = RunEndExecutor
             .execute(runend_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed")
+            .expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();
@@ -271,7 +271,7 @@ mod tests {
     #[tokio::test]
     async fn test_cuda_runend_many_small_runs() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-            .vortex_expect("failed to create execution context");
+            .expect("failed to create execution context");
 
         // Create an array where each run has length 1.
         let num_elements = 2050;
@@ -285,7 +285,7 @@ mod tests {
         let gpu_result = RunEndExecutor
             .execute(runend_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed")
+            .expect("GPU decompression failed")
             .into_host()
             .await?
             .into_array();

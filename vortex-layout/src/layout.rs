@@ -146,7 +146,7 @@ impl dyn Layout + '_ {
 
     /// Downcast a layout to a specific type.
     pub fn as_<V: VTable>(&self) -> &V::Layout {
-        self.as_opt::<V>().vortex_expect("Failed to downcast")
+        self.as_opt::<V>().expect("Failed to downcast")
     }
 
     /// Downcast a layout to a specific type.
@@ -162,7 +162,7 @@ impl dyn Layout + '_ {
             .as_any_arc()
             .downcast::<LayoutAdapter<V>>()
             .map_err(|_| vortex_err!("Invalid layout type"))
-            .vortex_expect("Invalid layout type");
+            .expect("Invalid layout type");
 
         // SAFETY: LayoutAdapter<V> is #[repr(transparent)] (see line 192) which guarantees
         // it has the same memory layout as V::Layout. The downcast above ensures we have

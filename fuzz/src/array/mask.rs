@@ -120,13 +120,13 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
                 array.len(),
                 new_validity,
             )
-            .vortex_expect("StructArray creation should succeed in fuzz test")
+            .expect("StructArray creation should succeed in fuzz test")
             .into_array()
         }
         Canonical::Extension(array) => {
             // Recursively mask the storage array
             let masked_storage = mask_canonical_array(array.storage().to_canonical()?, mask)
-                .vortex_expect("mask_canonical_array should succeed in fuzz test");
+                .expect("mask_canonical_array should succeed in fuzz test");
 
             let ext_dtype = array
                 .ext_dtype()

@@ -98,7 +98,7 @@ impl VTable for Root {
 /// This is commonly used as the starting point for field access and other operations.
 pub fn root() -> Expression {
     Root.try_new_expr(EmptyOptions, vec![])
-        .vortex_expect("Failed to create Root expression")
+        .expect("Failed to create Root expression")
 }
 
 /// Return whether the expression is a root expression.
