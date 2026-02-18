@@ -9,7 +9,6 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use flatbuffers::root;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
@@ -23,7 +22,6 @@ use vortex_array::MaskFuture;
 use vortex_array::ProstMetadata;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantVTable;
-use vortex_array::buffer::BufferHandle;
 use vortex_array::expr::Expression;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
@@ -38,7 +36,6 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::session::ArrayRegistry;
 use vortex_array::stats::StatsSetRef;
-use vortex_buffer::Alignment;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -47,8 +44,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
-use vortex_flatbuffers::FlatBuffer;
-use vortex_flatbuffers::array as fba;
 use vortex_layout::IntoLayout;
 use vortex_layout::LayoutChildType;
 use vortex_layout::LayoutChildren;
@@ -251,13 +246,11 @@ impl CudaFlatReader {
 
         async move {
             let segment = segment_fut.await?;
-            let parts = if host_buffers.is_empty() {
-                ArrayParts::from_flatbuffer_and_segment(array_tree, segment)?
-            } else {
-                let buffers =
-                    resolve_buffers_with_host_overrides(&array_tree, &segment, &host_buffers)?;
-                ArrayParts::from_flatbuffer_with_buffers(array_tree, buffers)?
-            };
+            let parts = ArrayParts::from_flatbuffer_and_segment_with_overrides(
+                array_tree,
+                segment,
+                &host_buffers,
+            )?;
             parts
                 .decode(&dtype, row_count, &ctx, &session)
                 .map_err(Arc::new)
@@ -381,44 +374,6 @@ impl LayoutReader for CudaFlatReader {
         }
         .boxed())
     }
-}
-
-/// Resolve buffers from the array tree flatbuffer, substituting host overrides for specific
-/// buffer indices.
-fn resolve_buffers_with_host_overrides(
-    array_tree: &ByteBuffer,
-    segment: &BufferHandle,
-    host_overrides: &HashMap<u32, ByteBuffer>,
-) -> VortexResult<Vec<BufferHandle>> {
-    let segment = segment.clone().ensure_aligned(Alignment::none())?;
-    let fb_buffer = FlatBuffer::align_from(array_tree.clone());
-    let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
-
-    let mut offset = 0usize;
-    fb_array
-        .buffers()
-        .unwrap_or_default()
-        .iter()
-        .enumerate()
-        .map(|(idx, fb_buf)| {
-            offset += fb_buf.padding() as usize;
-            let buffer_len = fb_buf.length() as usize;
-
-            let idx = u32::try_from(idx).vortex_expect("buffer count must fit in u32");
-            let alignment = Alignment::from_exponent(fb_buf.alignment_exponent());
-            let handle = if let Some(host_data) = host_overrides.get(&idx) {
-                // Inlined host buffers lose segment padding alignment after protobuf
-                // round-trip. Re-align here so downstream aligned casts are safe.
-                BufferHandle::new_host(host_data.clone()).ensure_aligned(alignment)?
-            } else {
-                let buffer = segment.slice(offset..(offset + buffer_len));
-                buffer.ensure_aligned(alignment)?
-            };
-
-            offset += buffer_len;
-            Ok(handle)
-        })
-        .collect()
 }
 
 /// A [`LayoutStrategy`] that writes a [`CudaFlatLayout`] with constant array buffers inlined
