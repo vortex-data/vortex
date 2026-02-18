@@ -41,7 +41,7 @@ fn take_chunked(
     let mut pairs: Vec<(u64, usize)> = indices_values
         .iter()
         .enumerate()
-        .filter(|(i, _)| indices_mask.value(*i))
+        // .filter(|(i, _)| indices_mask.value(*i))
         .map(|(i, &v)| (v, i))
         .collect();
     pairs.sort_unstable();
