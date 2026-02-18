@@ -12,8 +12,8 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
-use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
+use vortex_array::expr::CompareOperator;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 
@@ -35,7 +35,7 @@ fn compare_bool(bencher: Bencher) {
     bencher
         .with_inputs(|| (&arr1, &arr2, session.create_execution_ctx()))
         .bench_refs(|input| {
-            compare(input.0, input.1, Operator::Gte)
+            compare(input.0, input.1, CompareOperator::Gte)
                 .unwrap()
                 .execute::<Canonical>(&mut input.2)
         });
@@ -60,7 +60,7 @@ fn compare_int(bencher: Bencher) {
     bencher
         .with_inputs(|| (&arr1, &arr2, session.create_execution_ctx()))
         .bench_refs(|input| {
-            compare(input.0, input.1, Operator::Gte)
+            compare(input.0, input.1, CompareOperator::Gte)
                 .unwrap()
                 .execute::<Canonical>(&mut input.2)
         });

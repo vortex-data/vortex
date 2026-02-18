@@ -72,9 +72,9 @@ mod primitive {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
     use vortex_array::expr::BetweenOptions;
+    use vortex_array::expr::CompareOperator;
     use vortex_array::expr::StrictComparison::NonStrict;
     use vortex_array::expr::and_kleene;
     use vortex_dtype::NativePType;
@@ -104,13 +104,13 @@ mod primitive {
                     &compare(
                         arr.as_ref(),
                         ConstantArray::new(min, arr.len()).as_ref(),
-                        Operator::Gte,
+                        CompareOperator::Gte,
                     )
                     .vortex_expect(""),
                     &compare(
                         arr.as_ref(),
                         ConstantArray::new(max, arr.len()).as_ref(),
-                        Operator::Lt,
+                        CompareOperator::Lt,
                     )
                     .vortex_expect(""),
                 )
@@ -163,9 +163,9 @@ mod bitpack {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
     use vortex_array::expr::BetweenOptions;
+    use vortex_array::expr::CompareOperator;
     use vortex_array::expr::StrictComparison::NonStrict;
     use vortex_array::expr::and_kleene;
     use vortex_dtype::NativePType;
@@ -195,13 +195,13 @@ mod bitpack {
                     &compare(
                         arr.as_ref(),
                         ConstantArray::new(min, arr.len()).as_ref(),
-                        Operator::Gte,
+                        CompareOperator::Gte,
                     )
                     .vortex_expect(""),
                     &compare(
                         arr.as_ref(),
                         ConstantArray::new(max, arr.len()).as_ref(),
-                        Operator::Lt,
+                        CompareOperator::Lt,
                     )
                     .vortex_expect(""),
                 )
@@ -255,9 +255,9 @@ mod alp {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
     use vortex_array::expr::BetweenOptions;
+    use vortex_array::expr::CompareOperator;
     use vortex_array::expr::StrictComparison::NonStrict;
     use vortex_array::expr::and_kleene;
     use vortex_dtype::NativePType;
@@ -287,13 +287,13 @@ mod alp {
                     &compare(
                         arr.as_ref(),
                         ConstantArray::new(min, arr.len()).as_ref(),
-                        Operator::Gte,
+                        CompareOperator::Gte,
                     )
                     .vortex_expect(""),
                     &compare(
                         arr.as_ref(),
                         ConstantArray::new(max, arr.len()).as_ref(),
-                        Operator::Lt,
+                        CompareOperator::Lt,
                     )
                     .vortex_expect(""),
                 )

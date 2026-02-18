@@ -15,9 +15,9 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict_test::gen_primitive_for_dict;
 use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::builders::dict::dict_encode;
-use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::compute::warm_up_vtables;
+use vortex_array::expr::CompareOperator;
 use vortex_array::expr::eq;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
@@ -59,7 +59,7 @@ fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, u
             compare(
                 dict.as_ref(),
                 ConstantArray::new(value, len).as_ref(),
-                Operator::Eq,
+                CompareOperator::Eq,
             )
             .unwrap()
             .execute::<Canonical>(ctx)
@@ -81,7 +81,7 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usiz
             compare(
                 dict.as_ref(),
                 ConstantArray::new(value, len).as_ref(),
-                Operator::Eq,
+                CompareOperator::Eq,
             )
             .unwrap()
             .execute::<RecursiveCanonical>(ctx)
@@ -103,7 +103,7 @@ fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, 
             compare(
                 dict.as_ref(),
                 ConstantArray::new(value, len).as_ref(),
-                Operator::Eq,
+                CompareOperator::Eq,
             )
             .unwrap()
             .execute::<RecursiveCanonical>(ctx)

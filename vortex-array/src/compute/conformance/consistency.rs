@@ -32,10 +32,10 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::Operator;
 use crate::compute::compare;
 use crate::compute::invert;
 use crate::compute::mask;
+use crate::expr::CompareOperator;
 use crate::expr::and_kleene;
 use crate::expr::or_kleene;
 
@@ -712,8 +712,8 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
     // Test Eq vs NotEq
     let const_array = crate::arrays::ConstantArray::new(test_scalar, len);
     if let (Ok(eq_result), Ok(neq_result)) = (
-        compare(array, const_array.as_ref(), Operator::Eq),
-        compare(array, const_array.as_ref(), Operator::NotEq),
+        compare(array, const_array.as_ref(), CompareOperator::Eq),
+        compare(array, const_array.as_ref(), CompareOperator::NotEq),
     ) {
         let inverted_eq =
             invert(&eq_result).vortex_expect("invert should succeed in conformance test");
@@ -741,8 +741,8 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
 
     // Test Gt vs Lte
     if let (Ok(gt_result), Ok(lte_result)) = (
-        compare(array, const_array.as_ref(), Operator::Gt),
-        compare(array, const_array.as_ref(), Operator::Lte),
+        compare(array, const_array.as_ref(), CompareOperator::Gt),
+        compare(array, const_array.as_ref(), CompareOperator::Lte),
     ) {
         let inverted_gt =
             invert(&gt_result).vortex_expect("invert should succeed in conformance test");
@@ -764,8 +764,8 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
 
     // Test Lt vs Gte
     if let (Ok(lt_result), Ok(gte_result)) = (
-        compare(array, const_array.as_ref(), Operator::Lt),
-        compare(array, const_array.as_ref(), Operator::Gte),
+        compare(array, const_array.as_ref(), CompareOperator::Lt),
+        compare(array, const_array.as_ref(), CompareOperator::Gte),
     ) {
         let inverted_lt =
             invert(&lt_result).vortex_expect("invert should succeed in conformance test");
@@ -827,8 +827,8 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
 
     // Test Gt vs Lt symmetry
     if let (Ok(arr_gt_scalar), Ok(scalar_lt_arr)) = (
-        compare(array, const_array.as_ref(), Operator::Gt),
-        compare(const_array.as_ref(), array, Operator::Lt),
+        compare(array, const_array.as_ref(), CompareOperator::Gt),
+        compare(const_array.as_ref(), array, CompareOperator::Lt),
     ) {
         assert_eq!(
             arr_gt_scalar.len(),
@@ -853,8 +853,8 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
 
     // Test Eq symmetry
     if let (Ok(arr_eq_scalar), Ok(scalar_eq_arr)) = (
-        compare(array, const_array.as_ref(), Operator::Eq),
-        compare(const_array.as_ref(), array, Operator::Eq),
+        compare(array, const_array.as_ref(), CompareOperator::Eq),
+        compare(const_array.as_ref(), array, CompareOperator::Eq),
     ) {
         for i in 0..arr_eq_scalar.len() {
             let arr_eq = arr_eq_scalar

@@ -39,6 +39,7 @@ use crate::expr::VTableExt;
 use crate::expr::execute_boolean;
 use crate::expr::expression::Expression;
 use crate::expr::exprs::binary::Binary;
+use crate::expr::exprs::operators::CompareOperator;
 use crate::expr::exprs::operators::Operator;
 use crate::scalar::Scalar;
 
@@ -80,10 +81,17 @@ pub enum StrictComparison {
 }
 
 impl StrictComparison {
-    pub const fn to_operator(&self) -> crate::compute::Operator {
+    pub const fn to_compare_operator(&self) -> CompareOperator {
         match self {
-            StrictComparison::Strict => crate::compute::Operator::Lt,
-            StrictComparison::NonStrict => crate::compute::Operator::Lte,
+            StrictComparison::Strict => CompareOperator::Lt,
+            StrictComparison::NonStrict => CompareOperator::Lte,
+        }
+    }
+
+    pub const fn to_operator(&self) -> Operator {
+        match self {
+            StrictComparison::Strict => Operator::Lt,
+            StrictComparison::NonStrict => Operator::Lte,
         }
     }
 
@@ -162,8 +170,8 @@ fn between_canonical(
     // TODO(joe): return lazy compare once the executor supports this
     // Fall back to compare + boolean and
     execute_boolean(
-        &compare(lower, arr, options.lower_strict.to_operator())?,
-        &compare(arr, upper, options.upper_strict.to_operator())?,
+        &compare(lower, arr, options.lower_strict.to_compare_operator())?,
+        &compare(arr, upper, options.upper_strict.to_compare_operator())?,
         Operator::And,
     )
 }
@@ -317,11 +325,8 @@ impl VTable for Between {
         let lower = expr.child(1).clone();
         let upper = expr.child(2).clone();
 
-        let lhs = Binary.new_expr(
-            options.lower_strict.to_operator().into(),
-            [lower, arr.clone()],
-        );
-        let rhs = Binary.new_expr(options.upper_strict.to_operator().into(), [arr, upper]);
+        let lhs = Binary.new_expr(options.lower_strict.to_operator(), [lower, arr.clone()]);
+        let rhs = Binary.new_expr(options.upper_strict.to_operator(), [arr, upper]);
 
         Binary
             .new_expr(Operator::And, [lhs, rhs])

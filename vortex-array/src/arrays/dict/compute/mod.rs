@@ -75,11 +75,11 @@ mod test {
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
-    use crate::compute::Operator;
     use crate::compute::compare;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::expr::CompareOperator;
     #[test]
     fn canonicalise_nullable_primitive() {
         let values: Vec<Option<i32>> = (0..65)
@@ -157,7 +157,12 @@ mod test {
     fn compare_sliced_dict() {
         use crate::arrays::BoolArray;
         let sliced = sliced_dict_array();
-        let compared = compare(&sliced, ConstantArray::new(42, 3).as_ref(), Operator::Eq).unwrap();
+        let compared = compare(
+            &sliced,
+            ConstantArray::new(42, 3).as_ref(),
+            CompareOperator::Eq,
+        )
+        .unwrap();
 
         let expected = BoolArray::from_iter([Some(false), None, Some(true)]);
         assert_arrays_eq!(compared, expected.to_array());

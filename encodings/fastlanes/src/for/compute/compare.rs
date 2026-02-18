@@ -8,9 +8,9 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::expr::CompareKernel;
+use vortex_array::expr::CompareOperator;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_dtype::NativePType;
@@ -27,7 +27,7 @@ impl CompareKernel for FoRVTable {
     fn compare(
         lhs: &FoRArray,
         rhs: &dyn Array,
-        operator: Operator,
+        operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(constant) = rhs.as_constant()
@@ -53,7 +53,7 @@ fn compare_constant<T>(
     lhs: &FoRArray,
     mut rhs: T,
     nullability: Nullability,
-    operator: Operator,
+    operator: CompareOperator,
 ) -> VortexResult<Option<ArrayRef>>
 where
     T: NativePType + WrappingSub + Shr<usize, Output = T>,
@@ -62,7 +62,7 @@ where
 {
     // For now, we only support equals and not equals. Comparisons are a little more fiddly to
     // get right regarding how to handle overflow and the wrapping subtraction.
-    if !matches!(operator, Operator::Eq | Operator::NotEq) {
+    if !matches!(operator, CompareOperator::Eq | CompareOperator::NotEq) {
         return Ok(None);
     }
 
@@ -108,17 +108,27 @@ mod tests {
         )
         .unwrap();
 
-        let result = compare_constant(&lhs, 30i32, Nullability::NonNullable, Operator::Eq)
+        let result = compare_constant(&lhs, 30i32, Nullability::NonNullable, CompareOperator::Eq)
             .unwrap()
             .unwrap();
         assert_arrays_eq!(result, BoolArray::from_iter([false, true, false].map(Some)));
 
-        let result = compare_constant(&lhs, 12i32, Nullability::NonNullable, Operator::NotEq)
-            .unwrap()
-            .unwrap();
+        let result = compare_constant(
+            &lhs,
+            12i32,
+            Nullability::NonNullable,
+            CompareOperator::NotEq,
+        )
+        .unwrap()
+        .unwrap();
         assert_arrays_eq!(result, BoolArray::from_iter([true, true, false].map(Some)));
 
-        for op in [Operator::Lt, Operator::Lte, Operator::Gt, Operator::Gte] {
+        for op in [
+            CompareOperator::Lt,
+            CompareOperator::Lte,
+            CompareOperator::Gt,
+            CompareOperator::Gte,
+        ] {
             assert!(
                 compare_constant(&lhs, 30i32, Nullability::NonNullable, op)
                     .unwrap()
@@ -138,14 +148,14 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            compare_constant(&lhs, 30i32, Nullability::Nullable, Operator::Eq)
+            compare_constant(&lhs, 30i32, Nullability::Nullable, CompareOperator::Eq)
                 .unwrap()
                 .unwrap()
                 .dtype(),
             &DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            compare_constant(&lhs, 30i32, Nullability::NonNullable, Operator::Eq)
+            compare_constant(&lhs, 30i32, Nullability::NonNullable, CompareOperator::Eq)
                 .unwrap()
                 .unwrap()
                 .dtype(),
@@ -163,7 +173,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = compare_constant(&lhs, -1i32, Nullability::NonNullable, Operator::Eq)
+        let result = compare_constant(&lhs, -1i32, Nullability::NonNullable, CompareOperator::Eq)
             .unwrap()
             .unwrap();
         assert_arrays_eq!(
@@ -171,9 +181,14 @@ mod tests {
             BoolArray::from_iter([false, false, false].map(Some))
         );
 
-        let result = compare_constant(&lhs, -1i32, Nullability::NonNullable, Operator::NotEq)
-            .unwrap()
-            .unwrap();
+        let result = compare_constant(
+            &lhs,
+            -1i32,
+            Nullability::NonNullable,
+            CompareOperator::NotEq,
+        )
+        .unwrap()
+        .unwrap();
         assert_arrays_eq!(result, BoolArray::from_iter([true, true, true].map(Some)));
     }
 
@@ -195,7 +210,7 @@ mod tests {
             &lhs,
             435090932899640449i64,
             Nullability::Nullable,
-            Operator::Eq,
+            CompareOperator::Eq,
         )
         .unwrap()
         .unwrap();
@@ -205,7 +220,7 @@ mod tests {
             &lhs,
             435090932899640449i64,
             Nullability::Nullable,
-            Operator::NotEq,
+            CompareOperator::NotEq,
         )
         .unwrap()
         .unwrap();

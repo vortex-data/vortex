@@ -10,15 +10,15 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::compute::Operator;
 use crate::compute::compare;
 use crate::expr::CompareKernel;
+use crate::expr::CompareOperator;
 
 impl CompareKernel for DictVTable {
     fn compare(
         lhs: &DictArray,
         rhs: &dyn Array,
-        operator: Operator,
+        operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // if we have more values than codes, it is faster to canonicalise first.

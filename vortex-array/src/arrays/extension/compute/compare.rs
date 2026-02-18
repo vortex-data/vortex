@@ -10,14 +10,14 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
 use crate::compute;
-use crate::compute::Operator;
 use crate::expr::CompareKernel;
+use crate::expr::CompareOperator;
 
 impl CompareKernel for ExtensionVTable {
     fn compare(
         lhs: &ExtensionArray,
         rhs: &dyn Array,
-        operator: Operator,
+        operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // If the RHS is a constant, we can extract the storage scalar.

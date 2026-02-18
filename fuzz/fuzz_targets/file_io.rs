@@ -12,8 +12,8 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ChunkedArray;
-use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
+use vortex_array::expr::CompareOperator;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_buffer::ByteBufferMut;
@@ -107,7 +107,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         output_array.dtype()
     );
 
-    let bool_result = compare(&expected_array, &output_array, Operator::Eq)
+    let bool_result = compare(&expected_array, &output_array, CompareOperator::Eq)
         .vortex_expect("compare operation should succeed in fuzz test")
         .to_bool();
     let true_count = bool_result.to_bit_buffer().true_count();

@@ -18,10 +18,10 @@ use crate::arrays::ScalarFnVTable;
 use crate::arrow::Datum;
 use crate::arrow::IntoArrowArray;
 use crate::arrow::from_arrow_array_with_len;
-use crate::compute::Operator;
 use crate::compute::compare_nested_arrow_arrays;
 use crate::compute::scalar_cmp;
 use crate::expr::Binary;
+use crate::expr::CompareOperator;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::Scalar;
 use crate::vtable::VTable;
@@ -35,7 +35,7 @@ pub trait CompareKernel: VTable {
     fn compare(
         lhs: &Self::Array,
         rhs: &dyn Array,
-        operator: Operator,
+        operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
 }
@@ -62,7 +62,7 @@ where
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // Only handle comparison operators
-        let Some(cmp_op) = parent.options.maybe_cmp_operator() else {
+        let Ok(cmp_op) = CompareOperator::try_from(*parent.options) else {
             return Ok(None);
         };
 
@@ -112,7 +112,7 @@ where
 pub(crate) fn execute_compare(
     lhs: &dyn Array,
     rhs: &dyn Array,
-    op: Operator,
+    op: CompareOperator,
 ) -> VortexResult<ArrayRef> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
 
@@ -146,7 +146,7 @@ pub(crate) fn execute_compare(
 fn arrow_compare_arrays(
     left: &dyn Array,
     right: &dyn Array,
-    operator: Operator,
+    operator: CompareOperator,
 ) -> VortexResult<ArrayRef> {
     assert_eq!(left.len(), right.len());
 
@@ -172,12 +172,12 @@ fn arrow_compare_arrays(
         let rhs = Datum::try_new_with_target_datatype(right, lhs.data_type())?;
 
         match operator {
-            Operator::Eq => cmp::eq(&lhs, &rhs)?,
-            Operator::NotEq => cmp::neq(&lhs, &rhs)?,
-            Operator::Gt => cmp::gt(&lhs, &rhs)?,
-            Operator::Gte => cmp::gt_eq(&lhs, &rhs)?,
-            Operator::Lt => cmp::lt(&lhs, &rhs)?,
-            Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
+            CompareOperator::Eq => cmp::eq(&lhs, &rhs)?,
+            CompareOperator::NotEq => cmp::neq(&lhs, &rhs)?,
+            CompareOperator::Gt => cmp::gt(&lhs, &rhs)?,
+            CompareOperator::Gte => cmp::gt_eq(&lhs, &rhs)?,
+            CompareOperator::Lt => cmp::lt(&lhs, &rhs)?,
+            CompareOperator::Lte => cmp::lt_eq(&lhs, &rhs)?,
         }
     };
     from_arrow_array_with_len(&array, left.len(), nullable)

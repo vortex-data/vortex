@@ -43,7 +43,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::compute::MinMaxResult;
-use vortex_array::compute::Operator;
+use vortex_array::expr::CompareOperator;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::arbitrary::random_scalar;
 use vortex_array::search_sorted::SearchResult;
@@ -96,7 +96,7 @@ pub enum Action {
     Take(ArrayRef),
     SearchSorted(Scalar, SearchSortedSide),
     Filter(Mask),
-    Compare(Scalar, Operator),
+    Compare(Scalar, CompareOperator),
     Cast(DType),
     Sum,
     MinMax,

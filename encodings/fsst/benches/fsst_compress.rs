@@ -18,9 +18,9 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
-use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::compute::warm_up_vtables;
+use vortex_array::expr::CompareOperator;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySession;
 use vortex_dtype::DType;
@@ -97,7 +97,7 @@ fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (us
             )
         })
         .bench_refs(|(fsst_array, constant, ctx)| {
-            compare(fsst_array.as_ref(), constant.as_ref(), Operator::Eq)
+            compare(fsst_array.as_ref(), constant.as_ref(), CompareOperator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap();
@@ -126,7 +126,7 @@ fn canonicalize_compare(
             compare(
                 fsst_array.to_canonical().unwrap().as_ref(),
                 constant.as_ref(),
-                Operator::Eq,
+                CompareOperator::Eq,
             )
             .unwrap()
             .execute::<RecursiveCanonical>(ctx)

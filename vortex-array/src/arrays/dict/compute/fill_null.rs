@@ -13,8 +13,8 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::Operator;
 use crate::compute::compare;
+use crate::expr::CompareOperator;
 use crate::expr::FillNullKernel;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -30,7 +30,7 @@ impl FillNullKernel for DictVTable {
         let found_fill_values = compare(
             array.values(),
             ConstantArray::new(fill_value.clone(), array.values().len()).as_ref(),
-            Operator::Eq,
+            CompareOperator::Eq,
         )?
         .to_bool();
 

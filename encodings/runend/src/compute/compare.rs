@@ -7,9 +7,9 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::expr::CompareKernel;
+use vortex_array::expr::CompareOperator;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;
@@ -20,7 +20,7 @@ impl CompareKernel for RunEndVTable {
     fn compare(
         lhs: &RunEndArray,
         rhs: &dyn Array,
-        operator: Operator,
+        operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
@@ -51,8 +51,8 @@ mod test {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
+    use vortex_array::expr::CompareOperator;
 
     use crate::RunEndArray;
 
@@ -69,7 +69,7 @@ mod test {
         let res = compare(
             arr.as_ref(),
             ConstantArray::new(5, 12).as_ref(),
-            Operator::Eq,
+            CompareOperator::Eq,
         )
         .unwrap();
         let expected = BoolArray::from_iter([

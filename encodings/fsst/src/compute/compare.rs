@@ -8,10 +8,10 @@ use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::compute::compare_lengths_to_empty;
 use vortex_array::expr::CompareKernel;
+use vortex_array::expr::CompareOperator;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
@@ -29,7 +29,7 @@ impl CompareKernel for FSSTVTable {
     fn compare(
         lhs: &FSSTArray,
         rhs: &dyn Array,
-        operator: Operator,
+        operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         match rhs.as_constant() {
@@ -44,7 +44,7 @@ impl CompareKernel for FSSTVTable {
 fn compare_fsst_constant(
     left: &FSSTArray,
     right: &Scalar,
-    operator: Operator,
+    operator: CompareOperator,
 ) -> VortexResult<Option<ArrayRef>> {
     let is_rhs_empty = match right.dtype() {
         DType::Binary(_) => right
@@ -60,9 +60,9 @@ fn compare_fsst_constant(
     if is_rhs_empty {
         let buffer = match operator {
             // Every possible value is gte ""
-            Operator::Gte => BitBuffer::new_set(left.len()),
+            CompareOperator::Gte => BitBuffer::new_set(left.len()),
             // No value is lt ""
-            Operator::Lt => BitBuffer::new_unset(left.len()),
+            CompareOperator::Lt => BitBuffer::new_unset(left.len()),
             _ => {
                 let uncompressed_lengths = left.uncompressed_lengths().to_primitive();
                 match_each_integer_ptype!(uncompressed_lengths.ptype(), |P| {
@@ -85,7 +85,7 @@ fn compare_fsst_constant(
     }
 
     // The following section only supports Eq/NotEq
-    if !matches!(operator, Operator::Eq | Operator::NotEq) {
+    if !matches!(operator, CompareOperator::Eq | CompareOperator::NotEq) {
         return Ok(None);
     }
 
@@ -125,8 +125,8 @@ mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
+    use vortex_array::expr::CompareOperator;
     use vortex_array::scalar::Scalar;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
@@ -153,7 +153,7 @@ mod tests {
         let rhs = ConstantArray::new("world", lhs.len());
 
         // Ensure fastpath for Eq exists, and returns correct answer
-        let equals = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq)
+        let equals = compare(lhs.as_ref(), rhs.as_ref(), CompareOperator::Eq)
             .unwrap()
             .to_bool();
 
@@ -165,7 +165,7 @@ mod tests {
         );
 
         // Ensure fastpath for Eq exists, and returns correct answer
-        let not_equals = compare(lhs.as_ref(), rhs.as_ref(), Operator::NotEq)
+        let not_equals = compare(lhs.as_ref(), rhs.as_ref(), CompareOperator::NotEq)
             .unwrap()
             .to_bool();
 
@@ -178,13 +178,13 @@ mod tests {
         // Ensure null constants are handled correctly.
         let null_rhs =
             ConstantArray::new(Scalar::null(DType::Utf8(Nullability::Nullable)), lhs.len());
-        let equals_null = compare(lhs.as_ref(), null_rhs.as_ref(), Operator::Eq).unwrap();
+        let equals_null = compare(lhs.as_ref(), null_rhs.as_ref(), CompareOperator::Eq).unwrap();
         assert_arrays_eq!(
             &equals_null,
             &BoolArray::from_iter([None::<bool>, None, None, None, None])
         );
 
-        let noteq_null = compare(lhs.as_ref(), null_rhs.as_ref(), Operator::NotEq).unwrap();
+        let noteq_null = compare(lhs.as_ref(), null_rhs.as_ref(), CompareOperator::NotEq).unwrap();
         assert_arrays_eq!(
             &noteq_null,
             &BoolArray::from_iter([None::<bool>, None, None, None, None])

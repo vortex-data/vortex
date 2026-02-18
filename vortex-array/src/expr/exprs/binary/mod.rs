@@ -14,7 +14,6 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::compute;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -24,6 +23,7 @@ use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
 use crate::expr::exprs::literal::lit;
+use crate::expr::exprs::operators::CompareOperator;
 use crate::expr::exprs::operators::Operator;
 use crate::expr::stats::Stat;
 
@@ -118,12 +118,12 @@ impl VTable for Binary {
         };
 
         match op {
-            Operator::Eq => execute_compare(lhs, rhs, compute::Operator::Eq),
-            Operator::NotEq => execute_compare(lhs, rhs, compute::Operator::NotEq),
-            Operator::Lt => execute_compare(lhs, rhs, compute::Operator::Lt),
-            Operator::Lte => execute_compare(lhs, rhs, compute::Operator::Lte),
-            Operator::Gt => execute_compare(lhs, rhs, compute::Operator::Gt),
-            Operator::Gte => execute_compare(lhs, rhs, compute::Operator::Gte),
+            Operator::Eq => execute_compare(lhs, rhs, CompareOperator::Eq),
+            Operator::NotEq => execute_compare(lhs, rhs, CompareOperator::NotEq),
+            Operator::Lt => execute_compare(lhs, rhs, CompareOperator::Lt),
+            Operator::Lte => execute_compare(lhs, rhs, CompareOperator::Lte),
+            Operator::Gt => execute_compare(lhs, rhs, CompareOperator::Gt),
+            Operator::Gte => execute_compare(lhs, rhs, CompareOperator::Gte),
             Operator::And => execute_boolean(lhs, rhs, Operator::And),
             Operator::Or => execute_boolean(lhs, rhs, Operator::Or),
             Operator::Add => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Add),
@@ -734,7 +734,7 @@ mod tests {
         .into_array();
 
         // Test using compare compute function directly
-        let result_equal = compare(&lhs_struct, &rhs_struct_equal, compute::Operator::Eq).unwrap();
+        let result_equal = compare(&lhs_struct, &rhs_struct_equal, CompareOperator::Eq).unwrap();
         assert_eq!(
             result_equal.scalar_at(0).vortex_expect("value"),
             Scalar::bool(true, Nullability::NonNullable),
@@ -742,7 +742,7 @@ mod tests {
         );
 
         let result_different =
-            compare(&lhs_struct, &rhs_struct_different, compute::Operator::Eq).unwrap();
+            compare(&lhs_struct, &rhs_struct_different, CompareOperator::Eq).unwrap();
         assert_eq!(
             result_different.scalar_at(0).vortex_expect("value"),
             Scalar::bool(false, Nullability::NonNullable),

@@ -20,10 +20,10 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::compute::filter;
 use vortex_array::compute::sub_scalar;
+use vortex_array::expr::CompareOperator;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::scalar::Scalar;
@@ -354,7 +354,7 @@ impl SparseArray {
 
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
         let non_top_mask = Mask::from_buffer(
-            compare(array, &fill_array, Operator::NotEq)?
+            compare(array, &fill_array, CompareOperator::NotEq)?
                 .fill_null(Scalar::bool(true, Nullability::NonNullable))?
                 .to_bool()
                 .to_bit_buffer(),
