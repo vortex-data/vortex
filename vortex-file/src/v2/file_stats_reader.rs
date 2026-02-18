@@ -211,6 +211,7 @@ mod tests {
     use vortex_array::expr::session::ExprSession;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
+    use vortex_array::scalar::ScalarValue;
     use vortex_array::session::ArraySession;
     use vortex_array::stats::StatsSet;
     use vortex_buffer::buffer;
@@ -229,7 +230,6 @@ mod tests {
     use vortex_layout::sequence::SequentialArrayStreamExt;
     use vortex_layout::session::LayoutSession;
     use vortex_mask::Mask;
-    use vortex_scalar::ScalarValue;
     use vortex_session::VortexSession;
 
     use super::*;

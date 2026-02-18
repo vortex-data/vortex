@@ -103,6 +103,15 @@ impl VortexReadAt for ObjectStoreReadAt {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        if length == 0 {
+            return async move {
+                Ok(BufferHandle::new_host(
+                    ByteBufferMut::with_capacity_aligned(0, alignment).freeze(),
+                ))
+            }
+            .boxed();
+        }
+
         let store = self.store.clone();
         let path = self.path.clone();
         let handle = self.handle.clone();

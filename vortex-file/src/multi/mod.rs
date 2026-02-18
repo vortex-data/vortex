@@ -146,20 +146,22 @@ impl MultiFileDataSource {
 // TODO(ngates): create a native file system without an object_store dependency.
 //  Turns out it's not a trivial change because we have always used object_store with its own
 //  coalescing and concurrency configs, so we need to re-tune for local disk.
+#[cfg(feature = "object_store")]
 fn create_local_filesystem(session: &VortexSession) -> VortexResult<FileSystemRef> {
-    if cfg!(feature = "object_store") {
-        use vortex_io::object_store::ObjectStoreFileSystem;
-        use vortex_io::session::RuntimeSessionExt;
+    use vortex_io::object_store::ObjectStoreFileSystem;
+    use vortex_io::session::RuntimeSessionExt;
 
-        let store = Arc::new(object_store::local::LocalFileSystem::default());
-        let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(store, session.handle()));
-        Ok(fs)
-    } else {
-        vortex_bail!(
-            "The 'object_store' feature is required for automatic local filesystem creation. \
+    let store = Arc::new(object_store::local::LocalFileSystem::default());
+    let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(store, session.handle()));
+    Ok(fs)
+}
+
+#[cfg(not(feature = "object_store"))]
+fn create_local_filesystem(session: &VortexSession) -> VortexResult<FileSystemRef> {
+    vortex_bail!(
+        "The 'object_store' feature is required for automatic local filesystem creation. \
              Either enable the feature or provide a filesystem via .with_filesystem()."
-        );
-    }
+    );
 }
 
 /// Open a single Vortex file, checking the session's footer cache.
