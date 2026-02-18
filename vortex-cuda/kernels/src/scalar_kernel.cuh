@@ -30,7 +30,7 @@ scalar_kernel(const InputT *__restrict in, OutputT *__restrict out, uint64_t arr
     for (uint64_t idx = block_start_vec + threadIdx.x; idx < block_end_vec; idx += blockDim.x) {
         uint64_t base_idx = idx * VALUES_PER_LOOP;
 
-// clang-format off
+        // clang-format off
         #pragma unroll
         // clang-format on
         for (uint64_t i = 0; i < VALUES_PER_LOOP; ++i) {
@@ -60,7 +60,7 @@ __device__ void scalar_kernel_inplace(T *__restrict values, uint64_t array_len, 
     for (uint64_t idx = block_start_vec + threadIdx.x; idx < block_end_vec; idx += blockDim.x) {
         uint64_t base_idx = idx * VALUES_PER_LOOP;
 
-// clang-format off
+        // clang-format off
         #pragma unroll
         // clang-format on
         for (uint64_t i = 0; i < VALUES_PER_LOOP; ++i) {
