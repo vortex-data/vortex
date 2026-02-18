@@ -26,7 +26,6 @@ use crate::arrow::ArrowDeviceArray;
 use crate::arrow::DeviceType;
 use crate::arrow::ExportDeviceArray;
 use crate::arrow::PrivateData;
-use crate::arrow::SyncEvent;
 use crate::arrow::check_validity_empty;
 use crate::arrow::varbinview::BinaryParts;
 use crate::arrow::varbinview::copy_varbinview_to_varbin;
@@ -47,11 +46,10 @@ impl ExportDeviceArray for CanonicalDeviceArrayExport {
     ) -> VortexResult<ArrowDeviceArray> {
         let cuda_array = array.execute_cuda(ctx).await?;
 
-        let (arrow_array, _) = export_canonical(cuda_array, ctx).await?;
+        let arrow_array = export_canonical(cuda_array, ctx).await?;
 
         Ok(ArrowDeviceArray {
             array: arrow_array,
-            sync_event: None,
             device_id: ctx.stream().context().ordinal() as i64,
             device_type: DeviceType::Cuda,
             _reserved: Default::default(),
@@ -62,7 +60,7 @@ impl ExportDeviceArray for CanonicalDeviceArrayExport {
 fn export_canonical(
     cuda_array: Canonical,
     ctx: &mut CudaExecutionCtx,
-) -> BoxFuture<'_, VortexResult<(ArrowArray, SyncEvent)>> {
+) -> BoxFuture<'_, VortexResult<ArrowArray>> {
     Box::pin(async {
         match cuda_array {
             Canonical::Struct(struct_array) => export_struct(struct_array, ctx).await,
@@ -88,7 +86,7 @@ fn export_canonical(
                 array.release = Some(release_array);
 
                 // we don't need a sync event for Null since no data is copied.
-                Ok((array, None))
+                Ok(array)
             }
             Canonical::Decimal(decimal) => {
                 let len = decimal.len();
@@ -154,8 +152,6 @@ fn export_canonical(
 
                 let buffers = vec![None, Some(offsets), Some(bytes)];
                 let mut private_data = PrivateData::new(buffers, vec![], ctx)?;
-                let sync_event = private_data.sync_event();
-                //
                 let arrow_array = ArrowArray {
                     length: len as i64,
                     null_count: 0,
@@ -170,7 +166,7 @@ fn export_canonical(
                     private_data: Box::into_raw(private_data).cast(),
                 };
 
-                Ok((arrow_array, sync_event))
+                Ok(arrow_array)
             }
             // TODO(aduffy): implement VarBinView. cudf doesn't support it, so we need to
             //  execute a kernel to translate from VarBinView -> VarBin.
@@ -179,10 +175,7 @@ fn export_canonical(
     })
 }
 
-async fn export_struct(
-    array: StructArray,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<(ArrowArray, SyncEvent)> {
+async fn export_struct(array: StructArray, ctx: &mut CudaExecutionCtx) -> VortexResult<ArrowArray> {
     let len = array.len();
     let StructArrayParts {
         validity, fields, ..
@@ -195,13 +188,11 @@ async fn export_struct(
 
     for field in fields.iter() {
         let cuda_field = field.clone().execute_cuda(ctx).await?;
-        let (arrow_field, _) = export_canonical(cuda_field, ctx).await?;
+        let arrow_field = export_canonical(cuda_field, ctx).await?;
         children.push(arrow_field);
     }
 
     let mut private_data = PrivateData::new(vec![None], children, ctx)?;
-    let sync_event: SyncEvent = private_data.sync_event();
-
     // Populate the ArrowArray with the child arrays.
     let mut arrow_struct = ArrowArray::empty();
     arrow_struct.length = len as i64;
@@ -215,7 +206,7 @@ async fn export_struct(
     arrow_struct.release = Some(release_array);
     arrow_struct.private_data = Box::into_raw(private_data).cast();
 
-    Ok((arrow_struct, sync_event))
+    Ok(arrow_struct)
 }
 
 /// Export fixed-size array data that owns a single buffer of values.
@@ -224,7 +215,7 @@ fn export_fixed_size(
     len: usize,
     offset: usize,
     ctx: &mut CudaExecutionCtx,
-) -> VortexResult<(ArrowArray, SyncEvent)> {
+) -> VortexResult<ArrowArray> {
     vortex_ensure!(
         buffer.is_on_device(),
         "buffer must already be copied to device before calling"
@@ -233,9 +224,6 @@ fn export_fixed_size(
     // TODO(aduffy): currently the null buffer is always None, in the future we will need
     //  to pass it.
     let mut private_data = PrivateData::new(vec![None, Some(buffer)], vec![], ctx)?;
-    let sync_event: SyncEvent = private_data.sync_event();
-
-    // Return a copy of the CudaEvent
     let arrow_array = ArrowArray {
         length: len as i64,
         null_count: 0,
@@ -250,7 +238,7 @@ fn export_fixed_size(
         private_data: Box::into_raw(private_data).cast(),
     };
 
-    Ok((arrow_array, sync_event))
+    Ok(arrow_array)
 }
 
 unsafe extern "C" fn release_array(array: *mut ArrowArray) {

@@ -13,22 +13,18 @@ mod varbinview;
 
 use std::ffi::c_void;
 use std::fmt::Debug;
-use std::ptr::NonNull;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 pub(crate) use canonical::CanonicalDeviceArrayExport;
-use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaStream;
 use cudarc::driver::sys;
-use cudarc::runtime::sys::cudaEvent_t;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
@@ -52,20 +48,15 @@ pub enum DeviceType {
     // Hexagon = 16,
 }
 
-/// A (potentially null) pointer to a `cudaEvent_t`.
-pub type SyncEvent = Option<NonNull<cudaEvent_t>>;
-
 /// The C Device data interface representation of an Arrow array.
 ///
-/// This array contains on-device pointers to Arrow array data, along with a synchronization
-/// event that the client must wait on.
+/// This array contains on-device pointers to Arrow array data.
 #[repr(C)]
 #[derive(Debug)]
 pub struct ArrowDeviceArray {
     array: ArrowArray,
     device_id: i64,
     device_type: DeviceType,
-    sync_event: SyncEvent,
 
     // unused space reserved for future fields
     _reserved: [i64; 3],
@@ -129,8 +120,6 @@ pub(crate) struct PrivateData {
     /// Boxed slice of buffer pointers. We return a pointer to the start of this allocation over
     /// the interface, so we hold it here so the Box contents are not freed.
     pub(crate) buffer_ptrs: Box<[sys::CUdeviceptr]>,
-    pub(crate) cuda_event: CudaEvent,
-    pub(crate) cuda_event_ptr: cudaEvent_t,
     pub(crate) children: Box<[*mut ArrowArray]>,
 }
 
@@ -160,24 +149,12 @@ impl PrivateData {
             .map(|array| Box::into_raw(Box::new(array)))
             .collect::<Box<[_]>>();
 
-        // generate the synchronization event
-        let cuda_event = ctx
-            .stream()
-            .record_event(None)
-            .map_err(|_| vortex_err!("failed to create cudaEvent_t"))?;
-
         Ok(Box::new(Self {
             buffers,
             buffer_ptrs,
             cuda_stream: Arc::clone(ctx.stream()),
             children,
-            cuda_event_ptr: cuda_event.cu_event().cast(),
-            cuda_event,
         }))
-    }
-
-    pub(crate) fn sync_event(&mut self) -> SyncEvent {
-        NonNull::new(&raw mut self.cuda_event_ptr)
     }
 }
 
