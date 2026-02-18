@@ -10068,8 +10068,6 @@ pub fn vortex_array::expr::checked_add(lhs: vortex_array::expr::Expression, rhs:
 
 pub fn vortex_array::expr::col(field: impl core::convert::Into<vortex_dtype::field_names::FieldName>) -> vortex_array::expr::Expression
 
-pub fn vortex_array::expr::compute_list_contains(array: &dyn vortex_array::Array, value: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 pub fn vortex_array::expr::descendent_annotations<A: vortex_array::expr::AnnotationFn>(expr: &vortex_array::expr::Expression, annotate: A) -> vortex_array::expr::Annotations<'_, <A as vortex_array::expr::AnnotationFn>::Annotation>
 
 pub fn vortex_array::expr::dynamic(operator: vortex_array::compute::Operator, rhs_value: impl core::ops::function::Fn() -> core::option::Option<vortex_array::scalar::ScalarValue> + core::marker::Send + core::marker::Sync + 'static, rhs_dtype: vortex_dtype::dtype::DType, default: bool, lhs: vortex_array::expr::Expression) -> vortex_array::expr::Expression
