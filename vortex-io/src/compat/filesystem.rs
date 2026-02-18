@@ -22,6 +22,7 @@ impl<F: FileSystem> FileSystem for Compat<F> {
     }
 
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
-        Compat::new(self.inner().open_read(path)).await
+        let read_at = Compat::new(self.inner().open_read(path)).await?;
+        Ok(Arc::new(Compat::new(read_at)))
     }
 }
