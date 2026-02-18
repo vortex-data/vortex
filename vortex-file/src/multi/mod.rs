@@ -14,6 +14,8 @@ use tracing::debug;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_io::filesystem::FileListing;
+use vortex_io::filesystem::FileSystemRef;
 use vortex_scan::api::DataSource;
 use vortex_scan::api::DataSourceRef;
 use vortex_scan::multi::DataSourceFactory;
@@ -22,8 +24,6 @@ use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
 use crate::VortexOpenOptions;
-use crate::filesystem::FileListing;
-use crate::filesystem::FileSystemRef;
 
 /// A builder that discovers multiple Vortex files from a glob pattern and constructs a
 /// [`MultiDataSource`] to scan them as a single data source.
@@ -148,9 +148,8 @@ impl MultiFileDataSource {
 //  coalescing and concurrency configs, so we need to re-tune for local disk.
 fn create_local_filesystem(session: &VortexSession) -> VortexResult<FileSystemRef> {
     if cfg!(feature = "object_store") {
+        use vortex_io::object_store::ObjectStoreFileSystem;
         use vortex_io::session::RuntimeSessionExt;
-
-        use crate::filesystem::object_store::ObjectStoreFileSystem;
 
         let store = Arc::new(object_store::local::LocalFileSystem::default());
         let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(store, session.handle()));
