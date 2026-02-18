@@ -40,22 +40,23 @@ mod tests {
 
     use super::*;
     use crate::cpp;
-    use crate::duckdb::DataChunk;
-    use crate::duckdb::LogicalType;
+    use crate::duckdb::OwnedDataChunk;
+    use crate::duckdb::OwnedLogicalType;
 
     #[test]
     fn test_sequence() {
         let arr = SequenceArray::typed_new(2, 5, Nullability::NonNullable, 100).unwrap();
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut chunk =
+            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
         new_exporter(&arr)
             .unwrap()
-            .export(0, 4, &mut chunk.get_vector(0))
+            .export(0, 4, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(4);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - SEQUENCE INTEGER: 4 = [ 2, 7, 12, 17]
 "#

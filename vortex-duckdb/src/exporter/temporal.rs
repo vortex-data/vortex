@@ -48,8 +48,8 @@ mod tests {
 
     use crate::SESSION;
     use crate::cpp;
-    use crate::duckdb::DataChunk;
-    use crate::duckdb::LogicalType;
+    use crate::duckdb::OwnedDataChunk;
+    use crate::duckdb::OwnedLogicalType;
     use crate::exporter::temporal::new_exporter;
 
     #[test]
@@ -59,17 +59,18 @@ mod tests {
             TimeUnit::Seconds,
             None,
         );
-        let mut chunk =
-            DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP_S)]);
+        let mut chunk = OwnedDataChunk::new([OwnedLogicalType::new(
+            cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP_S,
+        )]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
-            .export(1, 5, &mut chunk.get_vector(0))
+            .export(1, 5, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT TIMESTAMP_S: 2 = [ 2025-06-18 16:43:45, 2025-06-18 16:43:46]
 "#
@@ -84,16 +85,18 @@ mod tests {
             TimeUnit::Microseconds,
             None,
         );
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP)]);
+        let mut chunk = OwnedDataChunk::new([OwnedLogicalType::new(
+            cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP,
+        )]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
-            .export(1, 5, &mut chunk.get_vector(0))
+            .export(1, 5, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(4);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT TIMESTAMP: 4 = [ 2025-06-18 16:46:29.000001, 2025-06-18 16:46:30.000001, 2025-06-18 16:46:31.000001, 2025-06-18 16:46:32.000001]
 "#
@@ -107,17 +110,17 @@ mod tests {
             TimeUnit::Microseconds,
         );
 
-        let mut chunk = DataChunk::new([LogicalType::try_from(arr.dtype()).unwrap()]);
+        let mut chunk = OwnedDataChunk::new([OwnedLogicalType::try_from(arr.dtype()).unwrap()]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
-            .export(1, 5, &mut chunk.get_vector(0))
+            .export(1, 5, chunk.get_vector_mut(0))
             .unwrap();
 
         chunk.set_len(4);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT TIME: 4 = [ 00:00:02, 00:00:03, 00:00:04, 00:00:05]
 "#

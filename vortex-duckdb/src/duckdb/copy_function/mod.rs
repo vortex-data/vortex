@@ -29,7 +29,7 @@ pub trait CopyFunction: Sized + Debug {
     /// This function is used for determining the schema of a file produced by the function.
     fn bind(
         column_names: Vec<String>,
-        column_types: Vec<LogicalType>,
+        column_types: Vec<&LogicalType>,
     ) -> VortexResult<Self::BindData>;
 
     /// The function is called during query execution and is responsible for consuming the output
@@ -50,7 +50,7 @@ pub trait CopyFunction: Sized + Debug {
     /// The global operator state is used to keep track of the progress in the copy function and
     /// is shared between all threads working on the copy function.
     fn init_global(
-        client_context: ClientContext,
+        client_context: &ClientContext,
         bind_data: &Self::BindData,
         file_path: String,
     ) -> VortexResult<Self::GlobalState>;

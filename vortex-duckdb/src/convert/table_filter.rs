@@ -40,7 +40,7 @@ pub fn try_from_table_filter(
         TableFilterClass::ConjunctionAnd(conj_and) => {
             let Some(children) = conj_and
                 .children()
-                .map(|child| try_from_table_filter(&child, col, scope_dtype))
+                .map(|child| try_from_table_filter(child, col, scope_dtype))
                 .try_collect::<_, Option<Vec<_>>, _>()?
             else {
                 return Ok(None);
@@ -52,7 +52,7 @@ pub fn try_from_table_filter(
         TableFilterClass::ConjunctionOr(disjuction_or) => {
             let Some(children) = disjuction_or
                 .children()
-                .map(|child| try_from_table_filter(&child, col, scope_dtype))
+                .map(|child| try_from_table_filter(child, col, scope_dtype))
                 .try_collect::<_, Option<Vec<_>>, _>()?
             else {
                 return Ok(None);
@@ -63,11 +63,11 @@ pub fn try_from_table_filter(
         TableFilterClass::IsNull => is_null(col.clone()),
         TableFilterClass::IsNotNull => not(is_null(col.clone())),
         TableFilterClass::StructExtract(name, child_filter) => {
-            return try_from_table_filter(&child_filter, &get_item(name, col.clone()), scope_dtype);
+            return try_from_table_filter(child_filter, &get_item(name, col.clone()), scope_dtype);
         }
         TableFilterClass::Optional(child) => {
             // Optional expressions are optional not yet supported.
-            return try_from_table_filter(&child, col, scope_dtype).or_else(|_err| {
+            return try_from_table_filter(child, col, scope_dtype).or_else(|_err| {
                 // Failed to convert the optional expression, but it's optional, so who cares?
                 Ok(None)
             });
@@ -105,7 +105,7 @@ pub fn try_from_table_filter(
                 op,
                 move || {
                     let value = data.latest()?;
-                    let scalar = Scalar::try_from(value.as_ref())
+                    let scalar = Scalar::try_from(&*value)
                         .vortex_expect("failed to convert dynamic filter value to scalar");
                     scalar.into_value()
                 },

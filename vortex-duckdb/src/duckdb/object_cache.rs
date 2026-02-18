@@ -19,12 +19,16 @@ unsafe extern "C-unwind" fn rust_box_deleter<T>(ptr: *mut c_void) {
     }
 }
 
-// ObjectCache is a wrapper around a DuckDB object cache.
-// We only implement ObjectCacheRef since duckdb only has a single object cache per client,
-// context which is never owned.
-lifetime_wrapper!(ObjectCache, cpp::duckdb_vx_object_cache, |_| {}, [ref]);
+lifetime_wrapper!(ObjectCache, cpp::duckdb_vx_object_cache, |_| {});
 
-impl ObjectCacheRef<'_> {
+impl ObjectCache {
+    /// Creates an owned handle from a borrowed reference.
+    ///
+    /// This is safe because ObjectCache has a no-op destructor.
+    pub fn to_owned_handle(&self) -> OwnedObjectCache {
+        unsafe { OwnedObjectCache::own(self.as_ptr()) }
+    }
+
     /// Store an entry in the object cache with the given key.
     /// The entry will be converted to an opaque pointer and stored.
     /// Uses a proper deleter to ensure memory is freed when the cache entry is removed.
@@ -60,6 +64,21 @@ impl ObjectCacheRef<'_> {
         }
     }
 }
+
 // This is Send + Sync since the cache has a mutex wrapper.
-unsafe impl Send for ObjectCacheRef<'_> {}
-unsafe impl Sync for ObjectCacheRef<'_> {}
+unsafe impl Send for ObjectCache {}
+unsafe impl Sync for ObjectCache {}
+
+// SAFETY: OwnedObjectCache wraps the same pointer as ObjectCache. Since ObjectCache
+// is Send + Sync (due to the mutex wrapper), OwnedObjectCache is also safe to send/share.
+unsafe impl Send for OwnedObjectCache {}
+unsafe impl Sync for OwnedObjectCache {}
+
+impl Clone for OwnedObjectCache {
+    fn clone(&self) -> Self {
+        // ObjectCache is a lightweight wrapper around an opaque pointer.
+        // Cloning just creates another wrapper around the same pointer.
+        // Since the destructor is a no-op, this is safe.
+        unsafe { Self::own(self.as_ptr()) }
+    }
+}

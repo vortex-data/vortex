@@ -21,8 +21,9 @@ use vortex::dtype::match_each_integer_ptype;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::duckdb::LogicalType;
-use crate::duckdb::SelectionVector;
+use crate::duckdb::OwnedLogicalType;
+use crate::duckdb::OwnedSelectionVector;
+use crate::duckdb::OwnedVector;
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
@@ -32,7 +33,7 @@ use crate::exporter::new_array_exporter;
 
 struct DictExporter<I: IntegerPType> {
     // Store the dictionary values once and export the same dictionary with each codes chunk.
-    values_vector: Arc<Mutex<Vector>>, // NOTE(ngates): not actually flat...
+    values_vector: Arc<Mutex<OwnedVector>>, // NOTE(ngates): not actually flat...
     values_len: u32,
     codes: PrimitiveArray,
     codes_type: PhantomData<I>,
@@ -49,7 +50,7 @@ pub(crate) fn new_exporter_with_flatten(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     // Grab the cache dictionary values.
     let values = array.values();
-    let values_type: LogicalType = values.dtype().try_into()?;
+    let values_type: OwnedLogicalType = values.dtype().try_into()?;
     if let Some(constant) = values.as_opt::<ConstantVTable>() {
         return constant::new_exporter_with_mask(
             ConstantArray::new(constant.scalar().clone(), array.codes().len()),
@@ -108,7 +109,8 @@ pub(crate) fn new_exporter_with_flatten(
             Some(vector) => vector,
             None => {
                 // Create a new DuckDB vector for the values.
-                let mut vector = Vector::with_capacity(values.dtype().try_into()?, values.len());
+                let mut vector =
+                    OwnedVector::with_capacity(values.dtype().try_into()?, values.len());
                 new_array_exporter(values.clone(), cache, ctx)?.export(
                     0,
                     values.len(),
@@ -140,7 +142,7 @@ pub(crate) fn new_exporter_with_flatten(
 impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         // Create a selection vector from the codes.
-        let mut sel_vec = SelectionVector::with_capacity(len);
+        let mut sel_vec = OwnedSelectionVector::with_capacity(len);
         let mut_sel_vec = unsafe { sel_vec.as_slice_mut(len) };
         for (dst, src) in mut_sel_vec.iter_mut().zip(
             self.codes.as_slice::<I>()[offset..offset + len]
@@ -155,7 +157,7 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
         // dictionary.
         let new_values_vector = {
             let values_vector = self.values_vector.lock();
-            let mut new_values_vector = Vector::new(values_vector.logical_type());
+            let mut new_values_vector = OwnedVector::new(values_vector.logical_type());
             // Shares the underlying data which determines the vectors length.
             new_values_vector.reference(&values_vector);
             new_values_vector
@@ -186,8 +188,8 @@ mod tests {
 
     use crate::SESSION;
     use crate::cpp;
-    use crate::duckdb::DataChunk;
-    use crate::duckdb::LogicalType;
+    use crate::duckdb::OwnedDataChunk;
+    use crate::duckdb::OwnedLogicalType;
     use crate::exporter::ColumnExporter;
     use crate::exporter::ConversionCache;
     use crate::exporter::dict::new_exporter_with_flatten;
@@ -207,16 +209,17 @@ mod tests {
             ConstantArray::new(10, 1).into_array(),
         );
 
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut chunk =
+            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
         new_exporter(&arr, &ConversionCache::default())
             .unwrap()
-            .export(0, 2, &mut chunk.get_vector(0))
+            .export(0, 2, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 2 = [ NULL, 10]
 "#
@@ -230,17 +233,18 @@ mod tests {
             ConstantArray::new(10, 1).into_array(),
         );
 
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut chunk =
+            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
         let mut ctx = ExecutionCtx::new(VortexSession::default());
         new_exporter_with_flatten(&arr, &ConversionCache::default(), &mut ctx, false)
             .unwrap()
-            .export(0, 2, &mut chunk.get_vector(0))
+            .export(0, 2, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - CONSTANT INTEGER: 2 = [ NULL]
 "#
@@ -254,24 +258,25 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(10), None]).into_array(),
         );
 
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut chunk =
+            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
         new_exporter(&arr, &ConversionCache::default())
             .unwrap()
-            .export(0, 3, &mut chunk.get_vector(0))
+            .export(0, 3, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(3);
 
         // some-invalid codes cannot be exported as a dictionary.
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 3 = [ NULL, 10, NULL]
 "#
         );
 
         let mut flat_chunk =
-            DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
         new_array_exporter(
             arr.into_array(),
@@ -279,12 +284,12 @@ mod tests {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
-        .export(0, 3, &mut flat_chunk.get_vector(0))
+        .export(0, 3, flat_chunk.get_vector_mut(0))
         .unwrap();
         flat_chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&flat_chunk).unwrap()),
+            format!("{}", String::try_from(&*flat_chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 3 = [ NULL, 10, NULL]
 "#
@@ -299,16 +304,17 @@ mod tests {
             Buffer::<u32>::empty().into_array(),
         );
 
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut chunk =
+            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
         new_exporter(&arr, &ConversionCache::default())
             .unwrap()
-            .export(0, 0, &mut chunk.get_vector(0))
+            .export(0, 0, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(0);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 0 = [ ]
 "#

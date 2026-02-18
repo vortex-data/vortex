@@ -8,7 +8,7 @@ use vortex::buffer::BitBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::LogicalType;
+use crate::duckdb::OwnedLogicalType;
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
@@ -27,7 +27,7 @@ pub(crate) fn new_exporter(
     let validity = array.validity()?.to_array(len).execute::<Mask>(ctx)?;
 
     if validity.all_false() {
-        return Ok(all_invalid::new_exporter(len, &LogicalType::bool()));
+        return Ok(all_invalid::new_exporter(len, &OwnedLogicalType::bool()));
     }
 
     Ok(validity::new_exporter(
@@ -61,22 +61,23 @@ mod tests {
     use super::*;
     use crate::SESSION;
     use crate::cpp;
-    use crate::duckdb::DataChunk;
-    use crate::duckdb::LogicalType;
+    use crate::duckdb::OwnedDataChunk;
+    use crate::duckdb::OwnedLogicalType;
 
     #[test]
     fn test_bool() {
         let arr = BoolArray::from_iter([true, false, true]);
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
+        let mut chunk =
+            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
-            .export(1, 2, &mut chunk.get_vector(0))
+            .export(1, 2, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 2 = [ false, true]
 "#
@@ -87,16 +88,17 @@ mod tests {
     fn test_bool_long() {
         let arr = BoolArray::from_iter([true; 128]);
 
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
+        let mut chunk =
+            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
-            .export(1, 66, &mut chunk.get_vector(0))
+            .export(1, 66, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(65);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             format!(
                 r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 65 = [ {}]
@@ -110,16 +112,17 @@ mod tests {
     fn test_bool_nullable() {
         let arr = BoolArray::from_iter([Some(true), None, Some(false)]);
 
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
+        let mut chunk =
+            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
-            .export(1, 2, &mut chunk.get_vector(0))
+            .export(1, 2, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 2 = [ NULL, false]
 "#
@@ -130,16 +133,17 @@ mod tests {
     fn test_bool_all_invalid() {
         let arr = BoolArray::from_iter([None; 3]);
 
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
+        let mut chunk =
+            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
-            .export(1, 2, &mut chunk.get_vector(0))
+            .export(1, 2, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - CONSTANT BOOLEAN: 2 = [ NULL]
 "#

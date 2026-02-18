@@ -23,7 +23,7 @@ pub use virtual_columns::VirtualColumnsResult;
 use crate::cpp;
 use crate::cpp::duckdb_client_context;
 use crate::duckdb::Database;
-use crate::duckdb::LogicalType;
+use crate::duckdb::OwnedLogicalType;
 use crate::duckdb::client_context::ClientContext;
 use crate::duckdb::data_chunk::DataChunk;
 use crate::duckdb::expr::Expression;
@@ -60,13 +60,13 @@ pub trait TableFunction: Sized + Debug {
     const MAX_THREADS: u64 = u64::MAX;
 
     /// Returns the parameters of the table function.
-    fn parameters() -> Vec<LogicalType> {
+    fn parameters() -> Vec<OwnedLogicalType> {
         // By default, we don't have any parameters.
         vec![]
     }
 
     /// Returns the named parameters of the table function, if any.
-    fn named_parameters() -> Vec<(CString, LogicalType)> {
+    fn named_parameters() -> Vec<(CString, OwnedLogicalType)> {
         // By default, we don't have any named parameters.
         vec![]
     }
@@ -247,14 +247,14 @@ unsafe extern "C-unwind" fn function<T: TableFunction>(
         .vortex_expect("global_init_data null pointer");
     let local_init_data = unsafe { local_init_data.cast::<T::LocalState>().as_mut() }
         .vortex_expect("local_init_data null pointer");
-    let mut data_chunk = unsafe { DataChunk::borrow(output) };
+    let data_chunk = unsafe { DataChunk::borrow_mut(output) };
 
     match T::scan(
-        &client_context,
+        client_context,
         bind_data,
         local_init_data,
         global_init_data,
-        &mut data_chunk,
+        data_chunk,
     ) {
         Ok(()) => {
             // The data chunk is already filled by the function.

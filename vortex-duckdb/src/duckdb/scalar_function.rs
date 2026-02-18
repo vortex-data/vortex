@@ -6,9 +6,9 @@ use vortex::error::vortex_err;
 
 use crate::cpp;
 use crate::duckdb::LogicalType;
-use crate::wrapper;
+use crate::lifetime_wrapper;
 
-wrapper!(ScalarFunction, cpp::duckdb_vx_sfunc, |_| {});
+lifetime_wrapper!(ScalarFunction, cpp::duckdb_vx_sfunc, |_| {});
 
 impl ScalarFunction {
     pub fn name(&self) -> &str {
@@ -21,7 +21,7 @@ impl ScalarFunction {
         }
     }
 
-    pub fn return_type(&self) -> LogicalType {
+    pub fn return_type(&self) -> &LogicalType {
         unsafe { LogicalType::borrow(cpp::duckdb_vx_sfunc_return_type(self.as_ptr())) }
     }
 }

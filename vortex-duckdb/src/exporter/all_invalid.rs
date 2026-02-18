@@ -5,19 +5,19 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 
 use crate::duckdb::LogicalType;
-use crate::duckdb::Value;
+use crate::duckdb::OwnedValue;
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
 
 struct AllInvalidExporter {
     len: usize,
-    null_value: Value,
+    null_value: OwnedValue,
 }
 
 pub(crate) fn new_exporter(len: usize, logical_type: &LogicalType) -> Box<dyn ColumnExporter> {
     Box::new(AllInvalidExporter {
         len,
-        null_value: Value::null(logical_type),
+        null_value: OwnedValue::null(logical_type),
     })
 }
 
@@ -38,23 +38,23 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
 
     use super::*;
-    use crate::duckdb::DataChunk;
-    use crate::duckdb::LogicalType;
+    use crate::duckdb::OwnedDataChunk;
+    use crate::duckdb::OwnedLogicalType;
 
     #[test]
     fn all_null_array() {
         let arr = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]);
-        let ltype = LogicalType::int32();
+        let ltype = OwnedLogicalType::int32();
 
-        let mut chunk = DataChunk::new([ltype.clone()]);
+        let mut chunk = OwnedDataChunk::new([ltype.clone()]);
 
         new_exporter(arr.len(), &ltype)
-            .export(0, 3, &mut chunk.get_vector(0))
+            .export(0, 3, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - CONSTANT INTEGER: 3 = [ NULL]
 "#

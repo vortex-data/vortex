@@ -17,9 +17,9 @@ use crate::cpp::duckdb_vx_copy_func_bind_input;
 use crate::cpp::duckdb_vx_error;
 use crate::duckdb::ClientContext;
 use crate::duckdb::CopyFunction;
-use crate::duckdb::Data;
 use crate::duckdb::DataChunk;
 use crate::duckdb::LogicalType;
+use crate::duckdb::OwnedData;
 use crate::duckdb::try_or;
 use crate::duckdb::try_or_null;
 
@@ -43,12 +43,12 @@ pub(crate) unsafe extern "C-unwind" fn bind_callback<T: CopyFunction>(
 
     let column_types = unsafe { std::slice::from_raw_parts(column_types, column_type_count.as_()) }
         .iter()
-        .map(|c| unsafe { LogicalType::borrow(c.cast()) })
+        .map(|c| unsafe { LogicalType::borrow(*c) })
         .collect_vec();
 
     try_or_null(error_out, || {
         let bind_data = T::bind(column_names, column_types)?;
-        Ok(Data::from(Box::new(bind_data)).as_ptr())
+        Ok(OwnedData::from(Box::new(bind_data)).as_ptr())
     })
 }
 
@@ -66,7 +66,7 @@ pub(crate) unsafe extern "C-unwind" fn global_callback<T: CopyFunction>(
     try_or_null(error_out, || {
         let ctx = unsafe { ClientContext::borrow(client_context) };
         let bind_data = T::init_global(ctx, bind_data, file_path)?;
-        Ok(Data::from(Box::new(bind_data)).as_ptr())
+        Ok(OwnedData::from(Box::new(bind_data)).as_ptr())
     })
 }
 
@@ -78,7 +78,7 @@ pub(crate) unsafe extern "C-unwind" fn local_callback<T: CopyFunction>(
         unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null pointer");
     try_or_null(error_out, || {
         let bind_data = T::init_local(bind_data)?;
-        Ok(Data::from(Box::new(bind_data)).as_ptr())
+        Ok(OwnedData::from(Box::new(bind_data)).as_ptr())
     })
 }
 
@@ -97,8 +97,8 @@ pub(crate) unsafe extern "C-unwind" fn copy_to_sink_callback<T: CopyFunction>(
         .vortex_expect("bind_data null pointer");
 
     try_or(error_out, || {
-        T::copy_to_sink(bind_data, global_data, local_data, &mut unsafe {
-            DataChunk::borrow(data_chunk)
+        T::copy_to_sink(bind_data, global_data, local_data, unsafe {
+            DataChunk::borrow_mut(data_chunk)
         })?;
         Ok(())
     })

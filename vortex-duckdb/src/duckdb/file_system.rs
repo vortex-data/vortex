@@ -24,8 +24,8 @@ lifetime_wrapper!(
     cpp::duckdb_vx_fs_close,
     [owned]
 );
-unsafe impl Send for FsFileHandle {}
-unsafe impl Sync for FsFileHandle {}
+unsafe impl Send for OwnedFsFileHandle {}
+unsafe impl Sync for OwnedFsFileHandle {}
 
 pub(crate) fn fs_error(err: cpp::duckdb_vx_error) -> VortexError {
     if err.is_null() {
@@ -96,7 +96,7 @@ pub(crate) unsafe fn duckdb_fs_create_writer(
 }
 
 pub(crate) struct DuckDbFsWriter {
-    handle: Arc<FsFileHandle>,
+    handle: Arc<OwnedFsFileHandle>,
     pos: u64,
 }
 
@@ -110,7 +110,7 @@ impl DuckDbFsWriter {
         }
 
         Ok(Self {
-            handle: Arc::new(unsafe { FsFileHandle::own(file_handle) }),
+            handle: Arc::new(unsafe { OwnedFsFileHandle::own(file_handle) }),
             pos: 0,
         })
     }
@@ -177,11 +177,11 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::duckdb::Database;
+    use crate::duckdb::OwnedDatabase;
 
     #[test]
     fn test_writer_roundtrip_local() {
-        let db = Database::open_in_memory().unwrap();
+        let db = OwnedDatabase::open_in_memory().unwrap();
         let conn = db.connect().unwrap();
         let ctx = conn.client_context().unwrap();
 

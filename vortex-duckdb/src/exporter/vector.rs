@@ -3,7 +3,7 @@
 
 use vortex::mask::Mask;
 
-use crate::Value;
+use crate::duckdb::OwnedValue;
 use crate::duckdb::Vector;
 use crate::exporter::copy_from_slice;
 
@@ -49,6 +49,6 @@ impl Vector {
     }
 
     pub(super) fn set_all_false_validity(&mut self) {
-        self.reference_value(&Value::null(&self.logical_type()));
+        self.reference_value(&OwnedValue::null(&self.logical_type()));
     }
 }

@@ -17,8 +17,8 @@ use vortex::session::VortexSession;
 
 use crate::copy::VortexCopyFunction;
 use crate::duckdb::Database;
-use crate::duckdb::LogicalType;
-use crate::duckdb::Value;
+use crate::duckdb::OwnedLogicalType;
+use crate::duckdb::OwnedValue;
 use crate::scan::VortexTableFunction;
 
 mod convert;
@@ -49,8 +49,8 @@ pub fn initialize(db: &Database) -> VortexResult<()> {
     db.config().add_extension_options(
         "vortex_filesystem",
         "Whether to use Vortex's filesystem ('vortex') or DuckDB's filesystems ('duckdb').",
-        LogicalType::varchar(),
-        Value::from("vortex"),
+        OwnedLogicalType::varchar(),
+        OwnedValue::from("vortex"),
     )?;
     db.register_table_function::<VortexTableFunction>(c"vortex_scan")?;
     db.register_table_function::<VortexTableFunction>(c"read_vortex")?;
@@ -73,7 +73,7 @@ pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
     database
         .register_vortex_scan_replacement()
         .vortex_expect("failed to register vortex scan replacement");
-    initialize(&database).vortex_expect("Failed to initialize Vortex extension");
+    initialize(database).vortex_expect("Failed to initialize Vortex extension");
 }
 
 /// The DuckDB extension ABI version function.

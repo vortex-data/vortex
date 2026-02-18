@@ -39,7 +39,7 @@ use vortex::error::vortex_bail;
 
 use crate::duckdb::DUCKDB_STANDARD_VECTOR_SIZE;
 use crate::duckdb::DataChunk;
-use crate::duckdb::LogicalType;
+use crate::duckdb::OwnedLogicalType;
 use crate::duckdb::Vector;
 
 pub struct ArrayExporter {
@@ -93,8 +93,7 @@ impl ArrayExporter {
         chunk.set_len(chunk_len);
 
         for (i, field) in self.fields.iter_mut().enumerate() {
-            let mut vector = chunk.get_vector(i);
-            field.export(position, chunk_len, &mut vector)?;
+            field.export(position, chunk_len, chunk.get_vector_mut(i))?;
         }
 
         Ok(true)
@@ -151,7 +150,10 @@ fn new_array_exporter_with_flatten(
 
     // Otherwise, we fall back to canonical
     match array.execute::<Canonical>(ctx)? {
-        Canonical::Null(array) => Ok(all_invalid::new_exporter(array.len(), &LogicalType::null())),
+        Canonical::Null(array) => Ok(all_invalid::new_exporter(
+            array.len(),
+            &OwnedLogicalType::null(),
+        )),
         Canonical::Bool(array) => bool::new_exporter(array, ctx),
         Canonical::Primitive(array) => primitive::new_exporter(array, ctx),
         Canonical::Decimal(array) => decimal::new_exporter(array, ctx),
@@ -187,14 +189,14 @@ mod tests {
     use vortex::mask::Mask;
 
     use crate::cpp::DUCKDB_TYPE;
-    use crate::duckdb::LogicalType;
-    use crate::duckdb::Vector;
+    use crate::duckdb::OwnedLogicalType;
+    use crate::duckdb::OwnedVector;
     use crate::exporter::copy_from_slice;
 
     #[test]
     fn test_set_validity_all_true() {
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = OwnedVector::with_capacity(logical_type, 100);
 
         let mask = Mask::AllTrue(10);
         let all_null = unsafe { vector.set_validity(&mask, 0, 10) };
@@ -204,8 +206,8 @@ mod tests {
 
     #[test]
     fn test_set_validity_all_false() {
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = OwnedVector::with_capacity(logical_type, 100);
         let len = 10;
 
         let mask = Mask::AllFalse(len);
@@ -222,8 +224,8 @@ mod tests {
 
     #[test]
     fn test_set_validity_values_all_true() {
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = OwnedVector::with_capacity(logical_type, 100);
 
         let mask = Mask::from(BitBuffer::from(vec![true; 10]));
 
@@ -240,8 +242,8 @@ mod tests {
 
     #[test]
     fn test_set_validity_values_all_false() {
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = OwnedVector::with_capacity(logical_type, 100);
 
         const LEN: usize = 10;
         let bits = vec![false; LEN];
@@ -259,8 +261,8 @@ mod tests {
 
     #[test]
     fn test_set_validity_values_mixed() {
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = OwnedVector::with_capacity(logical_type, 100);
 
         let bits = vec![
             true, false, true, true, false, false, true, true, false, true,
@@ -279,8 +281,8 @@ mod tests {
 
     #[test]
     fn test_set_validity_values_with_offset() {
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = OwnedVector::with_capacity(logical_type, 100);
 
         let bits = vec![
             false, false, true, true, false, true, false, true, true, false, true, true, false,
@@ -299,8 +301,8 @@ mod tests {
 
     #[test]
     fn test_set_validity_values_with_offset_and_smaller_len() {
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = OwnedVector::with_capacity(logical_type, 100);
 
         let bits = vec![
             true, false, true, true, false, false, true, true, false, true, true, true, false,
@@ -320,8 +322,8 @@ mod tests {
 
     #[test]
     fn test_set_validity_values_64bit_alignment() {
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
-        let mut vector = Vector::with_capacity(logical_type, 100);
+        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let mut vector = OwnedVector::with_capacity(logical_type, 100);
 
         let bits = (0..70).map(|i| i % 3 == 0).collect::<Vec<_>>();
         let mask = Mask::from(BitBuffer::from(bits.as_slice()));

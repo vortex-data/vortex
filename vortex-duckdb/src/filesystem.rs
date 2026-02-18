@@ -37,7 +37,8 @@ use vortex::io::runtime::BlockingRuntime;
 use crate::RUNTIME;
 use crate::cpp;
 use crate::duckdb::ClientContext;
-use crate::duckdb::FsFileHandle;
+use crate::duckdb::OwnedClientContext;
+use crate::duckdb::OwnedFsFileHandle;
 use crate::duckdb::duckdb_fs_list_dir;
 use crate::duckdb::fs_error;
 
@@ -50,14 +51,17 @@ pub(super) fn resolve_filesystem(
         .ok_or_else(|| {
             vortex_err!("Failed to read 'vortex_filesystem' setting from DuckDB config")
         })?;
-    let fs_config = fs_config.as_ref().as_string();
+    let fs_config = fs_config.as_string();
 
     Ok(if fs_config.as_str() == "duckdb" {
         tracing::info!(
             "Using DuckDB's built-in filesystem for URL scheme '{}'",
             base_url.scheme()
         );
-        Arc::new(DuckDbFileSystem::new(base_url.clone(), ctx.clone()))
+        Arc::new(DuckDbFileSystem::new(
+            base_url.clone(),
+            ctx.to_owned_handle(),
+        ))
     } else if fs_config.as_str() == "vortex" {
         tracing::info!(
             "Using Vortex's object store filesystem for URL scheme '{}'",
@@ -98,7 +102,7 @@ fn object_store_fs(base_url: &Url) -> VortexResult<FileSystemRef> {
 
 struct DuckDbFileSystem {
     base_url: Url,
-    ctx: ClientContext,
+    ctx: OwnedClientContext,
 }
 
 impl Debug for DuckDbFileSystem {
@@ -110,7 +114,7 @@ impl Debug for DuckDbFileSystem {
 }
 
 impl DuckDbFileSystem {
-    pub fn new(base_url: Url, ctx: ClientContext) -> Self {
+    pub fn new(base_url: Url, ctx: OwnedClientContext) -> Self {
         Self { base_url, ctx }
     }
 }
@@ -194,7 +198,7 @@ fn list_recursive(
 
 /// A VortexReadAt implementation backed by DuckDB's filesystem (e.g., httpfs/s3).
 pub(crate) struct DuckDbFsReader {
-    handle: Arc<FsFileHandle>,
+    handle: Arc<OwnedFsFileHandle>,
     uri: Arc<str>,
     is_local: bool,
     size: Arc<OnceLock<u64>>,
@@ -215,7 +219,7 @@ impl DuckDbFsReader {
         let is_local = url.scheme() == "file";
 
         Ok(Self {
-            handle: Arc::new(unsafe { FsFileHandle::own(handle) }),
+            handle: Arc::new(unsafe { OwnedFsFileHandle::own(handle) }),
             uri: Arc::from(url.as_str()),
             is_local,
             size: Arc::new(OnceLock::new()),

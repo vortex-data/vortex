@@ -12,19 +12,19 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
 use crate::cpp;
-use crate::duckdb::Config;
-use crate::duckdb::connection::Connection;
+use crate::duckdb::OwnedConfig;
+use crate::duckdb::connection::OwnedConnection;
 use crate::duckdb_try;
-use crate::wrapper;
+use crate::lifetime_wrapper;
 
-wrapper!(
+lifetime_wrapper!(
     /// A DuckDB database instance.
     Database,
     duckdb_database,
     cpp::duckdb_close
 );
 
-impl Database {
+impl OwnedDatabase {
     /// Creates a new DuckDB database instance in memory.
     pub fn open_in_memory() -> VortexResult<Self> {
         let mut ptr: duckdb_database = ptr::null_mut();
@@ -58,7 +58,7 @@ impl Database {
     /// Opens a DuckDB database from a file path with custom configuration.
     ///
     /// Creates a new file in case the path does not exist.
-    pub fn open_with_config<P: AsRef<Path>>(path: P, config: Config) -> VortexResult<Self> {
+    pub fn open_with_config<P: AsRef<Path>>(path: P, config: OwnedConfig) -> VortexResult<Self> {
         let path_str = path
             .as_ref()
             .to_str()
@@ -100,7 +100,7 @@ impl Database {
     }
 
     /// Opens an in-memory DuckDB database with custom configuration.
-    pub fn open_in_memory_with_config(config: Config) -> VortexResult<Self> {
+    pub fn open_in_memory_with_config(config: OwnedConfig) -> VortexResult<Self> {
         let mut ptr: duckdb_database = ptr::null_mut();
         let mut error: *mut c_char = ptr::null_mut();
 
@@ -124,15 +124,17 @@ impl Database {
 
         Ok(unsafe { Self::own(ptr) })
     }
+}
 
+impl Database {
     /// Connects to the DuckDB database.
-    pub fn connect(&self) -> VortexResult<Connection> {
-        Connection::connect(self)
+    pub fn connect(&self) -> VortexResult<OwnedConnection> {
+        OwnedConnection::connect(self)
     }
 
     pub fn register_vortex_scan_replacement(&self) -> VortexResult<()> {
         duckdb_try!(
-            unsafe { cpp::duckdb_vx_register_scan_replacement(self.ptr) },
+            unsafe { cpp::duckdb_vx_register_scan_replacement(self.as_ptr()) },
             "Failed to register vortex scan replacement"
         );
         Ok(())
@@ -145,11 +147,11 @@ mod tests {
 
     #[test]
     fn test_database_with_config() {
-        let mut config = Config::new().unwrap();
+        let mut config = OwnedConfig::new().unwrap();
         config.set("memory_limit", "512MB").unwrap();
         config.set("threads", "1").unwrap();
 
-        let db = Database::open_in_memory_with_config(config);
+        let db = OwnedDatabase::open_in_memory_with_config(config);
         assert!(db.is_ok());
 
         let conn = db.unwrap().connect();
@@ -158,10 +160,10 @@ mod tests {
 
     #[test]
     fn test_file_database_with_config() {
-        let mut config = Config::new().unwrap();
+        let mut config = OwnedConfig::new().unwrap();
         config.set("memory_limit", "256MB").unwrap();
 
-        let db = Database::open_with_config("test_config_unit.db", config);
+        let db = OwnedDatabase::open_with_config("test_config_unit.db", config);
         assert!(db.is_ok());
 
         let conn = db.unwrap().connect();

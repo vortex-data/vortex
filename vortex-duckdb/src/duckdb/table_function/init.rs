@@ -12,9 +12,9 @@ use vortex::error::vortex_bail;
 
 use crate::cpp;
 use crate::duckdb::ClientContext;
+use crate::duckdb::OwnedData;
 use crate::duckdb::TableFilterSet;
 use crate::duckdb::TableFunction;
-use crate::duckdb::data::Data;
 
 /// Native callback for the global initialization of a table function.
 pub(crate) unsafe extern "C-unwind" fn init_global_callback<T: TableFunction>(
@@ -26,7 +26,7 @@ pub(crate) unsafe extern "C-unwind" fn init_global_callback<T: TableFunction>(
     );
 
     match T::init_global(&init_input) {
-        Ok(init_data) => Data::from(Box::new(init_data)).as_ptr(),
+        Ok(init_data) => OwnedData::from(Box::new(init_data)).as_ptr(),
         Err(e) => {
             // Set the error in the error output.
             let msg = e.to_string();
@@ -51,7 +51,7 @@ pub(crate) unsafe extern "C-unwind" fn init_local_callback<T: TableFunction>(
         .vortex_expect("global_init_data null pointer");
 
     match T::init_local(&init_input, global_init_data) {
-        Ok(init_data) => Data::from(Box::new(init_data)).as_ptr(),
+        Ok(init_data) => OwnedData::from(Box::new(init_data)).as_ptr(),
         Err(e) => {
             // Set the error in the error output.
             let msg = e.to_string();
@@ -107,7 +107,7 @@ impl<'a, T: TableFunction> TableInitInput<'a, T> {
     }
 
     /// Returns the table filter set for the table function.
-    pub fn table_filter_set(&self) -> Option<TableFilterSet> {
+    pub fn table_filter_set(&self) -> Option<&TableFilterSet> {
         let ptr = self.input.filters;
         if ptr.is_null() {
             None
@@ -117,7 +117,7 @@ impl<'a, T: TableFunction> TableInitInput<'a, T> {
     }
 
     /// Returns the object cache from the client context for the table function.
-    pub fn client_context(&self) -> VortexResult<ClientContext> {
+    pub fn client_context(&self) -> VortexResult<&ClientContext> {
         unsafe {
             if self.input.client_context.is_null() {
                 vortex_bail!("Client context is null");

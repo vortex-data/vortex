@@ -7,12 +7,11 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
-use crate::LogicalType;
 use crate::cpp;
-use crate::duckdb::DataChunk;
-use crate::wrapper;
+use crate::duckdb::OwnedDataChunk;
+use crate::lifetime_wrapper;
 
-wrapper! {
+lifetime_wrapper! {
     /// A wrapper around a DuckDB query result.
     #[derive(Debug)]
     QueryResult,
@@ -27,15 +26,17 @@ wrapper! {
     }
 }
 
-impl QueryResult {
-    /// Create a new `QueryResult` from a `duckdb_result`.
+impl OwnedQueryResult {
+    /// Create a new `OwnedQueryResult` from a `duckdb_result`.
     ///
     /// Takes ownership of the result and will destroy it on drop.
     pub unsafe fn new(result: cpp::duckdb_result) -> Self {
         let boxed = Box::new(result);
         unsafe { Self::own(Box::into_raw(boxed)) }
     }
+}
 
+impl QueryResult {
     /// Get the number of columns in the result.
     pub fn column_count(&self) -> u64 {
         unsafe { cpp::duckdb_column_count(self.as_ptr()) }
@@ -68,14 +69,16 @@ impl QueryResult {
     }
 
     /// Get the type of a column by index.
-    pub fn column_type(&self, col_idx: usize) -> LogicalType {
+    pub fn column_type(&self, col_idx: usize) -> OwnedLogicalType {
         let dtype = unsafe { cpp::duckdb_column_type(self.as_ptr(), col_idx as u64) };
-        LogicalType::new(dtype)
+        OwnedLogicalType::new(dtype)
     }
 }
 
-impl IntoIterator for QueryResult {
-    type Item = DataChunk;
+use crate::duckdb::OwnedLogicalType;
+
+impl IntoIterator for OwnedQueryResult {
+    type Item = OwnedDataChunk;
     type IntoIter = QueryResultIter;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -84,23 +87,23 @@ impl IntoIterator for QueryResult {
 }
 
 pub struct QueryResultIter {
-    result: QueryResult,
+    result: OwnedQueryResult,
 }
 
 impl QueryResultIter {
-    pub fn new(result: QueryResult) -> Self {
+    pub fn new(result: OwnedQueryResult) -> Self {
         Self { result }
     }
 }
 
 impl Iterator for QueryResultIter {
-    type Item = DataChunk;
+    type Item = OwnedDataChunk;
 
     fn next(&mut self) -> Option<Self::Item> {
         let chunk = unsafe { cpp::duckdb_fetch_chunk(*self.result.as_ptr()) };
         if chunk.is_null() {
             return None;
         }
-        Some(unsafe { DataChunk::own(chunk) })
+        Some(unsafe { OwnedDataChunk::own(chunk) })
     }
 }

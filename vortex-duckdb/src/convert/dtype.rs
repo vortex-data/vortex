@@ -60,17 +60,18 @@ use vortex::error::vortex_err;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::LogicalType;
+use crate::duckdb::OwnedLogicalType;
 
 pub trait FromLogicalType {
     fn from_logical_type(
-        logical_type: LogicalType,
+        logical_type: &LogicalType,
         nullability: Nullability,
     ) -> VortexResult<DType>;
 }
 
 impl FromLogicalType for DType {
     fn from_logical_type(
-        logical_type: LogicalType,
+        logical_type: &LogicalType,
         nullability: Nullability,
     ) -> VortexResult<DType> {
         Ok(match logical_type.as_type_id() {
@@ -125,21 +126,27 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => {
                 DType::Extension(Timestamp::new(TimeUnit::Nanoseconds, nullability).erased())
             }
-            DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => DType::FixedSizeList(
-                Arc::new(DType::from_logical_type(
-                    logical_type.array_child_type(),
-                    Nullability::Nullable,
-                )?),
-                logical_type.array_type_array_size(),
-                nullability,
-            ),
-            DUCKDB_TYPE::DUCKDB_TYPE_LIST => DType::List(
-                Arc::new(DType::from_logical_type(
-                    logical_type.list_child_type(),
-                    Nullability::Nullable,
-                )?),
-                nullability,
-            ),
+            DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => {
+                let child_type = logical_type.array_child_type();
+                DType::FixedSizeList(
+                    Arc::new(DType::from_logical_type(
+                        &child_type,
+                        Nullability::Nullable,
+                    )?),
+                    logical_type.array_type_array_size(),
+                    nullability,
+                )
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_LIST => {
+                let child_type = logical_type.list_child_type();
+                DType::List(
+                    Arc::new(DType::from_logical_type(
+                        &child_type,
+                        Nullability::Nullable,
+                    )?),
+                    nullability,
+                )
+            }
             DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => DType::Struct(
                 (0..logical_type.struct_type_child_count())
                     .map(|i| {
@@ -147,7 +154,7 @@ impl FromLogicalType for DType {
                         let child_type = logical_type.struct_child_type(i);
                         Ok((
                             child_name,
-                            DType::from_logical_type(child_type, Nullability::Nullable)?,
+                            DType::from_logical_type(&child_type, Nullability::Nullable)?,
                         ))
                     })
                     .collect::<VortexResult<_>>()?,
@@ -168,9 +175,9 @@ impl FromLogicalType for DType {
     }
 }
 
-pub fn from_duckdb_table<I, S>(iter: I) -> VortexResult<StructFields>
+pub fn from_duckdb_table<'a, I, S>(iter: I) -> VortexResult<StructFields>
 where
-    I: Iterator<Item = (S, LogicalType, Nullability)>,
+    I: Iterator<Item = (S, &'a LogicalType, Nullability)>,
     S: AsRef<str>,
 {
     iter.map(|(name, type_, nullability)| {
@@ -182,15 +189,15 @@ where
     .collect::<VortexResult<StructFields>>()
 }
 
-impl TryFrom<DType> for LogicalType {
+impl TryFrom<DType> for OwnedLogicalType {
     type Error = VortexError;
 
     fn try_from(value: DType) -> Result<Self, Self::Error> {
-        LogicalType::try_from(&value)
+        OwnedLogicalType::try_from(&value)
     }
 }
 
-impl TryFrom<&DType> for LogicalType {
+impl TryFrom<&DType> for OwnedLogicalType {
     type Error = VortexError;
 
     /// Converts a Vortex data type to a DuckDB logical type.
@@ -209,25 +216,25 @@ impl TryFrom<&DType> for LogicalType {
         let duckdb_type = match dtype {
             DType::Null => DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL,
             DType::Bool(_) => DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN,
-            DType::Primitive(ptype, _) => return LogicalType::try_from(*ptype),
+            DType::Primitive(ptype, _) => return OwnedLogicalType::try_from(*ptype),
             DType::Utf8(_) => DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR,
             DType::Binary(_) => DUCKDB_TYPE::DUCKDB_TYPE_BLOB,
             DType::Struct(struct_type, _) => {
-                return LogicalType::try_from(struct_type);
+                return OwnedLogicalType::try_from(struct_type);
             }
             DType::Decimal(decimal_dtype, _) => {
-                return LogicalType::decimal_type(
+                return OwnedLogicalType::decimal_type(
                     decimal_dtype.precision(),
                     decimal_dtype.scale().try_into()?,
                 );
             }
             DType::List(element_dtype, _) => {
-                let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
-                return LogicalType::list_type(element_logical_type);
+                let element_logical_type = OwnedLogicalType::try_from(element_dtype.as_ref())?;
+                return OwnedLogicalType::list_type(element_logical_type);
             }
             DType::FixedSizeList(element_dtype, list_size, _) => {
-                let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
-                return LogicalType::array_type(element_logical_type, *list_size);
+                let element_logical_type = OwnedLogicalType::try_from(element_dtype.as_ref())?;
+                return OwnedLogicalType::array_type(element_logical_type, *list_size);
             }
             DType::Extension(ext_dtype) => {
                 let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() else {
@@ -267,25 +274,25 @@ impl TryFrom<&DType> for LogicalType {
             }
         };
 
-        Ok(LogicalType::new(duckdb_type))
+        Ok(OwnedLogicalType::new(duckdb_type))
     }
 }
 
-impl TryFrom<StructFields> for LogicalType {
+impl TryFrom<StructFields> for OwnedLogicalType {
     type Error = VortexError;
 
     fn try_from(struct_type: StructFields) -> Result<Self, Self::Error> {
-        LogicalType::try_from(&struct_type)
+        OwnedLogicalType::try_from(&struct_type)
     }
 }
 
-impl TryFrom<&StructFields> for LogicalType {
+impl TryFrom<&StructFields> for OwnedLogicalType {
     type Error = VortexError;
 
     fn try_from(struct_type: &StructFields) -> Result<Self, Self::Error> {
-        let child_types: Vec<LogicalType> = struct_type
+        let child_types: Vec<OwnedLogicalType> = struct_type
             .fields()
-            .map(|field_dtype| LogicalType::try_from(&field_dtype))
+            .map(|field_dtype| OwnedLogicalType::try_from(&field_dtype))
             .collect::<Result<_, _>>()?;
 
         let child_names: Vec<CString> = struct_type
@@ -297,25 +304,25 @@ impl TryFrom<&StructFields> for LogicalType {
             })
             .collect::<Result<_, _>>()?;
 
-        LogicalType::struct_type(child_types, child_names)
+        OwnedLogicalType::struct_type(child_types, child_names)
     }
 }
 
-impl TryFrom<PType> for LogicalType {
+impl TryFrom<PType> for OwnedLogicalType {
     type Error = VortexError;
 
     fn try_from(value: PType) -> Result<Self, Self::Error> {
         Ok(match value {
-            I8 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TINYINT),
-            I16 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT),
-            I32 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
-            I64 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT),
-            U8 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT),
-            U16 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT),
-            U32 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER),
-            U64 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT),
-            F32 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_FLOAT),
-            F64 => LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE),
+            I8 => OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TINYINT),
+            I16 => OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_SMALLINT),
+            I32 => OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
+            I64 => OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT),
+            U8 => OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_UTINYINT),
+            U16 => OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_USMALLINT),
+            U32 => OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER),
+            U64 => OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT),
+            F32 => OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_FLOAT),
+            F64 => OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE),
             PType::F16 => return Err(vortex_err!("F16 type not supported in DuckDB")),
         })
     }
@@ -340,12 +347,12 @@ mod tests {
     use vortex::error::VortexResult;
 
     use crate::cpp;
-    use crate::duckdb::LogicalType;
+    use crate::duckdb::OwnedLogicalType;
 
     #[test]
     fn test_null_type() {
         let dtype = DType::Null;
-        let logical_type = LogicalType::try_from(&dtype).unwrap();
+        let logical_type = OwnedLogicalType::try_from(&dtype).unwrap();
         assert_eq!(
             logical_type.as_type_id(),
             cpp::DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL
@@ -355,7 +362,7 @@ mod tests {
     #[test]
     fn test_bool_type() {
         let dtype = DType::Bool(Nullability::NonNullable);
-        let logical_type = LogicalType::try_from(&dtype).unwrap();
+        let logical_type = OwnedLogicalType::try_from(&dtype).unwrap();
         assert_eq!(
             logical_type.as_type_id(),
             cpp::DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN
@@ -375,21 +382,21 @@ mod tests {
     #[case(PType::F64, cpp::DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE)]
     fn test_primitive_types(#[case] ptype: PType, #[case] expected_duckdb_type: cpp::DUCKDB_TYPE) {
         let dtype = DType::Primitive(ptype, Nullability::NonNullable);
-        let logical_type = LogicalType::try_from(&dtype).unwrap();
+        let logical_type = OwnedLogicalType::try_from(&dtype).unwrap();
         assert_eq!(logical_type.as_type_id(), expected_duckdb_type);
     }
 
     #[test]
     fn test_f16_unsupported() {
         let dtype = DType::Primitive(PType::F16, Nullability::NonNullable);
-        let result = LogicalType::try_from(&dtype);
+        let result = OwnedLogicalType::try_from(&dtype);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_string_type() {
         let dtype = DType::Utf8(Nullability::NonNullable);
-        let logical_type = LogicalType::try_from(&dtype).unwrap();
+        let logical_type = OwnedLogicalType::try_from(&dtype).unwrap();
         assert_eq!(
             logical_type.as_type_id(),
             cpp::DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR
@@ -399,7 +406,7 @@ mod tests {
     #[test]
     fn test_binary_type() {
         let dtype = DType::Binary(Nullability::NonNullable);
-        let logical_type = LogicalType::try_from(&dtype).unwrap();
+        let logical_type = OwnedLogicalType::try_from(&dtype).unwrap();
         assert_eq!(
             logical_type.as_type_id(),
             cpp::DUCKDB_TYPE::DUCKDB_TYPE_BLOB
@@ -415,7 +422,7 @@ mod tests {
         ];
         let struct_fields = StructFields::new(field_names, field_types);
         let dtype = DType::Struct(struct_fields, Nullability::NonNullable);
-        let logical_type = LogicalType::try_from(&dtype).unwrap();
+        let logical_type = OwnedLogicalType::try_from(&dtype).unwrap();
 
         assert_eq!(
             logical_type.as_type_id(),
@@ -430,7 +437,7 @@ mod tests {
         let struct_fields = StructFields::new(field_names, field_types);
         let dtype = DType::Struct(struct_fields, Nullability::NonNullable);
 
-        let result = LogicalType::try_from(&dtype);
+        let result = OwnedLogicalType::try_from(&dtype);
         assert!(result.is_err());
     }
 
@@ -439,7 +446,7 @@ mod tests {
         let struct_fields = StructFields::new(FieldNames::default(), [].into());
         let dtype = DType::Struct(struct_fields, Nullability::NonNullable);
 
-        let logical_type = LogicalType::try_from(&dtype).unwrap();
+        let logical_type = OwnedLogicalType::try_from(&dtype).unwrap();
         assert_eq!(
             logical_type.as_type_id(),
             cpp::DUCKDB_TYPE::DUCKDB_TYPE_STRUCT
@@ -451,7 +458,7 @@ mod tests {
         use vortex::dtype::DecimalDType;
         let decimal_dtype = DecimalDType::new(18, 4);
         let dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
-        let logical_type = LogicalType::try_from(&dtype).unwrap();
+        let logical_type = OwnedLogicalType::try_from(&dtype).unwrap();
 
         assert_eq!(
             logical_type.as_type_id(),
@@ -463,7 +470,7 @@ mod tests {
     fn test_list_type() {
         let element_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let dtype = DType::List(Arc::new(element_dtype), Nullability::NonNullable);
-        let logical_type = LogicalType::try_from(&dtype).unwrap();
+        let logical_type = OwnedLogicalType::try_from(&dtype).unwrap();
 
         assert_eq!(
             logical_type.as_type_id(),
@@ -476,7 +483,7 @@ mod tests {
         use vortex::dtype::datetime::TimeUnit;
 
         let dtype = DType::Extension(Date::new(TimeUnit::Days, Nullability::NonNullable).erased());
-        let logical_type = LogicalType::try_from(&dtype).unwrap();
+        let logical_type = OwnedLogicalType::try_from(&dtype).unwrap();
 
         assert_eq!(
             logical_type.as_type_id(),
@@ -490,7 +497,7 @@ mod tests {
 
         let dtype =
             DType::Extension(Time::new(TimeUnit::Microseconds, Nullability::NonNullable).erased());
-        let logical_type = LogicalType::try_from(&dtype).unwrap();
+        let logical_type = OwnedLogicalType::try_from(&dtype).unwrap();
 
         assert_eq!(
             logical_type.as_type_id(),
@@ -521,7 +528,7 @@ mod tests {
         for (time_unit, expected_type) in test_cases {
             let dtype =
                 DType::Extension(Timestamp::new(time_unit, Nullability::NonNullable).erased());
-            let logical_type = LogicalType::try_from(&dtype).unwrap();
+            let logical_type = OwnedLogicalType::try_from(&dtype).unwrap();
 
             assert_eq!(logical_type.as_type_id(), expected_type);
         }
@@ -541,7 +548,7 @@ mod tests {
         );
 
         assert_eq!(
-            LogicalType::try_from(&dtype).unwrap().as_type_id(),
+            OwnedLogicalType::try_from(&dtype).unwrap().as_type_id(),
             cpp::DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
         );
     }
@@ -553,12 +560,12 @@ mod tests {
         // Invalid DATE time unit
         let dtype =
             DType::Extension(Date::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased());
-        assert!(LogicalType::try_from(&dtype).is_err());
+        assert!(OwnedLogicalType::try_from(&dtype).is_err());
 
         // Invalid TIME time unit
         let dtype =
             DType::Extension(Time::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased());
-        assert!(LogicalType::try_from(&dtype).is_err());
+        assert!(OwnedLogicalType::try_from(&dtype).is_err());
     }
 
     #[test]
@@ -593,6 +600,6 @@ mod tests {
         .erased();
         let dtype = DType::Extension(ext_dtype);
 
-        assert!(LogicalType::try_from(&dtype).is_err());
+        assert!(OwnedLogicalType::try_from(&dtype).is_err());
     }
 }

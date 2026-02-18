@@ -14,14 +14,14 @@ use vortex::error::vortex_panic;
 use crate::cpp;
 use crate::cpp::idx_t;
 use crate::duckdb::Expression;
+use crate::duckdb::OwnedValue;
 use crate::duckdb::Value;
-use crate::duckdb::ValueRef;
-use crate::wrapper;
+use crate::lifetime_wrapper;
 
-wrapper!(TableFilterSet, cpp::duckdb_vx_table_filter_set, |_| {});
+lifetime_wrapper!(TableFilterSet, cpp::duckdb_vx_table_filter_set, |_| {});
 
 impl TableFilterSet {
-    pub fn get(&self, index: u64) -> Option<(idx_t, TableFilter)> {
+    pub fn get(&self, index: u64) -> Option<(idx_t, &TableFilter)> {
         let mut filter_set: duckdb_vx_table_filter = ptr::null_mut();
 
         let column_index = unsafe {
@@ -45,7 +45,7 @@ impl TableFilterSet {
 }
 
 impl<'a> IntoIterator for &'a TableFilterSet {
-    type Item = (idx_t, TableFilter);
+    type Item = (idx_t, &'a TableFilter);
     type IntoIter = Box<dyn Iterator<Item = Self::Item> + 'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -62,7 +62,7 @@ impl Debug for TableFilterSet {
     }
 }
 
-wrapper!(TableFilter, duckdb_vx_table_filter, |_| {});
+lifetime_wrapper!(TableFilter, duckdb_vx_table_filter, |_| {});
 
 impl TableFilter {
     pub fn as_class(&self) -> TableFilterClass<'_> {
@@ -75,7 +75,7 @@ impl TableFilter {
                 unsafe { cpp::duckdb_vx_table_filter_get_constant(self.as_ptr(), &raw mut out) };
 
                 TableFilterClass::ConstantComparison(ConstantComparison {
-                    value: unsafe { ValueRef::borrow(out.value) },
+                    value: unsafe { Value::borrow(out.value) },
                     operator: out.comparison_type,
                 })
             }
@@ -162,7 +162,7 @@ impl TableFilter {
                 unsafe { cpp::duckdb_vx_table_filter_get_dynamic(self.as_ptr(), &raw mut out) };
 
                 TableFilterClass::Dynamic(DynamicFilter {
-                    data: unsafe { DynamicFilterData::own(out.data) },
+                    data: unsafe { OwnedDynamicFilterData::own(out.data) },
                     operator: out.comparison_type,
                 })
             }
@@ -192,15 +192,15 @@ pub enum TableFilterClass<'a> {
     IsNotNull,
     ConjunctionOr(Conjunction<'a>),
     ConjunctionAnd(Conjunction<'a>),
-    StructExtract(&'a str, TableFilter),
-    Optional(TableFilter),
+    StructExtract(&'a str, &'a TableFilter),
+    Optional(&'a TableFilter),
     InFilter(Values<'a>),
     Dynamic(DynamicFilter),
-    Expression(Expression),
+    Expression(&'a Expression),
 }
 
 pub struct ConstantComparison<'a> {
-    pub value: ValueRef<'a>,
+    pub value: &'a Value,
     pub operator: cpp::DUCKDB_VX_EXPR_TYPE,
 }
 
@@ -208,8 +208,8 @@ pub struct Conjunction<'a> {
     children: &'a [duckdb_vx_table_filter],
 }
 
-impl Conjunction<'_> {
-    pub fn children(&self) -> impl Iterator<Item = TableFilter> {
+impl<'a> Conjunction<'a> {
+    pub fn children(&self) -> impl Iterator<Item = &'a TableFilter> + 'a {
         self.children
             .iter()
             .map(|&child| unsafe { TableFilter::borrow(child) })
@@ -231,12 +231,12 @@ struct ValuesIterator<'a> {
 }
 
 impl<'a> Iterator for ValuesIterator<'a> {
-    type Item = ValueRef<'a>;
+    type Item = &'a Value;
 
     fn next(&mut self) -> Option<Self::Item> {
         (self.index < self.values_count).then(|| {
             let value = unsafe {
-                ValueRef::borrow(cpp::duckdb_vx_values_vec_get(self.values, self.index as _))
+                Value::borrow(cpp::duckdb_vx_values_vec_get(self.values, self.index as _))
             };
             self.index += 1;
             value
@@ -245,7 +245,7 @@ impl<'a> Iterator for ValuesIterator<'a> {
 }
 
 impl<'a> Values<'a> {
-    pub fn iter(&self) -> impl Iterator<Item = ValueRef<'a>> {
+    pub fn iter(&self) -> impl Iterator<Item = &'a Value> {
         ValuesIterator {
             values: self.values,
             values_count: self.values_count,
@@ -256,11 +256,11 @@ impl<'a> Values<'a> {
 }
 
 pub struct DynamicFilter {
-    pub data: DynamicFilterData,
+    pub data: OwnedDynamicFilterData,
     pub operator: cpp::DUCKDB_VX_EXPR_TYPE,
 }
 
-wrapper!(
+lifetime_wrapper!(
     /// A handle to mutable dynamic filter data.
     DynamicFilterData,
     cpp::duckdb_vx_dynamic_filter_data,
@@ -268,16 +268,16 @@ wrapper!(
 );
 
 /// This handle wraps a single shared_ptr on C++ side, so we can assert is Send + Sync
-unsafe impl Send for DynamicFilterData {}
-unsafe impl Sync for DynamicFilterData {}
+unsafe impl Send for OwnedDynamicFilterData {}
+unsafe impl Sync for OwnedDynamicFilterData {}
 
 impl DynamicFilterData {
     /// Fetches the latest value from the dynamic filter data, if it has been initialized.
-    pub fn latest(&self) -> Option<Value> {
+    pub fn latest(&self) -> Option<OwnedValue> {
         let ptr = unsafe { cpp::duckdb_vx_dynamic_filter_data_get_value(self.as_ptr()) };
         if ptr.is_null() {
             return None;
         }
-        Some(unsafe { Value::own(ptr) })
+        Some(unsafe { OwnedValue::own(ptr) })
     }
 }

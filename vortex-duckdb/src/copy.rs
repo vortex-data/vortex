@@ -65,7 +65,7 @@ impl CopyFunction for VortexCopyFunction {
 
     fn bind(
         column_names: Vec<String>,
-        column_types: Vec<LogicalType>,
+        column_types: Vec<&LogicalType>,
     ) -> VortexResult<Self::BindData> {
         let fields = from_duckdb_table(
             column_names
@@ -120,7 +120,7 @@ impl CopyFunction for VortexCopyFunction {
     }
 
     fn init_global(
-        client_context: ClientContext,
+        client_context: &ClientContext,
         bind_data: &Self::BindData,
         file_path: String,
     ) -> VortexResult<Self::GlobalState> {
@@ -129,11 +129,11 @@ impl CopyFunction for VortexCopyFunction {
         let array_stream = ArrayStreamAdapter::new(bind_data.dtype.clone(), rx.into_stream());
 
         let handle = SESSION.handle();
-        let ctx_ptr = client_context;
+        let ctx = client_context.to_owned_handle();
         let write_task = handle.spawn(async move {
             // Use DuckDB FS exclusively to match the DuckDB client context configuration.
             let writer =
-                unsafe { duckdb_fs_create_writer(ctx_ptr.as_ptr(), &file_path) }.map_err(|e| {
+                unsafe { duckdb_fs_create_writer(ctx.as_ptr(), &file_path) }.map_err(|e| {
                     vortex_err!("Failed to create DuckDB FS writer for {file_path}: {e}")
                 })?;
             SESSION.write_options().write(writer, array_stream).await

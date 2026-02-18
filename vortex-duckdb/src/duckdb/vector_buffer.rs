@@ -2,20 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::cpp;
-use crate::duckdb::Data;
-use crate::wrapper;
+use crate::duckdb::OwnedData;
+use crate::lifetime_wrapper;
 
 // A wrapped buffer that give duckdb a strong reference to a vortex buffer.
 
-wrapper!(
+lifetime_wrapper!(
     VectorBuffer,
     cpp::duckdb_vx_vector_buffer,
     cpp::duckdb_vx_vector_buffer_destroy
 );
 
-impl VectorBuffer {
+impl OwnedVectorBuffer {
     pub fn new<T>(data: T) -> Self {
-        let data = Data::from(Box::new(data));
+        let data = OwnedData::from(Box::new(data));
         unsafe { Self::own(cpp::duckdb_vx_vector_buffer_create(data.as_ptr())) }
     }
 }

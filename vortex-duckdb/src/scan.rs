@@ -64,7 +64,7 @@ use crate::duckdb::ClientContext;
 use crate::duckdb::DataChunk;
 use crate::duckdb::Expression;
 use crate::duckdb::ExtractedValue;
-use crate::duckdb::LogicalType;
+use crate::duckdb::OwnedLogicalType;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::VirtualColumnsResult;
@@ -79,7 +79,7 @@ pub struct VortexBindData {
     filter_exprs: Vec<VortexExpression>,
     files: Vec<FileListing>,
     column_names: Vec<String>,
-    column_types: Vec<LogicalType>,
+    column_types: Vec<OwnedLogicalType>,
 }
 
 impl Clone for VortexBindData {
@@ -128,7 +128,7 @@ pub struct VortexTableFunction;
 /// Extracts the schema from a Vortex file.
 fn extract_schema_from_vortex_file(
     file: &VortexFile,
-) -> VortexResult<(Vec<String>, Vec<LogicalType>)> {
+) -> VortexResult<(Vec<String>, Vec<OwnedLogicalType>)> {
     let dtype = file.dtype();
 
     // For now, we assume the top-level type to be a struct.
@@ -140,7 +140,7 @@ fn extract_schema_from_vortex_file(
     let mut column_types = Vec::new();
 
     for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
-        let logical_type = LogicalType::try_from(&field_dtype)?;
+        let logical_type = OwnedLogicalType::try_from(&field_dtype)?;
         column_names.push(field_name.to_string());
         column_types.push(logical_type);
     }
@@ -178,29 +178,26 @@ fn extract_table_filter_expr(
     init: &TableInitInput<VortexTableFunction>,
     column_ids: &[u64],
 ) -> VortexResult<Option<VortexExpression>> {
-    let mut table_filter_exprs: HashSet<VortexExpression> =
-        if let Some(filter) = init.table_filter_set() {
-            filter
-                .into_iter()
-                .map(|(idx, ex)| {
-                    let idx_u: usize = idx.as_();
-                    let col_idx: usize = column_ids[idx_u].as_();
-                    let name = init
-                        .bind_data()
-                        .column_names
-                        .get(col_idx)
-                        .vortex_expect("exists");
-                    try_from_table_filter(
-                        &ex,
-                        &col(name.as_str()),
-                        init.bind_data().first_file.dtype(),
-                    )
-                })
-                .collect::<VortexResult<Option<HashSet<_>>>>()?
-                .unwrap_or_else(HashSet::new)
-        } else {
-            HashSet::new()
-        };
+    let mut table_filter_exprs: HashSet<VortexExpression> = if let Some(filter) =
+        init.table_filter_set()
+    {
+        filter
+            .into_iter()
+            .map(|(idx, ex)| {
+                let idx_u: usize = idx.as_();
+                let col_idx: usize = column_ids[idx_u].as_();
+                let name = init
+                    .bind_data()
+                    .column_names
+                    .get(col_idx)
+                    .vortex_expect("exists");
+                try_from_table_filter(ex, &col(name.as_str()), init.bind_data().first_file.dtype())
+            })
+            .collect::<VortexResult<Option<HashSet<_>>>>()?
+            .unwrap_or_else(HashSet::new)
+    } else {
+        HashSet::new()
+    };
 
     table_filter_exprs.extend(init.bind_data().filter_exprs.clone());
     Ok(and_collect(table_filter_exprs.into_iter().collect_vec()))
@@ -225,8 +222,8 @@ impl TableFunction for VortexTableFunction {
     /// Input parameter types of the `vortex_scan` table function.
     ///
     // `vortex_scan` takes a single file glob parameter.
-    fn parameters() -> Vec<LogicalType> {
-        vec![LogicalType::varchar()]
+    fn parameters() -> Vec<OwnedLogicalType> {
+        vec![OwnedLogicalType::varchar()]
     }
 
     fn bind(
@@ -239,7 +236,7 @@ impl TableFunction for VortexTableFunction {
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
         // Parse the URL and separate the base URL (keep scheme, host, etc.) from the path.
-        let glob_url_str = glob_url_parameter.as_ref().as_string();
+        let glob_url_str = glob_url_parameter.as_string();
         let glob_url = match Url::parse(glob_url_str.as_str()) {
             Ok(url) => url,
             Err(_) => {
@@ -274,7 +271,7 @@ impl TableFunction for VortexTableFunction {
             .map_err(|e| vortex_err!("Invalid setting name: {}", e))?;
         let max_threads = ctx
             .try_get_current_setting(&max_threads_cstr)
-            .and_then(|v| match v.as_ref().extract() {
+            .and_then(|v| match v.extract() {
                 ExtractedValue::UBigInt(val) => usize::try_from(val).ok(),
                 ExtractedValue::BigInt(val) if val > 0 => usize::try_from(val as u64).ok(),
                 _ => None,
@@ -407,7 +404,7 @@ impl TableFunction for VortexTableFunction {
         );
 
         let client_context = init_input.client_context()?;
-        let object_cache = client_context.object_cache();
+        let object_cache = client_context.object_cache().to_owned_handle();
 
         let num_workers = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -424,7 +421,7 @@ impl TableFunction for VortexTableFunction {
                 let filter_expr = filter_expr.clone();
                 let projection_expr = projection_expr.clone();
                 let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
-                let object_cache = object_cache;
+                let object_cache = object_cache.clone();
 
                 handle
                     .spawn(async move {
@@ -433,7 +430,7 @@ impl TableFunction for VortexTableFunction {
                             // the first file was already opened during bind.
                             Ok(first_file)
                         } else {
-                            let cache = FooterCache::new(object_cache);
+                            let cache = FooterCache::new(&object_cache);
                             let entry = cache.entry(&file_listing.path);
                             let file = entry
                                 .apply_to_file(SESSION.open_options())
@@ -563,7 +560,11 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn virtual_columns(_bind_data: &Self::BindData, result: &mut VirtualColumnsResult) {
-        result.register(EMPTY_COLUMN_IDX, EMPTY_COLUMN_NAME, &LogicalType::bool());
+        result.register(
+            EMPTY_COLUMN_IDX,
+            EMPTY_COLUMN_NAME,
+            &OwnedLogicalType::bool(),
+        );
     }
 }
 

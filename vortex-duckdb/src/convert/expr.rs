@@ -56,23 +56,23 @@ pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Opt
         duckdb::ExpressionClass::BoundComparison(compare) => {
             let operator: Operator = compare.op.try_into()?;
 
-            let Some(left) = try_from_bound_expression(&compare.left)? else {
+            let Some(left) = try_from_bound_expression(compare.left)? else {
                 return Ok(None);
             };
-            let Some(right) = try_from_bound_expression(&compare.right)? else {
+            let Some(right) = try_from_bound_expression(compare.right)? else {
                 return Ok(None);
             };
 
             Binary.new_expr(operator, [left, right])
         }
         duckdb::ExpressionClass::BoundBetween(between) => {
-            let Some(array) = try_from_bound_expression(&between.input)? else {
+            let Some(array) = try_from_bound_expression(between.input)? else {
                 return Ok(None);
             };
-            let Some(lower) = try_from_bound_expression(&between.lower)? else {
+            let Some(lower) = try_from_bound_expression(between.lower)? else {
                 return Ok(None);
             };
-            let Some(upper) = try_from_bound_expression(&between.upper)? else {
+            let Some(upper) = try_from_bound_expression(between.upper)? else {
                 return Ok(None);
             };
             Between.new_expr(
@@ -97,7 +97,7 @@ pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Opt
             | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
                 let children = operator.children().collect_vec();
                 assert_eq!(children.len(), 1);
-                let Some(child) = try_from_bound_expression(&children[0])? else {
+                let Some(child) = try_from_bound_expression(children[0])? else {
                     return Ok(None);
                 };
                 match operator.op {
@@ -113,7 +113,7 @@ pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Opt
                 // First child is element, rest form the list.
                 let children = operator.children().collect_vec();
                 assert!(children.len() >= 2);
-                let Some(element) = try_from_bound_expression(&children[0])? else {
+                let Some(element) = try_from_bound_expression(children[0])? else {
                     return Ok(None);
                 };
 
@@ -153,10 +153,10 @@ pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Opt
             DUCKDB_FUNCTION_NAME_CONTAINS => {
                 let children = func.children().collect_vec();
                 assert_eq!(children.len(), 2);
-                let Some(value) = try_from_bound_expression(&children[0])? else {
+                let Some(value) = try_from_bound_expression(children[0])? else {
                     return Ok(None);
                 };
-                let Some(pattern_lit) = like_pattern_str(&children[1])? else {
+                let Some(pattern_lit) = like_pattern_str(children[1])? else {
                     vortex_bail!("expected pattern to be bound string")
                 };
                 let pattern = lit(pattern_lit);
@@ -170,7 +170,7 @@ pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Opt
         duckdb::ExpressionClass::BoundConjunction(conj) => {
             let Some(children) = conj
                 .children()
-                .map(|c| try_from_bound_expression(&c))
+                .map(try_from_bound_expression)
                 .collect::<VortexResult<Option<Vec<_>>>>()?
             else {
                 return Ok(None);

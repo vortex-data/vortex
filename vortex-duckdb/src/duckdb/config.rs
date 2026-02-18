@@ -11,19 +11,18 @@ use vortex::error::vortex_err;
 
 use crate::cpp;
 use crate::duckdb::Database;
-use crate::duckdb::LogicalType;
-use crate::duckdb::Value;
+use crate::duckdb::OwnedValue;
 use crate::duckdb_try;
-use crate::wrapper;
+use crate::lifetime_wrapper;
 
-wrapper!(
+lifetime_wrapper!(
     /// A DuckDB configuration instance.
     Config,
     cpp::duckdb_config,
     cpp::duckdb_destroy_config
 );
 
-impl Config {
+impl OwnedConfig {
     /// Creates a new DuckDB configuration.
     pub fn new() -> VortexResult<Self> {
         let mut ptr: cpp::duckdb_config = ptr::null_mut();
@@ -34,7 +33,9 @@ impl Config {
 
         Ok(unsafe { Self::own(ptr) })
     }
+}
 
+impl Config {
     /// Sets a key-value configuration parameter.
     pub fn set(&mut self, key: &str, value: &str) -> VortexResult<()> {
         let key_cstr =
@@ -56,7 +57,7 @@ impl Config {
 
     /// Gets the value of a configuration parameter that was previously set.
     /// Returns None if the parameter was never set on this Config instance.
-    pub fn get(&self, key: &str) -> Option<Value> {
+    pub fn get(&self, key: &str) -> Option<OwnedValue> {
         let key_cstr = CString::new(key).ok()?;
 
         let mut value: cpp::duckdb_value = ptr::null_mut();
@@ -65,7 +66,7 @@ impl Config {
         };
 
         (result == cpp::duckdb_state::DuckDBSuccess && !value.is_null())
-            .then(|| unsafe { Value::own(value) })
+            .then(|| unsafe { OwnedValue::own(value) })
     }
 
     pub fn get_str(&self, key: &str) -> Option<String> {
@@ -137,8 +138,8 @@ impl Config {
         &self,
         name: &str,
         description: &str,
-        logical_type: LogicalType,
-        default_value: Value,
+        logical_type: OwnedLogicalType,
+        default_value: OwnedValue,
     ) -> VortexResult<()> {
         let name_cstr =
             CString::new(name).map_err(|_| vortex_err!("Invalid name: contains null bytes"))?;
@@ -158,8 +159,10 @@ impl Config {
     }
 }
 
+use crate::duckdb::OwnedLogicalType;
+
 impl Database {
-    pub fn config(&self) -> Config {
+    pub fn config(&self) -> &Config {
         unsafe { Config::borrow(cpp::duckdb_vx_database_get_config(self.as_ptr())) }
     }
 }
@@ -167,16 +170,17 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::duckdb::OwnedDatabase;
 
     #[test]
     fn test_config_creation() {
-        let config = Config::new();
+        let config = OwnedConfig::new();
         assert!(config.is_ok());
     }
 
     #[test]
     fn test_config_set_and_get() {
-        let mut config = Config::new().unwrap();
+        let mut config = OwnedConfig::new().unwrap();
 
         // Set some values
         assert!(config.set("memory_limit", "1GB").is_ok());
@@ -192,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_config_get_all() {
-        let mut config = Config::new().unwrap();
+        let mut config = OwnedConfig::new().unwrap();
 
         assert!(config.set("memory_limit", "512MB").is_ok());
         assert!(config.set("threads", "4").is_ok());
@@ -205,7 +209,7 @@ mod tests {
 
     #[test]
     fn test_config_update_value() {
-        let mut config = Config::new().unwrap();
+        let mut config = OwnedConfig::new().unwrap();
 
         // Set initial value
         assert!(config.set("threads", "2").is_ok());
@@ -218,10 +222,8 @@ mod tests {
 
     #[test]
     fn test_config_persistence_through_database() {
-        use crate::duckdb::Database;
-
         // Create config with specific settings
-        let mut config = Config::new().unwrap();
+        let mut config = OwnedConfig::new().unwrap();
         config.set("memory_limit", "256MB").unwrap();
         config.set("threads", "1").unwrap();
 
@@ -230,7 +232,7 @@ mod tests {
         assert_eq!(config.get_str("threads"), Some("1".to_string()));
 
         // Use config to create database (this consumes the config)
-        let db = Database::open_in_memory_with_config(config);
+        let db = OwnedDatabase::open_in_memory_with_config(config);
         assert!(db.is_ok());
 
         // Verify database was created successfully
@@ -240,14 +242,14 @@ mod tests {
 
     #[test]
     fn test_config_invalid_key() {
-        let mut config = Config::new().unwrap();
+        let mut config = OwnedConfig::new().unwrap();
         let result = config.set("key\0with\0nulls", "value");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_config_invalid_value() {
-        let mut config = Config::new().unwrap();
+        let mut config = OwnedConfig::new().unwrap();
         let result = config.set("key", "value\0with\0nulls");
         assert!(result.is_err());
     }

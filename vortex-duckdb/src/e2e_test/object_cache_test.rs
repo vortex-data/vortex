@@ -13,7 +13,7 @@ use crate::duckdb::BindInput;
 use crate::duckdb::BindResult;
 use crate::duckdb::ClientContext;
 use crate::duckdb::DataChunk;
-use crate::duckdb::LogicalType;
+use crate::duckdb::OwnedLogicalType;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
 
@@ -47,7 +47,7 @@ impl TableFunction for TestTableFunction {
         _input: &BindInput,
         result: &mut BindResult,
     ) -> VortexResult<Self::BindData> {
-        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         result.add_result_column("test_value", &logical_type);
 
         let cache = client_context.object_cache();
@@ -106,11 +106,11 @@ impl TableFunction for TestTableFunction {
     }
 }
 
-use crate::duckdb::Database;
+use crate::duckdb::OwnedDatabase;
 
 #[test]
 fn test_table_function_with_object_cache() -> VortexResult<()> {
-    let db = Database::open_in_memory()?;
+    let db = OwnedDatabase::open_in_memory()?;
     let conn = db.connect()?;
 
     // Register our test table function

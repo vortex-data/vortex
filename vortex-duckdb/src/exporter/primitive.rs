@@ -11,9 +11,9 @@ use vortex::dtype::match_each_native_ptype;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::LogicalType;
+use crate::duckdb::OwnedLogicalType;
+use crate::duckdb::OwnedVectorBuffer;
 use crate::duckdb::Vector;
-use crate::duckdb::VectorBuffer;
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::validity;
@@ -21,7 +21,7 @@ use crate::exporter::validity;
 struct PrimitiveExporter<T: NativePType> {
     len: usize,
     start: *const T,
-    shared_buffer: VectorBuffer,
+    shared_buffer: OwnedVectorBuffer,
     _phantom_type: PhantomData<T>,
 }
 
@@ -35,10 +35,8 @@ pub fn new_exporter(
         .execute::<Mask>(ctx)?;
 
     if validity.all_false() {
-        return Ok(all_invalid::new_exporter(
-            array.len(),
-            &LogicalType::try_from(array.ptype())?,
-        ));
+        let ltype = OwnedLogicalType::try_from(array.ptype())?;
+        return Ok(all_invalid::new_exporter(array.len(), &ltype));
     }
 
     match_each_native_ptype!(array.ptype(), |T| {
@@ -46,7 +44,7 @@ pub fn new_exporter(
         let prim = Box::new(PrimitiveExporter {
             len: buffer.len(),
             start: buffer.as_ptr(),
-            shared_buffer: VectorBuffer::new(buffer),
+            shared_buffer: OwnedVectorBuffer::new(buffer),
             _phantom_type: Default::default(),
         });
         Ok(validity::new_exporter(validity, prim))
@@ -76,23 +74,24 @@ mod tests {
     use crate::SESSION;
     use crate::cpp;
     use crate::duckdb::DUCKDB_STANDARD_VECTOR_SIZE;
-    use crate::duckdb::DataChunk;
-    use crate::duckdb::LogicalType;
+    use crate::duckdb::OwnedDataChunk;
+    use crate::duckdb::OwnedLogicalType;
 
     #[test]
     fn test_primitive_exporter() {
         let arr = PrimitiveArray::from_iter(0..10);
 
-        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut chunk =
+            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
-            .export(0, 3, &mut chunk.get_vector(0))
+            .export(0, 3, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 3 = [ 0, 1, 2]
 "#
@@ -107,7 +106,11 @@ mod tests {
 
         {
             let mut chunk = (0..ARRAY_COUNT)
-                .map(|_| DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]))
+                .map(|_| {
+                    OwnedDataChunk::new([OwnedLogicalType::new(
+                        cpp::duckdb_type::DUCKDB_TYPE_INTEGER,
+                    )])
+                })
                 .collect_vec();
 
             for i in 0..ARRAY_COUNT {
@@ -116,13 +119,13 @@ mod tests {
                     .export(
                         i * DUCKDB_STANDARD_VECTOR_SIZE,
                         DUCKDB_STANDARD_VECTOR_SIZE,
-                        &mut chunk[i].get_vector(0),
+                        chunk[i].get_vector_mut(0),
                     )
                     .unwrap();
                 chunk[i].set_len(DUCKDB_STANDARD_VECTOR_SIZE);
 
                 assert_eq!(
-                    format!("{}", String::try_from(&chunk[i]).unwrap()),
+                    format!("{}", String::try_from(&*chunk[i]).unwrap()),
                     format!(
                         r#"Chunk - [1 Columns]
 - FLAT INTEGER: {DUCKDB_STANDARD_VECTOR_SIZE} = [ {}]

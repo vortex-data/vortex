@@ -4,14 +4,14 @@
 use vortex::file::Footer;
 use vortex::file::VortexOpenOptions;
 
-use crate::duckdb::ObjectCacheRef;
+use crate::duckdb::ObjectCache;
 
 pub struct FooterCache<'a> {
-    object_cache: ObjectCacheRef<'a>,
+    object_cache: &'a ObjectCache,
 }
 
 pub struct Entry<'a> {
-    object_cache: ObjectCacheRef<'a>,
+    object_cache: &'a ObjectCache,
     key: String,
     value: Option<&'a Footer>,
 }
@@ -34,7 +34,7 @@ impl Entry<'_> {
 }
 
 impl<'a> FooterCache<'a> {
-    pub fn new(object_cache: ObjectCacheRef<'a>) -> Self {
+    pub fn new(object_cache: &'a ObjectCache) -> Self {
         Self { object_cache }
     }
 
