@@ -390,6 +390,7 @@ impl PcoArray {
         let mut page_value_start = 0;
         let mut n_skipped_values = 0;
         for (chunk_info, chunk_meta) in self.metadata.chunks.iter().zip(&self.chunk_metas) {
+            // lazily initialize chunk decompressor
             let mut chunk_decompressor: Option<ChunkDecompressor<T>> = None;
             for page_info in &chunk_info.pages {
                 let page_n_values = page_info.n_values as usize;
@@ -407,30 +408,25 @@ impl PcoArray {
                     unsafe {
                         decompressed_values.set_len(new_len);
                     }
-                    let chunk_meta_bytes: &[u8] = chunk_meta.as_ref();
                     let page: &[u8] = self.pages[page_idx].as_ref();
 
-                    // Use the initialized chunk decompressor to decode the page, or initialize
-                    // a new one if this is the first page in the chunk.
-                    let page_decompressor = match chunk_decompressor.take() {
+                    let mut cd = match chunk_decompressor.take() {
                         Some(d) => d,
                         None => {
                             let (new_cd, _) = fd
-                                .chunk_decompressor(chunk_meta_bytes)
+                                .chunk_decompressor(chunk_meta.as_ref())
                                 .map_err(vortex_err_from_pco)?;
                             new_cd
                         }
                     };
 
-                    let mut pd = chunk_decompressor
-                        .as_mut()
-                        .vortex_expect("cd is always initialized here")
+                    let mut pd = cd
                         .page_decompressor(page, page_n_values)
                         .map_err(vortex_err_from_pco)?;
                     pd.read(&mut decompressed_values[old_len..new_len])
                         .map_err(vortex_err_from_pco)?;
 
-                    chunk_decompressor = Some(page_decompressor);
+                    chunk_decompressor = Some(cd);
                 } else {
                     n_skipped_values += page_n_values;
                 }
