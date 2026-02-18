@@ -1,16 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::builders::ArrayBuilder;
-use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 
 /// Performs element-wise conditional selection between two arrays based on a mask.
@@ -21,58 +17,11 @@ use crate::builtins::ArrayBuiltins;
 /// Null values in the mask are treated as false (selecting `if_false`). This follows
 /// SQL semantics (DuckDB, Trino) where a null condition falls through to the ELSE branch,
 /// rather than Arrow's `if_else` which propagates null conditions to the output.
+#[deprecated(note = "use if_true.zip(if_false, mask) via ArrayBuiltins instead")]
 pub fn zip(if_true: &dyn Array, if_false: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     if_true
         .to_array()
         .zip(if_false.to_array(), mask.clone().into_array())
-}
-
-pub(crate) fn zip_return_dtype(if_true: &dyn Array, if_false: &dyn Array) -> DType {
-    if_true
-        .dtype()
-        .union_nullability(if_false.dtype().nullability())
-}
-
-pub(crate) fn zip_impl(
-    if_true: &dyn Array,
-    if_false: &dyn Array,
-    mask: &Mask,
-) -> VortexResult<ArrayRef> {
-    assert_eq!(
-        if_true.len(),
-        if_false.len(),
-        "zip requires arrays to have the same size"
-    );
-
-    let return_type = zip_return_dtype(if_true, if_false);
-    zip_impl_with_builder(
-        if_true,
-        if_false,
-        mask,
-        builder_with_capacity(&return_type, if_true.len()),
-    )
-}
-
-fn zip_impl_with_builder(
-    if_true: &dyn Array,
-    if_false: &dyn Array,
-    mask: &Mask,
-    mut builder: Box<dyn ArrayBuilder>,
-) -> VortexResult<ArrayRef> {
-    match mask.slices() {
-        AllOr::All => Ok(if_true.to_array()),
-        AllOr::None => Ok(if_false.to_array()),
-        AllOr::Some(slices) => {
-            for (start, end) in slices {
-                builder.extend_from_array(&if_false.slice(builder.len()..*start)?);
-                builder.extend_from_array(&if_true.slice(*start..*end)?);
-            }
-            if builder.len() < if_false.len() {
-                builder.extend_from_array(&if_false.slice(builder.len()..if_false.len())?);
-            }
-            Ok(builder.finish())
-        }
-    }
 }
 
 #[cfg(test)]

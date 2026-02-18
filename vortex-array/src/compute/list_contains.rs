@@ -30,6 +30,7 @@ use crate::arrays::ConstantVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
+use crate::compute;
 use crate::compute::BinaryArgs;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
@@ -37,7 +38,7 @@ use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Operator;
 use crate::compute::Output;
-use crate::compute::{self};
+use crate::expr;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
@@ -240,7 +241,7 @@ fn constant_list_scalar_contains(
         )?
         .fill_null(false_scalar.clone())?;
         if let Some(acc) = result {
-            result = Some(compute::or_kleene(&acc, &res)?)
+            result = Some(expr::or_kleene(&acc, &res)?)
         } else {
             result = Some(res);
         }

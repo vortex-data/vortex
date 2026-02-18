@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use arrow_array::cast::AsArray;
+use arrow_schema::DataType;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -10,29 +12,73 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
-use crate::compute::BooleanOperator;
-use crate::compute::arrow_boolean;
+use crate::arrays::ScalarFnArray;
+use crate::arrow::FromArrowArray;
+use crate::arrow::IntoArrowArray;
+use crate::expr::Binary;
+use crate::expr::ScalarFn;
+use crate::expr::operators::Operator;
 use crate::scalar::Scalar;
 
-/// Execute a boolean operation between two arrays.
+/// Point-wise Kleene logical _and_ between two Boolean arrays.
+///
+/// Returns a lazy [`ScalarFnArray`] wrapping the [`Binary`] expression.
+pub fn and_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+    Ok(ScalarFnArray::try_new(
+        ScalarFn::new(Binary, Operator::And),
+        vec![lhs.to_array(), rhs.to_array()],
+        lhs.len(),
+    )?
+    .into_array())
+}
+
+/// Point-wise Kleene logical _or_ between two Boolean arrays.
+///
+/// Returns a lazy [`ScalarFnArray`] wrapping the [`Binary`] expression.
+pub fn or_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+    Ok(ScalarFnArray::try_new(
+        ScalarFn::new(Binary, Operator::Or),
+        vec![lhs.to_array(), rhs.to_array()],
+        lhs.len(),
+    )?
+    .into_array())
+}
+
+/// Execute a Kleene boolean operation between two arrays.
 ///
 /// This is the entry point for boolean operations from the binary expression.
 /// Handles constant-constant directly, otherwise falls back to Arrow.
 pub(crate) fn execute_boolean(
     lhs: &dyn Array,
     rhs: &dyn Array,
-    op: BooleanOperator,
+    op: Operator,
 ) -> VortexResult<ArrayRef> {
     if let Some(result) = constant_boolean(lhs, rhs, op)? {
         return Ok(result);
     }
-    arrow_boolean(lhs.to_array(), rhs.to_array(), op)
+    arrow_execute_boolean(lhs.to_array(), rhs.to_array(), op)
+}
+
+/// Arrow implementation for Kleene boolean operations using [`Operator`].
+fn arrow_execute_boolean(lhs: ArrayRef, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef> {
+    let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
+
+    let lhs = lhs.into_arrow(&DataType::Boolean)?.as_boolean().clone();
+    let rhs = rhs.into_arrow(&DataType::Boolean)?.as_boolean().clone();
+
+    let array = match op {
+        Operator::And => arrow_arith::boolean::and_kleene(&lhs, &rhs)?,
+        Operator::Or => arrow_arith::boolean::or_kleene(&lhs, &rhs)?,
+        other => return Err(vortex_err!("Not a boolean operator: {other}")),
+    };
+
+    ArrayRef::from_arrow(&array, nullable)
 }
 
 fn constant_boolean(
     lhs: &dyn Array,
     rhs: &dyn Array,
-    op: BooleanOperator,
+    op: Operator,
 ) -> VortexResult<Option<ArrayRef>> {
     let (Some(lhs), Some(rhs)) = (
         lhs.as_opt::<ConstantVTable>(),
@@ -51,18 +97,17 @@ fn constant_boolean(
         .value();
 
     let result = match op {
-        BooleanOperator::And => lhs_val.zip(rhs_val).map(|(l, r)| l & r),
-        BooleanOperator::AndKleene => match (lhs_val, rhs_val) {
+        Operator::And => match (lhs_val, rhs_val) {
             (Some(false), _) | (_, Some(false)) => Some(false),
             (None, _) | (_, None) => None,
             (Some(l), Some(r)) => Some(l & r),
         },
-        BooleanOperator::Or => lhs_val.zip(rhs_val).map(|(l, r)| l | r),
-        BooleanOperator::OrKleene => match (lhs_val, rhs_val) {
+        Operator::Or => match (lhs_val, rhs_val) {
             (Some(true), _) | (_, Some(true)) => Some(true),
             (None, _) | (_, None) => None,
             (Some(l), Some(r)) => Some(l | r),
         },
+        other => return Err(vortex_err!("Not a boolean operator: {other}")),
     };
 
     let scalar = result
