@@ -5,6 +5,7 @@
 #![allow(clippy::panic)]
 use std::env;
 use std::path::PathBuf;
+use std::process::Command;
 
 fn main() {
     // Set up dependency tracking
@@ -20,7 +21,7 @@ fn main() {
     }
 
     // We require the macro expansion feature of cbindgen to generate the header, which is only available on nightly.
-    let is_nightly = std::process::Command::new("rustc")
+    let is_nightly = Command::new("rustc")
         .arg("-V")
         .output()
         .map(|output| String::from_utf8_lossy(&output.stdout).contains("nightly"))
@@ -49,19 +50,19 @@ fn main() {
             bindings.write_to_file(&output_file);
 
             // Run clang-format on the generated header.
-            let status = std::process::Command::new("clang-format")
+            if let Ok(status) = Command::new("clang-format")
                 .arg("-i")
                 .arg("--style=file")
                 .arg(&output_file)
-                .status();
-            match status {
-                Ok(s) if s.success() => {}
-                Ok(s) => println!(
-                    "cargo:warning=clang-format exited with status {} for {}",
-                    s,
-                    output_file.display()
-                ),
-                Err(e) => println!("cargo:warning=clang-format not found or failed to run: {e}"),
+                .status()
+            {
+                if !status.success() {
+                    println!("cargo:warning=clang-format exited with status {status}");
+                }
+            } else {
+                println!(
+                    "cargo:warning=clang-format not found, skipping formatting of generated header"
+                );
             }
         }
         Err(e) => {

@@ -55,7 +55,19 @@ fn main() {
         generate_unpack::<u32>(&kernels_src, 32).expect("Failed to generate unpack for u32"),
         generate_unpack::<u64>(&kernels_src, 16).expect("Failed to generate unpack for u64"),
     ];
-    clang_format(&unpack_files);
+    // Run clang-format on the generated files.
+    if let Ok(status) = Command::new("clang-format")
+        .arg("-i")
+        .arg("--style=file")
+        .args(&unpack_files)
+        .status()
+    {
+        if !status.success() {
+            println!("cargo:warning=clang-format exited with status {status}");
+        }
+    } else {
+        println!("cargo:warning=clang-format not found, skipping formatting of generated files");
+    }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
     generate_dynamic_dispatch_bindings(&kernels_src, &out_dir);
@@ -101,27 +113,6 @@ fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::
     let mut cu_writer = IndentedWriter::new(&mut cu_file);
     generate_cuda_unpack_for_width::<T, _>(&mut cu_writer, thread_count)?;
     Ok(path)
-}
-
-/// Run `clang-format` in-place on the given files.
-///
-/// If `clang-format` is not available, this is a no-op.
-fn clang_format(paths: &[PathBuf]) {
-    let Ok(output) = Command::new("clang-format")
-        .arg("-i")
-        .arg("--style=file")
-        .args(paths)
-        .output()
-    else {
-        return;
-    };
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        for line in stderr.lines() {
-            println!("cargo:warning=clang-format: {line}");
-        }
-    }
 }
 
 fn nvcc_compile_ptx(

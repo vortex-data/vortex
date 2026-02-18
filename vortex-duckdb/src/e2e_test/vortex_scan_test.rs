@@ -4,8 +4,6 @@
 //! This module contains tests for the `vortex_scan` table function.
 
 use std::ffi::CStr;
-use std::io::Write;
-use std::net::TcpListener;
 use std::path::Path;
 use std::slice;
 use std::str::FromStr;
@@ -346,52 +344,6 @@ fn test_vortex_scan_multiple_files() {
     let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
 
     assert_eq!(total_sum, 21);
-}
-
-#[test]
-fn test_vortex_scan_over_http() {
-    let file = RUNTIME.block_on(async {
-        let strings = VarBinArray::from(vec!["a", "b", "c"]);
-        write_single_column_vortex_file("strings", strings).await
-    });
-
-    let file_bytes = std::fs::read(file.path()).unwrap();
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = listener.local_addr().unwrap();
-
-    std::thread::spawn(move || {
-        for _ in 0..2 {
-            if let Ok((mut stream, _)) = listener.accept() {
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
-                    file_bytes.len()
-                );
-                stream.write_all(response.as_bytes()).unwrap();
-                stream.write_all(&file_bytes).unwrap();
-            }
-        }
-    });
-
-    let conn = database_connection();
-    conn.query("SET vortex_filesystem = 'duckdb';").unwrap();
-    conn.query("INSTALL httpfs;").unwrap();
-    conn.query("LOAD httpfs;").unwrap();
-
-    let url = format!(
-        "http://{}/{}",
-        addr,
-        file.path().file_name().unwrap().to_string_lossy()
-    );
-
-    let result = conn
-        .query(&format!("SELECT COUNT(*) FROM read_vortex('{url}')"))
-        .unwrap();
-    let chunk = result.into_iter().next().unwrap();
-    let count = chunk
-        .get_vector(0)
-        .as_slice_with_len::<i64>(chunk.len().as_())[0];
-
-    assert_eq!(count, 3);
 }
 
 #[test]

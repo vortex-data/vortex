@@ -33,7 +33,7 @@ std::string IntoErrString(duckdb_vx_error error) {
     return *reinterpret_cast<std::string *>(error);
 }
 
-void SetError(duckdb_vx_error *error_out, const std::string &message) {
+void SetError(duckdb_vx_error *error_out, std::string_view message) {
     assert(error_out != nullptr && "SetError called with null error_out");
     *error_out = duckdb_vx_error_create(message.data(), message.size());
 }
@@ -46,8 +46,6 @@ duckdb_state HandleException(std::exception_ptr ex, duckdb_vx_error *error_out) 
 
     try {
         std::rethrow_exception(ex);
-    } catch (const duckdb::Exception &caught) {
-        SetError(error_out, caught.what());
     } catch (const std::exception &caught) {
         SetError(error_out, caught.what());
     } catch (...) {
