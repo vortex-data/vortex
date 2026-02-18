@@ -157,7 +157,7 @@ fn create_local_filesystem(session: &VortexSession) -> VortexResult<FileSystemRe
 }
 
 #[cfg(not(feature = "object_store"))]
-fn create_local_filesystem(session: &VortexSession) -> VortexResult<FileSystemRef> {
+fn create_local_filesystem(_session: &VortexSession) -> VortexResult<FileSystemRef> {
     vortex_bail!(
         "The 'object_store' feature is required for automatic local filesystem creation. \
              Either enable the feature or provide a filesystem via .with_filesystem()."

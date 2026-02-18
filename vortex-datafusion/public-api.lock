@@ -18,7 +18,6 @@ pub type vortex_datafusion::metrics::VortexMetricsFinder::Error = core::convert:
 
 pub fn vortex_datafusion::metrics::VortexMetricsFinder::pre_visit(&mut self, plan: &dyn datafusion_physical_plan::execution_plan::ExecutionPlan) -> core::result::Result<bool, Self::Error>
 
-<<<<<<< HEAD
 pub mod vortex_datafusion::v2
 
 pub struct vortex_datafusion::v2::VortexDataSource
@@ -81,22 +80,6 @@ pub fn vortex_datafusion::v2::VortexTable::statistics(&self) -> core::option::Op
 
 pub fn vortex_datafusion::v2::VortexTable::table_type(&self) -> datafusion_expr::table_source::TableType
 
-pub struct vortex_datafusion::DefaultVortexReaderFactory
-
-impl vortex_datafusion::DefaultVortexReaderFactory
-
-pub fn vortex_datafusion::DefaultVortexReaderFactory::new(object_store: alloc::sync::Arc<dyn object_store::ObjectStore>) -> Self
-
-impl core::fmt::Debug for vortex_datafusion::DefaultVortexReaderFactory
-
-pub fn vortex_datafusion::DefaultVortexReaderFactory::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_datafusion::VortexReaderFactory for vortex_datafusion::DefaultVortexReaderFactory
-
-pub fn vortex_datafusion::DefaultVortexReaderFactory::create_reader(&self, path: &str, session: &vortex_session::VortexSession) -> datafusion_common::error::Result<alloc::sync::Arc<dyn vortex_io::read::VortexReadAt>>
-
-=======
->>>>>>> develop
 pub struct vortex_datafusion::VortexAccessPlan
 
 impl vortex_datafusion::VortexAccessPlan

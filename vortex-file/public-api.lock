@@ -1,65 +1,5 @@
 pub mod vortex_file
 
-pub mod vortex_file::filesystem
-
-pub mod vortex_file::filesystem::object_store
-
-pub struct vortex_file::filesystem::object_store::ObjectStoreFileSystem
-
-impl vortex_file::filesystem::object_store::ObjectStoreFileSystem
-
-pub fn vortex_file::filesystem::object_store::ObjectStoreFileSystem::new(store: alloc::sync::Arc<dyn object_store::ObjectStore>, handle: vortex_io::runtime::handle::Handle) -> Self
-
-impl vortex_file::filesystem::FileSystem for vortex_file::filesystem::object_store::ObjectStoreFileSystem
-
-pub fn vortex_file::filesystem::object_store::ObjectStoreFileSystem::list(&self, prefix: core::option::Option<&str>) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_file::filesystem::FileListing>>
-
-pub fn vortex_file::filesystem::object_store::ObjectStoreFileSystem::open_read<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_io::read::VortexReadAt>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
-
-pub struct vortex_file::filesystem::FileListing
-
-pub vortex_file::filesystem::FileListing::path: alloc::string::String
-
-pub vortex_file::filesystem::FileListing::size: core::option::Option<u64>
-
-impl core::clone::Clone for vortex_file::filesystem::FileListing
-
-pub fn vortex_file::filesystem::FileListing::clone(&self) -> vortex_file::filesystem::FileListing
-
-impl core::cmp::Eq for vortex_file::filesystem::FileListing
-
-impl core::cmp::Ord for vortex_file::filesystem::FileListing
-
-pub fn vortex_file::filesystem::FileListing::cmp(&self, other: &vortex_file::filesystem::FileListing) -> core::cmp::Ordering
-
-impl core::cmp::PartialEq for vortex_file::filesystem::FileListing
-
-pub fn vortex_file::filesystem::FileListing::eq(&self, other: &vortex_file::filesystem::FileListing) -> bool
-
-impl core::cmp::PartialOrd for vortex_file::filesystem::FileListing
-
-pub fn vortex_file::filesystem::FileListing::partial_cmp(&self, other: &vortex_file::filesystem::FileListing) -> core::option::Option<core::cmp::Ordering>
-
-impl core::fmt::Debug for vortex_file::filesystem::FileListing
-
-pub fn vortex_file::filesystem::FileListing::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::marker::StructuralPartialEq for vortex_file::filesystem::FileListing
-
-pub trait vortex_file::filesystem::FileSystem: core::marker::Send + core::marker::Sync
-
-pub fn vortex_file::filesystem::FileSystem::list(&self, prefix: core::option::Option<&str>) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_file::filesystem::FileListing>>
-
-pub fn vortex_file::filesystem::FileSystem::open_read<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_io::read::VortexReadAt>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
-
-impl vortex_file::filesystem::FileSystem for vortex_file::filesystem::object_store::ObjectStoreFileSystem
-
-pub fn vortex_file::filesystem::object_store::ObjectStoreFileSystem::list(&self, prefix: core::option::Option<&str>) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_file::filesystem::FileListing>>
-
-pub fn vortex_file::filesystem::object_store::ObjectStoreFileSystem::open_read<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_io::read::VortexReadAt>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
-
-pub type vortex_file::filesystem::FileSystemRef = alloc::sync::Arc<dyn vortex_file::filesystem::FileSystem>
-
 pub mod vortex_file::multi
 
 pub struct vortex_file::multi::MultiFileDataSource
@@ -70,9 +10,9 @@ pub async fn vortex_file::multi::MultiFileDataSource::build(self) -> vortex_erro
 
 pub fn vortex_file::multi::MultiFileDataSource::new(session: vortex_session::VortexSession) -> Self
 
-pub fn vortex_file::multi::MultiFileDataSource::with_filesystem(self, fs: vortex_file::filesystem::FileSystemRef) -> Self
+pub fn vortex_file::multi::MultiFileDataSource::with_filesystem(self, fs: vortex_io::filesystem::FileSystemRef) -> Self
 
-pub fn vortex_file::multi::MultiFileDataSource::with_glob_url(self, glob_url: impl core::convert::Into<alloc::string::String>) -> Self
+pub fn vortex_file::multi::MultiFileDataSource::with_glob(self, glob: impl core::convert::Into<alloc::string::String>) -> Self
 
 pub fn vortex_file::multi::MultiFileDataSource::with_open_options(self, f: impl core::ops::function::Fn(vortex_file::VortexOpenOptions) -> vortex_file::VortexOpenOptions + core::marker::Send + core::marker::Sync + 'static) -> Self
 
