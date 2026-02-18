@@ -872,3 +872,35 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: "false"
       - run: cargo build --package vortex-jni
+
+  publish-rust-dry-run:
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+      - tag=sql-logic-test
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cargo Set Version
+        run: |
+          # Match publish toolchain
+          cargo +$NIGHTLY_TOOLCHAIN install cargo-edit
+          cargo +$NIGHTLY_TOOLCHAIN set-version --workspace ${{ github.event.release.tag_name }}
+
+      - name: Release
+        run: |
+          cargo +$NIGHTLY_TOOLCHAIN publish --dry-run -Zpublish-timeout --no-verify --allow-dirty --workspace
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
