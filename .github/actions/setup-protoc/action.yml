@@ -28,7 +28,7 @@ runs:
         PROTOC_URL="https://github.com/protocolbuffers/protobuf/releases/download/v${{ inputs.protoc_version }}/protoc-${{ inputs.protoc_version }}-${PROTOC_ARCH}.zip"
         wget -q -O /tmp/protoc.zip "$PROTOC_URL"
         unzip -o /tmp/protoc.zip -d /tmp/protoc
-        mv /tmp/protoc/bin/protoc /usr/local/bin/
-        cp -r /tmp/protoc/include/* /usr/local/include/
+        sudo mv /tmp/protoc/bin/protoc /usr/local/bin/
+        sudo cp -r /tmp/protoc/include/* /usr/local/include/
         rm -rf /tmp/protoc.zip /tmp/protoc
         protoc --version
