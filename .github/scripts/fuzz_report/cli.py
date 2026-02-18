@@ -17,8 +17,8 @@ from .template import render_template, render_template_to_file
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-# Marker used to find/update the single recurrence-tracking comment.
-_RECURRENCE_COMMENT_RE = r"<!-- fuzzer-recurrence-tracker count:(\d+) -->"
+# Stable marker to find and update the recurrence-tracking comment.
+_RECURRENCE_KEY = "<!-- fuzzer-recurrence-tracker -->"
 # Variables that must be set (non-empty) before creating or commenting on an issue.
 REQUIRED_REPORT_VARIABLES = ["FUZZ_TARGET", "CRASH_FILE", "ARTIFACT_URL"]
 
@@ -172,7 +172,7 @@ def _render_recurrence_body(count: int) -> str:
     """Render the minimal recurrence-tracking comment body."""
     return (
         f"Seen **{count}** time{'s' if count != 1 else ''}\n\n"
-        f"<!-- fuzzer-recurrence-tracker count:{count} -->"
+        f"{_RECURRENCE_KEY}"
     )
 
 
@@ -196,15 +196,15 @@ def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
         text=True,
     )
 
-    match = next(
-        (
-            (comment["id"], int(m.group(1)))
-            for comment in json.loads(result.stdout or "[]")
-            if (m := re.search(_RECURRENCE_COMMENT_RE, comment["body"]))
-        ),
-        None,
-    )
-    existing_id, current_count = match if match else (None, 0)
+    existing_id = None
+    current_count = 0
+    for comment in json.loads(result.stdout or "[]"):
+        if _RECURRENCE_KEY in comment["body"]:
+            existing_id = comment["id"]
+            m = re.search(r"Seen \*\*(\d+)\*\*", comment["body"])
+            if m:
+                current_count = int(m.group(1))
+            break
 
     new_count = current_count + 1
     body = _render_recurrence_body(new_count)
