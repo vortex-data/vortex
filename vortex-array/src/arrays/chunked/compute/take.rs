@@ -20,8 +20,8 @@ use crate::canonical::ToCanonical;
 use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 
-// TODO(joe): replace canonicalize + final take with a builder that appends filtered chunks
-//  in the correct order directly, avoiding the intermediate flat array and unshuffle gather.
+// TODO(joe): this is pretty unoptimized but better than before. We want canonical using a builder
+// we also want to return a chunked array ideally.
 fn take_chunked(
     array: &ChunkedArray,
     indices: &dyn Array,
