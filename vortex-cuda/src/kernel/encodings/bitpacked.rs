@@ -120,9 +120,10 @@ where
     let output_width = size_of::<A>() * 8;
     let cuda_function = bitpacked_cuda_kernel(bit_width, output_width, ctx)?;
     let config = bitpacked_cuda_launch_config(output_width, len)?;
+    let reference = A::default();
 
     ctx.launch_kernel_config(&cuda_function, config, len, |args| {
-        args.arg(&input_view).arg(&output_view);
+        args.arg(&input_view).arg(&output_view).arg(&reference);
     })?;
 
     let output_handle = match patches {

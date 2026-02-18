@@ -3,6 +3,7 @@
 
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
+use tracing::instrument;
 use vortex::array::arrays::PrimitiveArrayParts;
 use vortex::array::dtype::NativePType;
 use vortex::array::patches::Patches;
@@ -18,6 +19,7 @@ use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;
 
 /// Apply a set of patches in-place onto a [`CudaDeviceBuffer`] holding `ValuesT`.
+#[instrument(skip_all)]
 pub(crate) async fn execute_patches<
     ValuesT: NativePType + DeviceRepr,
     IndicesT: NativePType + DeviceRepr,
