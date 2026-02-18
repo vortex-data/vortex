@@ -401,16 +401,16 @@ async fn main() -> Result<()> {
     } else {
         0.0
     };
-    let bytes = total_read_bytes() + manual_io_bytes.load(Ordering::Relaxed);
-    let (first_latency, first_bytes) =
-        (*first_info.lock()).unwrap_or_else(|| (elapsed, bytes - bytes_before));
+    let scan_bytes = (total_read_bytes() - bytes_before) + manual_io_bytes.load(Ordering::Relaxed);
+    // first_latency and first_bytes are point-in-time measurements (not accumulated per
+    // iteration), so they should not be divided by the iteration count.
+    let (first_latency, first_bytes) = (*first_info.lock()).unwrap_or((elapsed, scan_bytes));
 
     let avg_elapsed = elapsed / args.iterations as f64;
-    let avg_bytes = bytes as f64 / args.iterations as f64;
-    let avg_first_latency = first_latency / args.iterations as f64;
-    let avg_first_bytes = first_bytes as f64 / args.iterations as f64;
-    let steady_bytes = (avg_bytes - avg_first_bytes).max(0.0);
-    let steady_time = (avg_elapsed - avg_first_latency).max(0.0);
+    let avg_bytes = scan_bytes as f64 / args.iterations as f64;
+    let steady_bytes =
+        (scan_bytes as f64 - first_bytes as f64).max(0.0) / (args.iterations as f64 - 1.0).max(1.0);
+    let steady_time = (elapsed - first_latency).max(0.0) / (args.iterations as f64 - 1.0).max(1.0);
     let total_mb_s = if avg_elapsed > 0.0 {
         avg_bytes / (1024.0 * 1024.0) / avg_elapsed
     } else {
@@ -427,7 +427,7 @@ async fn main() -> Result<()> {
     println!("avg_time_s={:.3}", avg_elapsed);
     println!("avg_bytes={:.0}", avg_bytes);
     println!("avg_mb_s={:.2}", total_mb_s);
-    println!("avg_first_latency_ms={:.2}", avg_first_latency * 1000.0);
+    println!("first_latency_ms={:.2}", first_latency * 1000.0);
     println!("steady_mb_s={:.2}", steady_mb_s);
     if io_no_copy_enabled() {
         println!("io_no_copy=1");
