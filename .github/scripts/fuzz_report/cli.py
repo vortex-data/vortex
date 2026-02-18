@@ -18,8 +18,7 @@ from .template import render_template, render_template_to_file
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 # Marker used to find/update the single recurrence-tracking comment.
-_RECURRENCE_MARKER = "<!-- fuzzer-recurrence-tracker -->"
-_RECURRENCE_COUNT_RE = r"<!-- fuzzer-recurrence-tracker count:(\d+) -->"
+_RECURRENCE_COMMENT_RE = r"<!-- fuzzer-recurrence-tracker count:(\d+) -->"
 # Variables that must be set (non-empty) before creating or commenting on an issue.
 REQUIRED_REPORT_VARIABLES = ["FUZZ_TARGET", "CRASH_FILE", "ARTIFACT_URL"]
 
@@ -192,25 +191,20 @@ def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
             "api",
             f"repos/{repo}/issues/{issue_number}/comments",
             "--paginate",
-            "--jq",
-            f'.[] | select(.body | contains("{_RECURRENCE_MARKER}")) | {{id: .id, body: .body}}',
         ],
         capture_output=True,
         text=True,
     )
 
-    existing_id = None
-    current_count = 0
-
-    for line in result.stdout.strip().splitlines():
-        if not line:
-            continue
-        comment = json.loads(line)
-        existing_id = comment["id"]
-        m = re.search(_RECURRENCE_COUNT_RE, comment["body"])
-        if m:
-            current_count = int(m.group(1))
-        break
+    match = next(
+        (
+            (comment["id"], int(m.group(1)))
+            for comment in json.loads(result.stdout or "[]")
+            if (m := re.search(_RECURRENCE_COMMENT_RE, comment["body"]))
+        ),
+        None,
+    )
+    existing_id, current_count = match if match else (None, 0)
 
     new_count = current_count + 1
     body = _render_recurrence_body(new_count)
