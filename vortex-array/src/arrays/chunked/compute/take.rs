@@ -63,12 +63,10 @@ fn take_chunked(
         let chunk_end = chunk_offsets[chunk_idx + 1];
         let chunk_len = usize::try_from(chunk_end - chunk_start)?;
 
-        // Binary search for the end of this chunk's range in sorted pairs.
         let range_end = cursor + pairs[cursor..].partition_point(|&(v, _)| v < chunk_end);
         let chunk_pairs = &pairs[cursor..range_end];
 
         if !chunk_pairs.is_empty() {
-            // Single pass: dedup into local_indices and scatter final_take together.
             let mut local_indices: Vec<usize> = Vec::new();
             for (i, &(val, orig_pos)) in chunk_pairs.iter().enumerate() {
                 if cursor + i > 0 && val != pairs[cursor + i - 1].0 {
@@ -90,7 +88,6 @@ fn take_chunked(
 
     let nullability = indices.dtype().nullability();
 
-    // 3. Canonicalize the (at most nchunks) filtered pieces into a flat array.
     let result_dtype = array.dtype().clone().union_nullability(nullability);
     // SAFETY: every chunk came from a filter on a chunk with the same base dtype,
     // unioned with the index nullability.
