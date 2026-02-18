@@ -6400,11 +6400,11 @@ pub fn vortex_array::compute::SumKernelAdapter<V>::invoke(&self, args: &vortex_a
 
 pub trait vortex_array::compute::ListContainsElementKernel: vortex_array::vtable::VTable
 
-pub fn vortex_array::compute::ListContainsElementKernel::list_contains_element(list: &dyn vortex_array::Array, element: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::compute::ListContainsElementKernel::list_contains(list: &dyn vortex_array::Array, element: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub trait vortex_array::compute::ListContainsElementReduce: vortex_array::vtable::VTable
 
-pub fn vortex_array::compute::ListContainsElementReduce::list_contains_element(list: &dyn vortex_array::Array, element: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::compute::ListContainsElementReduce::list_contains(list: &dyn vortex_array::Array, element: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub trait vortex_array::compute::MaskKernel: vortex_array::vtable::VTable
 
@@ -9394,11 +9394,11 @@ pub fn vortex_array::arrays::DictVTable::like(array: &vortex_array::arrays::Dict
 
 pub trait vortex_array::expr::ListContainsElementKernel: vortex_array::vtable::VTable
 
-pub fn vortex_array::expr::ListContainsElementKernel::list_contains_element(list: &dyn vortex_array::Array, element: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::expr::ListContainsElementKernel::list_contains(list: &dyn vortex_array::Array, element: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub trait vortex_array::expr::ListContainsElementReduce: vortex_array::vtable::VTable
 
-pub fn vortex_array::expr::ListContainsElementReduce::list_contains_element(list: &dyn vortex_array::Array, element: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::expr::ListContainsElementReduce::list_contains(list: &dyn vortex_array::Array, element: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub trait vortex_array::expr::MaskKernel: vortex_array::vtable::VTable
 

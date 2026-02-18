@@ -98,7 +98,7 @@ pub fn vortex_sequence::SequenceVTable::cast(array: &vortex_sequence::SequenceAr
 
 impl vortex_array::expr::exprs::list_contains::kernel::ListContainsElementReduce for vortex_sequence::SequenceVTable
 
-pub fn vortex_sequence::SequenceVTable::list_contains_element(list: &dyn vortex_array::array::Array, element: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_sequence::SequenceVTable::list_contains(list: &dyn vortex_array::array::Array, element: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_sequence::SequenceVTable
 
