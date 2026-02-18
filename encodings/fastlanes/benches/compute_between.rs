@@ -72,12 +72,11 @@ mod primitive {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::BooleanOperator;
     use vortex_array::compute::Operator;
-    use vortex_array::compute::boolean;
     use vortex_array::compute::compare;
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::StrictComparison::NonStrict;
+    use vortex_array::expr::and_kleene;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
@@ -99,7 +98,7 @@ mod primitive {
         let arr = generate_primitive_array::<T>(&mut rng, len);
 
         bencher.with_inputs(|| &arr).bench_refs(|arr| {
-            boolean(
+            and_kleene(
                 &compare(
                     arr.as_ref(),
                     ConstantArray::new(min, arr.len()).as_ref(),
@@ -112,7 +111,6 @@ mod primitive {
                     Operator::Lt,
                 )
                 .vortex_expect(""),
-                BooleanOperator::And,
             )
             .vortex_expect("")
         })
@@ -162,12 +160,11 @@ mod bitpack {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::BooleanOperator;
     use vortex_array::compute::Operator;
-    use vortex_array::compute::boolean;
     use vortex_array::compute::compare;
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::StrictComparison::NonStrict;
+    use vortex_array::expr::and_kleene;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
@@ -189,7 +186,7 @@ mod bitpack {
         let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
 
         bencher.with_inputs(|| &arr).bench_refs(|arr| {
-            boolean(
+            and_kleene(
                 &compare(
                     arr.as_ref(),
                     ConstantArray::new(min, arr.len()).as_ref(),
@@ -202,7 +199,6 @@ mod bitpack {
                     Operator::Lt,
                 )
                 .vortex_expect(""),
-                BooleanOperator::And,
             )
         })
     }
@@ -251,12 +247,11 @@ mod alp {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::BooleanOperator;
     use vortex_array::compute::Operator;
-    use vortex_array::compute::boolean;
     use vortex_array::compute::compare;
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::StrictComparison::NonStrict;
+    use vortex_array::expr::and_kleene;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
@@ -278,7 +273,7 @@ mod alp {
         let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
 
         bencher.with_inputs(|| &arr).bench_refs(|arr| {
-            boolean(
+            and_kleene(
                 &compare(
                     arr.as_ref(),
                     ConstantArray::new(min, arr.len()).as_ref(),
@@ -291,7 +286,6 @@ mod alp {
                     Operator::Lt,
                 )
                 .vortex_expect(""),
-                BooleanOperator::And,
             )
         })
     }

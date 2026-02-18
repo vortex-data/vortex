@@ -12,6 +12,5 @@ use crate::ArrayRef;
 /// **Deprecated**: Use `array.list_contains(value)` via [`crate::builtins::ArrayBuiltins`] instead.
 #[deprecated(note = "Use `array.list_contains(value)` via `ArrayBuiltins` instead")]
 pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<ArrayRef> {
-    use crate::builtins::ArrayBuiltins as _;
     array.to_array().list_contains(value.to_array())
 }

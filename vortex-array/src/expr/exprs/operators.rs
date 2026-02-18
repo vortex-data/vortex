@@ -222,17 +222,3 @@ impl TryInto<compute::Operator> for Operator {
         })
     }
 }
-
-impl TryFrom<compute::BooleanOperator> for Operator {
-    type Error = VortexError;
-
-    fn try_from(value: compute::BooleanOperator) -> VortexResult<Self> {
-        match value {
-            compute::BooleanOperator::AndKleene => Ok(Operator::And),
-            compute::BooleanOperator::OrKleene => Ok(Operator::Or),
-            other => vortex_bail!(
-                "Non-Kleene boolean operator {other:?} cannot be represented as an expression Operator"
-            ),
-        }
-    }
-}

@@ -10,12 +10,16 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
+use crate::Array;
 use crate::ArrayRef;
+use crate::IntoArray;
+use crate::builders::ArrayBuilder;
+use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::zip_impl;
-use crate::compute::zip_return_dtype;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -108,22 +112,28 @@ impl VTable for Zip {
 
         let mask = mask_array.try_to_mask_fill_null_false()?;
 
+        let return_dtype = if_true
+            .dtype()
+            .clone()
+            .union_nullability(if_false.dtype().nullability());
+
         if mask.all_true() {
-            return if_true
-                .cast(zip_return_dtype(&if_true, &if_false))?
-                .execute(args.ctx);
+            return if_true.cast(return_dtype)?.execute(args.ctx);
         }
 
+        let return_dtype = if_true
+            .dtype()
+            .clone()
+            .union_nullability(if_false.dtype().nullability());
+
         if mask.all_false() {
-            return if_false
-                .cast(zip_return_dtype(&if_true, &if_false))?
-                .execute(args.ctx);
+            return if_false.cast(return_dtype)?.execute(args.ctx);
         }
 
         if !if_true.is_canonical() || !if_false.is_canonical() {
             let if_true = if_true.execute::<ArrayRef>(args.ctx)?;
             let if_false = if_false.execute::<ArrayRef>(args.ctx)?;
-            return crate::compute::zip(&if_true, &if_false, &mask);
+            return if_true.zip(if_false, mask.into_array());
         }
 
         zip_impl(&if_true, &if_false, &mask)
@@ -156,6 +166,51 @@ impl VTable for Zip {
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
+    }
+}
+
+pub(crate) fn zip_impl(
+    if_true: &dyn Array,
+    if_false: &dyn Array,
+    mask: &Mask,
+) -> VortexResult<ArrayRef> {
+    assert_eq!(
+        if_true.len(),
+        if_false.len(),
+        "zip requires arrays to have the same size"
+    );
+
+    let return_type = if_true
+        .dtype()
+        .clone()
+        .union_nullability(if_false.dtype().nullability());
+    zip_impl_with_builder(
+        if_true,
+        if_false,
+        mask,
+        builder_with_capacity(&return_type, if_true.len()),
+    )
+}
+
+fn zip_impl_with_builder(
+    if_true: &dyn Array,
+    if_false: &dyn Array,
+    mask: &Mask,
+    mut builder: Box<dyn ArrayBuilder>,
+) -> VortexResult<ArrayRef> {
+    match mask.slices() {
+        AllOr::All => Ok(if_true.to_array()),
+        AllOr::None => Ok(if_false.to_array()),
+        AllOr::Some(slices) => {
+            for (start, end) in slices {
+                builder.extend_from_array(&if_false.slice(builder.len()..*start)?);
+                builder.extend_from_array(&if_true.slice(*start..*end)?);
+            }
+            if builder.len() < if_false.len() {
+                builder.extend_from_array(&if_false.slice(builder.len()..if_false.len())?);
+            }
+            Ok(builder.finish())
+        }
     }
 }
 
