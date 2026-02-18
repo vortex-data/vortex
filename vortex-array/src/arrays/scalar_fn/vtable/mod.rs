@@ -130,10 +130,9 @@ impl VTable for ScalarFnVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let children = &array.children;
-        ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn,));
+        ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
         let args = ExecutionArgs {
-            inputs: children.to_vec(),
+            inputs: array.children.clone(),
             row_count: array.len,
             ctx,
         };
