@@ -97,23 +97,26 @@ mod primitive {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| &arr).bench_refs(|arr| {
-            and_kleene(
-                &compare(
-                    arr.as_ref(),
-                    ConstantArray::new(min, arr.len()).as_ref(),
-                    Operator::Gte,
+        bencher
+            .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
+            .bench_refs(|(arr, ctx)| {
+                and_kleene(
+                    &compare(
+                        arr.as_ref(),
+                        ConstantArray::new(min, arr.len()).as_ref(),
+                        Operator::Gte,
+                    )
+                    .vortex_expect(""),
+                    &compare(
+                        arr.as_ref(),
+                        ConstantArray::new(max, arr.len()).as_ref(),
+                        Operator::Lt,
+                    )
+                    .vortex_expect(""),
                 )
-                .vortex_expect(""),
-                &compare(
-                    arr.as_ref(),
-                    ConstantArray::new(max, arr.len()).as_ref(),
-                    Operator::Lt,
-                )
-                .vortex_expect(""),
-            )
-            .vortex_expect("")
-        })
+                .vortex_expect("")
+                .execute::<RecursiveCanonical>(ctx)
+            })
     }
 
     #[divan::bench(
@@ -185,22 +188,27 @@ mod bitpack {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| &arr).bench_refs(|arr| {
-            and_kleene(
-                &compare(
-                    arr.as_ref(),
-                    ConstantArray::new(min, arr.len()).as_ref(),
-                    Operator::Gte,
+        bencher
+            .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
+            .bench_refs(|(arr, ctx)| {
+                and_kleene(
+                    &compare(
+                        arr.as_ref(),
+                        ConstantArray::new(min, arr.len()).as_ref(),
+                        Operator::Gte,
+                    )
+                    .vortex_expect(""),
+                    &compare(
+                        arr.as_ref(),
+                        ConstantArray::new(max, arr.len()).as_ref(),
+                        Operator::Lt,
+                    )
+                    .vortex_expect(""),
                 )
-                .vortex_expect(""),
-                &compare(
-                    arr.as_ref(),
-                    ConstantArray::new(max, arr.len()).as_ref(),
-                    Operator::Lt,
-                )
-                .vortex_expect(""),
-            )
-        })
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap()
+            })
     }
 
     #[divan::bench(
@@ -272,22 +280,26 @@ mod alp {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| &arr).bench_refs(|arr| {
-            and_kleene(
-                &compare(
-                    arr.as_ref(),
-                    ConstantArray::new(min, arr.len()).as_ref(),
-                    Operator::Gte,
+        bencher
+            .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
+            .bench_refs(|(arr, ctx)| {
+                and_kleene(
+                    &compare(
+                        arr.as_ref(),
+                        ConstantArray::new(min, arr.len()).as_ref(),
+                        Operator::Gte,
+                    )
+                    .vortex_expect(""),
+                    &compare(
+                        arr.as_ref(),
+                        ConstantArray::new(max, arr.len()).as_ref(),
+                        Operator::Lt,
+                    )
+                    .vortex_expect("")
+                    .execute::<RecursiveCanonical>(ctx)
+                    .unwrap(),
                 )
-                .vortex_expect(""),
-                &compare(
-                    arr.as_ref(),
-                    ConstantArray::new(max, arr.len()).as_ref(),
-                    Operator::Lt,
-                )
-                .vortex_expect(""),
-            )
-        })
+            })
     }
 
     #[divan::bench(
