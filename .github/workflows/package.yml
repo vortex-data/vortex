@@ -115,16 +115,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - run: |
-          apt update
-          apt install -y wget curl build-essential unzip
-      - name: Print GLIBC version
-        run: ldd --version
-      - name: Verify GLIBC version
-        run: |
-          set -eux
-
-          ldd --version | grep 'GLIBC 2.31'
+      - uses: ./.github/actions/prepare-java-linux
       - uses: actions/setup-java@v5
         with:
           distribution: "corretto"
