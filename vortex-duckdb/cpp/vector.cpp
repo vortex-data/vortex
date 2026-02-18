@@ -18,8 +18,10 @@ extern "C" void duckdb_vx_vector_slice_to_dictionary(duckdb_vector ffi_vector,
     vector->Slice(*sel_vec, selection_vector_length);
 }
 
-extern "C" void duckdb_vx_vector_dictionary(duckdb_vector ffi_vector, duckdb_vector ffi_dict,
-                                            idx_t dictionary_size, duckdb_selection_vector ffi_sel_vec,
+extern "C" void duckdb_vx_vector_dictionary(duckdb_vector ffi_vector,
+                                            duckdb_vector ffi_dict,
+                                            idx_t dictionary_size,
+                                            duckdb_selection_vector ffi_sel_vec,
                                             idx_t count) {
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
     auto dict = reinterpret_cast<Vector *>(ffi_dict);
@@ -37,8 +39,8 @@ extern "C" void duckdb_vx_set_dictionary_vector_length(duckdb_vector dict, unsig
     ddict->GetBuffer()->Cast<DictionaryBuffer>().SetDictionarySize(len);
 }
 
-extern "C" void duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t step,
-                                          idx_t capacity) {
+extern "C" void
+duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t step, idx_t capacity) {
     auto vector = reinterpret_cast<Vector *>(c_vector);
     vector->Sequence(start, step, capacity);
 }

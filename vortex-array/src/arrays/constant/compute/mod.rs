@@ -15,13 +15,13 @@ mod take;
 mod test {
     use rstest::rstest;
     use vortex_dtype::half::f16;
-    use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_mask_constant() {

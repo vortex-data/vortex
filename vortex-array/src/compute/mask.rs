@@ -5,13 +5,13 @@ use std::ops::Not;
 
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
+use crate::scalar::Scalar;
 
 /// Replace values with null where the mask is true.
 ///

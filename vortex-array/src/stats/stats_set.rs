@@ -12,8 +12,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use crate::expr::stats::IsConstant;
 use crate::expr::stats::IsSorted;
@@ -30,6 +28,8 @@ use crate::expr::stats::StatsProvider;
 use crate::expr::stats::StatsProviderExt;
 use crate::expr::stats::Sum;
 use crate::expr::stats::UncompressedSizeInBytes;
+use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {

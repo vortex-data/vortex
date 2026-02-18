@@ -6,7 +6,7 @@
 //!
 //! At the heart of Vortex are [arrays](ArrayRef).
 //!
-//! Arrays are typed views of memory buffers that hold [scalars](vortex_scalar::Scalar). These
+//! Arrays are typed views of memory buffers that hold [scalars](crate::scalar::Scalar). These
 //! buffers can be held in a number of physical encodings to perform lightweight compression that
 //! exploits the particular data distribution of the array's values.
 //!
@@ -55,6 +55,7 @@ pub mod normalize;
 pub mod optimizer;
 mod partial_ord;
 pub mod patches;
+pub mod scalar;
 pub mod search_sorted;
 pub mod serde;
 pub mod session;

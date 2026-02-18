@@ -159,7 +159,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_delete<'local>(
         }
 
         // Pick the first URL to use for building the client
-        let store_url = Url::parse(&delete_uris[0]).map_err(VortexError::from)?;
+        let store_url = Url::parse(&delete_uris[0]).map_err(|e| vortex_err!(External: e))?;
 
         let mut properties: HashMap<String, String> = HashMap::new();
 
@@ -178,7 +178,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_delete<'local>(
         let (store, _) = make_object_store(&store_url, &properties)?;
 
         for uri in delete_uris {
-            let url = Url::parse(&uri).map_err(VortexError::from)?;
+            let url = Url::parse(&uri).map_err(|e| vortex_err!(External: e))?;
             // TODO(aduffy): block on all of them
             TOKIO_RUNTIME
                 .block_on(

@@ -14,7 +14,7 @@ use vortex_error::VortexExpect;
 ///
 /// # Safety
 /// The type must support contiguous raw memory access via pointer, such as `Vec` or `[u8]`.
-pub unsafe trait IoBuf: Unpin + 'static {
+pub unsafe trait IoBuf: Unpin + Send + 'static {
     /// Returns a raw pointer to the vector’s buffer.
     fn read_ptr(&self) -> *const u8;
 
@@ -190,7 +190,7 @@ unsafe impl<const A: usize> IoBuf for ConstByteBuffer<A> {
     }
 }
 
-unsafe impl<T: Unpin + 'static> IoBuf for Buffer<T> {
+unsafe impl<T: Unpin + Send + 'static> IoBuf for Buffer<T> {
     fn read_ptr(&self) -> *const u8 {
         self.as_ptr().cast()
     }

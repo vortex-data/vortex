@@ -5,7 +5,6 @@ use num_traits::Zero;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -16,6 +15,7 @@ use crate::arrays::ListViewVTable;
 use crate::arrays::TakeExecute;
 use crate::builtins::ArrayBuiltins;
 use crate::executor::ExecutionCtx;
+use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
 
 // TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.

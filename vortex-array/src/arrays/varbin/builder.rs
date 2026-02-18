@@ -123,12 +123,12 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::Nullable;
     use vortex_error::VortexResult;
-    use vortex_scalar::Scalar;
 
     use crate::arrays::varbin::builder::VarBinBuilder;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProviderExt;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_builder() {

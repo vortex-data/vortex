@@ -13,8 +13,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -33,6 +31,8 @@ use crate::expr::VTableExt;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeVisitor;
 use crate::expr::traversal::TraversalOrder;
+use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT

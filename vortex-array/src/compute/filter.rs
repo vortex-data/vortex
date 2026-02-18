@@ -8,7 +8,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -17,6 +16,7 @@ use crate::ToCanonical;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
 use crate::builtins::ArrayBuiltins;
+use crate::scalar::Scalar;
 
 /// Keep only the elements for which the corresponding mask value is true.
 ///
@@ -28,7 +28,7 @@ use crate::builtins::ArrayBuiltins;
 /// use vortex_array::compute::{ filter, mask};
 /// use vortex_error::VortexResult;
 /// use vortex_mask::Mask;
-/// use vortex_scalar::Scalar;
+/// use vortex_array::scalar::Scalar;
 ///
 /// # fn main() -> VortexResult<()> {
 /// let array =

@@ -44,6 +44,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::compute::MinMaxResult;
 use vortex_array::compute::Operator;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::arbitrary::random_scalar;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -52,8 +54,6 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
-use vortex_scalar::arbitrary::random_scalar;
 use vortex_utils::aliases::hash_set::HashSet;
 
 #[derive(Debug)]

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
+use tracing::instrument;
 use vortex_alp::ALPArray;
 use vortex_alp::ALPFloat;
 use vortex_alp::ALPVTable;
@@ -31,14 +31,14 @@ use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
 use crate::kernel::patches::execute_patches;
-use crate::launch_cuda_kernel_impl;
 
 /// CUDA decoder for ALP (Adaptive Lossless floating-Point) decompression.
 #[derive(Debug)]
-pub struct ALPExecutor;
+pub(crate) struct ALPExecutor;
 
 #[async_trait]
 impl CudaExecute for ALPExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -87,20 +87,14 @@ where
     // Load kernel function
     let kernel_ptypes = [A::ALPInt::PTYPE, A::PTYPE];
     let cuda_function = ctx.load_function_ptype("alp", &kernel_ptypes)?;
-    {
-        let mut launch_builder = ctx.launch_builder(&cuda_function);
 
-        // Build launch args: input, output, f, e, length
-        launch_builder.arg(&input_view);
-        launch_builder.arg(&output_view);
-        launch_builder.arg(&f);
-        launch_builder.arg(&e);
-        launch_builder.arg(&array_len_u64);
-
-        // Launch kernel
-        let _cuda_events =
-            launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
-    }
+    ctx.launch_kernel(&cuda_function, array_len, |args| {
+        args.arg(&input_view)
+            .arg(&output_view)
+            .arg(&f)
+            .arg(&e)
+            .arg(&array_len_u64);
+    })?;
 
     // Check if there are any patches to decode here
     let output_buf = if let Some(patches) = array.patches() {

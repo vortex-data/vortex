@@ -16,6 +16,7 @@ use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::scalar::PValue;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::serde::ArrayChildren;
@@ -35,7 +36,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_scalar::PValue;
 use vortex_session::VortexSession;
 
 use crate::compress::runend_decode_bools;

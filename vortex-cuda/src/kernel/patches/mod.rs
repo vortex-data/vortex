@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use cudarc::driver::DeviceRepr;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
+use cudarc::driver::PushKernelArg;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
@@ -16,7 +16,6 @@ use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;
-use crate::launch_cuda_kernel;
 
 /// Apply a set of patches in-place onto a [`CudaDeviceBuffer`] holding `ValuesT`.
 pub(crate) async fn execute_patches<
@@ -77,20 +76,14 @@ pub(crate) async fn execute_patches<
     let d_patch_indices_view = d_patch_indices.cuda_view::<IndicesT>()?;
     let d_patch_values_view = d_patch_values.cuda_view::<ValuesT>()?;
 
-    // kernel arg order for patches is values, patchIndices, patchValues, patchesLen
-    let _events = launch_cuda_kernel!(
-        execution_ctx: ctx,
-        module: "patches",
-        ptypes: &[ValuesT::PTYPE, IndicesT::PTYPE],
-        launch_args: [
-            d_target_view,
-            d_patch_indices_view,
-            d_patch_values_view,
-            patches_len_u64,
-        ],
-        event_recording: CU_EVENT_DISABLE_TIMING,
-        array_len: patches_len
-    );
+    let kernel_func = ctx.load_function_ptype("patches", &[ValuesT::PTYPE, IndicesT::PTYPE])?;
+
+    ctx.launch_kernel(&kernel_func, patches_len, |args| {
+        args.arg(&d_target_view)
+            .arg(&d_patch_indices_view)
+            .arg(&d_patch_values_view)
+            .arg(&patches_len_u64);
+    })?;
 
     Ok(target)
 }

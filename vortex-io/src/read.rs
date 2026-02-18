@@ -29,17 +29,17 @@ pub struct CoalesceConfig {
 
 impl CoalesceConfig {
     /// Creates a new coalesce configuration.
-    pub fn new(distance: u64, max_size: u64) -> Self {
+    pub const fn new(distance: u64, max_size: u64) -> Self {
         Self { distance, max_size }
     }
 
     /// Configuration appropriate for fast local storage (memory, NVMe).
-    pub fn local() -> Self {
+    pub const fn local() -> Self {
         Self::new(8 * 1024, 8 * 1024) // 8KB
     }
 
     /// Configuration appropriate for object storage (S3, GCS, etc.).
-    pub fn object_storage() -> Self {
+    pub const fn object_storage() -> Self {
         Self::new(1 << 20, 16 << 20) // 1MB distance, 16MB max
     }
 }

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
@@ -10,6 +9,7 @@ use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::compute::sum_with_accumulator;
 use crate::register_kernel;
+use crate::scalar::Scalar;
 
 impl SumKernel for ChunkedVTable {
     fn sum(&self, array: &ChunkedArray, accumulator: &Scalar) -> VortexResult<Scalar> {
@@ -31,8 +31,6 @@ mod tests {
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
     use vortex_dtype::i256;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
 
     use crate::array::IntoArray;
     use crate::arrays::ChunkedArray;
@@ -40,6 +38,8 @@ mod tests {
     use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::sum;
+    use crate::scalar::DecimalValue;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]

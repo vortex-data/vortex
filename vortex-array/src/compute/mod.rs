@@ -15,7 +15,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 
 use arcref::ArcRef;
-pub use between::*;
 pub use boolean::*;
 #[expect(deprecated)]
 pub use cast::cast;
@@ -40,12 +39,15 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 pub use zip::*;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::builders::ArrayBuilder;
+pub use crate::expr::BetweenExecuteAdaptor;
+pub use crate::expr::BetweenKernel;
+pub use crate::expr::BetweenReduce;
+pub use crate::expr::BetweenReduceAdaptor;
 pub use crate::expr::CastExecuteAdaptor;
 pub use crate::expr::CastKernel;
 pub use crate::expr::CastReduce;
@@ -62,10 +64,10 @@ pub use crate::expr::NotExecuteAdaptor;
 pub use crate::expr::NotKernel;
 pub use crate::expr::NotReduce;
 pub use crate::expr::NotReduceAdaptor;
+use crate::scalar::Scalar;
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
-mod between;
 mod boolean;
 mod cast;
 mod compare;
@@ -97,7 +99,6 @@ pub struct ComputeFn {
 /// Mostly useful for small benchmarks where the overhead might cause noise depending on the order of benchmarks.
 pub fn warm_up_vtables() {
     #[allow(unused_qualifications)]
-    between::warm_up_vtable();
     is_constant::warm_up_vtable();
     is_sorted::warm_up_vtable();
     list_contains::warm_up_vtable();

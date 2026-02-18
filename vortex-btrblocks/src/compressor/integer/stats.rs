@@ -10,6 +10,8 @@ use vortex_array::arrays::NativeValue;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::expr::stats::Stat;
+use vortex_array::scalar::PValue;
+use vortex_array::scalar::Scalar;
 use vortex_buffer::BitBuffer;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::match_each_integer_ptype;
@@ -17,8 +19,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
-use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::CompressorStats;
@@ -255,7 +255,7 @@ where
         AllOr::All => {
             for chunk in &mut chunks {
                 inner_loop_nonnull(
-                    chunk.try_into().vortex_expect("chunk size must be 64"),
+                    chunk.try_into().ok().vortex_expect("chunk size must be 64"),
                     count_distinct_values,
                     &mut loop_state,
                 )
@@ -281,13 +281,13 @@ where
                     0 => continue,
                     // Inner loop for when validity check can be elided
                     64 => inner_loop_nonnull(
-                        chunk.try_into().vortex_expect("chunk size must be 64"),
+                        chunk.try_into().ok().vortex_expect("chunk size must be 64"),
                         count_distinct_values,
                         &mut loop_state,
                     ),
                     // Inner loop for when we need to check validity
                     _ => inner_loop_nullable(
-                        chunk.try_into().vortex_expect("chunk size must be 64"),
+                        chunk.try_into().ok().vortex_expect("chunk size must be 64"),
                         count_distinct_values,
                         &validity,
                         &mut loop_state,

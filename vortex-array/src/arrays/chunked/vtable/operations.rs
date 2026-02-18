@@ -2,11 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
+use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ChunkedVTable> for ChunkedVTable {

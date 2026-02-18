@@ -13,8 +13,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
-use vortex_scalar::StructScalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -26,6 +24,8 @@ use crate::builders::LazyBitBufferBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::scalar::Scalar;
+use crate::scalar::StructScalar;
 
 /// The builder for building a [`StructArray`].
 pub struct StructBuilder {
@@ -210,7 +210,6 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
     use vortex_dtype::StructFields;
-    use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
@@ -219,6 +218,7 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::struct_::StructBuilder;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        use vortex_scalar::Scalar;
+        use crate::scalar::Scalar;
 
         let dtype = DType::Struct(
             StructFields::from_iter([

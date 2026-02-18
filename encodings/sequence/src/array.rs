@@ -17,6 +17,10 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::expr::stats::Precision as StatPrecision;
 use vortex_array::expr::stats::Stat;
+use vortex_array::match_each_pvalue;
+use vortex_array::scalar::PValue;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSet;
@@ -42,9 +46,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 use vortex_session::VortexSession;
 
 use crate::kernel::PARENT_KERNELS;
@@ -133,9 +134,13 @@ impl SequenceArray {
 
         // A sequence A[i] = base + i * multiplier is sorted iff multiplier >= 0,
         // and strictly sorted iff multiplier > 0.
-        let m_int = multiplier.cast::<i64>();
-        let is_sorted = m_int >= 0;
-        let is_strict_sorted = m_int > 0;
+
+        let (is_sorted, is_strict_sorted) = match_each_pvalue!(
+            multiplier,
+            uint: |v| { (true, v> 0) },
+            int: |v| { (v >= 0, v > 0) },
+            float: |_v| { unreachable!("float multiplier not supported") }
+        );
 
         // SAFETY: we don't have duplicate stats
         let stats_set = unsafe {
@@ -179,9 +184,8 @@ impl SequenceArray {
             let len_t = <P>::from_usize(length - 1)
                 .ok_or_else(|| vortex_err!("cannot convert length {} into {}", length, ptype))?;
 
-            let base = base.cast::<P>();
-            let multiplier = multiplier.cast::<P>();
-
+            let base = base.cast::<P>()?;
+            let multiplier = multiplier.cast::<P>()?;
             let last = len_t
                 .checked_mul(multiplier)
                 .and_then(|offset| offset.checked_add(base))
@@ -194,8 +198,11 @@ impl SequenceArray {
         assert!(idx < self.len, "index_value({idx}): index out of bounds");
 
         match_each_native_ptype!(self.ptype(), |P| {
-            let base = self.base.cast::<P>();
-            let multiplier = self.multiplier.cast::<P>();
+            let base = self.base.cast::<P>().vortex_expect("must be able to cast");
+            let multiplier = self
+                .multiplier
+                .cast::<P>()
+                .vortex_expect("must be able to cast");
             let value = base + (multiplier * <P>::from_usize(idx).vortex_expect("must fit"));
 
             PValue::from(value)
@@ -310,8 +317,8 @@ impl VTable for SequenceVTable {
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let prim = match_each_native_ptype!(array.ptype(), |P| {
-            let base = array.base().cast::<P>();
-            let multiplier = array.multiplier().cast::<P>();
+            let base = array.base().cast::<P>()?;
+            let multiplier = array.multiplier().cast::<P>()?;
             let values = BufferMut::from_iter(
                 (0..array.len())
                     .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
@@ -417,10 +424,10 @@ mod tests {
     use vortex_array::expr::stats::Precision as StatPrecision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::expr::stats::StatsProviderExt;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar::ScalarValue;
     use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
-    use vortex_scalar::Scalar;
-    use vortex_scalar::ScalarValue;
 
     use crate::array::SequenceArray;
 
@@ -515,6 +522,27 @@ mod tests {
             .statistics()
             .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
         assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(false)));
+        Ok(())
+    }
+
+    // This is regression test for an issue caught by the fuzzer, where SequenceArrays with
+    // multiplier > i64::MAX were unable to be constructed.
+    #[test]
+    fn test_large_multiplier_sorted() -> VortexResult<()> {
+        let large_multiplier = (i64::MAX as u64) + 1;
+        let arr = SequenceArray::typed_new(0, large_multiplier, Nullability::NonNullable, 2)?;
+
+        let is_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+
+        let is_strict_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+
+        assert_eq!(is_sorted, Some(StatPrecision::Exact(true)));
+        assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(true)));
+
         Ok(())
     }
 }

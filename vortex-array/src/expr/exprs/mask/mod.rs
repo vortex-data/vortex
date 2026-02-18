@@ -11,7 +11,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -34,6 +33,7 @@ use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::and;
 use crate::expr::lit;
+use crate::scalar::Scalar;
 
 /// An expression that masks an input based on a boolean mask.
 ///
@@ -196,10 +196,10 @@ mod test {
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType;
     use vortex_error::VortexExpect;
-    use vortex_scalar::Scalar;
 
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::mask::mask;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_simplify() {

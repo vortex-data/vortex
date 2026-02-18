@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
+use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<BoolVTable> for BoolVTable {

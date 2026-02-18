@@ -26,8 +26,6 @@ use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_mask::MaskMut;
-use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::Array;
@@ -39,6 +37,8 @@ use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::filter;
 use crate::compute::is_sorted;
+use crate::scalar::PValue;
+use crate::scalar::Scalar;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;

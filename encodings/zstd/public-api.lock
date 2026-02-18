@@ -212,7 +212,7 @@ pub fn vortex_zstd::ZstdVTable::stats(array: &vortex_zstd::ZstdArray) -> vortex_
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_zstd::ZstdVTable> for vortex_zstd::ZstdVTable
 
-pub fn vortex_zstd::ZstdVTable::scalar_at(array: &vortex_zstd::ZstdArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
+pub fn vortex_zstd::ZstdVTable::scalar_at(array: &vortex_zstd::ZstdArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::visitor::VisitorVTable<vortex_zstd::ZstdVTable> for vortex_zstd::ZstdVTable
 

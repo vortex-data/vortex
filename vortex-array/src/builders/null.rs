@@ -7,7 +7,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -15,6 +14,7 @@ use crate::IntoArray;
 use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
 use crate::canonical::Canonical;
+use crate::scalar::Scalar;
 
 /// The builder for building a [`NullArray`].
 pub struct NullBuilder {
@@ -90,10 +90,10 @@ impl ArrayBuilder for NullBuilder {
 #[cfg(test)]
 mod tests {
     use vortex_dtype::DType;
-    use vortex_scalar::Scalar;
 
     use super::*;
     use crate::builders::ArrayBuilder;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_append_scalar() {

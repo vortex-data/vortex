@@ -6,7 +6,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
+use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -15,6 +15,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_cuda_macros::cuda_tests;
 use vortex_datetime_parts::DateTimePartsVTable;
@@ -28,23 +29,22 @@ use vortex_dtype::match_each_signed_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel_impl;
 
 /// CUDA executor for DateTimeParts arrays.
 ///
 /// Combines the days, seconds, and subseconds components into a single i64 timestamp array.
 #[derive(Debug)]
-pub struct DateTimePartsExecutor;
+pub(crate) struct DateTimePartsExecutor;
 
 #[async_trait]
 impl CudaExecute for DateTimePartsExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -182,18 +182,17 @@ where
     ];
     let kernel_suffix_strs: Vec<&str> = kernel_suffixes.iter().map(|s| s.as_str()).collect();
     let cuda_function = ctx.load_function("date_time_parts", &kernel_suffix_strs)?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
 
-    launch_builder.arg(&days_view);
-    launch_builder.arg(&seconds_view);
-    launch_builder.arg(&subseconds_view);
-    launch_builder.arg(&divisor);
-    launch_builder.arg(&output_view);
     let array_len_u64 = output_len as u64;
-    launch_builder.arg(&array_len_u64);
 
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, output_len)?;
+    ctx.launch_kernel(&cuda_function, output_len, |args| {
+        args.arg(&days_view)
+            .arg(&seconds_view)
+            .arg(&subseconds_view)
+            .arg(&divisor)
+            .arg(&output_view)
+            .arg(&array_len_u64);
+    })?;
 
     let output_buffer = BufferHandle::new_device(Arc::new(output_device));
     let output_primitive = PrimitiveArray::from_buffer_handle(output_buffer, PType::I64, validity);

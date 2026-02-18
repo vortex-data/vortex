@@ -398,6 +398,7 @@ mod tests {
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::expr::select;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
@@ -407,7 +408,6 @@ mod tests {
     use vortex_dtype::StructFields;
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
-    use vortex_scalar::Scalar;
 
     use crate::LayoutRef;
     use crate::LayoutStrategy;

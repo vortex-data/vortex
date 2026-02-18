@@ -15,6 +15,7 @@ use async_trait::async_trait;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
 use cudarc::driver::DeviceRepr;
+use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::FilterArrayParts;
@@ -42,6 +43,7 @@ pub struct FilterExecutor;
 
 #[async_trait]
 impl CudaExecute for FilterExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -134,7 +136,7 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
     let d_num_selected_ptr = d_num_selected.device_ptr_mut(stream).0 as *mut i64;
 
     // CUB uses TransformInputIterator internally to read bits on-the-fly.
-    unsafe {
+    ctx.launch_external(output_len, || unsafe {
         T::filter_bitmask(
             d_temp_ptr,
             temp_bytes,
@@ -146,8 +148,8 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
             len,
             stream_ptr,
         )
-        .map_err(|e| vortex_err!("CUB filter_bitmask failed: {}", e))?;
-    }
+        .map_err(|e| vortex_err!("CUB filter_bitmask failed: {}", e))
+    })?;
 
     // Wrap the device buffer of outputs back up into a BufferHandle.
     Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(

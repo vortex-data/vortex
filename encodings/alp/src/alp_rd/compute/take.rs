@@ -7,8 +7,8 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::ALPRDArray;
 use crate::ALPRDVTable;

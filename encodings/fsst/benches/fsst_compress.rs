@@ -21,12 +21,12 @@ use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::compute::warm_up_vtables;
+use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySession;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 fn main() {

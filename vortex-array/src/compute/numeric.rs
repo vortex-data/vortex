@@ -4,8 +4,6 @@
 use std::any::Any;
 
 use vortex_error::VortexResult;
-use vortex_scalar::NumericOperator;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -14,6 +12,8 @@ use crate::arrays::ConstantArray;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
 use crate::compute::Options;
+use crate::scalar::NumericOperator;
+use crate::scalar::Scalar;
 
 /// Point-wise add two numeric arrays.
 ///

@@ -13,8 +13,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_scalar::NumericOperator;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::compute::ComputeFn;
@@ -25,6 +23,8 @@ use crate::compute::Output;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
+use crate::scalar::NumericOperator;
+use crate::scalar::Scalar;
 use crate::vtable::VTable;
 
 static SUM_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -271,7 +271,6 @@ mod test {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_error::VortexExpect;
-    use vortex_scalar::Scalar;
 
     use crate::IntoArray as _;
     use crate::arrays::BoolArray;
@@ -279,6 +278,7 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::compute::sum;
     use crate::compute::sum_with_accumulator;
+    use crate::scalar::Scalar;
 
     #[test]
     fn sum_all_invalid() {

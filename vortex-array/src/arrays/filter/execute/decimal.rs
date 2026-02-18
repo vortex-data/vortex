@@ -3,11 +3,11 @@
 
 use std::sync::Arc;
 
-use vortex_compute::filter::Filter;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_mask::MaskValues;
 
 use crate::arrays::DecimalArray;
+use crate::arrays::filter::execute::buffer;
 use crate::arrays::filter::execute::filter_validity;
 use crate::vtable::ValidityHelper;
 
@@ -15,7 +15,7 @@ pub fn filter_decimal(array: &DecimalArray, mask: &Arc<MaskValues>) -> DecimalAr
     let filtered_validity = filter_validity(array.validity().clone(), mask);
 
     match_each_decimal_value_type!(array.values_type(), |T| {
-        let filtered_buffer = array.buffer::<T>().filter(mask.as_ref());
+        let filtered_buffer = buffer::filter_buffer(array.buffer::<T>(), mask.as_ref());
 
         // SAFETY: We filter both the validity and the buffer with the same mask, so they must have
         // the same length, and since the buffer came from an existing and valid `DecimalArray` the

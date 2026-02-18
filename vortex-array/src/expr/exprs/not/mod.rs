@@ -10,7 +10,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::Array;
@@ -28,6 +27,7 @@ use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::scalar::Scalar;
 
 /// Expression that logically inverts boolean values.
 pub struct Not;

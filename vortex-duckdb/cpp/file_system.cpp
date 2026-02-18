@@ -26,8 +26,8 @@ struct FileHandleWrapper {
 using vortex::HandleException;
 using vortex::SetError;
 
-extern "C" duckdb_vx_file_handle duckdb_vx_fs_open(duckdb_vx_client_context ctx, const char *path,
-                                                     duckdb_vx_error *error_out) {
+extern "C" duckdb_vx_file_handle
+duckdb_vx_fs_open(duckdb_vx_client_context ctx, const char *path, duckdb_vx_error *error_out) {
     if (!ctx || !path) {
         SetError(error_out, "Invalid filesystem open arguments");
         return nullptr;
@@ -44,8 +44,8 @@ extern "C" duckdb_vx_file_handle duckdb_vx_fs_open(duckdb_vx_client_context ctx,
     }
 }
 
-extern "C" duckdb_vx_file_handle duckdb_vx_fs_create(duckdb_vx_client_context ctx, const char *path,
-                                                      duckdb_vx_error *error_out) {
+extern "C" duckdb_vx_file_handle
+duckdb_vx_fs_create(duckdb_vx_client_context ctx, const char *path, duckdb_vx_error *error_out) {
     if (!ctx || !path) {
         SetError(error_out, "Invalid filesystem create arguments");
         return nullptr;
@@ -54,8 +54,9 @@ extern "C" duckdb_vx_file_handle duckdb_vx_fs_create(duckdb_vx_client_context ct
     try {
         auto *client_context = reinterpret_cast<ClientContext *>(ctx);
         auto &fs = FileSystem::GetFileSystem(*client_context);
-        auto handle = fs.OpenFile(path, FileFlags::FILE_FLAGS_WRITE | FileFlags::FILE_FLAGS_FILE_CREATE |
-                                            FileFlags::FILE_FLAGS_PARALLEL_ACCESS);
+        auto handle = fs.OpenFile(path,
+                                  FileFlags::FILE_FLAGS_WRITE | FileFlags::FILE_FLAGS_FILE_CREATE |
+                                      FileFlags::FILE_FLAGS_PARALLEL_ACCESS);
         handle->Truncate(0);
         return reinterpret_cast<duckdb_vx_file_handle>(new FileHandleWrapper(std::move(handle)));
     } catch (...) {
@@ -73,8 +74,8 @@ extern "C" void duckdb_vx_fs_close(duckdb_vx_file_handle *handle) {
     *handle = nullptr;
 }
 
-extern "C" duckdb_state duckdb_vx_fs_get_size(duckdb_vx_file_handle handle, idx_t *size_out,
-                                               duckdb_vx_error *error_out) {
+extern "C" duckdb_state
+duckdb_vx_fs_get_size(duckdb_vx_file_handle handle, idx_t *size_out, duckdb_vx_error *error_out) {
     if (!handle || !size_out) {
         SetError(error_out, "Invalid arguments to fs_get_size");
         return DuckDBError;
@@ -89,8 +90,12 @@ extern "C" duckdb_state duckdb_vx_fs_get_size(duckdb_vx_file_handle handle, idx_
     }
 }
 
-extern "C" duckdb_state duckdb_vx_fs_read(duckdb_vx_file_handle handle, idx_t offset, idx_t len, uint8_t *buffer,
-                                            idx_t *out_len, duckdb_vx_error *error_out) {
+extern "C" duckdb_state duckdb_vx_fs_read(duckdb_vx_file_handle handle,
+                                          idx_t offset,
+                                          idx_t len,
+                                          uint8_t *buffer,
+                                          idx_t *out_len,
+                                          duckdb_vx_error *error_out) {
     if (!handle || !buffer || !out_len) {
         SetError(error_out, "Invalid arguments to fs_read");
         return DuckDBError;
@@ -106,9 +111,12 @@ extern "C" duckdb_state duckdb_vx_fs_read(duckdb_vx_file_handle handle, idx_t of
     }
 }
 
-extern "C" duckdb_state duckdb_vx_fs_write(duckdb_vx_file_handle handle, idx_t offset, idx_t len,
-                                            uint8_t *buffer, idx_t *out_len,
-                                            duckdb_vx_error *error_out) {
+extern "C" duckdb_state duckdb_vx_fs_write(duckdb_vx_file_handle handle,
+                                           idx_t offset,
+                                           idx_t len,
+                                           uint8_t *buffer,
+                                           idx_t *out_len,
+                                           duckdb_vx_error *error_out) {
     if (!handle || !buffer || !out_len) {
         SetError(error_out, "Invalid arguments to fs_write");
         return DuckDBError;
@@ -124,9 +132,9 @@ extern "C" duckdb_state duckdb_vx_fs_write(duckdb_vx_file_handle handle, idx_t o
     }
 }
 
-extern "C" duckdb_vx_uri_list duckdb_vx_fs_glob(duckdb_vx_client_context ctx, const char *pattern,
-                                                duckdb_vx_error *error_out) {
-    duckdb_vx_uri_list result{nullptr, 0};
+extern "C" duckdb_vx_uri_list
+duckdb_vx_fs_glob(duckdb_vx_client_context ctx, const char *pattern, duckdb_vx_error *error_out) {
+    duckdb_vx_uri_list result {nullptr, 0};
 
     if (!ctx || !pattern) {
         SetError(error_out, "Invalid arguments to fs_glob");

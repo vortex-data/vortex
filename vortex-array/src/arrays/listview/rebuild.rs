@@ -8,7 +8,6 @@ use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::IntoArray;
@@ -16,6 +15,7 @@ use crate::ToCanonical;
 use crate::arrays::ListViewArray;
 use crate::builders::builder_with_capacity;
 use crate::compute;
+use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
 
 /// Modes for rebuilding a [`ListViewArray`].

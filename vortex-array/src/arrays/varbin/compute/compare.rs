@@ -139,7 +139,6 @@ mod test {
     use vortex_buffer::ByteBuffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
 
     use crate::ToCanonical;
     use crate::arrays::ConstantArray;
@@ -147,6 +146,7 @@ mod test {
     use crate::arrays::VarBinViewArray;
     use crate::compute::Operator;
     use crate::compute::compare;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_binary_compare() {
@@ -205,13 +205,13 @@ mod test {
 mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::compute::Operator;
     use crate::compute::compare;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_null_compare() {

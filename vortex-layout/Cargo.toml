@@ -46,7 +46,6 @@ vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
-vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }

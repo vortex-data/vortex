@@ -11,11 +11,11 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::expr::CompareKernel;
+use vortex_array::scalar::Scalar;
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 
 use crate::ALPArray;
 use crate::ALPFloat;
@@ -150,10 +150,10 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
+    use vortex_array::scalar::Scalar;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_scalar::Scalar;
 
     use super::*;
     use crate::alp_encode;

@@ -24,6 +24,10 @@ use vortex_array::builders::DecimalBuilder;
 use vortex_array::builders::ListViewBuilder;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::patches::Patches;
+use vortex_array::scalar::DecimalScalar;
+use vortex_array::scalar::ListScalar;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::StructScalar;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BitBuffer;
@@ -48,10 +52,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_scalar::DecimalScalar;
-use vortex_scalar::ListScalar;
-use vortex_scalar::Scalar;
-use vortex_scalar::StructScalar;
 
 use crate::SparseArray;
 
@@ -521,6 +521,8 @@ mod test {
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrow::IntoArrowArray as _;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::scalar::DecimalValue;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
@@ -535,8 +537,6 @@ mod test {
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
 
     use crate::SparseArray;
 

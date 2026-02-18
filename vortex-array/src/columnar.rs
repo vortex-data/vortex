@@ -8,7 +8,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
-use vortex_scalar::Scalar;
 
 use crate::AnyCanonical;
 use crate::Array;
@@ -21,6 +20,7 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::matcher::Matcher;
+use crate::scalar::Scalar;
 
 /// Represents a columnnar array of data, either in canonical form or as a constant array.
 ///

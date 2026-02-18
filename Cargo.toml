@@ -11,8 +11,6 @@ members = [
     "vortex-io",
     "vortex-proto",
     "vortex-dtype",
-    "vortex-scalar",
-    "vortex-compute",
     "vortex-array",
     "vortex-btrblocks",
     "vortex-layout",
@@ -25,6 +23,7 @@ members = [
     "vortex-duckdb",
     "vortex-cuda",
     "vortex-cuda/cub",
+    "vortex-cuda/gpu-scan-cli",
     "vortex-cuda/macros",
     "vortex-cuda/nvcomp",
     "vortex-cxx",
@@ -253,7 +252,6 @@ vortex-array = { version = "0.1.0", path = "./vortex-array", default-features = 
 vortex-btrblocks = { version = "0.1.0", path = "./vortex-btrblocks", default-features = false }
 vortex-buffer = { version = "0.1.0", path = "./vortex-buffer", default-features = false }
 vortex-bytebool = { version = "0.1.0", path = "./encodings/bytebool", default-features = false }
-vortex-compute = { version = "0.1.0", path = "./vortex-compute", default-features = false }
 vortex-datafusion = { version = "0.1.0", path = "./vortex-datafusion", default-features = false }
 vortex-datetime-parts = { version = "0.1.0", path = "./encodings/datetime-parts", default-features = false }
 vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-parts", default-features = false }
@@ -271,7 +269,6 @@ vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-feature
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
-vortex-scalar = { version = "0.1.0", path = "./vortex-scalar", default-features = false }
 vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }
 vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-features = false }
 vortex-session = { version = "0.1.0", path = "./vortex-session", default-features = false }

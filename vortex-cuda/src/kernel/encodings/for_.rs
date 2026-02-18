@@ -6,7 +6,8 @@ use std::fmt::Debug;
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
+use tracing::instrument;
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
@@ -25,11 +26,10 @@ use crate::CudaBufferExt;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel_impl;
 
 /// CUDA decoder for frame-of-reference.
 #[derive(Debug)]
-pub struct FoRExecutor;
+pub(crate) struct FoRExecutor;
 
 impl FoRExecutor {
     fn try_specialize(array: ArrayRef) -> Option<FoRArray> {
@@ -39,6 +39,7 @@ impl FoRExecutor {
 
 #[async_trait]
 impl CudaExecute for FoRExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -79,16 +80,10 @@ where
     // Load kernel function
     let kernel_ptypes = [P::PTYPE];
     let cuda_function = ctx.load_function_ptype("for", &kernel_ptypes)?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
 
-    // Build launch args: buffer, reference, length
-    launch_builder.arg(&cuda_view);
-    launch_builder.arg(&reference);
-    launch_builder.arg(&array_len_u64);
-
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+    ctx.launch_kernel(&cuda_function, array_len, |args| {
+        args.arg(&cuda_view).arg(&reference).arg(&array_len_u64);
+    })?;
 
     // Build result - in-place reuses the same buffer
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
@@ -104,12 +99,12 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity::NonNullable;
     use vortex_buffer::Buffer;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
     use vortex_fastlanes::FoRArray;
-    use vortex_scalar::Scalar;
     use vortex_session::VortexSession;
 
     use super::*;

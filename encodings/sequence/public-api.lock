@@ -4,19 +4,19 @@ pub struct vortex_sequence::SequenceArray
 
 impl vortex_sequence::SequenceArray
 
-pub fn vortex_sequence::SequenceArray::base(&self) -> vortex_scalar::typed_view::primitive::pvalue::PValue
+pub fn vortex_sequence::SequenceArray::base(&self) -> vortex_array::scalar::typed_view::primitive::pvalue::PValue
 
 pub fn vortex_sequence::SequenceArray::into_parts(self) -> vortex_sequence::SequenceArrayParts
 
-pub fn vortex_sequence::SequenceArray::last(&self) -> vortex_scalar::typed_view::primitive::pvalue::PValue
+pub fn vortex_sequence::SequenceArray::last(&self) -> vortex_array::scalar::typed_view::primitive::pvalue::PValue
 
-pub fn vortex_sequence::SequenceArray::multiplier(&self) -> vortex_scalar::typed_view::primitive::pvalue::PValue
+pub fn vortex_sequence::SequenceArray::multiplier(&self) -> vortex_array::scalar::typed_view::primitive::pvalue::PValue
 
-pub fn vortex_sequence::SequenceArray::new(base: vortex_scalar::typed_view::primitive::pvalue::PValue, multiplier: vortex_scalar::typed_view::primitive::pvalue::PValue, ptype: vortex_dtype::ptype::PType, nullability: vortex_dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_sequence::SequenceArray::new(base: vortex_array::scalar::typed_view::primitive::pvalue::PValue, multiplier: vortex_array::scalar::typed_view::primitive::pvalue::PValue, ptype: vortex_dtype::ptype::PType, nullability: vortex_dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_sequence::SequenceArray::ptype(&self) -> vortex_dtype::ptype::PType
 
-pub fn vortex_sequence::SequenceArray::typed_new<T: vortex_dtype::ptype::NativePType + core::convert::Into<vortex_scalar::typed_view::primitive::pvalue::PValue>>(base: T, multiplier: T, nullability: vortex_dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_sequence::SequenceArray::typed_new<T: vortex_dtype::ptype::NativePType + core::convert::Into<vortex_array::scalar::typed_view::primitive::pvalue::PValue>>(base: T, multiplier: T, nullability: vortex_dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_sequence::SequenceArray
 
@@ -46,11 +46,11 @@ pub fn vortex_sequence::SequenceArray::into_array(self) -> vortex_array::array::
 
 pub struct vortex_sequence::SequenceArrayParts
 
-pub vortex_sequence::SequenceArrayParts::base: vortex_scalar::typed_view::primitive::pvalue::PValue
+pub vortex_sequence::SequenceArrayParts::base: vortex_array::scalar::typed_view::primitive::pvalue::PValue
 
 pub vortex_sequence::SequenceArrayParts::len: usize
 
-pub vortex_sequence::SequenceArrayParts::multiplier: vortex_scalar::typed_view::primitive::pvalue::PValue
+pub vortex_sequence::SequenceArrayParts::multiplier: vortex_array::scalar::typed_view::primitive::pvalue::PValue
 
 pub vortex_sequence::SequenceArrayParts::nullability: vortex_dtype::nullability::Nullability
 
@@ -146,7 +146,7 @@ pub fn vortex_sequence::SequenceVTable::stats(array: &vortex_sequence::SequenceA
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_sequence::SequenceVTable> for vortex_sequence::SequenceVTable
 
-pub fn vortex_sequence::SequenceVTable::scalar_at(array: &vortex_sequence::SequenceArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
+pub fn vortex_sequence::SequenceVTable::scalar_at(array: &vortex_sequence::SequenceArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityVTable<vortex_sequence::SequenceVTable> for vortex_sequence::SequenceVTable
 

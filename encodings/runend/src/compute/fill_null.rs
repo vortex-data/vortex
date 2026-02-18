@@ -5,8 +5,8 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::FillNullReduce;
+use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::RunEndArray;
 use crate::RunEndArrayParts;

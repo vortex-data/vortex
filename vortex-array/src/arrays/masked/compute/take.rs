@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -12,6 +11,7 @@ use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::TakeExecute;
 use crate::builtins::ArrayBuiltins;
+use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
 
 impl TakeExecute for MaskedVTable {

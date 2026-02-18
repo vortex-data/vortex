@@ -59,11 +59,11 @@ mod test {
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::stats::StatsProvider;
+    use vortex_array::scalar::Scalar;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::PType;
-    use vortex_scalar::Scalar;
     use vortex_session::VortexSession;
 
     use super::*;

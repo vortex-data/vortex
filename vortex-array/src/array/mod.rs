@@ -22,7 +22,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 
 use crate::AnyCanonical;
 use crate::ArrayEq;
@@ -55,6 +54,7 @@ use crate::expr::stats::StatsProviderExt;
 use crate::hash;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
+use crate::scalar::Scalar;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable::ArrayId;

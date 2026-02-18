@@ -156,6 +156,7 @@ impl BinaryView {
                     size: u32::try_from(value.len()).vortex_expect("value length must fit in u32"),
                     prefix: value[0..4]
                         .try_into()
+                        .ok()
                         .vortex_expect("prefix must be exactly 4 bytes"),
                     buffer_index: block,
                     offset,
