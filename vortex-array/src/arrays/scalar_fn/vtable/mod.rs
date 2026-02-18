@@ -21,7 +21,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
-use crate::AnyColumnar;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
