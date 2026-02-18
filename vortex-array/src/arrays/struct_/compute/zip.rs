@@ -74,6 +74,7 @@ mod tests {
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    #[expect(deprecated)]
     use crate::compute::zip;
     use crate::validity::Validity;
 
@@ -98,6 +99,7 @@ mod tests {
 
         let mask = Mask::from_iter([false, false, true, false]);
 
+        #[expect(deprecated)]
         let result = zip(&if_true, &if_false, &mask).unwrap();
 
         insta::assert_snapshot!(result.display_table(), @r"
@@ -135,6 +137,7 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, false, false]);
 
+        #[expect(deprecated)]
         let result = zip(&if_true, &if_false, &mask).unwrap();
 
         insta::assert_snapshot!(result.display_table(), @r"

@@ -82,6 +82,7 @@ mod tests {
     use crate::ToCanonical;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ChunkedVTable;
+    #[expect(deprecated)]
     use crate::compute::zip;
 
     #[test]
@@ -108,6 +109,7 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, true]);
 
+        #[expect(deprecated)]
         let zipped = zip(if_true.as_ref(), if_false.as_ref(), &mask).unwrap();
         let zipped = zipped
             .as_opt::<ChunkedVTable>()

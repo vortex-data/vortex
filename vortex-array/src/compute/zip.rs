@@ -44,6 +44,7 @@ mod tests {
     use crate::builders::ArrayBuilder;
     use crate::builders::BufferGrowthStrategy;
     use crate::builders::VarBinViewBuilder;
+    #[expect(deprecated)]
     use crate::compute::zip;
     use crate::scalar::Scalar;
 
@@ -53,6 +54,7 @@ mod tests {
         let if_true = buffer![10, 20, 30, 40, 50].into_array();
         let if_false = buffer![1, 2, 3, 4, 5].into_array();
 
+        #[expect(deprecated)]
         let result = zip(&if_true, &if_false, &mask).unwrap();
         let expected = buffer![10, 2, 3, 40, 5].into_array();
 
@@ -66,6 +68,7 @@ mod tests {
         let if_false =
             PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), None]).into_array();
 
+        #[expect(deprecated)]
         let result = zip(&if_true, &if_false, &mask).unwrap();
         let expected =
             PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), Some(40)]).into_array();
@@ -83,7 +86,8 @@ mod tests {
         let if_true = buffer![10, 20, 30].into_array();
         let if_false = buffer![1, 2, 3, 4].into_array();
 
-        zip(&if_true, &if_false, &mask).unwrap();
+        #[expect(deprecated)]
+        let _result = zip(&if_true, &if_false, &mask).unwrap();
     }
 
     #[test]
@@ -107,6 +111,7 @@ mod tests {
         let indices: Vec<usize> = (0..len).step_by(2).collect();
         let mask = Mask::from_indices(len, indices);
 
+        #[expect(deprecated)]
         let result = zip(&const1, &const2, &mask).unwrap();
 
         insta::assert_snapshot!(result.display_tree(), @r"
@@ -125,6 +130,7 @@ mod tests {
             .unwrap()
             .to_array();
 
+        #[expect(deprecated)]
         let wrapped_result = zip(&wrapped1, &wrapped2, &mask).unwrap();
         insta::assert_snapshot!(wrapped_result.display_tree(), @r"
         root: vortex.struct({nested=utf8?}, len=100) nbytes=1.66 kB (100.00%)
@@ -172,6 +178,7 @@ mod tests {
         // [1,2,4,5,7,8,..]
         let mask = Mask::from_indices(200, (0..100).filter(|i| i % 3 != 0).collect());
 
+        #[expect(deprecated)]
         let zipped = zip(&if_true, &if_false, &mask).unwrap();
         let zipped = zipped.as_opt::<VarBinViewVTable>().unwrap();
         assert_eq!(zipped.nbuffers(), 2);

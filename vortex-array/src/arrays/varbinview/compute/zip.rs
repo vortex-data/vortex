@@ -212,6 +212,7 @@ mod tests {
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewArray;
     use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
     use crate::compute::zip;
 
     #[test]
@@ -242,6 +243,7 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, false, true]);
 
+        #[expect(deprecated)]
         let zipped = zip(a.as_ref(), b.as_ref(), &mask).unwrap().to_varbinview();
 
         let values = zipped.with_iterator(|it| {
