@@ -10,7 +10,7 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::NullArray;
 use crate::arrays::NullVTable;
-use crate::compute::CastReduce;
+use crate::expr::CastReduce;
 use crate::scalar::Scalar;
 
 impl CastReduce for NullVTable {

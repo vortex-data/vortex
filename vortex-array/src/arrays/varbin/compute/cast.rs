@@ -8,7 +8,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
-use crate::compute::CastReduce;
+use crate::expr::CastReduce;
 use crate::vtable::ValidityHelper;
 
 impl CastReduce for VarBinVTable {

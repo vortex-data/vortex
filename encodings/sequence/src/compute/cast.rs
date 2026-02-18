@@ -3,7 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::CastReduce;
+use vortex_array::expr::CastReduce;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_dtype::DType;

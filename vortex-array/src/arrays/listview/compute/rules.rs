@@ -11,7 +11,7 @@ use crate::arrays::FilterVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
 use crate::arrays::SliceReduceAdaptor;
-use crate::compute::CastReduceAdaptor;
+use crate::expr::CastReduceAdaptor;
 use crate::expr::MaskReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
