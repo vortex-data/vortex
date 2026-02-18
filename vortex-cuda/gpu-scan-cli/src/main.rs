@@ -4,13 +4,14 @@
 #![allow(unused_imports)]
 
 use std::env::args;
+use std::fs::File;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::StreamExt;
 use tracing::Instrument;
-use tracing_chrome::ChromeLayerBuilder;
+use tracing_perfetto::PerfettoLayer;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Layer;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -48,10 +49,9 @@ async fn main() -> VortexResult<()> {
     let args: Vec<String> = args().collect();
     let json_output = args.iter().any(|arg| arg == "--json");
 
-    let (chrome_layer, _guard) = ChromeLayerBuilder::new()
-        .include_args(true)
-        .trace_style(tracing_chrome::TraceStyle::Async)
-        .build();
+    let perfetto_file = File::create("trace.pb")?;
+
+    let perfetto_layer = PerfettoLayer::new(perfetto_file).with_debug_annotations(true);
 
     if json_output {
         let log_layer = tracing_subscriber::fmt::layer()
@@ -60,7 +60,7 @@ async fn main() -> VortexResult<()> {
             .with_ansi(false);
 
         tracing_subscriber::registry()
-            .with(chrome_layer)
+            .with(perfetto_layer)
             .with(log_layer.with_filter(EnvFilter::from_default_env()))
             .init();
     } else {
@@ -71,7 +71,7 @@ async fn main() -> VortexResult<()> {
             .event_format(tracing_subscriber::fmt::format().with_target(true));
 
         tracing_subscriber::registry()
-            .with(chrome_layer)
+            .with(perfetto_layer)
             .with(log_layer.with_filter(EnvFilter::from_default_env()))
             .init();
     }

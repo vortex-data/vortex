@@ -4112,7 +4112,7 @@ dependencies = [
  "futures",
  "tokio",
  "tracing",
- "tracing-chrome",
+ "tracing-perfetto",
  "tracing-subscriber",
  "vortex",
  "vortex-cuda",
@@ -9594,17 +9594,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.116",
-]
-
-[[package]]
-name = "tracing-chrome"
-version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf0a738ed5d6450a9fb96e86a23ad808de2b727fd1394585da5cdd6788ffe724"
-dependencies = [
- "serde_json",
- "tracing-core",
- "tracing-subscriber",
 ]
 
 [[package]]
