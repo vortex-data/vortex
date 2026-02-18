@@ -30,7 +30,7 @@ use crate::VortexOpenOptions;
 ///
 /// The primary interface is [`Self::with_glob`], which accepts a glob
 /// pattern (optionally prefixed with `file://`). For non-local filesystems (S3, GCS, etc.),
-/// callers must also provide a [`FileSystem`] via [`Self::with_filesystem`]).
+/// callers must also provide a [`FileSystemRef`] via [`Self::with_filesystem`]).
 ///
 /// # Examples
 ///
