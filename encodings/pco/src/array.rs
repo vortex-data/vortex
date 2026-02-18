@@ -390,7 +390,7 @@ impl PcoArray {
         let mut page_value_start = 0;
         let mut n_skipped_values = 0;
         for (chunk_info, chunk_meta) in self.metadata.chunks.iter().zip(&self.chunk_metas) {
-            let mut cd: Option<ChunkDecompressor<T>> = None;
+            let mut chunk_decompressor: Option<ChunkDecompressor<T>> = None;
             for page_info in &chunk_info.pages {
                 let page_n_values = page_info.n_values as usize;
                 let page_value_stop = page_value_start + page_n_values;
@@ -409,19 +409,28 @@ impl PcoArray {
                     }
                     let chunk_meta_bytes: &[u8] = chunk_meta.as_ref();
                     let page: &[u8] = self.pages[page_idx].as_ref();
-                    if cd.is_none() {
-                        let (new_cd, _) = fd
-                            .chunk_decompressor(chunk_meta_bytes)
-                            .map_err(vortex_err_from_pco)?;
-                        cd = Some(new_cd);
-                    }
-                    let mut pd = cd
+
+                    // Use the initialized chunk decompressor to decode the page, or initialize
+                    // a new one if this is the first page in the chunk.
+                    let page_decompressor = match chunk_decompressor.take() {
+                        Some(d) => d,
+                        None => {
+                            let (new_cd, _) = fd
+                                .chunk_decompressor(chunk_meta_bytes)
+                                .map_err(vortex_err_from_pco)?;
+                            new_cd
+                        }
+                    };
+
+                    let mut pd = chunk_decompressor
                         .as_mut()
-                        .unwrap()
+                        .vortex_expect("cd is always initialized here")
                         .page_decompressor(page, page_n_values)
                         .map_err(vortex_err_from_pco)?;
                     pd.read(&mut decompressed_values[old_len..new_len])
                         .map_err(vortex_err_from_pco)?;
+
+                    chunk_decompressor = Some(page_decompressor);
                 } else {
                     n_skipped_values += page_n_values;
                 }
