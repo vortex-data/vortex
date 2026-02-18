@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 
-use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
@@ -36,14 +35,9 @@ impl ZigZagExecutor {
     }
 }
 
-#[async_trait]
 impl CudaExecute for ZigZagExecutor {
     #[instrument(level = "trace", skip_all, fields(executor = ?self))]
-    async fn execute(
-        &self,
-        array: ArrayRef,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    fn execute(&self, array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let array =
             Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected ZigZagArray"))?;
 
@@ -52,12 +46,12 @@ impl CudaExecute for ZigZagExecutor {
         let output_ptype = PType::try_from(array.dtype())?;
 
         match_each_unsigned_integer_ptype!(encoded_ptype, |U| {
-            decode_zigzag::<U>(array, output_ptype, ctx).await
+            decode_zigzag::<U>(array, output_ptype, ctx)
         })
     }
 }
 
-async fn decode_zigzag<U>(
+fn decode_zigzag<U>(
     array: ZigZagArray,
     output_ptype: PType,
     ctx: &mut CudaExecutionCtx,
@@ -69,13 +63,13 @@ where
     vortex_ensure!(array_len > 0, "ZigZag array must not be empty");
 
     // Execute child and copy to device
-    let canonical = array.encoded().clone().execute_cuda(ctx).await?;
+    let canonical = array.encoded().clone().execute_cuda(ctx)?;
     let primitive = canonical.into_primitive();
     let PrimitiveArrayParts {
         buffer, validity, ..
     } = primitive.into_parts();
 
-    let device_buffer = ctx.ensure_on_device(buffer).await?;
+    let device_buffer = ctx.ensure_on_device(buffer)?;
 
     // Get CUDA view of the buffer
     let cuda_view = device_buffer.cuda_view::<U>()?;
@@ -128,7 +122,6 @@ mod tests {
 
         let gpu_result = ZigZagExecutor
             .execute(zigzag_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?

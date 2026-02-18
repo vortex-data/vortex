@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use async_trait::async_trait;
-use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ToCanonical;
@@ -38,16 +36,15 @@ use crate::executor::CudaArrayExt;
 #[derive(Debug)]
 pub(crate) struct CanonicalDeviceArrayExport;
 
-#[async_trait]
 impl ExportDeviceArray for CanonicalDeviceArrayExport {
-    async fn export_device_array(
+    fn export_device_array(
         &self,
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<ArrowDeviceArray> {
-        let cuda_array = array.execute_cuda(ctx).await?;
+        let cuda_array = array.execute_cuda(ctx)?;
 
-        let (arrow_array, _) = export_canonical(cuda_array, ctx).await?;
+        let (arrow_array, _) = export_canonical(cuda_array, ctx)?;
 
         Ok(ArrowDeviceArray {
             array: arrow_array,
@@ -62,124 +59,121 @@ impl ExportDeviceArray for CanonicalDeviceArrayExport {
 fn export_canonical(
     cuda_array: Canonical,
     ctx: &mut CudaExecutionCtx,
-) -> BoxFuture<'_, VortexResult<(ArrowArray, SyncEvent)>> {
-    Box::pin(async {
-        match cuda_array {
-            Canonical::Struct(struct_array) => export_struct(struct_array, ctx).await,
-            Canonical::Primitive(primitive) => {
-                let len = primitive.len();
-                let PrimitiveArrayParts {
-                    buffer, validity, ..
-                } = primitive.into_parts();
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    match cuda_array {
+        Canonical::Struct(struct_array) => export_struct(struct_array, ctx),
+        Canonical::Primitive(primitive) => {
+            let len = primitive.len();
+            let PrimitiveArrayParts {
+                buffer, validity, ..
+            } = primitive.into_parts();
 
-                check_validity_empty(&validity)?;
+            check_validity_empty(&validity)?;
 
-                let buffer = ctx.ensure_on_device(buffer).await?;
+            let buffer = ctx.ensure_on_device(buffer)?;
 
-                export_fixed_size(buffer, len, 0, ctx)
-            }
-            Canonical::Null(null_array) => {
-                let len = null_array.len();
-
-                // The null array has no buffers, no children, just metadata.
-                let mut array = ArrowArray::empty();
-                array.length = len as i64;
-                array.null_count = len as i64;
-                array.release = Some(release_array);
-
-                // we don't need a sync event for Null since no data is copied.
-                Ok((array, None))
-            }
-            Canonical::Decimal(decimal) => {
-                let len = decimal.len();
-                let DecimalArrayParts {
-                    values,
-                    values_type,
-                    validity,
-                    ..
-                } = decimal.into_parts();
-
-                // verify that there is no null buffer
-                check_validity_empty(&validity)?;
-
-                // TODO(aduffy): GPU kernel for upcasting.
-                vortex_ensure!(
-                    values_type >= DecimalType::I32,
-                    "cannot export DecimalArray with values type {values_type}. must be i32 or wider."
-                );
-
-                let buffer = ctx.ensure_on_device(values).await?;
-
-                export_fixed_size(buffer, len, 0, ctx)
-            }
-            Canonical::Extension(extension) => {
-                if !extension.ext_dtype().is::<AnyTemporal>() {
-                    vortex_bail!("only support temporal extension types currently");
-                }
-
-                let values = extension.storage().to_primitive();
-                let len = extension.len();
-
-                let PrimitiveArrayParts {
-                    buffer, validity, ..
-                } = values.into_parts();
-
-                check_validity_empty(&validity)?;
-
-                let buffer = ctx.ensure_on_device(buffer).await?;
-                export_fixed_size(buffer, len, 0, ctx)
-            }
-            Canonical::Bool(bool_array) => {
-                let BoolArrayParts {
-                    bits,
-                    offset,
-                    len,
-                    validity,
-                    ..
-                } = bool_array.into_parts();
-
-                check_validity_empty(&validity)?;
-
-                export_fixed_size(bits, len, offset, ctx)
-            }
-            Canonical::VarBinView(varbinview) => {
-                let len = varbinview.len();
-                check_validity_empty(varbinview.validity())?;
-
-                let BinaryParts { offsets, bytes } =
-                    copy_varbinview_to_varbin(varbinview, ctx).await?;
-
-                let offsets = ctx.ensure_on_device(offsets).await?;
-                let bytes = ctx.ensure_on_device(bytes).await?;
-
-                let buffers = vec![None, Some(offsets), Some(bytes)];
-                let mut private_data = PrivateData::new(buffers, vec![], ctx)?;
-                let sync_event = private_data.sync_event();
-                //
-                let arrow_array = ArrowArray {
-                    length: len as i64,
-                    null_count: 0,
-                    offset: 0,
-                    // 1 (optional) buffer for nulls, one buffer for the data
-                    n_buffers: 2,
-                    buffers: private_data.buffer_ptrs.as_mut_ptr(),
-                    n_children: 0,
-                    children: std::ptr::null_mut(),
-                    release: Some(release_array),
-                    dictionary: std::ptr::null_mut(),
-                    private_data: Box::into_raw(private_data).cast(),
-                };
-
-                Ok((arrow_array, sync_event))
-            }
-            // TODO(aduffy): implement VarBinView. cudf doesn't support it, so we need to
-            //  execute a kernel to translate from VarBinView -> VarBin.
-            c => todo!("support for exporting {} arrays", c.dtype()),
+            export_fixed_size(buffer, len, 0, ctx)
         }
-    })
+        Canonical::Null(null_array) => {
+            let len = null_array.len();
+
+            // The null array has no buffers, no children, just metadata.
+            let mut array = ArrowArray::empty();
+            array.length = len as i64;
+            array.null_count = len as i64;
+            array.release = Some(release_array);
+
+            // we don't need a sync event for Null since no data is copied.
+            Ok((array, None))
+        }
+        Canonical::Decimal(decimal) => {
+            let len = decimal.len();
+            let DecimalArrayParts {
+                values,
+                values_type,
+                validity,
+                ..
+            } = decimal.into_parts();
+
+            // verify that there is no null buffer
+            check_validity_empty(&validity)?;
+
+            // TODO(aduffy): GPU kernel for upcasting.
+            vortex_ensure!(
+                values_type >= DecimalType::I32,
+                "cannot export DecimalArray with values type {values_type}. must be i32 or wider."
+            );
+
+            let buffer = ctx.ensure_on_device(values)?;
+
+            export_fixed_size(buffer, len, 0, ctx)
+        }
+        Canonical::Extension(extension) => {
+            if !extension.ext_dtype().is::<AnyTemporal>() {
+                vortex_bail!("only support temporal extension types currently");
+            }
+
+            let values = extension.storage().to_primitive();
+            let len = extension.len();
+
+            let PrimitiveArrayParts {
+                buffer, validity, ..
+            } = values.into_parts();
+
+            check_validity_empty(&validity)?;
+
+            let buffer = ctx.ensure_on_device(buffer)?;
+            export_fixed_size(buffer, len, 0, ctx)
+        }
+        Canonical::Bool(bool_array) => {
+            let BoolArrayParts {
+                bits,
+                offset,
+                len,
+                validity,
+                ..
+            } = bool_array.into_parts();
+
+            check_validity_empty(&validity)?;
+
+            export_fixed_size(bits, len, offset, ctx)
+        }
+        Canonical::VarBinView(varbinview) => {
+            let len = varbinview.len();
+            check_validity_empty(varbinview.validity())?;
+
+            let BinaryParts { offsets, bytes } = copy_varbinview_to_varbin(varbinview, ctx)?;
+
+            let offsets = ctx.ensure_on_device(offsets)?;
+            let bytes = ctx.ensure_on_device(bytes)?;
+
+            let buffers = vec![None, Some(offsets), Some(bytes)];
+            let mut private_data = PrivateData::new(buffers, vec![], ctx)?;
+            let sync_event = private_data.sync_event();
+            //
+            let arrow_array = ArrowArray {
+                length: len as i64,
+                null_count: 0,
+                offset: 0,
+                // 1 (optional) buffer for nulls, one buffer for the data
+                n_buffers: 2,
+                buffers: private_data.buffer_ptrs.as_mut_ptr(),
+                n_children: 0,
+                children: std::ptr::null_mut(),
+                release: Some(release_array),
+                dictionary: std::ptr::null_mut(),
+                private_data: Box::into_raw(private_data).cast(),
+            };
+
+            Ok((arrow_array, sync_event))
+        }
+        // TODO(aduffy): implement VarBinView. cudf doesn't support it, so we need to
+        //  execute a kernel to translate from VarBinView -> VarBin.
+        c => todo!("support for exporting {} arrays", c.dtype()),
+    }
 }
 
-async fn export_struct(
+fn export_struct(
     array: StructArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(ArrowArray, SyncEvent)> {
@@ -194,8 +188,8 @@ async fn export_struct(
     let mut children = Vec::with_capacity(fields.len());
 
     for field in fields.iter() {
-        let cuda_field = field.clone().execute_cuda(ctx).await?;
-        let (arrow_field, _) = export_canonical(cuda_field, ctx).await?;
+        let cuda_field = field.clone().execute_cuda(ctx)?;
+        let (arrow_field, _) = export_canonical(cuda_field, ctx)?;
         children.push(arrow_field);
     }
 
@@ -316,7 +310,7 @@ mod tests {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let mut device_array = array.export_device_array(&mut ctx).await?;
+        let mut device_array = array.export_device_array(&mut ctx)?;
 
         assert_eq!(device_array.array.length, expected_len);
         assert_eq!(device_array.array.null_count, 0);
@@ -336,7 +330,7 @@ mod tests {
             .vortex_expect("failed to create execution context");
 
         let array = NullArray::new(7).into_array();
-        let mut device_array = array.export_device_array(&mut ctx).await?;
+        let mut device_array = array.export_device_array(&mut ctx)?;
 
         assert_eq!(device_array.array.length, 7);
         assert_eq!(device_array.array.null_count, 7);
@@ -352,7 +346,7 @@ mod tests {
             .vortex_expect("failed to create execution context");
 
         let array = DecimalArray::from_iter(0i128..5, DecimalDType::new(38, 2)).into_array();
-        let mut device_array = array.export_device_array(&mut ctx).await?;
+        let mut device_array = array.export_device_array(&mut ctx)?;
 
         assert_eq!(device_array.array.length, 5);
         assert_eq!(device_array.array.null_count, 0);
@@ -375,7 +369,7 @@ mod tests {
             TimeUnit::Days,
         )
         .into_array();
-        let mut device_array = array.export_device_array(&mut ctx).await?;
+        let mut device_array = array.export_device_array(&mut ctx)?;
 
         assert_eq!(device_array.array.length, 3);
         assert_eq!(device_array.array.null_count, 0);
@@ -399,7 +393,7 @@ mod tests {
             "this is a longer string for out-of-line storage",
         ])
         .into_array();
-        let mut device_array = array.export_device_array(&mut ctx).await?;
+        let mut device_array = array.export_device_array(&mut ctx)?;
 
         assert_eq!(device_array.array.length, 3);
         assert_eq!(device_array.array.null_count, 0);
@@ -428,7 +422,7 @@ mod tests {
             Validity::NonNullable,
         )
         .into_array();
-        let mut device_array = array.export_device_array(&mut ctx).await?;
+        let mut device_array = array.export_device_array(&mut ctx)?;
 
         assert_eq!(device_array.array.length, 5);
         assert_eq!(device_array.array.null_count, 0);

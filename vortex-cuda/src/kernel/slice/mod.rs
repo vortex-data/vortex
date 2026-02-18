@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use async_trait::async_trait;
 use tracing::instrument;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
@@ -18,14 +17,9 @@ use crate::executor::CudaExecute;
 #[derive(Debug)]
 pub struct SliceExecutor;
 
-#[async_trait]
 impl CudaExecute for SliceExecutor {
     #[instrument(level = "trace", skip_all, fields(executor = ?self))]
-    async fn execute(
-        &self,
-        array: ArrayRef,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    fn execute(&self, array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let slice_array = array.try_into::<SliceVTable>().map_err(|array| {
             vortex_err!(
                 "SliceExecutor requires input of SliceArray, was {}",
@@ -34,7 +28,7 @@ impl CudaExecute for SliceExecutor {
         })?;
 
         let SliceArrayParts { child, range } = slice_array.into_parts();
-        let child = child.execute_cuda(ctx).await?;
+        let child = child.execute_cuda(ctx)?;
 
         match child {
             Canonical::Null(null_array) => null_array.slice(range)?.to_canonical(),

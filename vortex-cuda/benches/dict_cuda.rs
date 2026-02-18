@@ -17,7 +17,6 @@ use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
 use cudarc::driver::DeviceRepr;
-use futures::executor::block_on;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -100,7 +99,9 @@ where
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {
-                        block_on(dict_array.to_array().execute_cuda(&mut cuda_ctx))
+                        dict_array
+                            .to_array()
+                            .execute_cuda(&mut cuda_ctx)
                             .vortex_expect("execute");
                     }
 

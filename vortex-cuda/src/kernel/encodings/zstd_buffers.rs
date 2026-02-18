@@ -6,12 +6,9 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use cudarc::driver::CudaSlice;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
-use futures::future::BoxFuture;
-use futures::future::try_join_all;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::buffer::BufferHandle;
@@ -36,21 +33,16 @@ use crate::executor::CudaExecutionCtx;
 #[derive(Debug)]
 pub(crate) struct ZstdBuffersExecutor;
 
-#[async_trait]
 impl CudaExecute for ZstdBuffersExecutor {
-    async fn execute(
-        &self,
-        array: ArrayRef,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    fn execute(&self, array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let zstd_buffers = array
             .try_into::<ZstdBuffersVTable>()
             .map_err(|_| vortex_err!("expected zstd buffers array"))?;
-        decode_zstd_buffers(zstd_buffers, ctx).await
+        decode_zstd_buffers(zstd_buffers, ctx)
     }
 }
 
-async fn decode_zstd_buffers(
+fn decode_zstd_buffers(
     array: ZstdBuffersArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
@@ -59,7 +51,7 @@ async fn decode_zstd_buffers(
 
     if compressed_buffers.is_empty() {
         let inner_array = array.build_inner(&[], ctx.session())?;
-        return inner_array.execute_cuda(ctx).await;
+        return inner_array.execute_cuda(ctx);
     }
 
     let nvcomp_temp_buffer_size = nvcomp_zstd::get_decompress_temp_size(
@@ -69,7 +61,7 @@ async fn decode_zstd_buffers(
     )
     .map_err(|e| vortex_err!("nvcomp get_decompress_temp_size failed: {}", e))?;
 
-    let device_frame_handles = move_frames_to_device(compressed_buffers, ctx).await?;
+    let device_frame_handles = move_frames_to_device(compressed_buffers, ctx)?;
     let device_output = ctx.device_alloc::<u8>(plan.output_size_total())?;
 
     macro_rules! device_ptr {
@@ -91,14 +83,11 @@ async fn decode_zstd_buffers(
             .collect::<Vec<_>>()
     };
 
-    // We need to copy nvcomp args to the device; these come from the
-    // host-resident decode plan.
-    let (frame_ptrs_handle, frame_sizes_handle, output_sizes_handle, output_ptrs_handle) = futures::try_join!(
-        ctx.copy_to_device(frame_ptrs)?,
-        ctx.copy_to_device(plan.frame_sizes())?,
-        ctx.copy_to_device(plan.output_sizes())?,
-        ctx.copy_to_device(output_ptrs)?
-    )?;
+    // Copy nvcomp args to the device from the host-resident decode plan.
+    let frame_ptrs_handle = ctx.copy_to_device(frame_ptrs)?;
+    let frame_sizes_handle = ctx.copy_to_device(plan.frame_sizes().to_vec())?;
+    let output_sizes_handle = ctx.copy_to_device(plan.output_sizes().to_vec())?;
+    let output_ptrs_handle = ctx.copy_to_device(output_ptrs)?;
 
     let mut device_actual_sizes: CudaSlice<usize> = ctx.device_alloc(plan.num_frames())?;
     let mut device_statuses: CudaSlice<nvcompStatus_t> = ctx.device_alloc(plan.num_frames())?;
@@ -126,48 +115,35 @@ async fn decode_zstd_buffers(
         .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))?;
     }
 
-    validate_decompress_results(&plan, device_actual_sizes, device_statuses).await?;
+    validate_decompress_results(&plan, device_actual_sizes, device_statuses)?;
 
     let output_handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)));
     let decompressed_buffers = plan.split_output_handle(&output_handle)?;
 
     let inner_array = array.build_inner(&decompressed_buffers, ctx.session())?;
-    inner_array.execute_cuda(ctx).await
+    inner_array.execute_cuda(ctx)
 }
 
-async fn move_frames_to_device(
+fn move_frames_to_device(
     compressed_buffers: &[BufferHandle],
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Vec<BufferHandle>> {
-    let move_futures = compressed_buffers
+    compressed_buffers
         .iter()
-        .map(
-            |frame| -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>> {
-                if frame.is_on_device() {
-                    let frame = frame.clone();
-                    Ok(Box::pin(async move { Ok(frame) }))
-                } else {
-                    ctx.move_to_device(frame.clone())
-                }
-            },
-        )
-        .collect::<VortexResult<Vec<_>>>()?;
-
-    try_join_all(move_futures).await
+        .map(|frame| ctx.ensure_on_device(frame.clone()))
+        .collect()
 }
 
 // This performs D2H to retrieve the lengths and status arrays.
-async fn validate_decompress_results(
+fn validate_decompress_results(
     plan: &vortex_zstd::ZstdBuffersDecodePlan,
     device_actual_sizes: CudaSlice<usize>,
     device_statuses: CudaSlice<nvcompStatus_t>,
 ) -> VortexResult<()> {
-    let actual_sizes_host = CudaDeviceBuffer::new(device_actual_sizes)
-        .copy_to_host(Alignment::of::<usize>())?
-        .await?;
+    let actual_sizes_host =
+        CudaDeviceBuffer::new(device_actual_sizes).copy_to_host_sync(Alignment::of::<usize>())?;
     let statuses_host = CudaDeviceBuffer::new(device_statuses)
-        .copy_to_host(Alignment::of::<nvcompStatus_t>())?
-        .await?;
+        .copy_to_host_sync(Alignment::of::<nvcompStatus_t>())?;
 
     let actual_sizes = Buffer::<usize>::from_byte_buffer(actual_sizes_host);
     let statuses = Buffer::<nvcompStatus_t>::from_byte_buffer(statuses_host);
@@ -225,8 +201,7 @@ mod tests {
 
         let cpu_result = compressed.clone().into_array().to_canonical()?;
         let gpu_result = ZstdBuffersExecutor
-            .execute(compressed.into_array(), &mut cuda_ctx)
-            .await?
+            .execute(compressed.into_array(), &mut cuda_ctx)?
             .into_host()
             .await?;
 
@@ -252,8 +227,7 @@ mod tests {
 
         let cpu_result = compressed.clone().into_array().to_canonical()?;
         let gpu_result = ZstdBuffersExecutor
-            .execute(compressed.into_array(), &mut cuda_ctx)
-            .await?
+            .execute(compressed.into_array(), &mut cuda_ctx)?
             .into_host()
             .await?;
 

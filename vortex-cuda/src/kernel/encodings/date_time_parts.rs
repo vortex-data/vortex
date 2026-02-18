@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
@@ -42,14 +41,10 @@ use crate::executor::CudaExecutionCtx;
 #[derive(Debug)]
 pub(crate) struct DateTimePartsExecutor;
 
-#[async_trait]
 impl CudaExecute for DateTimePartsExecutor {
+    #[allow(clippy::cognitive_complexity)]
     #[instrument(level = "trace", skip_all, fields(executor = ?self))]
-    async fn execute(
-        &self,
-        array: ArrayRef,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    fn execute(&self, array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let output_len = array.len();
         let array = array
             .try_into::<DateTimePartsVTable>()
@@ -96,9 +91,9 @@ impl CudaExecute for DateTimePartsExecutor {
             TimeUnit::Days => vortex_bail!("Cannot decode DateTimeParts with TimeUnit::Days"),
         };
 
-        let days_canonical = array.days().clone().execute_cuda(ctx).await?;
-        let seconds_canonical = array.seconds().clone().execute_cuda(ctx).await?;
-        let subseconds_canonical = array.subseconds().clone().execute_cuda(ctx).await?;
+        let days_canonical = array.days().clone().execute_cuda(ctx)?;
+        let seconds_canonical = array.seconds().clone().execute_cuda(ctx)?;
+        let subseconds_canonical = array.subseconds().clone().execute_cuda(ctx)?;
 
         let days_prim = days_canonical.into_primitive();
 
@@ -123,7 +118,6 @@ impl CudaExecute for DateTimePartsExecutor {
                         validity,
                         ctx,
                     )
-                    .await
                 })
             })
         })
@@ -131,7 +125,7 @@ impl CudaExecute for DateTimePartsExecutor {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn decode_datetimeparts_typed<DaysT, SecondsT, SubsecondsT>(
+fn decode_datetimeparts_typed<DaysT, SecondsT, SubsecondsT>(
     days: PrimitiveArray,
     seconds: PrimitiveArray,
     subseconds: PrimitiveArray,
@@ -162,9 +156,9 @@ where
     } = subseconds.into_parts();
 
     // Move buffers to device if not already there
-    let days_device = ctx.ensure_on_device(days_buffer).await?;
-    let seconds_device = ctx.ensure_on_device(seconds_buffer).await?;
-    let subseconds_device = ctx.ensure_on_device(subseconds_buffer).await?;
+    let days_device = ctx.ensure_on_device(days_buffer)?;
+    let seconds_device = ctx.ensure_on_device(seconds_buffer)?;
+    let subseconds_device = ctx.ensure_on_device(subseconds_buffer)?;
 
     // Allocate output buffer
     let output_slice = ctx.device_alloc::<i64>(output_len)?;
@@ -290,7 +284,6 @@ mod tests {
 
         let gpu_result = DateTimePartsExecutor
             .execute(dtp_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?
@@ -316,7 +309,6 @@ mod tests {
 
         let gpu_result = DateTimePartsExecutor
             .execute(dtp_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?
@@ -364,7 +356,6 @@ mod tests {
 
         let gpu_result = DateTimePartsExecutor
             .execute(dtp_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?

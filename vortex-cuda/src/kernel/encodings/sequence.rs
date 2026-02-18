@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
@@ -28,14 +27,9 @@ use crate::executor::CudaExecute;
 #[derive(Debug)]
 pub(crate) struct SequenceExecutor;
 
-#[async_trait]
 impl CudaExecute for SequenceExecutor {
     #[instrument(level = "trace", skip_all, fields(executor = ?self))]
-    async fn execute(
-        &self,
-        array: ArrayRef,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    fn execute(&self, array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let array = array
             .try_into::<SequenceVTable>()
             .map_err(|_| vortex_err!("SequenceExecutor can only accept SequenceArray"))?;
@@ -51,12 +45,12 @@ impl CudaExecute for SequenceExecutor {
         match_each_native_ptype!(ptype, |P| {
             let base = base.cast::<P>()?;
             let multiplier = multiplier.cast::<P>()?;
-            execute_typed::<P>(base, multiplier, len, nullability, ctx).await
+            execute_typed::<P>(base, multiplier, len, nullability, ctx)
         })
     }
 }
 
-async fn execute_typed<T: NativePType + DeviceRepr>(
+fn execute_typed<T: NativePType + DeviceRepr>(
     base: T,
     multiplier: T,
     len: usize,
@@ -132,7 +126,6 @@ mod tests {
 
         let gpu_result = SequenceExecutor
             .execute(array.into_array(), &mut cuda_ctx)
-            .await
             .unwrap()
             .into_host()
             .await

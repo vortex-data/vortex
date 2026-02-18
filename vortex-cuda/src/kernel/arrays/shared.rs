@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use async_trait::async_trait;
 use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -17,21 +16,14 @@ use crate::executor::CudaExecutionCtx;
 #[derive(Debug)]
 pub(crate) struct SharedExecutor;
 
-#[async_trait]
 impl CudaExecute for SharedExecutor {
     #[instrument(level = "trace", skip_all, fields(executor = ?self))]
-    async fn execute(
-        &self,
-        array: ArrayRef,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    fn execute(&self, array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let shared = array
             .try_into::<SharedVTable>()
             .ok()
             .vortex_expect("Array is not a Shared array");
 
-        shared
-            .get_or_compute_async(|source| source.execute_cuda(ctx))
-            .await
+        shared.get_or_compute(|source| source.clone().execute_cuda(ctx))
     }
 }

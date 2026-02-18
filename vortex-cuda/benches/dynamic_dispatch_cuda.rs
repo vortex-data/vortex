@@ -16,7 +16,6 @@ use cudarc::driver::DevicePtr;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags;
-use futures::executor::block_on;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity::NonNullable;
 use vortex_buffer::Buffer;
@@ -127,11 +126,7 @@ fn run_dynamic_dispatch_bitpacked_timed(
     let len = bitpacked_array.len();
 
     // Move packed data to device.
-    let device_input = if packed.is_on_device() {
-        packed
-    } else {
-        block_on(cuda_ctx.move_to_device(packed)?).vortex_expect("failed to move to device")
-    };
+    let device_input = cuda_ctx.ensure_on_device(packed)?;
 
     let input_ptr = device_input
         .cuda_view::<u32>()

@@ -121,7 +121,7 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
     let mut cuda_ctx =
         CudaSession::create_execution_ctx(&SESSION).vortex_expect("cannot create session");
 
-    let gpu_canonical = match array.clone().execute_cuda(&mut cuda_ctx).await {
+    let gpu_canonical = match array.clone().execute_cuda(&mut cuda_ctx) {
         Ok(c) => c,
         Err(e) => {
             return Err(VortexFuzzError::VortexError(e, Backtrace::capture()));

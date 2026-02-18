@@ -16,7 +16,6 @@ use std::time::Duration;
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
-use futures::executor::block_on;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -76,7 +75,7 @@ fn benchmark_datetimeparts(c: &mut Criterion) {
 
                     for _ in 0..iters {
                         // block on immediately here
-                        block_on(dtp_array.to_array().execute_cuda(&mut cuda_ctx)).unwrap();
+                        dtp_array.to_array().execute_cuda(&mut cuda_ctx).unwrap();
                     }
 
                     Duration::from_nanos(timer.load(Ordering::Relaxed))

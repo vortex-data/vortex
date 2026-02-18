@@ -11,7 +11,6 @@ use std::ffi::c_void;
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
 use cudarc::driver::DeviceRepr;
@@ -41,14 +40,9 @@ use crate::kernel::filter::varbinview::filter_varbinview;
 #[derive(Debug)]
 pub struct FilterExecutor;
 
-#[async_trait]
 impl CudaExecute for FilterExecutor {
     #[instrument(level = "trace", skip_all, fields(executor = ?self))]
-    async fn execute(
-        &self,
-        array: ArrayRef,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    fn execute(&self, array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let filter_array = array
             .try_into::<FilterVTable>()
             .map_err(|_| vortex_err!("Expected FilterArray"))?;
@@ -59,28 +53,26 @@ impl CudaExecute for FilterExecutor {
         match mask {
             Mask::AllTrue(_) => {
                 // No data filtered => execute child without any post-processing
-                child.execute_cuda(ctx).await
+                child.execute_cuda(ctx)
             }
             Mask::AllFalse(_) => {
                 // All data filtered => empty canonical
                 Ok(Canonical::empty(child.dtype()))
             }
             m @ Mask::Values(_) => {
-                let canonical = child.execute_cuda(ctx).await?;
+                let canonical = child.execute_cuda(ctx)?;
                 match canonical {
                     Canonical::Primitive(prim) => {
                         match_each_native_simd_ptype!(prim.ptype(), |T| {
-                            filter_primitive::<T>(prim, m, ctx).await
+                            filter_primitive::<T>(prim, m, ctx)
                         })
                     }
                     Canonical::Decimal(decimal) => {
                         match_each_decimal_value_type!(decimal.values_type(), |D| {
-                            filter_decimal::<D>(decimal, m, ctx).await
+                            filter_decimal::<D>(decimal, m, ctx)
                         })
                     }
-                    Canonical::VarBinView(varbinview) => {
-                        filter_varbinview(varbinview, m, ctx).await
-                    }
+                    Canonical::VarBinView(varbinview) => filter_varbinview(varbinview, m, ctx),
                     _ => unimplemented!(),
                 }
             }
@@ -88,18 +80,18 @@ impl CudaExecute for FilterExecutor {
     }
 }
 
-async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'static>(
+fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'static>(
     input: BufferHandle,
     mask: Mask,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<BufferHandle> {
-    let d_input = ctx.ensure_on_device(input).await?;
+    let d_input = ctx.ensure_on_device(input)?;
 
     // Construct the inputs for the cub::DeviceSelect::Flagged call.
     let output_len = mask.true_count();
     let (offset, len, flags) = mask.into_bit_buffer().into_inner();
 
-    let d_flags = ctx.copy_to_device(flags.to_vec())?.await?;
+    let d_flags = ctx.copy_to_device(flags.to_vec())?;
 
     let offset = offset as u64;
     let len = len as i64;

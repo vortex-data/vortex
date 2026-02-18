@@ -4,7 +4,6 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
@@ -36,23 +35,18 @@ use crate::kernel::patches::execute_patches;
 #[derive(Debug)]
 pub(crate) struct ALPExecutor;
 
-#[async_trait]
 impl CudaExecute for ALPExecutor {
     #[instrument(level = "trace", skip_all, fields(executor = ?self))]
-    async fn execute(
-        &self,
-        array: ArrayRef,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    fn execute(&self, array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let array = array
             .try_into::<ALPVTable>()
             .map_err(|_| vortex_err!("Expected ALPArray"))?;
 
-        match_each_alp_float_ptype!(array.ptype(), |A| { decode_alp::<A>(array, ctx).await })
+        match_each_alp_float_ptype!(array.ptype(), |A| { decode_alp::<A>(array, ctx) })
     }
 }
 
-async fn decode_alp<A>(array: ALPArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical>
+fn decode_alp<A>(array: ALPArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical>
 where
     A: ALPFloat + NativePType + DeviceRepr + Send + Sync + 'static,
     A::ALPInt: NativePType + DeviceRepr + Send + Sync + 'static,
@@ -66,13 +60,13 @@ where
     let e: A = A::IF10[exponents.e as usize];
 
     // Execute child and copy to device
-    let canonical = array.encoded().clone().execute_cuda(ctx).await?;
+    let canonical = array.encoded().clone().execute_cuda(ctx)?;
     let primitive = canonical.into_primitive();
     let PrimitiveArrayParts {
         buffer, validity, ..
     } = primitive.into_parts();
 
-    let device_input = ctx.ensure_on_device(buffer).await?;
+    let device_input = ctx.ensure_on_device(buffer)?;
 
     // Get CUDA view of input
     let input_view = device_input.cuda_view::<A::ALPInt>()?;
@@ -99,7 +93,7 @@ where
     // Check if there are any patches to decode here
     let output_buf = if let Some(patches) = array.patches() {
         match_each_unsigned_integer_ptype!(patches.indices_ptype()?, |I| {
-            execute_patches::<A, I>(patches.clone(), output_buf, ctx).await?
+            execute_patches::<A, I>(patches.clone(), output_buf, ctx)?
         })
     } else {
         output_buf
@@ -167,7 +161,6 @@ mod tests {
 
         let gpu_result = ALPExecutor
             .execute(alp_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?

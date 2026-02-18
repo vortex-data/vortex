@@ -134,7 +134,7 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
                         let ZstdArrayParts {
                             frames, metadata, ..
                         } = zstd_array.clone().into_parts();
-                        let exec = block_on(zstd_kernel_prepare(frames, &metadata, &mut cuda_ctx))
+                        let exec = zstd_kernel_prepare(frames, &metadata, &mut cuda_ctx)
                             .vortex_expect("kernel setup failed");
                         let kernel_time = block_on(execute_zstd_kernel(exec, &mut cuda_ctx))
                             .vortex_expect("kernel execution failed");

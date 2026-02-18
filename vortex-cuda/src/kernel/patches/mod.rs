@@ -18,7 +18,7 @@ use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;
 
 /// Apply a set of patches in-place onto a [`CudaDeviceBuffer`] holding `ValuesT`.
-pub(crate) async fn execute_patches<
+pub(crate) fn execute_patches<
     ValuesT: NativePType + DeviceRepr,
     IndicesT: NativePType + DeviceRepr,
 >(
@@ -30,8 +30,8 @@ pub(crate) async fn execute_patches<
     let values = patches.values().clone();
     drop(patches);
 
-    let indices = indices.execute_cuda(ctx).await?.into_primitive();
-    let values = values.execute_cuda(ctx).await?.into_primitive();
+    let indices = indices.execute_cuda(ctx)?.into_primitive();
+    let values = values.execute_cuda(ctx)?.into_primitive();
 
     let supported = matches!(
         values.validity(),
@@ -69,8 +69,8 @@ pub(crate) async fn execute_patches<
         ..
     } = values.into_parts();
 
-    let d_patch_indices = ctx.ensure_on_device(indices_buffer).await?;
-    let d_patch_values = ctx.ensure_on_device(values_buffer).await?;
+    let d_patch_indices = ctx.ensure_on_device(indices_buffer)?;
+    let d_patch_values = ctx.ensure_on_device(values_buffer)?;
 
     let d_target_view = target.as_view::<ValuesT>();
     let d_patch_indices_view = d_patch_indices.cuda_view::<IndicesT>()?;
@@ -113,30 +113,32 @@ mod tests {
     use crate::CudaSession;
     use crate::kernel::patches::execute_patches;
 
-    #[tokio::test]
-    async fn test_patches() {
-        test_case::<u8>().await;
-        test_case::<u16>().await;
-        test_case::<u32>().await;
-        test_case::<u64>().await;
+    #[test]
+    fn test_patches() {
+        test_case::<u8>();
+        test_case::<u16>();
+        test_case::<u32>();
+        test_case::<u64>();
 
-        test_case::<i8>().await;
-        test_case::<i16>().await;
-        test_case::<i32>().await;
-        test_case::<i64>().await;
+        test_case::<i8>();
+        test_case::<i16>();
+        test_case::<i32>();
+        test_case::<i64>();
 
-        test_case::<f32>().await;
-        test_case::<f64>().await;
+        test_case::<f32>();
+        test_case::<f64>();
     }
 
-    async fn test_case<Values: NativePType + DeviceRepr>() {
-        full_test_case::<Values, u8>().await;
-        full_test_case::<Values, u16>().await;
-        full_test_case::<Values, u32>().await;
-        full_test_case::<Values, u64>().await;
+    fn test_case<Values: NativePType + DeviceRepr>() {
+        full_test_case::<Values, u8>();
+        full_test_case::<Values, u16>();
+        full_test_case::<Values, u32>();
+        full_test_case::<Values, u64>();
     }
 
-    async fn full_test_case<Values: NativePType + DeviceRepr, Indices: NativePType + DeviceRepr>() {
+    fn full_test_case<Values: NativePType + DeviceRepr, Indices: NativePType + DeviceRepr>() {
+        use futures::executor::block_on;
+
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
 
         let values = PrimitiveArray::from_iter(0..128);
@@ -159,7 +161,7 @@ mod tests {
             ..
         } = values.into_parts();
 
-        let handle = ctx.move_to_device(cuda_buffer).unwrap().await.unwrap();
+        let handle = ctx.ensure_on_device(cuda_buffer).unwrap();
         let device_buf = handle
             .as_device()
             .as_any()
@@ -167,9 +169,8 @@ mod tests {
             .unwrap()
             .clone();
 
-        let patched_buf = execute_patches::<Values, Indices>(patches, device_buf, &mut ctx)
-            .await
-            .unwrap();
+        let patched_buf =
+            execute_patches::<Values, Indices>(patches, device_buf, &mut ctx).unwrap();
 
         let gpu_result = PrimitiveArray::from_buffer_handle(
             BufferHandle::new_device(Arc::new(patched_buf)),
@@ -177,11 +178,8 @@ mod tests {
             Validity::NonNullable,
         )
         .to_canonical()
-        .unwrap()
-        .into_host()
-        .await
-        .unwrap()
-        .into_primitive();
+        .unwrap();
+        let gpu_result = block_on(gpu_result.into_host()).unwrap().into_primitive();
 
         assert_arrays_eq!(cpu_result, gpu_result);
     }

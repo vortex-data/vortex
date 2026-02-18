@@ -4,7 +4,6 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
@@ -45,14 +44,9 @@ impl ConstantNumericExecutor {
     }
 }
 
-#[async_trait]
 impl CudaExecute for ConstantNumericExecutor {
     #[instrument(level = "trace", skip_all, fields(executor = ?self))]
-    async fn execute(
-        &self,
-        array: ArrayRef,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    fn execute(&self, array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let array =
             Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected ConstantArray"))?;
 
@@ -65,7 +59,7 @@ impl CudaExecute for ConstantNumericExecutor {
             DType::Primitive(ptype, nullability) => {
                 let validity: Validity = nullability.into();
                 match_each_native_simd_ptype!(*ptype, |P| {
-                    materialize_constant_primitive::<P>(array, validity, ctx).await
+                    materialize_constant_primitive::<P>(array, validity, ctx)
                 })
             }
             DType::Decimal(decimal_dtype, nullability) => {
@@ -73,7 +67,7 @@ impl CudaExecute for ConstantNumericExecutor {
                 let validity: Validity = nullability.into();
                 let values_type = DecimalType::smallest_decimal_value_type(&decimal_dtype);
                 match_each_decimal_value_type!(values_type, |D| {
-                    materialize_constant_decimal::<D>(array, decimal_dtype, validity, ctx).await
+                    materialize_constant_decimal::<D>(array, decimal_dtype, validity, ctx)
                 })
             }
             dt => vortex_bail!(
@@ -84,7 +78,7 @@ impl CudaExecute for ConstantNumericExecutor {
     }
 }
 
-async fn materialize_constant_primitive<P>(
+fn materialize_constant_primitive<P>(
     array: ConstantArray,
     validity: Validity,
     ctx: &mut CudaExecutionCtx,
@@ -132,7 +126,7 @@ where
     )))
 }
 
-async fn materialize_constant_decimal<D>(
+fn materialize_constant_decimal<D>(
     array: ConstantArray,
     decimal_dtype: DecimalDType,
     validity: Validity,
@@ -231,7 +225,6 @@ mod tests {
 
         let gpu_result = ConstantNumericExecutor
             .execute(constant_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU materialization failed")
             .into_host()
             .await?
@@ -252,7 +245,6 @@ mod tests {
 
         let gpu_result = ConstantNumericExecutor
             .execute(constant_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU materialization failed")
             .into_host()
             .await?
@@ -274,7 +266,6 @@ mod tests {
 
         let gpu_result = ConstantNumericExecutor
             .execute(constant_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU materialization failed")
             .into_host()
             .await?

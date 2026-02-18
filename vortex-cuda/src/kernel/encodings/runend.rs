@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
@@ -44,14 +43,9 @@ impl RunEndExecutor {
     }
 }
 
-#[async_trait]
 impl CudaExecute for RunEndExecutor {
     #[instrument(level = "trace", skip_all, fields(executor = ?self))]
-    async fn execute(
-        &self,
-        array: ArrayRef,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    fn execute(&self, array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let array =
             Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected RunEndArray"))?;
 
@@ -79,18 +73,18 @@ impl CudaExecute for RunEndExecutor {
                 .to_canonical();
         }
 
-        let ends = ends.execute_cuda(ctx).await?.into_primitive();
-        let values = values.execute_cuda(ctx).await?.into_primitive();
+        let ends = ends.execute_cuda(ctx)?.into_primitive();
+        let values = values.execute_cuda(ctx)?.into_primitive();
 
         match_each_native_ptype!(values_ptype, |V| {
             match_each_unsigned_integer_ptype!(ends_ptype, |E| {
-                decode_runend_typed::<V, E>(ends, values, offset, output_len, ctx).await
+                decode_runend_typed::<V, E>(ends, values, offset, output_len, ctx)
             })
         })
     }
 }
 
-async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + NativePType>(
+fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + NativePType>(
     ends: PrimitiveArray,
     values: PrimitiveArray,
     offset: usize,
@@ -117,8 +111,8 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
     } = ends.into_parts();
 
     // Set up device buffers.
-    let ends_device = ctx.ensure_on_device(ends_buffer).await?;
-    let values_device = ctx.ensure_on_device(values_buffer).await?;
+    let ends_device = ctx.ensure_on_device(ends_buffer)?;
+    let values_device = ctx.ensure_on_device(values_buffer)?;
 
     let output_slice = ctx.device_alloc::<V>(output_len)?;
     let output_device = CudaDeviceBuffer::new(output_slice);
@@ -205,7 +199,6 @@ mod tests {
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?
@@ -235,7 +228,6 @@ mod tests {
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?
@@ -257,7 +249,6 @@ mod tests {
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?
@@ -284,7 +275,6 @@ mod tests {
 
         let gpu_result = RunEndExecutor
             .execute(runend_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?

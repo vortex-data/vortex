@@ -31,7 +31,6 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use arrow_schema::ffi::FFI_ArrowSchema;
-use futures::executor::block_on;
 use vortex::array::IntoArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -105,7 +104,7 @@ pub unsafe extern "C" fn export_array(
 
     *schema_ptr = FFI_ArrowSchema::try_from(data_type).expect("data_type to FFI_ArrowSchema");
 
-    match block_on(array.export_device_array(&mut ctx)) {
+    match array.export_device_array(&mut ctx) {
         Ok(exported) => {
             *array_ptr = exported;
             0

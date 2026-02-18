@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
@@ -40,14 +39,9 @@ use crate::executor::CudaExecutionCtx;
 #[derive(Debug)]
 pub(crate) struct DictExecutor;
 
-#[async_trait]
 impl CudaExecute for DictExecutor {
     #[instrument(level = "trace", skip_all, fields(executor = ?self))]
-    async fn execute(
-        &self,
-        array: ArrayRef,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    fn execute(&self, array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let dict_array = array
             .try_into::<DictVTable>()
             .ok()
@@ -55,21 +49,20 @@ impl CudaExecute for DictExecutor {
 
         let values_dtype = dict_array.values().dtype().clone();
         match &values_dtype {
-            DType::Decimal(..) => execute_dict_decimal(dict_array, ctx).await,
-            DType::Primitive(..) => execute_dict_prim(dict_array, ctx).await,
-            DType::Utf8(..) | DType::Binary(..) => execute_dict_varbinview(dict_array, ctx).await,
+            DType::Decimal(..) => execute_dict_decimal(dict_array, ctx),
+            DType::Primitive(..) => execute_dict_prim(dict_array, ctx),
+            DType::Utf8(..) | DType::Binary(..) => execute_dict_varbinview(dict_array, ctx),
             dt => vortex_bail!("unsupported decompress for DType={dt}"),
         }
     }
 }
 
-#[expect(clippy::cognitive_complexity)]
-async fn execute_dict_prim(dict: DictArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
+fn execute_dict_prim(dict: DictArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
     let DictArrayParts { values, codes, .. } = dict.into_parts();
 
     // Execute both children to get them as primitives on the device
-    let values_canonical = values.execute_cuda(ctx).await?;
-    let codes_canonical = codes.execute_cuda(ctx).await?;
+    let values_canonical = values.execute_cuda(ctx)?;
+    let codes_canonical = codes.execute_cuda(ctx)?;
 
     let values_prim = values_canonical.into_primitive();
     let codes_prim = codes_canonical.into_primitive();
@@ -80,12 +73,12 @@ async fn execute_dict_prim(dict: DictArray, ctx: &mut CudaExecutionCtx) -> Vorte
     // Dispatch based on both value type and code type
     match_each_native_simd_ptype!(values_ptype, |V| {
         match_each_integer_ptype!(codes_ptype, |I| {
-            execute_dict_prim_typed::<V, I>(values_prim, codes_prim, ctx).await
+            execute_dict_prim_typed::<V, I>(values_prim, codes_prim, ctx)
         })
     })
 }
 
-async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + NativePType>(
+fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + NativePType>(
     values: PrimitiveArray,
     codes: PrimitiveArray,
     ctx: &mut CudaExecutionCtx,
@@ -106,8 +99,8 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
     } = codes.into_parts();
 
     // Get device buffers for values and codes
-    let values_device = ctx.ensure_on_device(values_buffer).await?;
-    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
+    let values_device = ctx.ensure_on_device(values_buffer)?;
+    let codes_device = ctx.ensure_on_device(codes_buffer)?;
 
     // Allocate output buffer on device
     let output_slice = ctx.device_alloc::<V>(codes_len)?;
@@ -138,11 +131,7 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
 /// Execute dict array decompression for decimal types (i128/i256).
 ///
 /// These types don't have a `PType` so we need to handle them separately.
-#[expect(clippy::cognitive_complexity)]
-async fn execute_dict_decimal(
-    dict: DictArray,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<Canonical> {
+fn execute_dict_decimal(dict: DictArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
     let DictArrayParts {
         values,
         codes,
@@ -151,25 +140,22 @@ async fn execute_dict_decimal(
     } = dict.into_parts();
 
     // Execute codes to get them as primitives on the device
-    let codes_prim = codes.execute_cuda(ctx).await?.into_primitive();
+    let codes_prim = codes.execute_cuda(ctx)?.into_primitive();
     let codes_ptype = codes_prim.ptype();
 
     // For decimal values, execute recursively to handle any nested encodings
-    let values_decimal = values.execute_cuda(ctx).await?.into_decimal();
+    let values_decimal = values.execute_cuda(ctx)?.into_decimal();
     let decimal_type = values_decimal.values_type();
 
     match_each_decimal_value_type!(decimal_type, |V| {
         match_each_integer_ptype!(codes_ptype, |C| {
-            execute_dict_decimal_typed::<V, C>(values_decimal, codes_prim, dtype, ctx).await
+            execute_dict_decimal_typed::<V, C>(values_decimal, codes_prim, dtype, ctx)
         })
     })
 }
 
 /// Type-parameterized decimal dict execution for a specific code type.
-async fn execute_dict_decimal_typed<
-    V: DeviceRepr + NativeDecimalType,
-    C: DeviceRepr + NativePType,
->(
+fn execute_dict_decimal_typed<V: DeviceRepr + NativeDecimalType, C: DeviceRepr + NativePType>(
     values: DecimalArray,
     codes: PrimitiveArray,
     output_dtype: DType,
@@ -192,8 +178,8 @@ async fn execute_dict_decimal_typed<
     } = codes.into_parts();
 
     // Copy buffers to device if needed
-    let values_device = ctx.ensure_on_device(values_buffer).await?;
-    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
+    let values_device = ctx.ensure_on_device(values_buffer)?;
+    let codes_device = ctx.ensure_on_device(codes_buffer)?;
 
     // Allocate output buffer on device (codes_len * value_byte_width bytes)
     let output_slice = ctx.device_alloc::<V>(codes_len)?;
@@ -230,10 +216,7 @@ async fn execute_dict_decimal_typed<
 /// Reinterprets the dictionary's `BinaryView` buffer as `i128` values and gathers
 /// them by code index. Both inlined (≤ 12 bytes) and outlined (> 12 bytes) views
 /// are supported. For outlined views, the output shares the values' data buffers.
-async fn execute_dict_varbinview(
-    dict: DictArray,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<Canonical> {
+fn execute_dict_varbinview(dict: DictArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
     let DictArrayParts {
         values,
         codes,
@@ -241,10 +224,10 @@ async fn execute_dict_varbinview(
         ..
     } = dict.into_parts();
 
-    let codes_prim = codes.execute_cuda(ctx).await?.into_primitive();
+    let codes_prim = codes.execute_cuda(ctx)?.into_primitive();
     let codes_ptype = codes_prim.ptype();
     let codes_len = codes_prim.len();
-    let values_vbv = values.execute_cuda(ctx).await?.into_varbinview();
+    let values_vbv = values.execute_cuda(ctx)?.into_varbinview();
 
     let VarBinViewArrayParts {
         views: values_views_handle,
@@ -260,8 +243,8 @@ async fn execute_dict_varbinview(
     } = codes_prim.into_parts();
 
     // Move buffers to device if needed.
-    let values_device = ctx.ensure_on_device(values_views_handle).await?;
-    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
+    let values_device = ctx.ensure_on_device(values_views_handle)?;
+    let codes_device = ctx.ensure_on_device(codes_buffer)?;
 
     // Allocate output: one i128 per code.
     let output_slice = ctx.device_alloc::<i128>(codes_len)?;
@@ -349,7 +332,6 @@ mod tests {
         // Execute on CUDA
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
 
@@ -384,7 +366,6 @@ mod tests {
         // Execute on CUDA
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
 
@@ -416,7 +397,6 @@ mod tests {
         // Execute on CUDA
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
@@ -447,7 +427,6 @@ mod tests {
         // Execute on CUDA
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
 
@@ -479,7 +458,6 @@ mod tests {
 
         let cuda_result = DictExecutor
             .execute(dict_array.into_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
 
@@ -517,7 +495,6 @@ mod tests {
         // Execute on CUDA
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
@@ -561,7 +538,6 @@ mod tests {
         // Execute on CUDA
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
@@ -606,7 +582,6 @@ mod tests {
         // Execute on CUDA
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
@@ -639,7 +614,6 @@ mod tests {
         // Execute on CUDA
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
@@ -678,7 +652,6 @@ mod tests {
 
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
         let cuda_result = cuda_decimal_to_host(cuda_result)?;
@@ -706,7 +679,6 @@ mod tests {
 
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
         let cuda_result = cuda_decimal_to_host(cuda_result)?;
@@ -734,7 +706,6 @@ mod tests {
 
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
         let cuda_result = cuda_decimal_to_host(cuda_result)?;
@@ -765,7 +736,6 @@ mod tests {
 
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
         let cuda_result = cuda_decimal_to_host(cuda_result)?;
@@ -801,7 +771,6 @@ mod tests {
 
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
         let cuda_result = cuda_decimal_to_host(cuda_result)?;
@@ -834,7 +803,6 @@ mod tests {
 
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
         let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
@@ -859,7 +827,6 @@ mod tests {
 
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
         let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
@@ -886,7 +853,6 @@ mod tests {
 
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
         let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
@@ -916,7 +882,6 @@ mod tests {
 
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
         let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
@@ -941,7 +906,6 @@ mod tests {
 
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
         let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
@@ -967,7 +931,6 @@ mod tests {
 
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
         let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
@@ -1000,7 +963,6 @@ mod tests {
 
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
         let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
@@ -1036,7 +998,6 @@ mod tests {
 
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
         let cuda_result = cuda_decimal_to_host(cuda_result)?;

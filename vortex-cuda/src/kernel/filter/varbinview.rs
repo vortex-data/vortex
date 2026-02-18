@@ -11,7 +11,7 @@ use vortex_mask::Mask;
 use crate::CudaExecutionCtx;
 use crate::kernel::filter::filter_sized;
 
-pub(super) async fn filter_varbinview(
+pub(super) fn filter_varbinview(
     array: VarBinViewArray,
     mask: Mask,
     ctx: &mut CudaExecutionCtx,
@@ -25,9 +25,9 @@ pub(super) async fn filter_varbinview(
 
     let filtered_validity = validity.filter(&mask)?;
 
-    let d_views = ctx.ensure_on_device(views).await?;
+    let d_views = ctx.ensure_on_device(views)?;
 
-    let filtered_views = filter_sized::<i128>(d_views, mask, ctx).await?;
+    let filtered_views = filter_sized::<i128>(d_views, mask, ctx)?;
 
     Ok(Canonical::VarBinView(VarBinViewArray::new_handle(
         filtered_views,
@@ -79,7 +79,6 @@ mod tests {
 
         let gpu_result = FilterExecutor
             .execute(filter_array.into_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU filter failed")
             .into_host()
             .await?

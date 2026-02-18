@@ -18,7 +18,6 @@ use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::Throughput;
 use cudarc::driver::DeviceRepr;
-use futures::executor::block_on;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::scalar::Scalar;
@@ -92,7 +91,7 @@ where
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {
-                        block_on(for_array.to_array().execute_cuda(&mut cuda_ctx)).unwrap();
+                        for_array.to_array().execute_cuda(&mut cuda_ctx).unwrap();
                     }
 
                     Duration::from_nanos(timer.load(Ordering::Relaxed))
@@ -130,7 +129,7 @@ where
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {
-                        block_on(for_array.to_array().execute_cuda(&mut cuda_ctx)).unwrap();
+                        for_array.to_array().execute_cuda(&mut cuda_ctx).unwrap();
                     }
 
                     Duration::from_nanos(timer.load(Ordering::Relaxed))

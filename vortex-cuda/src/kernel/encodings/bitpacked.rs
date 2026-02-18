@@ -4,7 +4,6 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use cudarc::driver::CudaFunction;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchConfig;
@@ -44,20 +43,13 @@ impl BitPackedExecutor {
     }
 }
 
-#[async_trait]
 impl CudaExecute for BitPackedExecutor {
     #[instrument(level = "trace", skip_all, fields(executor = ?self))]
-    async fn execute(
-        &self,
-        array: ArrayRef,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    fn execute(&self, array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let array =
             Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected BitPackedArray"))?;
 
-        match_each_integer_ptype!(array.ptype(), |A| {
-            decode_bitpacked::<A>(array, ctx).await
-        })
+        match_each_integer_ptype!(array.ptype(), |A| { decode_bitpacked::<A>(array, ctx) })
     }
 }
 
@@ -87,7 +79,7 @@ pub fn bitpacked_cuda_launch_config(output_width: usize, len: usize) -> VortexRe
     })
 }
 
-pub(crate) async fn decode_bitpacked<A>(
+pub(crate) fn decode_bitpacked<A>(
     array: BitPackedArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical>
@@ -107,7 +99,7 @@ where
     vortex_ensure!(len > 0, "Non empty array");
     let offset = offset as usize;
 
-    let device_input = ctx.ensure_on_device(packed).await?;
+    let device_input = ctx.ensure_on_device(packed)?;
 
     // Get CUDA view of input
     let input_view = device_input.cuda_view::<A::Physical>()?;
@@ -136,7 +128,7 @@ where
                 .clone();
 
             let patched_buf = match_each_unsigned_integer_ptype!(p.indices_ptype()?, |I| {
-                execute_patches::<A, I>(p, buf, ctx).await?
+                execute_patches::<A, I>(p, buf, ctx)?
             });
 
             BufferHandle::new_device(Arc::new(patched_buf))
@@ -186,7 +178,6 @@ mod tests {
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(bp_with_patches.to_array(), &mut cuda_ctx)
-                .await
                 .vortex_expect("GPU decompression failed")
                 .into_host()
                 .await
@@ -226,7 +217,6 @@ mod tests {
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(bitpacked_array.to_array(), &mut cuda_ctx)
-                .await
                 .vortex_expect("GPU decompression failed")
                 .into_host()
                 .await
@@ -274,7 +264,6 @@ mod tests {
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(bitpacked_array.to_array(), &mut cuda_ctx)
-                .await
                 .vortex_expect("GPU decompression failed")
                 .into_host()
                 .await
@@ -338,7 +327,6 @@ mod tests {
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(bitpacked_array.to_array(), &mut cuda_ctx)
-                .await
                 .vortex_expect("GPU decompression failed")
                 .into_host()
                 .await
@@ -433,7 +421,6 @@ mod tests {
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(bitpacked_array.to_array(), &mut cuda_ctx)
-                .await
                 .vortex_expect("GPU decompression failed")
                 .into_host()
                 .await
@@ -475,7 +462,6 @@ mod tests {
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(sliced_array, &mut cuda_ctx)
-                .await
                 .vortex_expect("GPU decompression failed")
                 .into_host()
                 .await

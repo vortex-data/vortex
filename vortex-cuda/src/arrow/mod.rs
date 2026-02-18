@@ -16,7 +16,6 @@ use std::fmt::Debug;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 pub(crate) use canonical::CanonicalDeviceArrayExport;
 use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaStream;
@@ -181,27 +180,18 @@ impl PrivateData {
     }
 }
 
-#[async_trait]
 pub trait DeviceArrayExt: Array {
-    async fn export_device_array(
-        self,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<ArrowDeviceArray>;
+    fn export_device_array(self, ctx: &mut CudaExecutionCtx) -> VortexResult<ArrowDeviceArray>;
 }
 
-#[async_trait]
 impl DeviceArrayExt for ArrayRef {
-    async fn export_device_array(
-        self,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<ArrowDeviceArray> {
+    fn export_device_array(self, ctx: &mut CudaExecutionCtx) -> VortexResult<ArrowDeviceArray> {
         let exporter = Arc::clone(ctx.exporter());
-        exporter.export_device_array(self, ctx).await
+        exporter.export_device_array(self, ctx)
     }
 }
 
 /// A type that can convert a Vortex array into an [`ArrowDeviceArray`].
-#[async_trait]
 pub trait ExportDeviceArray: Debug + Send + Sync + 'static {
     /// Export a Vortex array as an [`ArrowDeviceArray`].
     ///
@@ -210,7 +200,7 @@ pub trait ExportDeviceArray: Debug + Send + Sync + 'static {
     /// arrays, such as cudf.
     ///
     /// See <https://arrow.apache.org/docs/format/CDeviceDataInterface.html>.
-    async fn export_device_array(
+    fn export_device_array(
         &self,
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,

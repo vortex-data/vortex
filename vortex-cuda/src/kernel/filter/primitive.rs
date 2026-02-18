@@ -15,7 +15,7 @@ use crate::CudaExecutionCtx;
 use crate::kernel::filter::filter_sized;
 
 /// Execute a filter operation over the primitive array on a GPU.
-pub(super) async fn filter_primitive<T>(
+pub(super) fn filter_primitive<T>(
     array: PrimitiveArray,
     mask: Mask,
     ctx: &mut CudaExecutionCtx,
@@ -28,7 +28,7 @@ where
     } = array.into_parts();
 
     let filtered_validity = validity.filter(&mask)?;
-    let filtered_values = filter_sized::<T>(buffer, mask, ctx).await?;
+    let filtered_values = filter_sized::<T>(buffer, mask, ctx)?;
 
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         filtered_values,
@@ -93,7 +93,6 @@ mod tests {
 
         let gpu_result = FilterExecutor
             .execute(filter_array.into_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU filter failed")
             .into_host()
             .await?
@@ -122,7 +121,6 @@ mod tests {
 
         let gpu_result = FilterExecutor
             .execute(filter_array.into_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU filter failed")
             .into_host()
             .await?

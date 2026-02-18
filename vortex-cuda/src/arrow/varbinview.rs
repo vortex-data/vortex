@@ -28,7 +28,7 @@ pub(crate) struct BinaryParts {
     pub(crate) bytes: BufferHandle,
 }
 
-pub(crate) async fn copy_varbinview_to_varbin(
+pub(crate) fn copy_varbinview_to_varbin(
     array: VarBinViewArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<BinaryParts> {
@@ -44,11 +44,11 @@ pub(crate) async fn copy_varbinview_to_varbin(
     check_validity_empty(&validity)?;
 
     // copy all buffers over to device.
-    let views = ctx.ensure_on_device(views).await?;
+    let views = ctx.ensure_on_device(views)?;
     // before string copying, we must copy all string data buffers to the device.
     let mut device_buffers = vec![];
     for buffer in buffers.iter() {
-        device_buffers.push(ctx.ensure_on_device(buffer.clone()).await?);
+        device_buffers.push(ctx.ensure_on_device(buffer.clone())?);
     }
 
     let buffer_ptrs = device_buffers

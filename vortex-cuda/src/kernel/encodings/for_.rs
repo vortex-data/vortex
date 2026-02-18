@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 
-use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
@@ -37,21 +36,16 @@ impl FoRExecutor {
     }
 }
 
-#[async_trait]
 impl CudaExecute for FoRExecutor {
     #[instrument(level = "trace", skip_all, fields(executor = ?self))]
-    async fn execute(
-        &self,
-        array: ArrayRef,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    fn execute(&self, array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let array = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected FoRArray"))?;
 
-        match_each_native_simd_ptype!(array.ptype(), |P| { decode_for::<P>(array, ctx).await })
+        match_each_native_simd_ptype!(array.ptype(), |P| { decode_for::<P>(array, ctx) })
     }
 }
 
-async fn decode_for<P>(array: FoRArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical>
+fn decode_for<P>(array: FoRArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical>
 where
     P: NativePType + DeviceRepr + Send + Sync + 'static,
 {
@@ -65,13 +59,13 @@ where
         .vortex_expect("Cannot have a null reference");
 
     // Execute child and copy to device
-    let canonical = array.encoded().clone().execute_cuda(ctx).await?;
+    let canonical = array.encoded().clone().execute_cuda(ctx)?;
     let primitive = canonical.into_primitive();
     let PrimitiveArrayParts {
         buffer, validity, ..
     } = primitive.into_parts();
 
-    let device_buffer = ctx.ensure_on_device(buffer).await?;
+    let device_buffer = ctx.ensure_on_device(buffer)?;
 
     // Get CUDA view of the buffer
     let cuda_view = device_buffer.cuda_view::<P>()?;
@@ -133,7 +127,6 @@ mod tests {
 
         let gpu_result = FoRExecutor
             .execute(for_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decompression failed")
             .into_host()
             .await?

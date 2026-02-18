@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 
-use async_trait::async_trait;
 use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -23,14 +22,9 @@ use crate::executor::CudaExecute;
 #[derive(Debug)]
 pub(crate) struct DecimalBytePartsExecutor;
 
-#[async_trait]
 impl CudaExecute for DecimalBytePartsExecutor {
     #[instrument(level = "trace", skip_all, fields(executor = ?self))]
-    async fn execute(
-        &self,
-        array: ArrayRef,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    fn execute(&self, array: ArrayRef, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         let Ok(array) = array.try_into::<DecimalBytePartsVTable>() else {
             vortex_bail!("cannot downcast to DecimalBytePartsArray")
         };
@@ -42,7 +36,7 @@ impl CudaExecute for DecimalBytePartsExecutor {
             ptype,
             validity,
             ..
-        } = msp.execute_cuda(ctx).await?.into_primitive().into_parts();
+        } = msp.execute_cuda(ctx)?.into_primitive().into_parts();
 
         // SAFETY: The primitive array's buffer is already validated with correct type.
         // The decimal dtype matches the array's dtype, and validity is preserved.
@@ -93,7 +87,6 @@ mod tests {
 
         let gpu_result = DecimalBytePartsExecutor
             .execute(dbp_array.to_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU decode");
 
         assert_arrays_eq!(cpu_result.into_array(), gpu_result.into_array());

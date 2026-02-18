@@ -14,7 +14,7 @@ use vortex_mask::Mask;
 use crate::CudaExecutionCtx;
 use crate::kernel::filter::filter_sized;
 
-pub(super) async fn filter_decimal<D: NativeDecimalType + DeviceRepr + CubFilterable>(
+pub(super) fn filter_decimal<D: NativeDecimalType + DeviceRepr + CubFilterable>(
     array: DecimalArray,
     mask: Mask,
     ctx: &mut CudaExecutionCtx,
@@ -27,7 +27,7 @@ pub(super) async fn filter_decimal<D: NativeDecimalType + DeviceRepr + CubFilter
     } = array.into_parts();
 
     let filtered_validity = validity.filter(&mask)?;
-    let filtered_values = filter_sized::<D>(values, mask, ctx).await?;
+    let filtered_values = filter_sized::<D>(values, mask, ctx)?;
 
     Ok(Canonical::Decimal(DecimalArray::new_handle(
         filtered_values,
@@ -99,7 +99,6 @@ mod tests {
 
         let gpu_result = FilterExecutor
             .execute(filter_array.into_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU filter failed")
             .into_host()
             .await?
@@ -128,7 +127,6 @@ mod tests {
 
         let gpu_result = FilterExecutor
             .execute(filter_array.into_array(), &mut cuda_ctx)
-            .await
             .vortex_expect("GPU filter failed")
             .into_host()
             .await?
