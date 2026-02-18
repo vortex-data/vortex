@@ -896,11 +896,9 @@ jobs:
         run: |
           # Match publish toolchain
           cargo +$NIGHTLY_TOOLCHAIN install cargo-edit
-          cargo +$NIGHTLY_TOOLCHAIN set-version --workspace ${{ github.event.release.tag_name }}
+          # This is mostly a dummy version, we don't actually publish anything but it cannot exist in crates.io
+          cargo +$NIGHTLY_TOOLCHAIN set-version --workspace 0.100000.0
 
-      - name: Release
+      - name: Test Release
         run: |
           cargo +$NIGHTLY_TOOLCHAIN publish --dry-run -Zpublish-timeout --no-verify --allow-dirty --workspace
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
