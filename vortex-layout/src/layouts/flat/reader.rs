@@ -13,6 +13,7 @@ use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::expr::Expression;
+use vortex_array::expr::Root;
 use vortex_array::serde::ArrayParts;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
@@ -189,10 +190,15 @@ impl LayoutReader for FlatReader {
                 .vortex_expect("Row range end must fit within FlatLayout size");
         let name = self.name.clone();
         let array = self.array_future();
-        let expr = expr.clone();
+        let is_identity = expr.is::<Root>();
+        let expr = (!is_identity).then(|| expr.clone());
 
         Ok(async move {
-            tracing::debug!("Flat array evaluation {} - {}", name, expr);
+            if is_identity {
+                tracing::debug!("Flat array evaluation {} - <root>", name);
+            } else if let Some(expr) = &expr {
+                tracing::debug!("Flat array evaluation {} - {}", name, expr);
+            }
 
             let mut array = array.clone().await?;
             let mask = mask.await?;
@@ -211,7 +217,9 @@ impl LayoutReader for FlatReader {
             }
 
             // Evaluate the projection expression.
-            array = array.apply(&expr)?;
+            if let Some(expr) = &expr {
+                array = array.apply(expr)?;
+            }
 
             Ok(array)
         }

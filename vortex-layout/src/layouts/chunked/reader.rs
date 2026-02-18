@@ -6,9 +6,8 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use futures::FutureExt;
-use futures::TryStreamExt;
 use futures::future::BoxFuture;
-use futures::stream::FuturesOrdered;
+use futures::future::try_join_all;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
@@ -201,7 +200,7 @@ impl LayoutReader for ChunkedReader {
         expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        let mut chunk_evals = vec![];
+        let mut chunk_evals = Vec::with_capacity(self.chunk_range(row_range).len());
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
@@ -225,7 +224,7 @@ impl LayoutReader for ChunkedReader {
             );
 
             // Split the mask over each chunk.
-            let masks: Vec<_> = FuturesOrdered::from_iter(chunk_evals).try_collect().await?;
+            let masks: Vec<_> = try_join_all(chunk_evals).await?;
 
             // If there is only one mask, we can return it directly.
             if masks.len() == 1 {
@@ -243,7 +242,7 @@ impl LayoutReader for ChunkedReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
-        let mut chunk_evals = vec![];
+        let mut chunk_evals = Vec::with_capacity(self.chunk_range(row_range).len());
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
@@ -260,7 +259,7 @@ impl LayoutReader for ChunkedReader {
             tracing::debug!("Chunked mask evaluation {}", name);
 
             // Split the mask over each chunk.
-            let masks: Vec<_> = FuturesOrdered::from_iter(chunk_evals).try_collect().await?;
+            let masks: Vec<_> = try_join_all(chunk_evals).await?;
 
             // If there is only one mask, we can return it directly.
             if masks.len() == 1 {
@@ -279,7 +278,7 @@ impl LayoutReader for ChunkedReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let dtype = expr.return_dtype(self.dtype())?;
-        let mut chunk_evals = vec![];
+        let mut chunk_evals = Vec::with_capacity(self.chunk_range(row_range).len());
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
@@ -293,7 +292,7 @@ impl LayoutReader for ChunkedReader {
 
         Ok(async move {
             // Split the mask over each chunk.
-            let chunks: Vec<_> = FuturesOrdered::from_iter(chunk_evals).try_collect().await?;
+            let chunks: Vec<_> = try_join_all(chunk_evals).await?;
 
             // If there is only one chunk, we can return it directly.
             if chunks.len() == 1 {

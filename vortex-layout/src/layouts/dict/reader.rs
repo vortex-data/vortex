@@ -19,6 +19,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::SharedArray;
 use vortex_array::expr::Expression;
+use vortex_array::expr::Root;
 use vortex_array::expr::root;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_dtype::DType;
@@ -211,7 +212,7 @@ impl LayoutReader for DictReader {
             .codes
             .projection_evaluation(row_range, &root(), mask)
             .map_err(|err| err.with_context("While evaluating projection on codes"))?;
-        let expr = expr.clone();
+        let expr = (!expr.is::<Root>()).then(|| expr.clone());
 
         let all_values_referenced = self.layout.has_all_values_referenced();
         Ok(async move {
@@ -229,7 +230,11 @@ impl LayoutReader for DictReader {
             .to_array()
             .optimize()?;
 
-            array.apply(&expr)
+            if let Some(expr) = &expr {
+                array.apply(expr)
+            } else {
+                Ok(array)
+            }
         }
         .boxed())
     }
