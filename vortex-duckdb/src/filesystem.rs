@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::CString;
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::ptr;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -12,19 +14,24 @@ use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::stream;
 use futures::stream::BoxStream;
+use object_store::ObjectStore;
+use object_store::aws::AmazonS3Builder;
+use object_store::local::LocalFileSystem;
 use url::Url;
 use vortex::array::buffer::BufferHandle;
 use vortex::buffer::Alignment;
 use vortex::buffer::ByteBufferMut;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
-use vortex::file::filesystem::FileListing;
-use vortex::file::filesystem::FileSystem;
 use vortex::io::CoalesceConfig;
 use vortex::io::VortexReadAt;
-use vortex::io::file::object_store;
-use vortex::io::file::std_file;
+use vortex::io::compat::Compat;
+use vortex::io::filesystem::FileListing;
+use vortex::io::filesystem::FileSystem;
+use vortex::io::filesystem::FileSystemRef;
+use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime;
 
 use crate::RUNTIME;
@@ -34,9 +41,72 @@ use crate::duckdb::FsFileHandle;
 use crate::duckdb::duckdb_fs_list_dir;
 use crate::duckdb::fs_error;
 
-pub struct DuckDbFileSystem {
+pub(super) fn resolve_filesystem(
+    base_url: &Url,
+    ctx: &ClientContext,
+) -> VortexResult<FileSystemRef> {
+    let fs_config = ctx
+        .try_get_current_setting(c"vortex_filesystem")
+        .ok_or_else(|| {
+            vortex_err!("Failed to read 'vortex_filesystem' setting from DuckDB config")
+        })?;
+    let fs_config = fs_config.as_ref().as_string();
+
+    Ok(if fs_config.as_str() == "duckdb" {
+        tracing::info!(
+            "Using DuckDB's built-in filesystem for URL scheme '{}'",
+            base_url.scheme()
+        );
+        Arc::new(DuckDbFileSystem::new(base_url.clone(), ctx.clone()))
+    } else if fs_config.as_str() == "vortex" {
+        tracing::info!(
+            "Using Vortex's object store filesystem for URL scheme '{}'",
+            base_url.scheme()
+        );
+        object_store_fs(base_url)?
+    } else {
+        vortex_bail!(
+            "Unsupported filesystem '{}', vortex_filesystem setting must be set to either 'duckdb' or 'vortex'",
+            fs_config.as_str()
+        );
+    })
+}
+
+fn object_store_fs(base_url: &Url) -> VortexResult<FileSystemRef> {
+    let object_store: Arc<dyn ObjectStore> = if base_url.scheme() == "file" {
+        Arc::new(LocalFileSystem::new())
+    } else if base_url.scheme() == "s3" {
+        Arc::new(
+            AmazonS3Builder::from_env()
+                .with_bucket_name(base_url.host_str().ok_or_else(|| {
+                    vortex_err!("Failed to extract bucket name from URL: {base_url}")
+                })?)
+                .build()?,
+        )
+    } else {
+        vortex_bail!(
+            "Unsupported URL scheme '{}', only 'file' and 's3' are supported with vortex_filesystem='vortex'",
+            base_url.scheme()
+        );
+    };
+
+    Ok(Arc::new(Compat::new(ObjectStoreFileSystem::new(
+        object_store,
+        RUNTIME.handle(),
+    ))))
+}
+
+struct DuckDbFileSystem {
     base_url: Url,
     ctx: ClientContext,
+}
+
+impl Debug for DuckDbFileSystem {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DuckDbFileSystem")
+            .field("base_url", &self.base_url)
+            .finish()
+    }
 }
 
 impl DuckDbFileSystem {
@@ -52,12 +122,18 @@ impl FileSystem for DuckDbFileSystem {
         if !prefix.is_empty() {
             directory_url.set_path(&format!("{}/{}", directory_url.path(), prefix));
         }
-        let directory = directory_url.to_string();
+
+        // DuckDB's ListFiles expects bare paths for local files, but full URLs
+        // for remote schemes (s3://, etc.).
+        let directory = if directory_url.scheme() == "file" {
+            directory_url.path().to_string()
+        } else {
+            directory_url.to_string()
+        };
 
         tracing::debug!(
-            "Listing files from {} with prefix {:?} using directory {}",
+            "Listing files from {} with prefix {}",
             self.base_url,
-            prefix,
             directory
         );
 
@@ -101,21 +177,9 @@ fn list_recursive(
             if entry.is_dir {
                 stack.push(full_path);
             } else {
-                let url = match Url::parse(&full_path) {
-                    Ok(url) => url,
-                    Err(_) => {
-                        let path = std::path::Path::new(&full_path);
-                        let canonical = path.canonicalize().map_err(|e| {
-                            vortex_err!("Cannot canonicalize file path {path:?}: {e}")
-                        })?;
-                        Url::from_file_path(&canonical)
-                            .map_err(|_| vortex_err!("Cannot convert path to URL: {full_path}"))?
-                    }
-                };
-                let relative_path = url
-                    .path()
+                let relative_path = full_path
                     .strip_prefix(base_path)
-                    .unwrap_or_else(|| url.path())
+                    .unwrap_or_else(|| &full_path)
                     .to_string();
                 results.push(FileListing {
                     path: relative_path,
@@ -138,7 +202,7 @@ pub(crate) struct DuckDbFsReader {
 
 impl DuckDbFsReader {
     pub(crate) unsafe fn open_url(
-        ctx: cpp::duckdb_vx_client_context,
+        ctx: cpp::duckdb_client_context,
         url: &Url,
     ) -> VortexResult<Self> {
         let c_path = CString::new(url.as_str()).map_err(|e| vortex_err!("Invalid URL: {e}"))?;
@@ -174,9 +238,9 @@ impl VortexReadAt for DuckDbFsReader {
 
     fn concurrency(&self) -> usize {
         if self.is_local {
-            std_file::DEFAULT_CONCURRENCY
+            vortex::io::std_file::DEFAULT_CONCURRENCY
         } else {
-            object_store::DEFAULT_CONCURRENCY
+            vortex::io::object_store::DEFAULT_CONCURRENCY
         }
     }
 

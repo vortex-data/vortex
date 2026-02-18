@@ -3,6 +3,7 @@
 
 #include "include/duckdb_vx/config.h"
 #include "duckdb.hpp"
+#include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/config.hpp"
 #include <string>
 #include <memory>
@@ -13,6 +14,16 @@
 using namespace duckdb;
 
 extern "C" {
+
+duckdb_config duckdb_vx_database_get_config(duckdb_database database) {
+    if (!database) {
+        return nullptr;
+    }
+
+    auto wrapper = reinterpret_cast<DatabaseWrapper *>(database);
+    auto &config = DBConfig::GetConfig(*wrapper->database->instance);
+    return reinterpret_cast<duckdb_config>(&config);
+}
 
 duckdb_state duckdb_vx_get_config_value(duckdb_config config, const char *key, duckdb_value *out_value) {
     if (!config || !key || !out_value) {
@@ -114,10 +125,10 @@ char *duckdb_vx_value_to_string(duckdb_value value) {
 }
 
 duckdb_state duckdb_vx_add_extension_option(duckdb_config config,
-                                             const char *name,
-                                             const char *description,
-                                             duckdb_logical_type logical_type,
-                                             duckdb_value default_value) {
+                                            const char *name,
+                                            const char *description,
+                                            duckdb_logical_type logical_type,
+                                            duckdb_value default_value) {
     if (!name || !description || !logical_type || !default_value) {
         return DuckDBError;
     }
@@ -131,12 +142,7 @@ duckdb_state duckdb_vx_add_extension_option(duckdb_config config,
         auto *type = reinterpret_cast<LogicalType *>(logical_type);
         auto *value = reinterpret_cast<Value *>(default_value);
 
-        db_config->AddExtensionOption(
-            string(name),
-            string(description),
-            *type,
-            *value
-        );
+        db_config->AddExtensionOption(string(name), string(description), *type, *value);
 
         return DuckDBSuccess;
     } catch (...) {

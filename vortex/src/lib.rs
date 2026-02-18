@@ -26,10 +26,6 @@ pub mod buffer {
     pub use vortex_buffer::*;
 }
 
-pub mod compute2 {
-    pub use vortex_compute::*;
-}
-
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
     pub use vortex_btrblocks::BtrBlocksCompressorBuilder;

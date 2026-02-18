@@ -25,7 +25,6 @@ vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
-vortex-compute = { workspace = true }
 
 vortex-cuda-macros = { workspace = true }
 vortex-datetime-parts = { workspace = true }

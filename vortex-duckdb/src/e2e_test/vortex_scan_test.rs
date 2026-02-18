@@ -50,9 +50,8 @@ use crate::duckdb::Database;
 fn database_connection() -> Connection {
     let db = Database::open_in_memory().unwrap();
     db.register_vortex_scan_replacement().unwrap();
-    let connection = db.connect().unwrap();
-    crate::register_table_functions(&connection).unwrap();
-    connection
+    crate::initialize(&db).unwrap();
+    db.connect().unwrap()
 }
 
 fn create_temp_file() -> NamedTempFile {
@@ -374,6 +373,7 @@ fn test_vortex_scan_over_http() {
     });
 
     let conn = database_connection();
+    conn.query("SET vortex_filesystem = 'duckdb';").unwrap();
     conn.query("INSTALL httpfs;").unwrap();
     conn.query("LOAD httpfs;").unwrap();
 

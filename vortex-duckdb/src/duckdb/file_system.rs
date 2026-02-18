@@ -18,7 +18,12 @@ use crate::cpp;
 use crate::duckdb::ClientContext;
 use crate::lifetime_wrapper;
 
-lifetime_wrapper!(FsFileHandle, cpp::duckdb_vx_file_handle, cpp::duckdb_vx_fs_close, [owned, ref]);
+lifetime_wrapper!(
+    FsFileHandle,
+    cpp::duckdb_vx_file_handle,
+    cpp::duckdb_vx_fs_close,
+    [owned]
+);
 unsafe impl Send for FsFileHandle {}
 unsafe impl Sync for FsFileHandle {}
 
@@ -31,83 +36,6 @@ pub(crate) fn fs_error(err: cpp::duckdb_vx_error) -> VortexError {
         .to_string();
     unsafe { cpp::duckdb_vx_error_free(err) };
     vortex_err!("{message}")
-}
-
-/// Expand a glob pattern against a filesystem, returning matching file URLs.
-///
-/// If the pattern contains no glob characters, it is treated as an exact path.
-/// Otherwise, extracts the directory prefix before the first glob character,
-/// recursively lists all files under that directory via [`duckdb_fs_list_dir`],
-/// and filters the results using [`glob::Pattern`].
-pub(crate) fn duckdb_fs_glob(ctx: &ClientContext, pattern: &str) -> VortexResult<Vec<url::Url>> {
-    let has_glob = pattern.contains(['*', '?', '[']);
-
-    // No glob characters: treat as an exact file path.
-    if !has_glob {
-        let url = path_to_url(pattern)?;
-        return Ok(vec![url]);
-    }
-
-    let glob_pattern = glob::Pattern::new(pattern)
-        .map_err(|e| vortex_err!("Invalid glob pattern '{pattern}': {e}"))?;
-
-    // Find the directory prefix before the first glob character.
-    let glob_pos = pattern.find(['*', '?', '[']).unwrap_or(pattern.len());
-    let prefix = match pattern[..glob_pos].rfind('/') {
-        Some(slash_pos) => &pattern[..=slash_pos],
-        None => "",
-    };
-
-    let directory = if prefix.is_empty() {
-        ".".to_string()
-    } else {
-        prefix.trim_end_matches('/').to_string()
-    };
-
-    let all_files = list_files_recursive(ctx, &directory)?;
-
-    let mut urls = Vec::new();
-    for full_path in all_files {
-        if glob_pattern.matches(&full_path) {
-            urls.push(path_to_url(&full_path)?);
-        }
-    }
-
-    Ok(urls)
-}
-
-/// Convert a path string to a [`url::Url`], canonicalizing local paths.
-fn path_to_url(path: &str) -> VortexResult<url::Url> {
-    match url::Url::parse(path) {
-        Ok(url) => Ok(url),
-        Err(_) => {
-            let p = std::path::Path::new(path);
-            let canonical = p
-                .canonicalize()
-                .map_err(|e| vortex_err!("Cannot canonicalize file path {p:?}: {e}"))?;
-            url::Url::from_file_path(&canonical)
-                .map_err(|_| vortex_err!("Cannot convert path to URL: {path}"))
-        }
-    }
-}
-
-/// Recursively list all file paths under `directory`.
-fn list_files_recursive(ctx: &ClientContext, directory: &str) -> VortexResult<Vec<String>> {
-    let mut results = Vec::new();
-    let mut stack = vec![directory.to_string()];
-
-    while let Some(dir) = stack.pop() {
-        for entry in duckdb_fs_list_dir(ctx, &dir)? {
-            let full_path = format!("{}/{}", dir.trim_end_matches('/'), entry.name);
-            if entry.is_dir {
-                stack.push(full_path);
-            } else {
-                results.push(full_path);
-            }
-        }
-    }
-
-    Ok(results)
 }
 
 /// An entry returned by [`duckdb_fs_list_dir`].
@@ -161,7 +89,7 @@ unsafe extern "C-unwind" fn list_files_callback(
 }
 
 pub(crate) unsafe fn duckdb_fs_create_writer(
-    ctx: cpp::duckdb_vx_client_context,
+    ctx: cpp::duckdb_client_context,
     path: &str,
 ) -> VortexResult<DuckDbFsWriter> {
     unsafe { DuckDbFsWriter::create(ctx, path) }
@@ -173,10 +101,7 @@ pub(crate) struct DuckDbFsWriter {
 }
 
 impl DuckDbFsWriter {
-    pub(crate) unsafe fn create(
-        ctx: cpp::duckdb_vx_client_context,
-        path: &str,
-    ) -> VortexResult<Self> {
+    pub(crate) unsafe fn create(ctx: cpp::duckdb_client_context, path: &str) -> VortexResult<Self> {
         let c_path = CString::new(path).map_err(|e| vortex_err!("Invalid path: {e}"))?;
         let mut err: cpp::duckdb_vx_error = ptr::null_mut();
         let file_handle = unsafe { cpp::duckdb_vx_fs_create(ctx, c_path.as_ptr(), &raw mut err) };

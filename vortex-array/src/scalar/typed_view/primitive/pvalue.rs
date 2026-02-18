@@ -23,6 +23,68 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+/// Utility macro that makes it easy to write expressions generic over the different `PValue`
+/// variants.
+#[macro_export]
+macro_rules! match_each_pvalue {
+    (
+        $this:expr,uint: |
+        $vuint:ident |
+        $buint:block,int: |
+        $vint:ident |
+        $bint:block,float: |
+        $vfloat:ident |
+        $bfloat:block
+    ) => {{
+        match $this {
+            PValue::U8(x) => {
+                let $vuint = x;
+                $buint
+            }
+            PValue::U16(x) => {
+                let $vuint = x;
+                $buint
+            }
+            PValue::U32(x) => {
+                let $vuint = x;
+                $buint
+            }
+            PValue::U64(x) => {
+                let $vuint = x;
+                $buint
+            }
+            PValue::I8(x) => {
+                let $vint = x;
+                $bint
+            }
+            PValue::I16(x) => {
+                let $vint = x;
+                $bint
+            }
+            PValue::I32(x) => {
+                let $vint = x;
+                $bint
+            }
+            PValue::I64(x) => {
+                let $vint = x;
+                $bint
+            }
+            PValue::F16(x) => {
+                let $vfloat = x;
+                $bfloat
+            }
+            PValue::F32(x) => {
+                let $vfloat = x;
+                $bfloat
+            }
+            PValue::F64(x) => {
+                let $vfloat = x;
+                $bfloat
+            }
+        }
+    }};
+}
+
 /// A primitive value that can represent any primitive type supported by Vortex.
 ///
 /// `PValue` is used to store primitive scalar values in a type-erased manner,

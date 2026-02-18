@@ -1,56 +1,118 @@
 pub mod vortex_io
 
-pub mod vortex_io::file
+pub mod vortex_io::compat
 
-pub mod vortex_io::file::object_store
+pub struct vortex_io::compat::Compat<T>
 
-pub struct vortex_io::file::object_store::ObjectStoreSource
+impl<T> vortex_io::compat::Compat<T>
 
-impl vortex_io::file::object_store::ObjectStoreSource
+pub fn vortex_io::compat::Compat<T>::new(inner: T) -> Self
 
-pub fn vortex_io::file::object_store::ObjectStoreSource::new(store: alloc::sync::Arc<dyn object_store::ObjectStore>, path: object_store::path::Path, handle: vortex_io::runtime::Handle) -> Self
+impl<'__pin, T> core::marker::Unpin for vortex_io::compat::Compat<T> where pin_project_lite::__private::PinnedFieldsOf<__Origin<'__pin, T>>: core::marker::Unpin
 
-pub fn vortex_io::file::object_store::ObjectStoreSource::with_coalesce_config(self, config: vortex_io::CoalesceConfig) -> Self
+impl<F: vortex_io::filesystem::FileSystem> vortex_io::filesystem::FileSystem for vortex_io::compat::Compat<F>
 
-pub fn vortex_io::file::object_store::ObjectStoreSource::with_concurrency(self, concurrency: usize) -> Self
+pub fn vortex_io::compat::Compat<F>::list(&self, prefix: &str) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_io::filesystem::FileListing>>
 
-pub fn vortex_io::file::object_store::ObjectStoreSource::with_some_coalesce_config(self, config: core::option::Option<vortex_io::CoalesceConfig>) -> Self
+pub fn vortex_io::compat::Compat<F>::open_read<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_io::VortexReadAt>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
 
-impl vortex_io::VortexReadAt for vortex_io::file::object_store::ObjectStoreSource
+impl<R: vortex_io::VortexReadAt> vortex_io::VortexReadAt for vortex_io::compat::Compat<R>
 
-pub fn vortex_io::file::object_store::ObjectStoreSource::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+pub fn vortex_io::compat::Compat<R>::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
 
-pub fn vortex_io::file::object_store::ObjectStoreSource::concurrency(&self) -> usize
+pub fn vortex_io::compat::Compat<R>::concurrency(&self) -> usize
 
-pub fn vortex_io::file::object_store::ObjectStoreSource::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+pub fn vortex_io::compat::Compat<R>::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
 
-pub fn vortex_io::file::object_store::ObjectStoreSource::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+pub fn vortex_io::compat::Compat<R>::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
 
-pub fn vortex_io::file::object_store::ObjectStoreSource::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+pub fn vortex_io::compat::Compat<R>::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
 
-pub const vortex_io::file::object_store::DEFAULT_CONCURRENCY: usize
+impl<S: futures_core::stream::Stream> futures_core::stream::Stream for vortex_io::compat::Compat<S>
 
-pub mod vortex_io::file::std_file
+pub type vortex_io::compat::Compat<S>::Item = <S as futures_core::stream::Stream>::Item
 
-pub struct vortex_io::file::std_file::FileReadAdapter
+pub fn vortex_io::compat::Compat<S>::poll_next(self: core::pin::Pin<&mut Self>, cx: &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<core::option::Option<Self::Item>>
 
-impl vortex_io::file::std_file::FileReadAdapter
+pub fn vortex_io::compat::Compat<S>::size_hint(&self) -> (usize, core::option::Option<usize>)
 
-pub fn vortex_io::file::std_file::FileReadAdapter::open(path: impl core::convert::AsRef<std::path::Path>, handle: vortex_io::runtime::Handle) -> vortex_error::VortexResult<Self>
+impl<T: core::clone::Clone> core::clone::Clone for vortex_io::compat::Compat<T>
 
-impl vortex_io::VortexReadAt for vortex_io::file::std_file::FileReadAdapter
+pub fn vortex_io::compat::Compat<T>::clone(&self) -> vortex_io::compat::Compat<T>
 
-pub fn vortex_io::file::std_file::FileReadAdapter::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+impl<T: core::fmt::Debug> core::fmt::Debug for vortex_io::compat::Compat<T>
 
-pub fn vortex_io::file::std_file::FileReadAdapter::concurrency(&self) -> usize
+pub fn vortex_io::compat::Compat<T>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_io::file::std_file::FileReadAdapter::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+impl<T: core::future::future::Future> core::future::future::Future for vortex_io::compat::Compat<T>
 
-pub fn vortex_io::file::std_file::FileReadAdapter::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+pub type vortex_io::compat::Compat<T>::Output = <T as core::future::future::Future>::Output
 
-pub fn vortex_io::file::std_file::FileReadAdapter::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+pub fn vortex_io::compat::Compat<T>::poll(self: core::pin::Pin<&mut Self>, cx: &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<Self::Output>
 
-pub const vortex_io::file::std_file::DEFAULT_CONCURRENCY: usize
+impl<T> core::ops::drop::Drop for vortex_io::compat::Compat<T>
+
+pub fn vortex_io::compat::Compat<T>::drop(&mut self)
+
+impl<W: vortex_io::VortexWrite> vortex_io::VortexWrite for vortex_io::compat::Compat<W>
+
+pub fn vortex_io::compat::Compat<W>::flush(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
+pub fn vortex_io::compat::Compat<W>::shutdown(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
+pub fn vortex_io::compat::Compat<W>::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> impl core::future::future::Future<Output = std::io::error::Result<B>>
+
+pub mod vortex_io::filesystem
+
+pub struct vortex_io::filesystem::FileListing
+
+pub vortex_io::filesystem::FileListing::path: alloc::string::String
+
+pub vortex_io::filesystem::FileListing::size: core::option::Option<u64>
+
+impl core::clone::Clone for vortex_io::filesystem::FileListing
+
+pub fn vortex_io::filesystem::FileListing::clone(&self) -> vortex_io::filesystem::FileListing
+
+impl core::cmp::Eq for vortex_io::filesystem::FileListing
+
+impl core::cmp::Ord for vortex_io::filesystem::FileListing
+
+pub fn vortex_io::filesystem::FileListing::cmp(&self, other: &vortex_io::filesystem::FileListing) -> core::cmp::Ordering
+
+impl core::cmp::PartialEq for vortex_io::filesystem::FileListing
+
+pub fn vortex_io::filesystem::FileListing::eq(&self, other: &vortex_io::filesystem::FileListing) -> bool
+
+impl core::cmp::PartialOrd for vortex_io::filesystem::FileListing
+
+pub fn vortex_io::filesystem::FileListing::partial_cmp(&self, other: &vortex_io::filesystem::FileListing) -> core::option::Option<core::cmp::Ordering>
+
+impl core::fmt::Debug for vortex_io::filesystem::FileListing
+
+pub fn vortex_io::filesystem::FileListing::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_io::filesystem::FileListing
+
+pub trait vortex_io::filesystem::FileSystem: core::fmt::Debug + core::marker::Send + core::marker::Sync
+
+pub fn vortex_io::filesystem::FileSystem::list(&self, prefix: &str) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_io::filesystem::FileListing>>
+
+pub fn vortex_io::filesystem::FileSystem::open_read<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_io::VortexReadAt>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
+impl vortex_io::filesystem::FileSystem for vortex_io::object_store::ObjectStoreFileSystem
+
+pub fn vortex_io::object_store::ObjectStoreFileSystem::list(&self, prefix: &str) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_io::filesystem::FileListing>>
+
+pub fn vortex_io::object_store::ObjectStoreFileSystem::open_read<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_io::VortexReadAt>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
+impl<F: vortex_io::filesystem::FileSystem> vortex_io::filesystem::FileSystem for vortex_io::compat::Compat<F>
+
+pub fn vortex_io::compat::Compat<F>::list(&self, prefix: &str) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_io::filesystem::FileListing>>
+
+pub fn vortex_io::compat::Compat<F>::open_read<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_io::VortexReadAt>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
+pub type vortex_io::filesystem::FileSystemRef = alloc::sync::Arc<dyn vortex_io::filesystem::FileSystem>
 
 pub mod vortex_io::kanal_ext
 
@@ -61,6 +123,68 @@ pub fn vortex_io::kanal_ext::KanalExt::into_stream(self) -> impl futures_core::s
 impl<T> vortex_io::kanal_ext::KanalExt<T> for kanal::AsyncReceiver<T>
 
 pub fn kanal::AsyncReceiver<T>::into_stream(self) -> impl futures_core::stream::Stream<Item = T>
+
+pub mod vortex_io::object_store
+
+pub struct vortex_io::object_store::ObjectStoreFileSystem
+
+impl vortex_io::object_store::ObjectStoreFileSystem
+
+pub fn vortex_io::object_store::ObjectStoreFileSystem::local(handle: vortex_io::runtime::Handle) -> Self
+
+pub fn vortex_io::object_store::ObjectStoreFileSystem::new(store: alloc::sync::Arc<dyn object_store::ObjectStore>, handle: vortex_io::runtime::Handle) -> Self
+
+impl core::fmt::Debug for vortex_io::object_store::ObjectStoreFileSystem
+
+pub fn vortex_io::object_store::ObjectStoreFileSystem::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_io::filesystem::FileSystem for vortex_io::object_store::ObjectStoreFileSystem
+
+pub fn vortex_io::object_store::ObjectStoreFileSystem::list(&self, prefix: &str) -> futures_core::stream::BoxStream<'_, vortex_error::VortexResult<vortex_io::filesystem::FileListing>>
+
+pub fn vortex_io::object_store::ObjectStoreFileSystem::open_read<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_io::VortexReadAt>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+
+pub struct vortex_io::object_store::ObjectStoreReadAt
+
+impl vortex_io::object_store::ObjectStoreReadAt
+
+pub fn vortex_io::object_store::ObjectStoreReadAt::new(store: alloc::sync::Arc<dyn object_store::ObjectStore>, path: object_store::path::Path, handle: vortex_io::runtime::Handle) -> Self
+
+pub fn vortex_io::object_store::ObjectStoreReadAt::with_coalesce_config(self, config: vortex_io::CoalesceConfig) -> Self
+
+pub fn vortex_io::object_store::ObjectStoreReadAt::with_concurrency(self, concurrency: usize) -> Self
+
+pub fn vortex_io::object_store::ObjectStoreReadAt::with_some_coalesce_config(self, config: core::option::Option<vortex_io::CoalesceConfig>) -> Self
+
+impl vortex_io::VortexReadAt for vortex_io::object_store::ObjectStoreReadAt
+
+pub fn vortex_io::object_store::ObjectStoreReadAt::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+
+pub fn vortex_io::object_store::ObjectStoreReadAt::concurrency(&self) -> usize
+
+pub fn vortex_io::object_store::ObjectStoreReadAt::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
+pub fn vortex_io::object_store::ObjectStoreReadAt::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
+pub fn vortex_io::object_store::ObjectStoreReadAt::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+
+pub struct vortex_io::object_store::ObjectStoreWrite
+
+impl vortex_io::object_store::ObjectStoreWrite
+
+pub async fn vortex_io::object_store::ObjectStoreWrite::new(object_store: alloc::sync::Arc<dyn object_store::ObjectStore>, location: &object_store::path::Path) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_io::object_store::ObjectStoreWrite::put_result(&self) -> core::option::Option<&object_store::PutResult>
+
+impl vortex_io::VortexWrite for vortex_io::object_store::ObjectStoreWrite
+
+pub async fn vortex_io::object_store::ObjectStoreWrite::flush(&mut self) -> std::io::error::Result<()>
+
+pub async fn vortex_io::object_store::ObjectStoreWrite::shutdown(&mut self) -> std::io::error::Result<()>
+
+pub async fn vortex_io::object_store::ObjectStoreWrite::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> std::io::error::Result<B>
+
+pub const vortex_io::object_store::DEFAULT_CONCURRENCY: usize
 
 pub mod vortex_io::runtime
 
@@ -294,6 +418,28 @@ pub fn vortex_io::session::RuntimeSessionExt::with_tokio(self) -> Self
 
 impl<S: vortex_session::SessionExt> vortex_io::session::RuntimeSessionExt for S
 
+pub mod vortex_io::std_file
+
+pub struct vortex_io::std_file::FileReadAt
+
+impl vortex_io::std_file::FileReadAt
+
+pub fn vortex_io::std_file::FileReadAt::open(path: impl core::convert::AsRef<std::path::Path>, handle: vortex_io::runtime::Handle) -> vortex_error::VortexResult<Self>
+
+impl vortex_io::VortexReadAt for vortex_io::std_file::FileReadAt
+
+pub fn vortex_io::std_file::FileReadAt::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+
+pub fn vortex_io::std_file::FileReadAt::concurrency(&self) -> usize
+
+pub fn vortex_io::std_file::FileReadAt::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
+pub fn vortex_io::std_file::FileReadAt::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
+pub fn vortex_io::std_file::FileReadAt::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+
+pub const vortex_io::std_file::DEFAULT_CONCURRENCY: usize
+
 pub struct vortex_io::AsyncWriteAdapter<W: futures_io::if_std::AsyncWrite>(pub W)
 
 impl<W: futures_io::if_std::AsyncWrite + core::marker::Unpin> vortex_io::VortexWrite for vortex_io::AsyncWriteAdapter<W>
@@ -351,22 +497,6 @@ pub fn vortex_io::InstrumentedReadAt<T>::read_at(&self, offset: u64, length: usi
 pub fn vortex_io::InstrumentedReadAt<T>::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
 
 pub fn vortex_io::InstrumentedReadAt<T>::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
-
-pub struct vortex_io::ObjectStoreWriter
-
-impl vortex_io::ObjectStoreWriter
-
-pub async fn vortex_io::ObjectStoreWriter::new(object_store: alloc::sync::Arc<dyn object_store::ObjectStore>, location: &object_store::path::Path) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_io::ObjectStoreWriter::put_result(&self) -> core::option::Option<&object_store::PutResult>
-
-impl vortex_io::VortexWrite for vortex_io::ObjectStoreWriter
-
-pub async fn vortex_io::ObjectStoreWriter::flush(&mut self) -> std::io::error::Result<()>
-
-pub async fn vortex_io::ObjectStoreWriter::shutdown(&mut self) -> std::io::error::Result<()>
-
-pub async fn vortex_io::ObjectStoreWriter::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> std::io::error::Result<B>
 
 pub struct vortex_io::OwnedSlice<T>
 
@@ -502,29 +632,29 @@ pub fn vortex_buffer::ByteBuffer::read_at(&self, offset: u64, length: usize, ali
 
 pub fn vortex_buffer::ByteBuffer::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
 
-impl vortex_io::VortexReadAt for vortex_io::file::object_store::ObjectStoreSource
+impl vortex_io::VortexReadAt for vortex_io::object_store::ObjectStoreReadAt
 
-pub fn vortex_io::file::object_store::ObjectStoreSource::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+pub fn vortex_io::object_store::ObjectStoreReadAt::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
 
-pub fn vortex_io::file::object_store::ObjectStoreSource::concurrency(&self) -> usize
+pub fn vortex_io::object_store::ObjectStoreReadAt::concurrency(&self) -> usize
 
-pub fn vortex_io::file::object_store::ObjectStoreSource::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+pub fn vortex_io::object_store::ObjectStoreReadAt::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
 
-pub fn vortex_io::file::object_store::ObjectStoreSource::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+pub fn vortex_io::object_store::ObjectStoreReadAt::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
 
-pub fn vortex_io::file::object_store::ObjectStoreSource::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+pub fn vortex_io::object_store::ObjectStoreReadAt::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
 
-impl vortex_io::VortexReadAt for vortex_io::file::std_file::FileReadAdapter
+impl vortex_io::VortexReadAt for vortex_io::std_file::FileReadAt
 
-pub fn vortex_io::file::std_file::FileReadAdapter::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+pub fn vortex_io::std_file::FileReadAt::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
 
-pub fn vortex_io::file::std_file::FileReadAdapter::concurrency(&self) -> usize
+pub fn vortex_io::std_file::FileReadAt::concurrency(&self) -> usize
 
-pub fn vortex_io::file::std_file::FileReadAdapter::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+pub fn vortex_io::std_file::FileReadAt::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
 
-pub fn vortex_io::file::std_file::FileReadAdapter::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+pub fn vortex_io::std_file::FileReadAt::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
 
-pub fn vortex_io::file::std_file::FileReadAdapter::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+pub fn vortex_io::std_file::FileReadAt::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
 
 impl<R: vortex_io::VortexReadAt> vortex_io::VortexReadAt for alloc::sync::Arc<R>
 
@@ -537,6 +667,18 @@ pub fn alloc::sync::Arc<R>::read_at(&self, offset: u64, length: usize, alignment
 pub fn alloc::sync::Arc<R>::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
 
 pub fn alloc::sync::Arc<R>::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+
+impl<R: vortex_io::VortexReadAt> vortex_io::VortexReadAt for vortex_io::compat::Compat<R>
+
+pub fn vortex_io::compat::Compat<R>::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+
+pub fn vortex_io::compat::Compat<R>::concurrency(&self) -> usize
+
+pub fn vortex_io::compat::Compat<R>::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
+pub fn vortex_io::compat::Compat<R>::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
+pub fn vortex_io::compat::Compat<R>::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
 
 impl<T: vortex_io::VortexReadAt + core::clone::Clone> vortex_io::VortexReadAt for vortex_io::InstrumentedReadAt<T>
 
@@ -590,13 +732,13 @@ pub fn vortex_buffer::ByteBufferMut::shutdown(&mut self) -> impl core::future::f
 
 pub fn vortex_buffer::ByteBufferMut::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> impl core::future::future::Future<Output = std::io::error::Result<B>>
 
-impl vortex_io::VortexWrite for vortex_io::ObjectStoreWriter
+impl vortex_io::VortexWrite for vortex_io::object_store::ObjectStoreWrite
 
-pub async fn vortex_io::ObjectStoreWriter::flush(&mut self) -> std::io::error::Result<()>
+pub async fn vortex_io::object_store::ObjectStoreWrite::flush(&mut self) -> std::io::error::Result<()>
 
-pub async fn vortex_io::ObjectStoreWriter::shutdown(&mut self) -> std::io::error::Result<()>
+pub async fn vortex_io::object_store::ObjectStoreWrite::shutdown(&mut self) -> std::io::error::Result<()>
 
-pub async fn vortex_io::ObjectStoreWriter::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> std::io::error::Result<B>
+pub async fn vortex_io::object_store::ObjectStoreWrite::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> std::io::error::Result<B>
 
 impl<T> vortex_io::VortexWrite for std::io::cursor::Cursor<T> where std::io::cursor::Cursor<T>: std::io::Write
 
@@ -629,3 +771,11 @@ pub fn futures_util::io::cursor::Cursor<W>::flush(&mut self) -> impl core::futur
 pub fn futures_util::io::cursor::Cursor<W>::shutdown(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
 
 pub fn futures_util::io::cursor::Cursor<W>::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> impl core::future::future::Future<Output = std::io::error::Result<B>>
+
+impl<W: vortex_io::VortexWrite> vortex_io::VortexWrite for vortex_io::compat::Compat<W>
+
+pub fn vortex_io::compat::Compat<W>::flush(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
+pub fn vortex_io::compat::Compat<W>::shutdown(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+
+pub fn vortex_io::compat::Compat<W>::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> impl core::future::future::Future<Output = std::io::error::Result<B>>

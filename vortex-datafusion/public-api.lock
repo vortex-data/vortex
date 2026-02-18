@@ -18,6 +18,7 @@ pub type vortex_datafusion::metrics::VortexMetricsFinder::Error = core::convert:
 
 pub fn vortex_datafusion::metrics::VortexMetricsFinder::pre_visit(&mut self, plan: &dyn datafusion_physical_plan::execution_plan::ExecutionPlan) -> core::result::Result<bool, Self::Error>
 
+<<<<<<< HEAD
 pub mod vortex_datafusion::v2
 
 pub struct vortex_datafusion::v2::VortexDataSource
@@ -94,6 +95,8 @@ impl vortex_datafusion::VortexReaderFactory for vortex_datafusion::DefaultVortex
 
 pub fn vortex_datafusion::DefaultVortexReaderFactory::create_reader(&self, path: &str, session: &vortex_session::VortexSession) -> datafusion_common::error::Result<alloc::sync::Arc<dyn vortex_io::read::VortexReadAt>>
 
+=======
+>>>>>>> develop
 pub struct vortex_datafusion::VortexAccessPlan
 
 impl vortex_datafusion::VortexAccessPlan
@@ -116,9 +119,9 @@ impl vortex_datafusion::VortexFormat
 
 pub fn vortex_datafusion::VortexFormat::new(session: vortex_session::VortexSession) -> Self
 
-pub fn vortex_datafusion::VortexFormat::new_with_options(session: vortex_session::VortexSession, opts: vortex_datafusion::VortexOptions) -> Self
+pub fn vortex_datafusion::VortexFormat::new_with_options(session: vortex_session::VortexSession, opts: vortex_datafusion::VortexTableOptions) -> Self
 
-pub fn vortex_datafusion::VortexFormat::options(&self) -> &vortex_datafusion::VortexOptions
+pub fn vortex_datafusion::VortexFormat::options(&self) -> &vortex_datafusion::VortexTableOptions
 
 impl core::fmt::Debug for vortex_datafusion::VortexFormat
 
@@ -150,9 +153,9 @@ impl vortex_datafusion::VortexFormatFactory
 
 pub fn vortex_datafusion::VortexFormatFactory::new() -> Self
 
-pub fn vortex_datafusion::VortexFormatFactory::new_with_options(session: vortex_session::VortexSession, options: vortex_datafusion::VortexOptions) -> Self
+pub fn vortex_datafusion::VortexFormatFactory::new_with_options(session: vortex_session::VortexSession, options: vortex_datafusion::VortexTableOptions) -> Self
 
-pub fn vortex_datafusion::VortexFormatFactory::with_options(self, options: vortex_datafusion::VortexOptions) -> Self
+pub fn vortex_datafusion::VortexFormatFactory::with_options(self, options: vortex_datafusion::VortexTableOptions) -> Self
 
 impl core::fmt::Debug for vortex_datafusion::VortexFormatFactory
 
@@ -170,40 +173,6 @@ pub fn vortex_datafusion::VortexFormatFactory::create(&self, _state: &dyn datafu
 
 pub fn vortex_datafusion::VortexFormatFactory::default(&self) -> alloc::sync::Arc<dyn datafusion_datasource::file_format::FileFormat>
 
-pub struct vortex_datafusion::VortexOptions
-
-pub vortex_datafusion::VortexOptions::footer_initial_read_size_bytes: usize
-
-pub vortex_datafusion::VortexOptions::projection_pushdown: bool
-
-impl core::clone::Clone for vortex_datafusion::VortexOptions
-
-pub fn vortex_datafusion::VortexOptions::clone(&self) -> vortex_datafusion::VortexOptions
-
-impl core::cmp::Eq for vortex_datafusion::VortexOptions
-
-impl core::cmp::PartialEq for vortex_datafusion::VortexOptions
-
-pub fn vortex_datafusion::VortexOptions::eq(&self, other: &vortex_datafusion::VortexOptions) -> bool
-
-impl core::default::Default for vortex_datafusion::VortexOptions
-
-pub fn vortex_datafusion::VortexOptions::default() -> Self
-
-impl core::fmt::Debug for vortex_datafusion::VortexOptions
-
-pub fn vortex_datafusion::VortexOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::marker::StructuralPartialEq for vortex_datafusion::VortexOptions
-
-impl datafusion_common::config::ConfigField for vortex_datafusion::VortexOptions
-
-pub fn vortex_datafusion::VortexOptions::reset(&mut self, key: &str) -> datafusion_common::error::Result<()>
-
-pub fn vortex_datafusion::VortexOptions::set(&mut self, key: &str, value: &str) -> datafusion_common::error::Result<()>
-
-pub fn vortex_datafusion::VortexOptions::visit<V: datafusion_common::config::Visit>(&self, v: &mut V, key_prefix: &str, _description: &'static str)
-
 pub struct vortex_datafusion::VortexSource
 
 impl vortex_datafusion::VortexSource
@@ -212,13 +181,19 @@ pub fn vortex_datafusion::VortexSource::metrics_registry(&self) -> &alloc::sync:
 
 pub fn vortex_datafusion::VortexSource::new(table_schema: datafusion_datasource::table_schema::TableSchema, session: vortex_session::VortexSession) -> Self
 
+pub fn vortex_datafusion::VortexSource::options(&self) -> &vortex_datafusion::VortexTableOptions
+
 pub fn vortex_datafusion::VortexSource::with_expression_convertor(self, expr_convertor: alloc::sync::Arc<dyn vortex_datafusion::ExpressionConvertor>) -> Self
 
 pub fn vortex_datafusion::VortexSource::with_file_metadata_cache(self, file_metadata_cache: alloc::sync::Arc<dyn datafusion_execution::cache::cache_manager::FileMetadataCache>) -> Self
 
+pub fn vortex_datafusion::VortexSource::with_options(self, opts: vortex_datafusion::VortexTableOptions) -> Self
+
 pub fn vortex_datafusion::VortexSource::with_projection_pushdown(self, enabled: bool) -> Self
 
-pub fn vortex_datafusion::VortexSource::with_vortex_reader_factory(self, vortex_reader_factory: alloc::sync::Arc<dyn vortex_datafusion::VortexReaderFactory>) -> Self
+pub fn vortex_datafusion::VortexSource::with_scan_concurrency(self, scan_concurrency: usize) -> Self
+
+pub fn vortex_datafusion::VortexSource::with_vortex_reader_factory(self, vortex_reader_factory: alloc::sync::Arc<dyn vortex_datafusion::persistent::reader::VortexReaderFactory>) -> Self
 
 impl core::clone::Clone for vortex_datafusion::VortexSource
 
@@ -250,6 +225,42 @@ pub fn vortex_datafusion::VortexSource::try_pushdown_projection(&self, projectio
 
 pub fn vortex_datafusion::VortexSource::with_batch_size(&self, batch_size: usize) -> alloc::sync::Arc<dyn datafusion_datasource::file::FileSource>
 
+pub struct vortex_datafusion::VortexTableOptions
+
+pub vortex_datafusion::VortexTableOptions::footer_initial_read_size_bytes: usize
+
+pub vortex_datafusion::VortexTableOptions::projection_pushdown: bool
+
+pub vortex_datafusion::VortexTableOptions::scan_concurrency: core::option::Option<usize>
+
+impl core::clone::Clone for vortex_datafusion::VortexTableOptions
+
+pub fn vortex_datafusion::VortexTableOptions::clone(&self) -> vortex_datafusion::VortexTableOptions
+
+impl core::cmp::Eq for vortex_datafusion::VortexTableOptions
+
+impl core::cmp::PartialEq for vortex_datafusion::VortexTableOptions
+
+pub fn vortex_datafusion::VortexTableOptions::eq(&self, other: &vortex_datafusion::VortexTableOptions) -> bool
+
+impl core::default::Default for vortex_datafusion::VortexTableOptions
+
+pub fn vortex_datafusion::VortexTableOptions::default() -> Self
+
+impl core::fmt::Debug for vortex_datafusion::VortexTableOptions
+
+pub fn vortex_datafusion::VortexTableOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_datafusion::VortexTableOptions
+
+impl datafusion_common::config::ConfigField for vortex_datafusion::VortexTableOptions
+
+pub fn vortex_datafusion::VortexTableOptions::reset(&mut self, key: &str) -> datafusion_common::error::Result<()>
+
+pub fn vortex_datafusion::VortexTableOptions::set(&mut self, key: &str, value: &str) -> datafusion_common::error::Result<()>
+
+pub fn vortex_datafusion::VortexTableOptions::visit<V: datafusion_common::config::Visit>(&self, v: &mut V, key_prefix: &str, _description: &'static str)
+
 pub trait vortex_datafusion::ExpressionConvertor: core::marker::Send + core::marker::Sync
 
 pub fn vortex_datafusion::ExpressionConvertor::can_be_pushed_down(&self, expr: &alloc::sync::Arc<dyn datafusion_physical_expr_common::physical_expr::PhysicalExpr>, schema: &arrow_schema::schema::Schema) -> bool
@@ -259,11 +270,3 @@ pub fn vortex_datafusion::ExpressionConvertor::convert(&self, expr: &dyn datafus
 pub fn vortex_datafusion::ExpressionConvertor::no_pushdown_projection(&self, source_projection: datafusion_physical_expr::projection::ProjectionExprs, input_schema: &arrow_schema::schema::Schema) -> datafusion_common::error::Result<vortex_datafusion::convert::exprs::ProcessedProjection>
 
 pub fn vortex_datafusion::ExpressionConvertor::split_projection(&self, source_projection: datafusion_physical_expr::projection::ProjectionExprs, input_schema: &arrow_schema::schema::Schema, output_schema: &arrow_schema::schema::Schema) -> datafusion_common::error::Result<vortex_datafusion::convert::exprs::ProcessedProjection>
-
-pub trait vortex_datafusion::VortexReaderFactory: core::fmt::Debug + core::marker::Send + core::marker::Sync + 'static
-
-pub fn vortex_datafusion::VortexReaderFactory::create_reader(&self, path: &str, session: &vortex_session::VortexSession) -> datafusion_common::error::Result<alloc::sync::Arc<dyn vortex_io::read::VortexReadAt>>
-
-impl vortex_datafusion::VortexReaderFactory for vortex_datafusion::DefaultVortexReaderFactory
-
-pub fn vortex_datafusion::DefaultVortexReaderFactory::create_reader(&self, path: &str, session: &vortex_session::VortexSession) -> datafusion_common::error::Result<alloc::sync::Arc<dyn vortex_io::read::VortexReadAt>>

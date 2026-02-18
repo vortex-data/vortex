@@ -465,19 +465,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-compat"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1ba85bc55464dcbf728b56d97e119d673f4cf9062be330a9a26f3acf504a590"
-dependencies = [
- "futures-core",
- "futures-io",
- "once_cell",
- "pin-project-lite",
- "tokio",
-]
-
-[[package]]
 name = "async-compression"
 version = "0.4.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9935,7 +9922,6 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
- "vortex-compute",
  "vortex-cuda",
  "vortex-cuda-macros",
  "vortex-datetime-parts",
@@ -10032,7 +10018,6 @@ dependencies = [
  "tracing",
  "vortex-array",
  "vortex-buffer",
- "vortex-compute",
  "vortex-dtype",
  "vortex-error",
  "vortex-flatbuffers",
@@ -10151,27 +10136,6 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-session",
-]
-
-[[package]]
-name = "vortex-compute"
-version = "0.1.0"
-dependencies = [
- "arrow-array",
- "arrow-buffer",
- "arrow-schema",
- "codspeed-divan-compat",
- "half",
- "itertools 0.14.0",
- "multiversion",
- "num-traits",
- "paste",
- "rstest",
- "tracing",
- "vortex-buffer",
- "vortex-dtype",
- "vortex-error",
- "vortex-mask",
 ]
 
 [[package]]
@@ -10369,6 +10333,7 @@ dependencies = [
  "itertools 0.14.0",
  "jiff",
  "num-traits",
+ "object_store",
  "once_cell",
  "parking_lot",
  "paste",
@@ -10417,7 +10382,6 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
- "vortex-compute",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
@@ -10551,7 +10515,6 @@ name = "vortex-io"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-compat",
  "async-fs",
  "async-stream",
  "async-trait",
@@ -10559,6 +10522,7 @@ dependencies = [
  "custom-labels",
  "futures",
  "getrandom 0.3.4",
+ "glob",
  "handle",
  "itertools 0.14.0",
  "kanal",
@@ -10746,6 +10710,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "arrow-array",
+ "arrow-schema",
  "codspeed-divan-compat",
  "itertools 0.14.0",
  "num-traits",

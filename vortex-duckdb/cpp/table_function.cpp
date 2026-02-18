@@ -3,6 +3,7 @@
 
 #include "duckdb.h"
 #include "duckdb/catalog/catalog.hpp"
+#include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/common/insertion_order_preserving_map.hpp"
@@ -73,8 +74,10 @@ struct CTableBindResult {
     vector<string> &names;
 };
 
-unique_ptr<FunctionData> c_bind(ClientContext &context, TableFunctionBindInput &input,
-                                vector<LogicalType> &return_types, vector<string> &names) {
+unique_ptr<FunctionData> c_bind(ClientContext &context,
+                                TableFunctionBindInput &input,
+                                vector<LogicalType> &return_types,
+                                vector<string> &names) {
     const auto &info = input.table_function.function_info->Cast<CTableFunctionInfo>();
 
     // Setup bind info to pass into the callback.
@@ -84,9 +87,11 @@ unique_ptr<FunctionData> c_bind(ClientContext &context, TableFunctionBindInput &
     };
 
     duckdb_vx_error error_out = nullptr;
-    auto ctx = reinterpret_cast<duckdb_vx_client_context>(&context);
-    auto ffi_bind_data = info.vtab.bind(ctx, reinterpret_cast<duckdb_vx_tfunc_bind_input>(&input),
-                                        reinterpret_cast<duckdb_vx_tfunc_bind_result>(&result), &error_out);
+    auto ctx = reinterpret_cast<duckdb_client_context>(&context);
+    auto ffi_bind_data = info.vtab.bind(ctx,
+                                        reinterpret_cast<duckdb_vx_tfunc_bind_input>(&input),
+                                        reinterpret_cast<duckdb_vx_tfunc_bind_result>(&result),
+                                        &error_out);
     if (error_out) {
         throw BinderException(IntoErrString(error_out));
     }
@@ -105,7 +110,7 @@ unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, Table
         .projection_ids = input.projection_ids.data(),
         .projection_ids_count = input.projection_ids.size(),
         .filters = reinterpret_cast<duckdb_vx_table_filter_set>(input.filters.get()),
-        .client_context = reinterpret_cast<duckdb_vx_client_context>(&context),
+        .client_context = reinterpret_cast<duckdb_client_context>(&context),
     };
 
     duckdb_vx_error error_out = nullptr;
@@ -119,7 +124,8 @@ unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, Table
         bind.info->max_threads);
 }
 
-unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context, TableFunctionInitInput &input,
+unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context,
+                                                 TableFunctionInitInput &input,
                                                  GlobalTableFunctionState *global_state) {
     const auto &bind = input.bind_data->Cast<CTableBindData>();
     auto global_data = global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
@@ -131,7 +137,7 @@ unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context, Tabl
         .projection_ids = input.projection_ids.data(),
         .projection_ids_count = input.projection_ids.size(),
         .filters = reinterpret_cast<duckdb_vx_table_filter_set>(input.filters.get()),
-        .client_context = reinterpret_cast<duckdb_vx_client_context>(&context),
+        .client_context = reinterpret_cast<duckdb_client_context>(&context),
     };
 
     duckdb_vx_error error_out = nullptr;
@@ -147,20 +153,26 @@ unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context, Tabl
 void c_function(ClientContext &context, TableFunctionInput &input, DataChunk &output) {
     const auto &bind = input.bind_data->Cast<CTableBindData>();
 
-    auto ctx = reinterpret_cast<duckdb_vx_client_context>(&context);
+    auto ctx = reinterpret_cast<duckdb_client_context>(&context);
     const auto bind_data = bind.ffi_data->DataPtr();
     auto global_data = input.global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
     auto local_data = input.local_state->Cast<CTableLocalData>().ffi_data->DataPtr();
 
     duckdb_vx_error error_out = nullptr;
-    bind.info->vtab.function(ctx, bind_data, global_data, local_data,
-                             reinterpret_cast<duckdb_data_chunk>(&output), &error_out);
+    bind.info->vtab.function(ctx,
+                             bind_data,
+                             global_data,
+                             local_data,
+                             reinterpret_cast<duckdb_data_chunk>(&output),
+                             &error_out);
     if (error_out) {
         throw InvalidInputException(IntoErrString(error_out));
     }
 }
 
-void c_pushdown_complex_filter(ClientContext &context, LogicalGet &get, FunctionData *bind_data,
+void c_pushdown_complex_filter(ClientContext &context,
+                               LogicalGet &get,
+                               FunctionData *bind_data,
                                vector<unique_ptr<Expression>> &filters) {
     if (filters.empty()) {
         return;
@@ -170,9 +182,10 @@ void c_pushdown_complex_filter(ClientContext &context, LogicalGet &get, Function
 
     for (auto iter = filters.begin(); iter != filters.end();) {
         duckdb_vx_error error_out = nullptr;
-        auto pushed = bind.info->vtab.pushdown_complex_filter(
-            bind_data->Cast<CTableBindData>().ffi_data->DataPtr(),
-            reinterpret_cast<duckdb_vx_expr>(iter->get()), &error_out);
+        auto pushed =
+            bind.info->vtab.pushdown_complex_filter(bind_data->Cast<CTableBindData>().ffi_data->DataPtr(),
+                                                    reinterpret_cast<duckdb_vx_expr>(iter->get()),
+                                                    &error_out);
         if (error_out) {
             throw BinderException(IntoErrString(error_out));
         }
@@ -238,7 +251,8 @@ extern "C" duckdb_value duckdb_vx_tfunc_bind_input_get_named_parameter(duckdb_vx
 }
 
 extern "C" void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_result ffi_result,
-                                                       const char *name_str, size_t name_len,
+                                                       const char *name_str,
+                                                       size_t name_len,
                                                        duckdb_logical_type ffi_type) {
     if (!name_str || !ffi_type) {
         return;
@@ -260,7 +274,9 @@ virtual_column_map_t c_get_virtual_columns(ClientContext &context, optional_ptr<
 }
 
 extern "C" void duckdb_vx_tfunc_virtual_columns_push(duckdb_vx_tfunc_virtual_cols_result ffi_result,
-                                                     idx_t column_idx, const char *name_str, size_t name_len,
+                                                     idx_t column_idx,
+                                                     const char *name_str,
+                                                     size_t name_len,
                                                      duckdb_logical_type ffi_type) {
     if (!ffi_result || !name_str || !ffi_type) {
         return;
@@ -283,8 +299,10 @@ OperatorPartitionData c_get_partition_data(ClientContext &context, TableFunction
     auto &local = input.local_state->Cast<CTableLocalData>();
 
     duckdb_vx_error error_out = nullptr;
-    auto index = bind.info->vtab.get_partition_data(bind.ffi_data->DataPtr(), global.ffi_data->DataPtr(),
-                                                    local.ffi_data->DataPtr(), &error_out);
+    auto index = bind.info->vtab.get_partition_data(bind.ffi_data->DataPtr(),
+                                                    global.ffi_data->DataPtr(),
+                                                    local.ffi_data->DataPtr(),
+                                                    &error_out);
     if (error_out) {
         throw InvalidInputException(IntoErrString(error_out));
     }
@@ -312,13 +330,13 @@ InsertionOrderPreservingMap<string> c_to_string(TableFunctionToStringInput &inpu
     return result;
 }
 
-extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
-                                                 const duckdb_vx_tfunc_vtab_t *vtab) {
-    if (!ffi_conn || !vtab) {
+extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const duckdb_vx_tfunc_vtab_t *vtab) {
+    if (!ffi_db || !vtab) {
         return DuckDBError;
     }
 
-    auto conn = reinterpret_cast<Connection *>(ffi_conn);
+    auto wrapper = reinterpret_cast<duckdb::DatabaseWrapper *>(ffi_db);
+    auto db = wrapper->database->instance;
     auto tf = TableFunction(vtab->name, {}, c_function, c_bind, c_init_global, c_init_local);
 
     tf.pushdown_complex_filter = c_pushdown_complex_filter;
@@ -348,11 +366,10 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn,
     tf.function_info = make_shared_ptr<CTableFunctionInfo>(*vtab);
 
     try {
-        conn->context->RunFunctionInTransaction([&]() {
-            auto &catalog = Catalog::GetSystemCatalog(*conn->context);
-            CreateTableFunctionInfo tf_info(tf);
-            catalog.CreateTableFunction(*conn->context, tf_info);
-        });
+        auto &system_catalog = Catalog::GetSystemCatalog(*db);
+        auto data = CatalogTransaction::GetSystemTransaction(*db);
+        CreateTableFunctionInfo tf_info(tf);
+        system_catalog.CreateFunction(data, tf_info);
     } catch (...) {
         return DuckDBError;
     }
@@ -379,5 +396,4 @@ extern "C" void duckdb_vx_string_map_free(duckdb_vx_string_map map) {
     auto *cpp_map = reinterpret_cast<InsertionOrderPreservingMap<string> *>(map);
     delete cpp_map;
 }
-
 } // namespace vortex

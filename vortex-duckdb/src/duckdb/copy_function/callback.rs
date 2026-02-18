@@ -53,7 +53,7 @@ pub(crate) unsafe extern "C-unwind" fn bind_callback<T: CopyFunction>(
 }
 
 pub(crate) unsafe extern "C-unwind" fn global_callback<T: CopyFunction>(
-    client_context: cpp::duckdb_vx_client_context,
+    client_context: cpp::duckdb_client_context,
     bind_data: *const c_void,
     file_path: *const c_char,
     error_out: *mut duckdb_vx_error,

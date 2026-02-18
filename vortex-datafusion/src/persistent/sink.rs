@@ -32,8 +32,8 @@ use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
-use vortex::io::ObjectStoreWriter;
 use vortex::io::VortexWrite;
+use vortex::io::object_store::ObjectStoreWrite;
 use vortex::session::VortexSession;
 
 pub struct VortexSink {
@@ -124,9 +124,9 @@ impl FileSink for VortexSink {
 
                 let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
 
-                let mut object_writer = ObjectStoreWriter::new(object_store, &path)
+                let mut object_writer = ObjectStoreWrite::new(object_store, &path)
                     .await
-                    .map_err(|e| exec_datafusion_err!("Failed to create ObjectStoreWriter: {e}"))?;
+                    .map_err(|e| exec_datafusion_err!("Failed to create ObjectStoreWrite: {e}"))?;
 
                 let summary = session
                     .write_options()

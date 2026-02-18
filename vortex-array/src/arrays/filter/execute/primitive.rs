@@ -3,12 +3,12 @@
 
 use std::sync::Arc;
 
-use vortex_compute::filter::Filter;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
 use crate::arrays::PrimitiveArray;
+use crate::arrays::filter::execute::buffer;
 use crate::arrays::filter::execute::filter_validity;
 
 pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> PrimitiveArray {
@@ -18,9 +18,7 @@ pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> Primi
     let filtered_validity = filter_validity(validity, mask);
 
     match_each_native_ptype!(array.ptype(), |T| {
-        // TODO(connor): Ideally we should filter directly on the `BufferHandle` once we implement
-        // `Filter` for that.
-        let filtered_buffer = array.to_buffer::<T>().filter(mask.as_ref());
+        let filtered_buffer = buffer::filter_buffer(array.to_buffer::<T>(), mask.as_ref());
 
         // SAFETY: We filter both the validity and the buffer with the same mask, so they must have
         // the same length.

@@ -478,13 +478,28 @@ fn main() {
         .compile("vortex-duckdb-extras");
 
     // Generate the _exported_ bindings from our Rust code.
+    let generated_header = crate_dir.join("include/vortex.h");
     cbindgen::Builder::new()
         .with_config(cbindgen::Config::from_file(crate_dir.join("cbindgen.toml")).unwrap())
         .with_crate(&crate_dir)
         .with_no_includes()
         .generate()
         .expect("error: Unable to generate bindings for vortex.h")
-        .write_to_file(crate_dir.join("include/vortex.h"));
+        .write_to_file(&generated_header);
+
+    // Run clang-format on the generated header.
+    if let Ok(status) = std::process::Command::new("clang-format")
+        .arg("-i")
+        .arg("--style=file")
+        .arg(&generated_header)
+        .status()
+    {
+        if !status.success() {
+            println!("cargo:warning=clang-format exited with status {status}");
+        }
+    } else {
+        println!("cargo:warning=clang-format not found, skipping formatting of generated header");
+    }
 
     // Watch C/C++ source files for changes.
     for entry in walkdir::WalkDir::new("cpp/").into_iter().flatten() {

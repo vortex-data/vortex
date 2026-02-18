@@ -62,7 +62,6 @@ tabled = { workspace = true, optional = true, default-features = false, features
 termtree = { workspace = true }
 tracing = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }
-vortex-compute = { workspace = true, default-features = true }
 vortex-dtype = { workspace = true, features = ["serde"] }
 vortex-error = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["array"] }
