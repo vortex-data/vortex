@@ -17,9 +17,9 @@ use std::time::Instant;
 use anyhow::Result;
 use clap::Parser;
 use clap::ValueEnum;
-use futures::future::BoxFuture;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::future::BoxFuture;
 use object_store::GetOptions;
 use object_store::GetRange;
 use object_store::ObjectStore;
@@ -95,6 +95,10 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 #[cfg(target_os = "linux")]
 use tokio::net::TcpStream;
+#[cfg(target_os = "linux")]
+use tokio::sync::Mutex as TokioMutex;
+#[cfg(target_os = "linux")]
+use tokio::sync::Notify;
 #[cfg(target_os = "linux")]
 use tokio_rustls::TlsConnector;
 
@@ -869,6 +873,15 @@ const KTLS_COALESCE_DISTANCE_ENV: &str = "VORTEX_S3_COALESCE_DISTANCE";
 const KTLS_COALESCE_MAX_SIZE_ENV: &str = "VORTEX_S3_COALESCE_MAX_SIZE";
 #[cfg(target_os = "linux")]
 const KTLS_COALESCE_DISABLE_ENV: &str = "VORTEX_S3_COALESCE_DISABLE";
+#[cfg(target_os = "linux")]
+const KTLS_POOL_SIZE_ENV: &str = "VORTEX_BENCH_S3_KTLS_POOL_SIZE";
+#[cfg(target_os = "linux")]
+const KTLS_PREWARM_ENV: &str = "VORTEX_BENCH_S3_KTLS_PREWARM";
+
+#[cfg(target_os = "linux")]
+struct KtlsConnection {
+    stream: ktls::KtlsStream<TcpStream>,
+}
 
 #[cfg(target_os = "linux")]
 #[derive(Clone)]
@@ -883,7 +896,10 @@ struct KtlsS3ReadSource {
     host_header: std::sync::Arc<str>,
     port: u16,
     request_target: std::sync::Arc<str>,
-    request_counter: std::sync::Arc<AtomicUsize>,
+    max_connections: usize,
+    live_connections: std::sync::Arc<AtomicUsize>,
+    idle_connections: std::sync::Arc<TokioMutex<Vec<KtlsConnection>>>,
+    connection_available: std::sync::Arc<Notify>,
 }
 
 #[cfg(target_os = "linux")]
@@ -933,28 +949,37 @@ impl KtlsS3ReadSource {
             }
         }
 
-        Ok(Self {
+        let concurrency =
+            read_env_usize(KTLS_READ_CONCURRENCY_ENV).unwrap_or(DEFAULT_KTLS_CONCURRENCY);
+        let max_connections = read_env_usize(KTLS_POOL_SIZE_ENV)
+            .unwrap_or(concurrency)
+            .max(1);
+
+        let source = Self {
             store,
             path: path.clone(),
             uri: std::sync::Arc::from(path.to_string()),
-            concurrency: read_env_usize(KTLS_READ_CONCURRENCY_ENV)
-                .unwrap_or(DEFAULT_KTLS_CONCURRENCY),
+            concurrency,
             coalesce_config,
             tls: std::sync::Arc::new(tls),
             host: std::sync::Arc::from(host),
             host_header: std::sync::Arc::from(host_header),
             port,
             request_target: std::sync::Arc::from(request_target),
-            request_counter: std::sync::Arc::new(AtomicUsize::new(0)),
-        })
-    }
+            max_connections,
+            live_connections: std::sync::Arc::new(AtomicUsize::new(0)),
+            idle_connections: std::sync::Arc::new(TokioMutex::new(Vec::new())),
+            connection_available: std::sync::Arc::new(Notify::new()),
+        };
 
-    async fn read_range_into(&self, offset: u64, target: &mut [u8]) -> Result<()> {
-        if target.is_empty() {
-            return Ok(());
+        if read_env_bool(KTLS_PREWARM_ENV, false) {
+            source.prewarm_connections().await?;
         }
 
-        let end = offset + (target.len() as u64) - 1;
+        Ok(source)
+    }
+
+    async fn open_connection(&self) -> Result<KtlsConnection> {
         let addr = format!("{}:{}", self.host, self.port);
         let tcp = TcpStream::connect(addr).await?;
         tcp.set_nodelay(true)?;
@@ -962,18 +987,76 @@ impl KtlsS3ReadSource {
         let server_name = ServerName::try_from(self.host.as_ref().to_string())
             .map_err(|e| anyhow::anyhow!("invalid TLS server name '{}': {e}", self.host))?;
         let tls_stream = self.tls.connect(server_name, CorkStream::new(tcp)).await?;
-        let mut stream = ktls::config_ktls_client(tls_stream).await?;
+        let stream = ktls::config_ktls_client(tls_stream).await?;
+        Ok(KtlsConnection { stream })
+    }
+
+    async fn prewarm_connections(&self) -> Result<()> {
+        for _ in 0..self.max_connections {
+            let connection = self.open_connection().await?;
+            self.live_connections.fetch_add(1, Ordering::AcqRel);
+            self.idle_connections.lock().await.push(connection);
+        }
+        self.connection_available.notify_waiters();
+        Ok(())
+    }
+
+    async fn acquire_connection(&self) -> Result<KtlsConnection> {
+        loop {
+            if let Some(connection) = self.idle_connections.lock().await.pop() {
+                return Ok(connection);
+            }
+
+            let current = self.live_connections.load(Ordering::Acquire);
+            if current < self.max_connections
+                && self
+                    .live_connections
+                    .compare_exchange(current, current + 1, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+            {
+                match self.open_connection().await {
+                    Ok(connection) => return Ok(connection),
+                    Err(err) => {
+                        self.live_connections.fetch_sub(1, Ordering::AcqRel);
+                        self.connection_available.notify_one();
+                        return Err(err);
+                    }
+                }
+            }
+
+            self.connection_available.notified().await;
+        }
+    }
+
+    async fn release_connection(&self, connection: KtlsConnection) {
+        self.idle_connections.lock().await.push(connection);
+        self.connection_available.notify_one();
+    }
+
+    fn discard_connection(&self) {
+        let live = self.live_connections.fetch_sub(1, Ordering::AcqRel);
+        debug_assert!(live > 0, "live_connections underflow");
+        self.connection_available.notify_one();
+    }
+
+    async fn read_range_over_connection(
+        &self,
+        connection: &mut KtlsConnection,
+        offset: u64,
+        target: &mut [u8],
+    ) -> Result<bool> {
+        let end = offset + (target.len() as u64) - 1;
         let request = format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nRange: bytes={offset}-{end}\r\nAccept: */*\r\nConnection: close\r\n\r\n",
+            "GET {} HTTP/1.1\r\nHost: {}\r\nRange: bytes={offset}-{end}\r\nAccept: */*\r\nConnection: keep-alive\r\n\r\n",
             self.request_target, self.host_header
         );
-        stream.write_all(request.as_bytes()).await?;
-        stream.flush().await?;
+        connection.stream.write_all(request.as_bytes()).await?;
+        connection.stream.flush().await?;
 
         let mut response_buf = Vec::with_capacity(16 * 1024);
         let mut scratch = [0u8; 8192];
         let header_end = loop {
-            let read = stream.read(&mut scratch).await?;
+            let read = connection.stream.read(&mut scratch).await?;
             if read == 0 {
                 anyhow::bail!("unexpected EOF while reading S3 HTTP response headers");
             }
@@ -1005,13 +1088,19 @@ impl KtlsS3ReadSource {
 
         let mut filled = 0usize;
         let prefetched = &response_buf[header_end..];
+        if prefetched.len() > target.len() {
+            anyhow::bail!(
+                "S3 prefetched body exceeded expected length: {} > {}",
+                prefetched.len(),
+                target.len()
+            );
+        }
         if !prefetched.is_empty() {
-            let copy_len = prefetched.len().min(target.len());
-            target[..copy_len].copy_from_slice(&prefetched[..copy_len]);
-            filled += copy_len;
+            target[..prefetched.len()].copy_from_slice(prefetched);
+            filled += prefetched.len();
         }
         while filled < target.len() {
-            let read = stream.read(&mut target[filled..]).await?;
+            let read = connection.stream.read(&mut target[filled..]).await?;
             if read == 0 {
                 anyhow::bail!(
                     "unexpected EOF while reading S3 body (read {} of {} bytes)",
@@ -1022,8 +1111,32 @@ impl KtlsS3ReadSource {
             filled += read;
         }
 
-        self.request_counter.fetch_add(1, Ordering::Relaxed);
-        Ok(())
+        Ok(!header_has_connection_close(headers))
+    }
+
+    async fn read_range_into(&self, offset: u64, target: &mut [u8]) -> Result<()> {
+        if target.is_empty() {
+            return Ok(());
+        }
+
+        let mut connection = self.acquire_connection().await?;
+        let request_result = self
+            .read_range_over_connection(&mut connection, offset, target)
+            .await;
+        match request_result {
+            Ok(true) => {
+                self.release_connection(connection).await;
+                Ok(())
+            }
+            Ok(false) => {
+                self.discard_connection();
+                Ok(())
+            }
+            Err(err) => {
+                self.discard_connection();
+                Err(err)
+            }
+        }
     }
 }
 
@@ -1139,6 +1252,27 @@ fn header_has_chunked_encoding(headers: &[u8]) -> bool {
     false
 }
 
+#[cfg(target_os = "linux")]
+fn header_has_connection_close(headers: &[u8]) -> bool {
+    let Ok(header_str) = std::str::from_utf8(headers) else {
+        return true;
+    };
+
+    for line in header_str.split("\r\n").skip(1) {
+        if line.is_empty() {
+            break;
+        }
+        if let Some((name, value)) = line.split_once(':')
+            && name.eq_ignore_ascii_case("connection")
+        {
+            return value
+                .split(',')
+                .any(|token| token.trim().eq_ignore_ascii_case("close"));
+        }
+    }
+    false
+}
+
 #[derive(Clone)]
 struct BenchLayoutReader {
     inner: std::sync::Arc<dyn LayoutReader>,
@@ -1222,8 +1356,7 @@ impl LayoutReader for BenchLayoutReader {
         row_range: &std::ops::Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<vortex::array::ArrayRef>>>
-    {
+    ) -> VortexResult<BoxFuture<'static, VortexResult<vortex::array::ArrayRef>>> {
         self.inner.projection_evaluation(row_range, expr, mask)
     }
 }
