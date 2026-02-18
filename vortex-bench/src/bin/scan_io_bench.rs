@@ -1132,9 +1132,28 @@ impl KtlsS3ReadSource {
                 self.discard_connection();
                 Ok(())
             }
-            Err(err) => {
+            Err(_) => {
+                // Connection may be stale (S3 closed idle keep-alive).
+                // Retry once with a fresh connection.
                 self.discard_connection();
-                Err(err)
+                let mut fresh = self.acquire_connection().await?;
+                match self
+                    .read_range_over_connection(&mut fresh, offset, target)
+                    .await
+                {
+                    Ok(true) => {
+                        self.release_connection(fresh).await;
+                        Ok(())
+                    }
+                    Ok(false) => {
+                        self.discard_connection();
+                        Ok(())
+                    }
+                    Err(err) => {
+                        self.discard_connection();
+                        Err(err)
+                    }
+                }
             }
         }
     }
