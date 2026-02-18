@@ -25,7 +25,6 @@ getrandom_v03 = { workspace = true }                              # Needed to pi
 itertools = { workspace = true }
 kanal = { workspace = true }
 object_store = { workspace = true, optional = true }
-oneshot.workspace = true
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }

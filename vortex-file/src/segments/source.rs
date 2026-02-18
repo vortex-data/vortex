@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::task;
 use std::task::Context;
 use std::task::Poll;
 
@@ -34,6 +33,7 @@ use vortex_metrics::MetricsRegistry;
 use crate::SegmentSpec;
 use crate::read::IoRequestStream;
 use crate::read::ReadRequest;
+use crate::read::ReadRequestState;
 use crate::read::RequestId;
 
 #[derive(Debug)]
@@ -229,15 +229,9 @@ impl SegmentSource for FileSegmentSource {
             alignment,
         } = spec;
 
-        let (send, recv) = oneshot::channel();
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let event = ReadEvent::Request(ReadRequest {
-            id,
-            offset,
-            length: length as usize,
-            alignment,
-            callback: send,
-        });
+        let (request, state) = ReadRequest::new(id, offset, length as usize, alignment);
+        let event = ReadEvent::Request(request);
 
         // If we fail to submit the event, we create a future that has failed.
         if let Err(e) = self.events.unbounded_send(event) {
@@ -247,7 +241,7 @@ impl SegmentSource for FileSegmentSource {
 
         let fut = ReadFuture {
             id,
-            recv,
+            state,
             polled: false,
             events: self.events.clone(),
         };
@@ -263,7 +257,7 @@ impl SegmentSource for FileSegmentSource {
 /// If dropped, the read request will be canceled where possible.
 struct ReadFuture {
     id: usize,
-    recv: oneshot::Receiver<VortexResult<BufferHandle>>,
+    state: Arc<ReadRequestState>,
     polled: bool,
     events: mpsc::UnboundedSender<ReadEvent>,
 }
@@ -281,15 +275,13 @@ impl Future for ReadFuture {
             IO_POLLED.fetch_add(1, Ordering::Relaxed);
         }
 
-        match task::ready!(self.recv.poll_unpin(cx)) {
-            Ok(result) => Poll::Ready(result),
-            Err(e) => Poll::Ready(Err(vortex_err!("ReadRequest dropped by runtime: {e}"))),
-        }
+        self.state.poll_result(cx)
     }
 }
 
 impl Drop for ReadFuture {
     fn drop(&mut self) {
+        self.state.close();
         // When the FileHandle is dropped, we can send a shutdown event to the I/O stream.
         // If the I/O stream has already been dropped, this will fail silently.
         if self

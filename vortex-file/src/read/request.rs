@@ -6,7 +6,13 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::task::Context;
+use std::task::Poll;
 
+use futures::task::AtomicWaker;
+use parking_lot::Mutex;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_error::VortexError;
@@ -85,12 +91,67 @@ pub(crate) enum IoRequestInner {
 
 pub(crate) type RequestId = usize;
 
+pub(crate) struct ReadRequestState {
+    closed: AtomicBool,
+    result: Mutex<Option<VortexResult<BufferHandle>>>,
+    waker: AtomicWaker,
+}
+
+impl ReadRequestState {
+    fn new() -> Self {
+        Self {
+            closed: AtomicBool::new(false),
+            result: Mutex::new(None),
+            waker: AtomicWaker::new(),
+        }
+    }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn close(&self) {
+        self.closed.store(true, Ordering::Relaxed);
+        self.waker.wake();
+    }
+
+    pub(crate) fn resolve(&self, result: VortexResult<BufferHandle>) -> bool {
+        if self.is_closed() {
+            return false;
+        }
+
+        let mut slot = self.result.lock();
+        if self.is_closed() || slot.is_some() {
+            return false;
+        }
+
+        *slot = Some(result);
+        drop(slot);
+        self.waker.wake();
+        true
+    }
+
+    pub(crate) fn poll_result(&self, cx: &mut Context<'_>) -> Poll<VortexResult<BufferHandle>> {
+        if let Some(result) = self.result.lock().take() {
+            return Poll::Ready(result);
+        }
+
+        self.waker.register(cx.waker());
+
+        if let Some(result) = self.result.lock().take() {
+            Poll::Ready(result)
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
 pub struct ReadRequest {
     pub(crate) id: RequestId,
     pub(crate) offset: u64,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
-    pub(crate) callback: oneshot::Sender<VortexResult<BufferHandle>>,
+    pub(crate) state: Arc<ReadRequestState>,
 }
 
 impl Debug for ReadRequest {
@@ -100,15 +161,38 @@ impl Debug for ReadRequest {
             .field("offset", &self.offset)
             .field("length", &self.length)
             .field("alignment", &self.alignment)
-            .field("is_closed", &self.callback.is_closed())
+            .field("is_closed", &self.is_closed())
             .finish()
     }
 }
 
 impl ReadRequest {
+    pub(crate) fn new(
+        id: RequestId,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> (Self, Arc<ReadRequestState>) {
+        let state = Arc::new(ReadRequestState::new());
+        (
+            Self {
+                id,
+                offset,
+                length,
+                alignment,
+                state: state.clone(),
+            },
+            state,
+        )
+    }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        self.state.is_closed()
+    }
+
     pub(crate) fn resolve(self, result: VortexResult<BufferHandle>) {
-        if let Err(e) = self.callback.send(result) {
-            tracing::debug!("ReadRequest {} dropped before resolving: {e}", self.id);
+        if !self.state.resolve(result) {
+            tracing::debug!("ReadRequest {} dropped before resolving", self.id);
         }
     }
 }

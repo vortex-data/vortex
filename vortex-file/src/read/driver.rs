@@ -136,7 +136,7 @@ impl State {
         tracing::debug!(?event, "Received ReadEvent");
         match event {
             ReadEvent::Request(req) => {
-                if req.callback.is_closed() {
+                if req.is_closed() {
                     tracing::debug!(?req, "ReadRequest dropped before registration");
                     return;
                 }
@@ -145,7 +145,7 @@ impl State {
             }
             ReadEvent::Polled(req_id) => {
                 if let Some(req) = self.requests.remove(&req_id) {
-                    if req.callback.is_closed() {
+                    if req.is_closed() {
                         self.requests_by_offset.remove(&(req.offset, req_id));
                         tracing::debug!(?req, "ReadRequest dropped before poll");
                     } else {
@@ -192,7 +192,7 @@ impl State {
     fn next_uncoalesced(&mut self) -> Option<ReadRequest> {
         while let Some((req_id, req)) = self.polled_requests.pop_first() {
             self.requests_by_offset.remove(&(req.offset, req_id));
-            if req.callback.is_closed() {
+            if req.is_closed() {
                 tracing::debug!("Dropping canceled request");
                 continue;
             }
@@ -250,7 +250,7 @@ impl State {
                     .vortex_expect("Missing request in requests_by_offset");
 
                 // Skip any cancelled requests
-                if req.callback.is_closed() {
+                if req.is_closed() {
                     if ids_to_remove.insert(req_id) {
                         keys_to_remove.push((req_offset, req_id));
                     }
@@ -321,11 +321,11 @@ impl State {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use futures::StreamExt;
     use futures::stream;
-    use vortex_array::buffer::BufferHandle;
     use vortex_buffer::Alignment;
-    use vortex_error::VortexResult;
     use vortex_metrics::DefaultMetricsRegistry;
     use vortex_metrics::MetricValue;
     use vortex_metrics::MetricsRegistry;
@@ -337,18 +337,8 @@ mod tests {
         id: usize,
         offset: u64,
         length: usize,
-    ) -> (ReadRequest, oneshot::Receiver<VortexResult<BufferHandle>>) {
-        let (tx, rx) = oneshot::channel();
-        (
-            ReadRequest {
-                id,
-                offset,
-                length,
-                alignment: Alignment::none(),
-                callback: tx,
-            },
-            rx,
-        )
+    ) -> (ReadRequest, Arc<crate::read::ReadRequestState>) {
+        ReadRequest::new(id, offset, length, Alignment::none())
     }
 
     async fn collect_outputs(
@@ -474,23 +464,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_coalesce_alignment_adjustment() {
-        let (tx1, _rx1) = oneshot::channel();
-        let (tx2, _rx2) = oneshot::channel();
-
-        let req1 = ReadRequest {
-            id: 1,
-            offset: 6,
-            length: 5,
-            alignment: Alignment::new(2),
-            callback: tx1,
-        };
-        let req2 = ReadRequest {
-            id: 2,
-            offset: 12,
-            length: 1,
-            alignment: Alignment::new(4),
-            callback: tx2,
-        };
+        let (req1, _state1) = ReadRequest::new(1, 6, 5, Alignment::new(2));
+        let (req2, _state2) = ReadRequest::new(2, 12, 1, Alignment::new(4));
 
         let events = vec![
             ReadEvent::Request(req1),
@@ -546,26 +521,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_cancelled_requests() {
-        let (tx1, rx1) = oneshot::channel();
-        let (tx2, _rx2) = oneshot::channel();
-
-        // Drop rx1 to cancel request 1
-        drop(rx1);
-
-        let req1 = ReadRequest {
-            id: 1,
-            offset: 0,
-            length: 10,
-            alignment: Alignment::none(),
-            callback: tx1,
-        };
-        let req2 = ReadRequest {
-            id: 2,
-            offset: 100,
-            length: 10,
-            alignment: Alignment::none(),
-            callback: tx2,
-        };
+        let (req1, state1) = create_request(1, 0, 10);
+        let (req2, _state2) = create_request(2, 100, 10);
+        state1.close();
 
         let events = vec![
             ReadEvent::Request(req1),
@@ -586,31 +544,17 @@ mod tests {
         let mut state = State::new(metrics, Alignment::none());
 
         // Cancel before registration: request should never enter state indexes.
-        let (tx1, rx1) = oneshot::channel();
-        drop(rx1);
-        let req1 = ReadRequest {
-            id: 1,
-            offset: 10,
-            length: 4,
-            alignment: Alignment::none(),
-            callback: tx1,
-        };
+        let (req1, state1) = create_request(1, 10, 4);
+        state1.close();
         state.on_event(ReadEvent::Request(req1));
         assert!(state.requests.is_empty());
         assert!(state.polled_requests.is_empty());
         assert!(state.requests_by_offset.is_empty());
 
         // Cancel after registration but before first poll: should be removed on Polled event.
-        let (tx2, rx2) = oneshot::channel();
-        let req2 = ReadRequest {
-            id: 2,
-            offset: 20,
-            length: 8,
-            alignment: Alignment::none(),
-            callback: tx2,
-        };
+        let (req2, state2) = create_request(2, 20, 8);
         state.on_event(ReadEvent::Request(req2));
-        drop(rx2);
+        state2.close();
         state.on_event(ReadEvent::Polled(2));
         assert!(state.requests.is_empty());
         assert!(state.polled_requests.is_empty());
