@@ -63,10 +63,6 @@ vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-io = { workspace = true, features = ["tokio"] }
 vortex-scan = { workspace = true }
 
-[target.'cfg(unix)'.dev-dependencies]
-vortex-cuda = { workspace = true }
-vortex-cuda-macros = { workspace = true }
-
 [lints]
 workspace = true
 
