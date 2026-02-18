@@ -93,7 +93,6 @@ use vortex::io::reset_default_alloc_stats;
 use vortex::layout::LayoutReader;
 use vortex::mask::Mask;
 use vortex::metrics::DefaultMetricsRegistry;
-use vortex::metrics::MetricValue;
 use vortex::metrics::MetricsRegistry;
 use vortex_bench::SESSION;
 use vortex_cuda::CudaSessionExt;
@@ -206,21 +205,6 @@ async fn main() -> Result<()> {
     let (projection, filter) = build_scan_exprs(&args)?;
     let metrics: std::sync::Arc<dyn MetricsRegistry> =
         std::sync::Arc::new(DefaultMetricsRegistry::default());
-    let total_read_bytes = {
-        let metrics = metrics.clone();
-        move || -> u64 {
-            metrics
-                .snapshot()
-                .iter()
-                .filter(|m| m.name().as_ref() == "vortex.io.read.total_size")
-                .filter_map(|m| match m.value() {
-                    MetricValue::Counter(c) => Some(c.value()),
-                    _ => None,
-                })
-                .sum()
-        }
-    };
-
     #[allow(clippy::if_then_some_else_none)]
     let (gpu_allocator, pinned_pool) = if args.gpu {
         let cuda_session = SESSION.cuda_session();
@@ -237,18 +221,27 @@ async fn main() -> Result<()> {
         .map(|alloc| alloc.clone() as std::sync::Arc<dyn BufferAllocator>);
 
     let targets = resolve_targets(&args).await?;
+    let all_files = open_all_targets(
+        &targets,
+        metrics.clone(),
+        args.file_concurrency,
+        allocator.clone(),
+    )
+    .await?;
+    let data_size_per_iter: u64 = all_files
+        .iter()
+        .map(|f| {
+            f.footer()
+                .segment_map()
+                .iter()
+                .map(|s| s.length as u64)
+                .sum::<u64>()
+        })
+        .sum();
     let cached_files = if args.reopen {
         None
     } else {
-        Some(std::sync::Arc::new(
-            open_all_targets(
-                &targets,
-                metrics.clone(),
-                args.file_concurrency,
-                allocator.clone(),
-            )
-            .await?,
-        ))
+        Some(std::sync::Arc::new(all_files))
     };
     reset_default_alloc_stats();
     reset_copy_stats();
@@ -258,10 +251,8 @@ async fn main() -> Result<()> {
     }
 
     let start = Instant::now();
-    let bytes_before = total_read_bytes();
-    let manual_io_bytes = std::sync::Arc::new(AtomicU64::new(0));
     let first_seen = std::sync::Arc::new(AtomicBool::new(false));
-    let first_info = std::sync::Arc::new(Mutex::new(None::<(f64, u64)>));
+    let first_latency = std::sync::Arc::new(Mutex::new(None::<f64>));
     let targets = targets.clone();
 
     let rows = futures::stream::iter(0..args.iterations)
@@ -271,12 +262,10 @@ async fn main() -> Result<()> {
             let projection = projection.clone();
             let filter = filter.clone();
             let metrics = metrics.clone();
-            let total_read_bytes = total_read_bytes.clone();
             let first_seen = first_seen.clone();
-            let first_info = first_info.clone();
+            let first_latency = first_latency.clone();
             let mode = mode.clone();
             let allocator = allocator.clone();
-            let manual_io_bytes = manual_io_bytes.clone();
             async move {
                 let file = match &cached_files {
                     Some(files) => files[idx].clone(),
@@ -296,25 +285,23 @@ async fn main() -> Result<()> {
                     if io_no_copy_enabled() {
                         match &target {
                             ScanTarget::ObjectStore { store, path } => {
-                                let io_bytes = read_all_segments_object_store_no_copy(
+                                read_all_segments_object_store_no_copy(
                                     &file,
                                     store,
                                     path,
                                     args.concurrency,
                                 )
                                 .await?;
-                                manual_io_bytes.fetch_add(io_bytes, Ordering::Relaxed);
                             }
                             ScanTarget::AmazonS3 { store, path } => {
                                 let store_dyn: std::sync::Arc<dyn ObjectStore> = store.clone();
-                                let io_bytes = read_all_segments_object_store_no_copy(
+                                read_all_segments_object_store_no_copy(
                                     &file,
                                     &store_dyn,
                                     path,
                                     args.concurrency,
                                 )
                                 .await?;
-                                manual_io_bytes.fetch_add(io_bytes, Ordering::Relaxed);
                             }
                             ScanTarget::Local(_) => {
                                 read_all_segments(&file, args.concurrency).await?;
@@ -326,10 +313,7 @@ async fn main() -> Result<()> {
                     if !first_seen.load(Ordering::Relaxed)
                         && !first_seen.swap(true, Ordering::Relaxed)
                     {
-                        let latency = start.elapsed().as_secs_f64();
-                        let bytes = (total_read_bytes() - bytes_before)
-                            + manual_io_bytes.load(Ordering::Relaxed);
-                        *first_info.lock() = Some((latency, bytes));
+                        *first_latency.lock() = Some(start.elapsed().as_secs_f64());
                     }
                     let file_rows = usize::try_from(file.row_count())
                         .map_err(|_| anyhow::anyhow!("row_count exceeds usize"))?;
@@ -374,10 +358,7 @@ async fn main() -> Result<()> {
                     if !first_seen.load(Ordering::Relaxed)
                         && !first_seen.swap(true, Ordering::Relaxed)
                     {
-                        let latency = start.elapsed().as_secs_f64();
-                        let bytes = (total_read_bytes() - bytes_before)
-                            + manual_io_bytes.load(Ordering::Relaxed);
-                        *first_info.lock() = Some((latency, bytes));
+                        *first_latency.lock() = Some(start.elapsed().as_secs_f64());
                     }
                     file_rows += rows;
                 }
@@ -401,33 +382,28 @@ async fn main() -> Result<()> {
     } else {
         0.0
     };
-    let scan_bytes = (total_read_bytes() - bytes_before) + manual_io_bytes.load(Ordering::Relaxed);
-    // first_latency and first_bytes are point-in-time measurements (not accumulated per
-    // iteration), so they should not be divided by the iteration count.
-    let (first_latency, first_bytes) = (*first_info.lock()).unwrap_or((elapsed, scan_bytes));
-
-    let avg_elapsed = elapsed / args.iterations as f64;
-    let avg_bytes = scan_bytes as f64 / args.iterations as f64;
-    let steady_bytes =
-        (scan_bytes as f64 - first_bytes as f64).max(0.0) / (args.iterations as f64 - 1.0).max(1.0);
-    let steady_time = (elapsed - first_latency).max(0.0) / (args.iterations as f64 - 1.0).max(1.0);
-    let total_mb_s = if avg_elapsed > 0.0 {
-        avg_bytes / (1024.0 * 1024.0) / avg_elapsed
+    let first_latency_s = (*first_latency.lock()).unwrap_or(elapsed);
+    let avg_time_s = elapsed / args.iterations as f64;
+    let data_mb = data_size_per_iter as f64 / (1024.0 * 1024.0);
+    let avg_mb_s = if avg_time_s > 0.0 {
+        data_mb / avg_time_s
     } else {
         0.0
     };
-    let steady_mb_s = if steady_time > 0.0 {
-        steady_bytes / (1024.0 * 1024.0) / steady_time
+    let steady_time_s =
+        (elapsed - first_latency_s).max(0.0) / (args.iterations as f64 - 1.0).max(1.0);
+    let steady_mb_s = if steady_time_s > 0.0 {
+        data_mb / steady_time_s
     } else {
         0.0
     };
 
     println!("files={}", targets.len());
     println!("rows={}", rows / args.iterations);
-    println!("avg_time_s={:.3}", avg_elapsed);
-    println!("avg_bytes={:.0}", avg_bytes);
-    println!("avg_mb_s={:.2}", total_mb_s);
-    println!("first_latency_ms={:.2}", first_latency * 1000.0);
+    println!("data_size_mb={:.2}", data_mb);
+    println!("avg_time_s={:.3}", avg_time_s);
+    println!("avg_mb_s={:.2}", avg_mb_s);
+    println!("first_latency_ms={:.2}", first_latency_s * 1000.0);
     println!("steady_mb_s={:.2}", steady_mb_s);
     if io_no_copy_enabled() {
         println!("io_no_copy=1");
