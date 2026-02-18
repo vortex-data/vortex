@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
 on:
   push:
-    branches: [develop]
+    branches: [ develop ]
   pull_request: { }
   workflow_dispatch: { }
 
@@ -871,4 +871,4 @@ jobs:
           targets: ${{ matrix.target.target }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: "false"
-      - run: cargo build --release --package vortex-jni
+      - run: cargo build --package vortex-jni
