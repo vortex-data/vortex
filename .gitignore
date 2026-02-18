@@ -232,4 +232,4 @@ sweep.timestamp
 *.ptx
 
 # Perfetto
-trace.json
+trace*.json

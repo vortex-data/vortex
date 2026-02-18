@@ -10,8 +10,12 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use tracing::Instrument;
+use tracing_chrome::ChromeLayerBuilder;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::Layer;
 use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use vortex::VortexSessionDefault;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::DictVTable;
@@ -44,20 +48,31 @@ async fn main() -> VortexResult<()> {
     let args: Vec<String> = args().collect();
     let json_output = args.iter().any(|arg| arg == "--json");
 
+    let (chrome_layer, _guard) = ChromeLayerBuilder::new()
+        .include_args(true)
+        .trace_style(tracing_chrome::TraceStyle::Async)
+        .build();
+
     if json_output {
-        tracing_subscriber::fmt()
+        let log_layer = tracing_subscriber::fmt::layer()
             .json()
-            .with_env_filter(EnvFilter::from_default_env())
             .with_span_events(FmtSpan::NONE)
-            .with_ansi(false)
+            .with_ansi(false);
+
+        tracing_subscriber::registry()
+            .with(chrome_layer)
+            .with(log_layer.with_filter(EnvFilter::from_default_env()))
             .init();
     } else {
-        tracing_subscriber::fmt()
+        let log_layer = tracing_subscriber::fmt::layer()
             .pretty()
-            .with_env_filter(EnvFilter::from_default_env())
             .with_span_events(FmtSpan::NONE)
             .with_ansi(false)
-            .event_format(tracing_subscriber::fmt::format().with_target(true))
+            .event_format(tracing_subscriber::fmt::format().with_target(true));
+
+        tracing_subscriber::registry()
+            .with(chrome_layer)
+            .with(log_layer.with_filter(EnvFilter::from_default_env()))
             .init();
     }
 
@@ -106,8 +121,14 @@ async fn main() -> VortexResult<()> {
                 continue;
             }
 
-            let span =
-                tracing::info_span!("array execution", chunk = chunk, field_name = field_name);
+            let len = field.len();
+
+            let span = tracing::info_span!(
+                "array execution",
+                chunk = chunk,
+                field_name = field_name,
+                len = len,
+            );
 
             async {
                 if field.clone().execute_cuda(&mut cuda_ctx).await.is_err() {
