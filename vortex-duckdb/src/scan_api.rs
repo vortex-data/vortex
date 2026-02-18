@@ -40,7 +40,7 @@ use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::VirtualColumnsResult;
 use crate::exporter::ConversionCache;
-use crate::filesystem::DuckDbFileSystem;
+use crate::filesystem::resolve_filesystem;
 use crate::scan::EMPTY_COLUMN_IDX;
 use crate::scan::EMPTY_COLUMN_NAME;
 use crate::scan::VortexGlobalData;
@@ -118,13 +118,13 @@ impl TableFunction for VortexScanApiTableFunction {
         let glob_url = match Url::parse(glob_url_str.as_str()) {
             Ok(url) => Ok(url),
             Err(_) => Url::from_file_path(Path::new(glob_url_str.as_str()))
-                .map_err(|_| url::ParseError::RelativeUrlWithoutBase),
+                .map_err(|_| vortex_err!("Neither URL nor path: '{}' ", glob_url_str.as_str())),
         }?;
 
         let mut base_url = glob_url.clone();
         base_url.set_path("");
 
-        let fs = Arc::new(DuckDbFileSystem::new(base_url, ctx.clone()));
+        let fs = resolve_filesystem(&base_url, ctx)?;
 
         let data_source: DataSourceRef = RUNTIME.block_on(async {
             let builder = MultiFileDataSource::new(SESSION.clone())

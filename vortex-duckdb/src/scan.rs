@@ -7,7 +7,6 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::path::Path;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -564,6 +563,7 @@ fn init_global_direct(
 ) -> VortexResult<ScanIterator> {
     let handle = RUNTIME.handle();
     let first_file = bind_data.first_file.clone();
+    let fs = bind_data.file_system.clone();
     let scan_streams = stream::iter(bind_data.files.clone())
         .enumerate()
         .map(move |(idx, file_listing)| {
@@ -572,7 +572,7 @@ fn init_global_direct(
             let projection_expr = projection_expr.clone();
             let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
             let object_cache = object_cache;
-            let fs = bind_data.file_system.clone();
+            let fs = fs.clone();
 
             handle
                 .spawn(async move {

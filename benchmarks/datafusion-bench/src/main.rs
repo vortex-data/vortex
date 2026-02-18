@@ -280,8 +280,8 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
     benchmark: &B,
     format: Format,
 ) -> anyhow::Result<()> {
-    use vortex::file::filesystem::object_store::ObjectStoreFileSystem;
     use vortex::file::multi::MultiFileDataSource;
+    use vortex::io::object_store::ObjectStoreFileSystem;
     use vortex::io::session::RuntimeSessionExt;
     use vortex::scan::api::DataSource as _;
     use vortex_datafusion::v2::VortexTable;
@@ -296,7 +296,7 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             .runtime_env()
             .object_store(table_url.object_store())?;
 
-        let fs: Arc<dyn vortex::file::filesystem::FileSystem> =
+        let fs: vortex::io::filesystem::FileSystemRef =
             Arc::new(ObjectStoreFileSystem::new(store.clone(), SESSION.handle()));
         let base_prefix = benchmark_base.path().trim_start_matches('/').to_string();
         let fs = fs.with_prefix(base_prefix);
