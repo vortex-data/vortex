@@ -28,6 +28,7 @@ use crate::expr::Expression;
 use crate::expr::FillNull;
 use crate::expr::GetItem;
 use crate::expr::IsNull;
+use crate::expr::ListContains;
 use crate::expr::Mask;
 use crate::expr::Not;
 use crate::expr::VTableExt;
@@ -56,6 +57,9 @@ pub trait ExprBuiltins: Sized {
 
     /// Boolean negation.
     fn not(&self) -> VortexResult<Expression>;
+
+    /// Check if a list contains a value.
+    fn list_contains(&self, value: Expression) -> VortexResult<Expression>;
 
     /// Conditional selection: `result[i] = if mask[i] then self[i] else if_false[i]`.
     fn zip(&self, if_false: Expression, mask: Expression) -> VortexResult<Expression>;
@@ -86,6 +90,10 @@ impl ExprBuiltins for Expression {
         Not.try_new_expr(EmptyOptions, [self.clone()])
     }
 
+    fn list_contains(&self, value: Expression) -> VortexResult<Expression> {
+        ListContains.try_new_expr(EmptyOptions, [self.clone(), value])
+    }
+
     fn zip(&self, if_false: Expression, mask: Expression) -> VortexResult<Expression> {
         Zip.try_new_expr(EmptyOptions, [self.clone(), if_false, mask])
     }
@@ -114,6 +122,9 @@ pub trait ArrayBuiltins: Sized {
 
     /// Conditional selection: `result[i] = if mask[i] then self[i] else if_false[i]`.
     fn zip(&self, if_false: ArrayRef, mask: ArrayRef) -> VortexResult<ArrayRef>;
+
+    /// Check if a list contains a value.
+    fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef>;
 
     /// Compare a values between lower </<= value </<= upper
     fn between(
@@ -173,6 +184,12 @@ impl ArrayBuiltins for ArrayRef {
             Zip.try_new_array(self.len(), EmptyOptions, [self.clone(), if_false, mask])?;
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
         scalar_fn.execute::<ArrayRef>(&mut ctx)
+    }
+
+    fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef> {
+        ListContains
+            .try_new_array(self.len(), EmptyOptions, [self.clone(), value])?
+            .optimize()
     }
 
     fn between(
