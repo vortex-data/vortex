@@ -101,7 +101,7 @@ impl VortexReadAt for FileReadAt {
             let metadata = file.metadata()?;
             Ok(metadata.len())
         }
-            .boxed()
+        .boxed()
     }
 
     fn read_at(
@@ -122,6 +122,6 @@ impl VortexReadAt for FileReadAt {
                 })
                 .await
         }
-            .boxed()
+        .boxed()
     }
 }
