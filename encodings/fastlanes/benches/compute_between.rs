@@ -295,10 +295,11 @@ mod alp {
                         ConstantArray::new(max, arr.len()).as_ref(),
                         Operator::Lt,
                     )
-                    .vortex_expect("")
-                    .execute::<RecursiveCanonical>(ctx)
-                    .unwrap(),
+                    .vortex_expect(""),
                 )
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap()
             })
     }
 
