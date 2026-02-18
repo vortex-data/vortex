@@ -879,8 +879,38 @@ const KTLS_POOL_SIZE_ENV: &str = "VORTEX_BENCH_S3_KTLS_POOL_SIZE";
 const KTLS_PREWARM_ENV: &str = "VORTEX_BENCH_S3_KTLS_PREWARM";
 
 #[cfg(target_os = "linux")]
+enum S3Stream {
+    Ktls(ktls::KtlsStream<TcpStream>),
+    Plain(TcpStream),
+}
+
+#[cfg(target_os = "linux")]
+impl S3Stream {
+    async fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        match self {
+            S3Stream::Ktls(s) => AsyncWriteExt::write_all(s, buf).await,
+            S3Stream::Plain(s) => AsyncWriteExt::write_all(s, buf).await,
+        }
+    }
+
+    async fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            S3Stream::Ktls(s) => AsyncWriteExt::flush(s).await,
+            S3Stream::Plain(s) => AsyncWriteExt::flush(s).await,
+        }
+    }
+
+    async fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            S3Stream::Ktls(s) => AsyncReadExt::read(s, buf).await,
+            S3Stream::Plain(s) => AsyncReadExt::read(s, buf).await,
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
 struct KtlsConnection {
-    stream: ktls::KtlsStream<TcpStream>,
+    stream: S3Stream,
 }
 
 #[cfg(target_os = "linux")]
@@ -891,11 +921,12 @@ struct KtlsS3ReadSource {
     uri: std::sync::Arc<str>,
     concurrency: usize,
     coalesce_config: Option<CoalesceConfig>,
-    tls: std::sync::Arc<TlsConnector>,
+    tls: Option<std::sync::Arc<TlsConnector>>,
     host: std::sync::Arc<str>,
     host_header: std::sync::Arc<str>,
     port: u16,
     request_target: std::sync::Arc<str>,
+    use_tls: bool,
     max_connections: usize,
     live_connections: std::sync::Arc<AtomicUsize>,
     idle_connections: std::sync::Arc<TokioMutex<Vec<KtlsConnection>>>,
@@ -923,19 +954,24 @@ impl KtlsS3ReadSource {
             Some(query) => format!("{}?{query}", signed.path()),
             None => signed.path().to_string(),
         };
-        let host_header = if port == 443 {
+        let use_tls = signed.scheme() == "https";
+        let host_header = if (port == 443 && use_tls) || (port == 80 && !use_tls) {
             host.clone()
         } else {
             format!("{host}:{port}")
         };
 
-        let mut roots = RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let mut tls_config = ClientConfig::builder()
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        tls_config.enable_secret_extraction = true;
-        let tls = TlsConnector::from(std::sync::Arc::new(tls_config));
+        let tls = if use_tls {
+            let mut roots = RootCertStore::empty();
+            roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            let mut tls_config = ClientConfig::builder()
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+            tls_config.enable_secret_extraction = true;
+            Some(TlsConnector::from(std::sync::Arc::new(tls_config)))
+        } else {
+            None
+        };
 
         let mut coalesce_config = Some(DEFAULT_KTLS_COALESCING_CONFIG);
         if read_env_bool(KTLS_COALESCE_DISABLE_ENV, false) {
@@ -961,11 +997,12 @@ impl KtlsS3ReadSource {
             uri: std::sync::Arc::from(path.to_string()),
             concurrency,
             coalesce_config,
-            tls: std::sync::Arc::new(tls),
+            tls: tls.map(std::sync::Arc::new),
             host: std::sync::Arc::from(host),
             host_header: std::sync::Arc::from(host_header),
             port,
             request_target: std::sync::Arc::from(request_target),
+            use_tls,
             max_connections,
             live_connections: std::sync::Arc::new(AtomicUsize::new(0)),
             idle_connections: std::sync::Arc::new(TokioMutex::new(Vec::new())),
@@ -984,10 +1021,15 @@ impl KtlsS3ReadSource {
         let tcp = TcpStream::connect(addr).await?;
         tcp.set_nodelay(true)?;
 
-        let server_name = ServerName::try_from(self.host.as_ref().to_string())
-            .map_err(|e| anyhow::anyhow!("invalid TLS server name '{}': {e}", self.host))?;
-        let tls_stream = self.tls.connect(server_name, CorkStream::new(tcp)).await?;
-        let stream = ktls::config_ktls_client(tls_stream).await?;
+        let stream = if let Some(tls) = &self.tls {
+            let server_name = ServerName::try_from(self.host.as_ref().to_string())
+                .map_err(|e| anyhow::anyhow!("invalid TLS server name '{}': {e}", self.host))?;
+            let tls_stream = tls.connect(server_name, CorkStream::new(tcp)).await?;
+            let ktls_stream = ktls::config_ktls_client(tls_stream).await?;
+            S3Stream::Ktls(ktls_stream)
+        } else {
+            S3Stream::Plain(tcp)
+        };
         Ok(KtlsConnection { stream })
     }
 
