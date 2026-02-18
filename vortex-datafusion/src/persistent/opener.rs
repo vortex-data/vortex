@@ -477,8 +477,8 @@ mod tests {
     use vortex::array::arrow::FromArrowArray;
     use vortex::buffer::Buffer;
     use vortex::file::WriteOptionsSessionExt;
-    use vortex::io::ObjectStoreWriter;
     use vortex::io::VortexWrite;
+    use vortex::io::object_store::ObjectStoreWrite;
     use vortex::metrics::DefaultMetricsRegistry;
     use vortex::scan::Selection;
     use vortex::session::VortexSession;
@@ -540,7 +540,7 @@ mod tests {
         let array = ArrayRef::from_arrow(rb, false)?;
         let path = Path::parse(path)?;
 
-        let mut write = ObjectStoreWriter::new(object_store, &path).await?;
+        let mut write = ObjectStoreWrite::new(object_store, &path).await?;
         let summary = SESSION
             .write_options()
             .write(&mut write, array.to_array_stream())

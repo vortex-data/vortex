@@ -17,11 +17,14 @@ use vortex_bench::generate_duckdb_registration_sql;
 use vortex_duckdb::duckdb::Config;
 use vortex_duckdb::duckdb::Connection;
 use vortex_duckdb::duckdb::Database;
+use vortex_duckdb::duckdb::OwnedConfig;
+use vortex_duckdb::duckdb::OwnedConnection;
+use vortex_duckdb::duckdb::OwnedDatabase;
 
 /// DuckDB context for benchmarks.
 pub struct DuckClient {
-    pub db: Database,
-    pub connection: Connection,
+    pub db: OwnedDatabase,
+    pub connection: OwnedConnection,
     pub db_path: PathBuf,
     pub threads: Option<usize>,
 }
@@ -65,8 +68,8 @@ impl DuckClient {
     pub fn open_and_setup_database(
         path: Option<PathBuf>,
         threads: Option<usize>,
-    ) -> Result<(Database, Connection)> {
-        let mut config = Config::new().vortex_expect("failed to create duckdb config");
+    ) -> Result<(OwnedDatabase, OwnedConnection)> {
+        let mut config = OwnedConfig::new().vortex_expect("failed to create duckdb config");
 
         // Set DuckDB thread count if specified
         if let Some(thread_count) = threads {
@@ -74,12 +77,16 @@ impl DuckClient {
         }
 
         let db = match path {
-            Some(path) => Database::open_with_config(path, config),
-            None => Database::open_in_memory_with_config(config),
+            Some(path) => OwnedDatabase::open_with_config(path, config),
+            None => OwnedDatabase::open_in_memory_with_config(config),
         }?;
 
         let connection = db.connect()?;
         vortex_duckdb::initialize(&db)?;
+
+        // Install and load httpfs so DuckDB can access remote files (S3, GCS, HTTP).
+        connection.query("INSTALL httpfs;")?;
+        connection.query("LOAD httpfs;")?;
 
         // Enable Parquet metadata cache for all benchmark runs.
         //
@@ -97,7 +104,7 @@ impl DuckClient {
 
     pub fn reopen(&mut self) -> Result<()> {
         // take ownership of the connection & database
-        let mut connection = unsafe { Connection::borrow(self.connection.as_ptr()) };
+        let mut connection = unsafe { Connection::borrow_mut(self.connection.as_ptr()) };
         std::mem::swap(&mut self.connection, &mut connection);
         let mut db = unsafe { Database::borrow(self.db.as_ptr()) };
         std::mem::swap(&mut self.db, &mut db);

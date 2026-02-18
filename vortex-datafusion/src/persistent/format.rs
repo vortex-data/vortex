@@ -55,7 +55,7 @@ use vortex::file::EOF_SIZE;
 use vortex::file::MAX_POSTSCRIPT_SIZE;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VORTEX_FILE_EXTENSION;
-use vortex::io::file::object_store::ObjectStoreSource;
+use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
@@ -261,7 +261,7 @@ impl FileFormat for VortexFormat {
                     }
 
                     // Not cached or invalid - open the file
-                    let reader = Arc::new(ObjectStoreSource::new(
+                    let reader = Arc::new(ObjectStoreReadAt::new(
                         store,
                         object.location.clone(),
                         session.handle(),
@@ -328,7 +328,7 @@ impl FileFormat for VortexFormat {
                 Some(metadata) => metadata,
                 None => {
                     // Not cached - open the file
-                    let reader = Arc::new(ObjectStoreSource::new(
+                    let reader = Arc::new(ObjectStoreReadAt::new(
                         store,
                         object.location.clone(),
                         session.handle(),

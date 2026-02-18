@@ -13,12 +13,12 @@ use futures::stream::BoxStream;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex_error::VortexResult;
-use vortex_io::VortexReadAt;
-use vortex_io::object_store::ObjectStoreReadAt;
-use vortex_io::runtime::Handle;
 
+use crate::VortexReadAt;
 use crate::filesystem::FileListing;
 use crate::filesystem::FileSystem;
+use crate::object_store::ObjectStoreReadAt;
+use crate::runtime::Handle;
 
 /// A [`FileSystem`] backed by an [`ObjectStore`].
 ///

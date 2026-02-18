@@ -1659,9 +1659,9 @@ mod cuda_tests {
     use vortex_cuda::executor::CudaArrayExt;
     use vortex_dtype::FieldNames;
     use vortex_error::VortexResult;
-    use vortex_io::file::std_file::FileReadAdapter;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_io::std_file::FileReadAt;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::session::LayoutSession;
     use vortex_session::VortexSession;
@@ -1722,7 +1722,7 @@ mod cuda_tests {
 
         // Read back via GPU
         let handle = SESSION.handle();
-        let source = Arc::new(FileReadAdapter::open(&temp_path, handle)?);
+        let source = Arc::new(FileReadAt::open(&temp_path, handle)?);
         let gpu_reader =
             CopyDeviceReadAt::new(source.clone(), SESSION.cuda_session().new_stream()?);
         let cpu_reader = source;

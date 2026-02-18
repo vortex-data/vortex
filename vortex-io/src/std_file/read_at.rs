@@ -66,13 +66,13 @@ const COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
 pub const DEFAULT_CONCURRENCY: usize = 32;
 
 /// An adapter type wrapping a [`File`] to implement [`VortexReadAt`].
-pub struct FileReadAdapter {
+pub struct FileReadAt {
     uri: Arc<str>,
     file: Arc<File>,
     handle: Handle,
 }
 
-impl FileReadAdapter {
+impl FileReadAt {
     /// Open a file for reading.
     pub fn open(path: impl AsRef<Path>, handle: Handle) -> VortexResult<Self> {
         let path = path.as_ref();
@@ -82,7 +82,7 @@ impl FileReadAdapter {
     }
 }
 
-impl VortexReadAt for FileReadAdapter {
+impl VortexReadAt for FileReadAt {
     fn uri(&self) -> Option<&Arc<str>> {
         Some(&self.uri)
     }

@@ -53,23 +53,35 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::LazyLock;
+
     use arrow_array::Float64Array;
     use arrow_array::Int32Array;
     use arrow_array::Int64Array;
     use arrow_array::RunArray;
     use arrow_array::types::Int32Type;
     use arrow_array::types::Int64Type;
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
     use vortex_array::IntoArray as _;
+    use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrow::ArrowArrayExecutor;
     use vortex_array::arrow::FromArrowArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::RunEndArray;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_arrow_run_array_to_vortex() -> VortexResult<()> {
@@ -204,6 +216,56 @@ mod tests {
             vortex_array.dtype(),
             &DType::Primitive(PType::I64, Nullability::Nullable)
         );
+        Ok(())
+    }
+
+    fn ree_type(ends: DataType, values_dtype: DataType) -> DataType {
+        DataType::RunEndEncoded(
+            Arc::new(Field::new("run_ends", ends, false)),
+            Arc::new(Field::new("values", values_dtype, true)),
+        )
+    }
+
+    fn execute(
+        array: vortex_array::ArrayRef,
+        dt: &DataType,
+    ) -> VortexResult<arrow_array::ArrayRef> {
+        array.execute_arrow(Some(dt), &mut SESSION.create_execution_ctx())
+    }
+
+    #[test]
+    fn test_roundtrip_arrow_to_vortex_to_arrow() -> VortexResult<()> {
+        let original = RunArray::<Int32Type>::try_new(
+            &Int32Array::from(vec![3i32, 5, 8]),
+            &Int32Array::from(vec![10, 20, 30]),
+        )?;
+        let vortex_array = RunEndArray::from_arrow(&original, false)?;
+        let target = ree_type(DataType::Int32, DataType::Int32);
+        let result = execute(vortex_array.into_array(), &target)?;
+
+        let expected = RunArray::<Int32Type>::try_new(
+            &Int32Array::from(vec![3, 5, 8]),
+            &Int32Array::from(vec![10, 20, 30]),
+        )?;
+        assert_eq!(result.as_ref(), &expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_sliced_runend_to_arrow_ree() -> VortexResult<()> {
+        let array = RunEndArray::encode(
+            PrimitiveArray::from_iter(vec![10i32, 10, 20, 20, 20, 30, 30]).into_array(),
+        )?;
+        // Slicing from index 1 produces a non-zero offset in the RunEndArray.
+        let sliced = array.into_array().slice(1..5)?;
+        let target = ree_type(DataType::Int32, DataType::Int32);
+        let result = execute(sliced, &target)?;
+
+        let expected = RunArray::<Int32Type>::try_new(
+            &Int32Array::from(vec![1, 4]),
+            &Int32Array::from(vec![10, 20]),
+        )?;
+        assert_eq!(result.as_ref(), &expected);
         Ok(())
     }
 }
