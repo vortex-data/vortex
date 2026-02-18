@@ -227,7 +227,7 @@ fn cast_constant(array: &ConstantArray, dtype: &DType) -> VortexResult<Option<Ar
 /// Converts the input expression's values to the specified target type.
 ///
 /// ```rust
-/// # use crate::dtype::{DType, Nullability, PType};
+/// # use vortex_array::dtype::{DType, Nullability, PType};
 /// # use vortex_array::expr::{cast, root};
 /// let expr = cast(root(), DType::Primitive(PType::I64, Nullability::NonNullable));
 /// ```

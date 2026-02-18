@@ -26,6 +26,7 @@ use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::ChunkedVTable;
 use vortex::array::arrow::IntoArrowArray;
+use vortex::array::match_each_integer_ptype;
 use vortex::compute::Operator;
 use vortex::compute::compare;
 use vortex::dtype::DType;
@@ -33,7 +34,6 @@ use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
-use vortex::match_each_integer_ptype;
 
 use crate::PyVortex;
 use crate::arrays::native::PyNativeArray;

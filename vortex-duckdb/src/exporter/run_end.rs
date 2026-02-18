@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::match_each_integer_ptype;
 use vortex::array::search_sorted::SearchSorted;
 use vortex::array::search_sorted::SearchSortedSide;
 use vortex::dtype::IntegerPType;
@@ -13,7 +14,6 @@ use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::runend::RunEndArrayParts;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::match_each_integer_ptype;
 
 use crate::convert::ToDuckDBScalar;
 use crate::duckdb::SelectionVector;

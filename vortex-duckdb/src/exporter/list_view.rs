@@ -10,12 +10,12 @@ use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::ListViewArrayParts;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::match_each_integer_ptype;
 use vortex::dtype::DType;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::mask::Mask;
-use vortex::match_each_integer_ptype;
 
 use super::ConversionCache;
 use super::all_invalid;

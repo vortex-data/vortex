@@ -72,7 +72,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// ```
     /// use std::mem::MaybeUninit;
     /// use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
-    /// use crate::dtype::Nullability;
+    /// use vortex_array::dtype::Nullability;
     ///
     /// // Create a new builder.
     /// let mut builder: PrimitiveBuilder<i32> =

@@ -281,7 +281,7 @@ impl Display for DuplicateHandling {
 /// later expressions win. Fields are not recursively merged.
 ///
 /// ```rust
-/// # use crate::dtype::Nullability;
+/// # use vortex_array::dtype::Nullability;
 /// # use vortex_array::expr::{merge, get_item, root};
 /// let expr = merge([get_item("a", root()), get_item("b", root())]);
 /// ```

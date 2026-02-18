@@ -152,7 +152,7 @@ impl VTable for Pack {
 /// Creates an expression that packs values into a struct with named fields.
 ///
 /// ```rust
-/// # use crate::dtype::Nullability;
+/// # use vortex_array::dtype::Nullability;
 /// # use vortex_array::expr::{pack, col, lit};
 /// let expr = pack([("id", col("user_id")), ("constant", lit(42))], Nullability::NonNullable);
 /// ```

@@ -63,7 +63,7 @@ use crate::validity::Validity;
 ///
 /// ```
 /// use vortex_array::arrays::VarBinViewArray;
-/// use crate::dtype::{DType, Nullability};
+/// use vortex_array::dtype::{DType, Nullability};
 /// use vortex_array::IntoArray;
 ///
 /// // Create from an Iterator<Item = &str>

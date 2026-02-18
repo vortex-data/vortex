@@ -151,7 +151,7 @@ impl VTable for Literal {
 ///
 /// ```
 /// use vortex_array::arrays::PrimitiveArray;
-/// use crate::dtype::Nullability;
+/// use vortex_array::dtype::Nullability;
 /// use vortex_array::expr::{lit, Literal};
 /// use vortex_array::scalar::Scalar;
 ///

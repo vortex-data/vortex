@@ -10,7 +10,7 @@
 //!
 //! ```
 //! use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
-//! use crate::dtype::{DType, Nullability};
+//! use vortex_array::dtype::{DType, Nullability};
 //!
 //! // Create a new builder for string data.
 //! let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);
@@ -226,7 +226,7 @@ pub trait ArrayBuilder: Send {
 ///
 /// ```
 /// use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
-/// use crate::dtype::{DType, Nullability};
+/// use vortex_array::dtype::{DType, Nullability};
 ///
 /// // Create a new builder for string data.
 /// let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);

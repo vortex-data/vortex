@@ -193,7 +193,7 @@ impl<'a> PrimitiveScalar<'a> {
     /// # Examples
     ///
     /// ```should_panic
-    /// # use crate::dtype::{DType, PType};
+    /// # use vortex_array::dtype::{DType, PType};
     /// # use vortex_array::scalar::Scalar;
     /// let wide = Scalar::primitive(1000i32, false.into());
     ///
@@ -227,7 +227,7 @@ impl<'a> PrimitiveScalar<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use crate::dtype::{DType, PType};
+    /// # use vortex_array::dtype::{DType, PType};
     /// # use vortex_array::scalar::Scalar;
     ///
     /// // Non-null values

@@ -45,7 +45,7 @@ pub enum TemporalMetadata<'a> {
     Time(&'a <Time as ExtDTypeVTable>::Metadata),
 }
 
-// TODO(ngates): remove this logic in favor of having an ExtScalarVTable in vortex-scalar.
+// TODO(ngates): remove this logic in favor of having an ExtScalarVTable in vortex_array::scalar.
 //  Currently this is used largely to implement scalar display hacks.
 impl TemporalMetadata<'_> {
     /// Get the time unit of the temporal dtype.

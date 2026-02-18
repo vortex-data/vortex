@@ -174,9 +174,9 @@ impl Expression {
     /// # Example
     ///
     /// ```rust
+    /// # use vortex_array::dtype::{DType, Nullability, PType};
     /// # use vortex_array::expr::LikeOptions;
     /// # use vortex_array::expr::VTableExt;
-    /// # use crate::dtype::{DType, Nullability, PType};
     /// # use vortex_array::expr::{and, cast, eq, get_item, gt, lit, not, root, select, Like};
     /// // Build a complex nested expression
     /// let complex_expr = select(

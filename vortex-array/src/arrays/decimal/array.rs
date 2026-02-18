@@ -70,7 +70,7 @@ use crate::vtable::ValidityHelper;
 ///
 /// ```
 /// use vortex_array::arrays::DecimalArray;
-/// use crate::dtype::DecimalDType;
+/// use vortex_array::dtype::DecimalDType;
 /// use vortex_buffer::{buffer, Buffer};
 /// use vortex_array::validity::Validity;
 ///

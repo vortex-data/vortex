@@ -7,6 +7,7 @@ use num_traits::ToPrimitive;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::DecimalArrayParts;
+use vortex::array::match_each_decimal_value_type;
 use vortex::buffer::Buffer;
 use vortex::dtype::BigCast;
 use vortex::dtype::DType;
@@ -17,7 +18,6 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::mask::Mask;
-use vortex::match_each_decimal_value_type;
 
 use crate::LogicalType;
 use crate::duckdb::Vector;

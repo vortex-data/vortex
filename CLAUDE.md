@@ -16,7 +16,7 @@
 
 * `vortex-buffer` defines zero-copy aligned `Buffer<T>` and `BufferMut<T>` that are guaranteed
   to be aligned to `T` (or whatever requested runtime alignment).
-* `vortex-dtype` contains the basic `DType` logical type enum that is the basis of the Vortex
+* `vortex-array/src/dtype` contains the basic `DType` logical type enum that is the basis of the Vortex
   type system
 * `vortex-array` contains the basic `Array` trait, as well as several encodings which impl
   that trait for each encoding. It includes all of most of the Apache Arrow encodings.

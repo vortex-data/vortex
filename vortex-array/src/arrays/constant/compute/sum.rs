@@ -60,6 +60,7 @@ fn sum_scalar(
                 .map(|v| ScalarValue::Primitive(v.into())))
         }
         DType::Primitive(ptype, _) => {
+            #[expect(dead_code, reason = "TODO(connor): good question")]
             let result = match_each_native_ptype!(
                 ptype,
                 unsigned: |T| { sum_integral::<u64>(scalar.as_primitive(), len, accumulator)?.map(|v| ScalarValue::Primitive(v.into())) },

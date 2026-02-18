@@ -43,8 +43,8 @@ use crate::vtable::ValidityHelper;
 /// ```
 /// use vortex_array::arrays::{StructArray, BoolArray};
 /// use vortex_array::validity::Validity;
+/// use vortex_array::dtype::FieldNames;
 /// use vortex_array::IntoArray;
-/// use crate::dtype::FieldNames;
 /// use vortex_buffer::buffer;
 ///
 /// // Create struct with all non-null fields but struct-level nulls
@@ -76,8 +76,8 @@ use crate::vtable::ValidityHelper;
 /// ```
 /// use vortex_array::arrays::StructArray;
 /// use vortex_array::validity::Validity;
+/// use vortex_array::dtype::FieldNames;
 /// use vortex_array::IntoArray;
-/// use crate::dtype::FieldNames;
 /// use vortex_buffer::buffer;
 ///
 /// // Create struct with duplicate "data" field names
@@ -116,8 +116,8 @@ use crate::vtable::ValidityHelper;
 /// ```
 /// use vortex_array::arrays::{StructArray, PrimitiveArray};
 /// use vortex_array::validity::Validity;
+/// use vortex_array::dtype::FieldNames;
 /// use vortex_array::IntoArray;
-/// use crate::dtype::FieldNames;
 /// use vortex_buffer::buffer;
 ///
 /// // Create arrays for each field
