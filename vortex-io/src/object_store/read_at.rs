@@ -4,7 +4,6 @@
 use std::io;
 use std::sync::Arc;
 
-use async_compat::Compat;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
@@ -22,15 +21,15 @@ use vortex_error::vortex_ensure;
 
 use crate::CoalesceConfig;
 use crate::VortexReadAt;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::file::std_file::read_exact_at;
 use crate::runtime::Handle;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::std_file::read_exact_at;
 
 /// Default number of concurrent requests to allow.
 pub const DEFAULT_CONCURRENCY: usize = 192;
 
 /// An object store backed I/O source.
-pub struct ObjectStoreSource {
+pub struct ObjectStoreReadAt {
     store: Arc<dyn ObjectStore>,
     path: ObjectPath,
     uri: Arc<str>,
@@ -39,7 +38,7 @@ pub struct ObjectStoreSource {
     coalesce_config: Option<CoalesceConfig>,
 }
 
-impl ObjectStoreSource {
+impl ObjectStoreReadAt {
     /// Create a new object store source.
     pub fn new(store: Arc<dyn ObjectStore>, path: ObjectPath, handle: Handle) -> Self {
         let uri = Arc::from(path.to_string());
@@ -72,7 +71,7 @@ impl ObjectStoreSource {
     }
 }
 
-impl VortexReadAt for ObjectStoreSource {
+impl VortexReadAt for ObjectStoreReadAt {
     fn uri(&self) -> Option<&Arc<str>> {
         Some(&self.uri)
     }
@@ -88,13 +87,13 @@ impl VortexReadAt for ObjectStoreSource {
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
         let store = self.store.clone();
         let path = self.path.clone();
-        Compat::new(async move {
+        async move {
             store
                 .head(&path)
                 .await
                 .map(|h| h.size)
                 .map_err(VortexError::from)
-        })
+        }
         .boxed()
     }
 
@@ -109,7 +108,7 @@ impl VortexReadAt for ObjectStoreSource {
         let handle = self.handle.clone();
         let range = offset..(offset + length as u64);
 
-        Compat::new(async move {
+        async move {
             let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
 
             let response = store
@@ -157,7 +156,7 @@ impl VortexReadAt for ObjectStoreSource {
             };
 
             Ok(BufferHandle::new_host(buffer.freeze()))
-        })
+        }
         .boxed()
     }
 }

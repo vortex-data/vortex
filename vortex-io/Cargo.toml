@@ -22,6 +22,7 @@ async-fs = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
+glob = { workspace = true }
 futures = { workspace = true, features = ["std", "executor"] }
 getrandom_v03 = { workspace = true } # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 handle = "1.0.2"

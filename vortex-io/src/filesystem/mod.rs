@@ -8,8 +8,6 @@
 //! or any other storage backend.
 
 mod glob;
-#[cfg(feature = "object_store")]
-pub mod object_store;
 mod prefix;
 
 use std::fmt::Debug;
@@ -18,7 +16,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use vortex_error::VortexResult;
-use vortex_io::VortexReadAt;
+
+use crate::VortexReadAt;
 
 /// A file discovered during listing, with its path and optional size in bytes.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -39,7 +38,7 @@ pub type FileSystemRef = Arc<dyn FileSystem>;
 ///
 /// # Future Work
 ///
-/// An `open_write` method will be added once [`VortexWrite`](vortex_io::VortexWrite) is
+/// An `open_write` method will be added once [`VortexWrite`](crate::VortexWrite) is
 /// object-safe (it currently uses `impl Future` return types which prevent trait-object usage).
 #[async_trait]
 pub trait FileSystem: Debug + Send + Sync {

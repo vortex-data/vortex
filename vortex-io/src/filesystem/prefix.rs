@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream::BoxStream;
 use vortex_error::VortexResult;
-use vortex_io::VortexReadAt;
 
+use crate::VortexReadAt;
 use crate::filesystem::FileListing;
 use crate::filesystem::FileSystem;
 use crate::filesystem::FileSystemRef;

@@ -88,9 +88,9 @@ mod tests {
     use async_trait::async_trait;
     use futures::TryStreamExt;
     use vortex_error::vortex_panic;
-    use vortex_io::VortexReadAt;
 
     use super::*;
+    use crate::VortexReadAt;
     use crate::filesystem::FileSystem;
 
     /// A mock filesystem that panics if `list` is called.

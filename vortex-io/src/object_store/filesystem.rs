@@ -13,12 +13,12 @@ use futures::stream::BoxStream;
 use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex_error::VortexResult;
-use vortex_io::VortexReadAt;
-use vortex_io::file::object_store::ObjectStoreSource;
-use vortex_io::runtime::Handle;
 
+use crate::VortexReadAt;
 use crate::filesystem::FileListing;
 use crate::filesystem::FileSystem;
+use crate::object_store::ObjectStoreReadAt;
+use crate::runtime::Handle;
 
 /// A [`FileSystem`] backed by an [`ObjectStore`].
 ///
@@ -75,7 +75,7 @@ impl FileSystem for ObjectStoreFileSystem {
     }
 
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
-        Ok(Arc::new(ObjectStoreSource::new(
+        Ok(Arc::new(ObjectStoreReadAt::new(
             self.store.clone(),
             path.into(),
             self.handle.clone(),
