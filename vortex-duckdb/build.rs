@@ -11,6 +11,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::Command;
 
 use bindgen::Abi;
 use once_cell::sync::Lazy;
@@ -248,11 +249,7 @@ fn extract_duckdb_source(source_dir: &Path) -> Result<PathBuf, Box<dyn std::erro
 /// Build DuckDB from source. Used for commit hashes or when VX_DUCKDB_DEBUG is set.
 fn build_duckdb(duckdb_source_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
     // Check for ninja
-    if std::process::Command::new("ninja")
-        .arg("--version")
-        .output()
-        .is_err()
-    {
+    if Command::new("ninja").arg("--version").output().is_err() {
         return Err(
             "'ninja' is required to build DuckDB. Install it via your package manager.".into(),
         );
@@ -284,7 +281,7 @@ fn build_duckdb(duckdb_source_dir: &Path) -> Result<PathBuf, Box<dyn std::error:
                 ("1", "0")
             };
 
-        let output = std::process::Command::new("make")
+        let output = Command::new("make")
             .current_dir(&duckdb_repo_dir)
             .env("GEN", "ninja")
             .env("DISABLE_SANITIZER", asan_option)
@@ -488,7 +485,7 @@ fn main() {
         .write_to_file(&generated_header);
 
     // Run clang-format on the generated header.
-    if let Ok(status) = std::process::Command::new("clang-format")
+    if let Ok(status) = Command::new("clang-format")
         .arg("-i")
         .arg("--style=file")
         .arg(&generated_header)
