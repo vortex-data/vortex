@@ -267,8 +267,7 @@ impl ZstdBuffersArray {
     pub fn decode_plan(&self) -> VortexResult<ZstdBuffersDecodePlan> {
         // If invariants are somehow broken, device decompression could have UB, so ensure
         // they still hold.
-        self.validate()
-            .vortex_expect("zstd_buffers invariant violated before decode_plan");
+        self.validate()?;
 
         let output_sizes = self
             .uncompressed_sizes

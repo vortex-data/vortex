@@ -358,7 +358,7 @@ impl PcoArray {
         let values_byte_buffer = match_number_enum!(
             number_type,
             NumberType<T> => {
-              self.decompress_values_typed::<T>()
+              self.decompress_values_typed::<T>()?
             }
         );
 
@@ -371,8 +371,7 @@ impl PcoArray {
         ))
     }
 
-    #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
-    fn decompress_values_typed<T: Number>(&self) -> ByteBuffer {
+    fn decompress_values_typed<T: Number>(&self) -> VortexResult<ByteBuffer> {
         // To start, we figure out what range of values we need to decompress.
         let slice_value_indices = self
             .unsliced_validity
@@ -384,9 +383,8 @@ impl PcoArray {
 
         // Then we decompress those pages into a buffer. Note that these values
         // may exceed the bounds of the slice, so we need to slice later.
-        let (fd, _) = FileDecompressor::new(self.metadata.header.as_slice())
-            .map_err(vortex_err_from_pco)
-            .vortex_expect("FileDecompressor::new should succeed with valid header");
+        let (fd, _) =
+            FileDecompressor::new(self.metadata.header.as_slice()).map_err(vortex_err_from_pco)?;
         let mut decompressed_values = BufferMut::<T>::with_capacity(slice_n_values);
         let mut page_idx = 0;
         let mut page_value_start = 0;
@@ -414,21 +412,16 @@ impl PcoArray {
                     if cd.is_none() {
                         let (new_cd, _) = fd
                             .chunk_decompressor(chunk_meta_bytes)
-                            .map_err(vortex_err_from_pco)
-                            .vortex_expect(
-                                "chunk_decompressor should succeed with valid chunk metadata",
-                            );
+                            .map_err(vortex_err_from_pco)?;
                         cd = Some(new_cd);
                     }
                     let mut pd = cd
                         .as_mut()
                         .unwrap()
                         .page_decompressor(page, page_n_values)
-                        .map_err(vortex_err_from_pco)
-                        .vortex_expect("page_decompressor should succeed with valid page data");
+                        .map_err(vortex_err_from_pco)?;
                     pd.read(&mut decompressed_values[old_len..new_len])
-                        .map_err(vortex_err_from_pco)
-                        .vortex_expect("decompress should succeed with valid compressed data");
+                        .map_err(vortex_err_from_pco)?;
                 } else {
                     n_skipped_values += page_n_values;
                 }
@@ -440,10 +433,10 @@ impl PcoArray {
 
         // Slice only the values requested.
         let value_offset = slice_value_start - n_skipped_values;
-        decompressed_values
+        Ok(decompressed_values
             .freeze()
             .slice(value_offset..value_offset + slice_n_values)
-            .into_byte_buffer()
+            .into_byte_buffer())
     }
 
     pub(crate) fn _slice(&self, start: usize, stop: usize) -> Self {
