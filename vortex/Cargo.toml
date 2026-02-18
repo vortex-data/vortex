@@ -49,9 +49,6 @@ vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
-[target.'cfg(target_os = "linux")'.dependencies]
-vortex-cuda = { workspace = true, optional = true }
-
 [dev-dependencies]
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
@@ -84,11 +81,9 @@ serde = [
 # This feature enabled unstable encodings for which we don't guarantee stability.
 unstable_encodings = [
     "vortex-btrblocks/unstable_encodings",
-    "vortex-cuda?/unstable_encodings",
     "vortex-file?/unstable_encodings",
     "vortex-zstd?/unstable_encodings",
 ]
-cuda = ["dep:vortex-cuda"]
 
 [[bench]]
 name = "single_encoding_throughput"
