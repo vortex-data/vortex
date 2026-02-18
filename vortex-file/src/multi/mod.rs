@@ -173,6 +173,15 @@ async fn open_file(
 ) -> VortexResult<crate::VortexFile> {
     debug!(path = %file.path, "opening vortex file");
 
+    // Open the reader first so we can use its URI as the cache key.
+    // The URI includes the full path (with any filesystem prefix), making it unique
+    // even when different PrefixFileSystem instances strip paths to the same relative name.
+    let source = fs.open_read(&file.path).await?;
+    let cache_key = source
+        .uri()
+        .map(|u| u.to_string())
+        .unwrap_or_else(|| file.path.clone());
+
     // Build open options. The DashMap Ref from multi_file() must not live across an await,
     // so we scope the cache lookup in a block.
     let options = {
@@ -180,19 +189,18 @@ async fn open_file(
         if let Some(size) = file.size {
             options = options.with_file_size(size);
         }
-        if let Some(footer) = session.multi_file().get_footer(&file.path) {
+        if let Some(footer) = session.multi_file().get_footer(&cache_key) {
             options = options.with_footer(footer);
         }
         options
     };
 
-    let source = fs.open_read(&file.path).await?;
     let vortex_file = options.open(source).await?;
 
     // Store footer in cache (scoped to avoid holding the Ref across subsequent code).
     session
         .multi_file()
-        .put_footer(&file.path, vortex_file.footer().clone());
+        .put_footer(&cache_key, vortex_file.footer().clone());
     Ok(vortex_file)
 }
 
