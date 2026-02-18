@@ -45,16 +45,20 @@ unique_ptr<FunctionData> c_bind_one(ClientContext &context,
                                     const vector<LogicalType> &column_types) {
 
     auto c_column_names = vector<char *>();
+    c_column_names.reserve(column_names.size());
     for (const auto &col_id : column_names) {
         c_column_names.push_back(const_cast<char *>(col_id.c_str()));
     }
 
     auto c_column_types = vector<duckdb_logical_type>();
+    c_column_types.reserve(c_column_types.size());
     for (auto &col_type : column_types) {
         c_column_types.push_back(reinterpret_cast<duckdb_logical_type>(const_cast<LogicalType *>(&col_type)));
     }
 
     duckdb_vx_error error_out = nullptr;
+    // TODO(myrrc): do we pass ownership of c_column_names in bind?
+    // If yes, it's a UB as we'd double delete on function return
     auto ffi_bind_data = copy_vtab_one.bind(reinterpret_cast<duckdb_vx_copy_func_bind_input>(&info),
                                             c_column_names.data(),
                                             c_column_names.size(),

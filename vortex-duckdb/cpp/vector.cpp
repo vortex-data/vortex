@@ -84,9 +84,8 @@ extern "C" void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *pt
 
 extern "C" duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx_t index) {
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
-
-    auto value = new duckdb::Value(vector->GetValue(index));
-    return reinterpret_cast<duckdb_value>(value);
+    auto value = duckdb::make_uniq<Value>(vector->GetValue(index));
+    return reinterpret_cast<duckdb_value>(value.release());
 }
 
 void duckdb_vector_flatten(duckdb_vector vector, unsigned long len) {
@@ -100,7 +99,7 @@ const char *duckdb_vector_to_string(duckdb_vector vector, unsigned long len, duc
         auto str = dvector->ToString(len);
         auto result = static_cast<char *>(duckdb_malloc(str.size() + 1));
         memcpy(result, str.c_str(), str.size() + 1);
-        err = nullptr;
+        *err = nullptr;
         return result;
     } catch (std::runtime_error &e) {
         auto s = e.what();

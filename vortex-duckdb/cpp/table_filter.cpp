@@ -15,16 +15,14 @@ using namespace duckdb;
 extern "C" idx_t duckdb_vx_table_filter_set_get(duckdb_vx_table_filter_set ffi_filter_set,
                                                 size_t index,
                                                 duckdb_vx_table_filter *table_filter_out) {
-    auto filter_set = reinterpret_cast<TableFilterSet *>(ffi_filter_set);
-    auto it = std::next(filter_set->filters.begin(), index);
-
-    if (it == filter_set->filters.end()) {
-        table_filter_out = nullptr;
+    auto &filters = reinterpret_cast<TableFilterSet *>(ffi_filter_set)->filters;
+    if (filters.size() <= index) {
+        *table_filter_out = nullptr;
         return 0;
     }
-
-    *table_filter_out = reinterpret_cast<duckdb_vx_table_filter>(it->second.get());
-    return it->first;
+    auto &[column_idx, filter] = *std::next(filters.begin(), index);
+    *table_filter_out = reinterpret_cast<duckdb_vx_table_filter>(filter.get());
+    return column_idx;
 }
 
 extern "C" idx_t duckdb_vx_table_filter_set_size(duckdb_vx_table_filter_set ffi_filter_set) {
@@ -93,8 +91,8 @@ extern "C" void duckdb_vx_table_filter_get_dynamic(duckdb_vx_table_filter ffi_fi
     // Hold the lock while accessing the filter data.
     std::lock_guard<std::mutex> lock(filter.filter_data->lock);
 
-    auto data_wrapper = new DynamicFilterDataWrapper(filter.filter_data);
-    out->data = reinterpret_cast<duckdb_vx_dynamic_filter_data>(data_wrapper);
+    auto data_wrapper = duckdb::make_uniq<DynamicFilterDataWrapper>(filter.filter_data);
+    out->data = reinterpret_cast<duckdb_vx_dynamic_filter_data>(data_wrapper.release());
     out->comparison_type = static_cast<duckdb_vx_expr_type>(filter.filter_data->filter->comparison_type);
 }
 
@@ -111,11 +109,13 @@ extern "C" duckdb_value duckdb_vx_dynamic_filter_data_get_value(duckdb_vx_dynami
         return nullptr;
     }
     auto data_wrapper = reinterpret_cast<DynamicFilterDataWrapper *>(ffi_data);
+    if (!data_wrapper->data)
+        return nullptr;
 
     // Hold the lock while accessing the filter data.
     std::lock_guard<std::mutex> lock(data_wrapper->data->lock);
 
-    if (!data_wrapper->data || !data_wrapper->data->filter || !data_wrapper->data->initialized) {
+    if (!data_wrapper->data->filter || !data_wrapper->data->initialized) {
         return nullptr;
     }
 
