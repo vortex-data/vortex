@@ -170,10 +170,7 @@ def _determine_action(
 
 def _render_recurrence_body(count: int) -> str:
     """Render the minimal recurrence-tracking comment body."""
-    return (
-        f"Seen **{count}** time{'s' if count != 1 else ''}\n\n"
-        f"{_RECURRENCE_KEY}"
-    )
+    return f"Seen **{count}** time{'s' if count != 1 else ''}\n\n{_RECURRENCE_KEY}"
 
 
 def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
