@@ -58,18 +58,40 @@ pub(crate) fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::
     }
 }
 
-const COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
-    // TODO(ngates): these numbers don't make sense if we're using spawn_blocking..
-    distance: 8 * 1024, // KB
-    max_size: 8 * 1024, // KB
+const DEFAULT_COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
+    distance: 8 * 1024, // 8KB
+    max_size: 8 * 1024, // 8KB
 };
-const CONCURRENCY: usize = 32;
+const DEFAULT_CONCURRENCY: usize = 32;
+
+const COALESCE_DISTANCE_ENV: &str = "VORTEX_FILE_COALESCE_DISTANCE";
+const COALESCE_MAX_SIZE_ENV: &str = "VORTEX_FILE_COALESCE_MAX_SIZE";
+const COALESCE_DISABLE_ENV: &str = "VORTEX_FILE_COALESCE_DISABLE";
+const READ_CONCURRENCY_ENV: &str = "VORTEX_FILE_READ_CONCURRENCY";
+
+fn read_env_u64(key: &str) -> Option<u64> {
+    std::env::var(key).ok()?.parse::<u64>().ok()
+}
+
+fn read_env_usize(key: &str) -> Option<usize> {
+    std::env::var(key).ok()?.parse::<usize>().ok()
+}
+
+fn read_env_bool(key: &str, default: bool) -> bool {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<u8>().ok())
+        .map(|value| value != 0)
+        .unwrap_or(default)
+}
 
 /// An adapter type wrapping a [`File`] to implement [`VortexReadAt`].
 pub struct FileReadAdapter {
     uri: Arc<str>,
     file: Arc<File>,
     handle: Handle,
+    concurrency: usize,
+    coalesce_config: Option<CoalesceConfig>,
 }
 
 impl FileReadAdapter {
@@ -78,7 +100,28 @@ impl FileReadAdapter {
         let path = path.as_ref();
         let uri = path.to_string_lossy().to_string().into();
         let file = Arc::new(File::open(path)?);
-        Ok(Self { uri, file, handle })
+
+        let mut coalesce_config = Some(DEFAULT_COALESCING_CONFIG);
+        if read_env_bool(COALESCE_DISABLE_ENV, false) {
+            coalesce_config = None;
+        } else if let Some(defaults) = coalesce_config.as_mut() {
+            if let Some(distance) = read_env_u64(COALESCE_DISTANCE_ENV) {
+                defaults.distance = distance;
+            }
+            if let Some(max_size) = read_env_u64(COALESCE_MAX_SIZE_ENV) {
+                defaults.max_size = max_size;
+            }
+        }
+
+        let concurrency = read_env_usize(READ_CONCURRENCY_ENV).unwrap_or(DEFAULT_CONCURRENCY);
+
+        Ok(Self {
+            uri,
+            file,
+            handle,
+            concurrency,
+            coalesce_config,
+        })
     }
 }
 
@@ -88,11 +131,11 @@ impl VortexReadAt for FileReadAdapter {
     }
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
-        Some(COALESCING_CONFIG)
+        self.coalesce_config
     }
 
     fn concurrency(&self) -> usize {
-        CONCURRENCY
+        self.concurrency
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
