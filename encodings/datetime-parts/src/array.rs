@@ -190,6 +190,14 @@ pub struct DateTimePartsArray {
     stats_set: ArrayStats,
 }
 
+#[derive(Clone, Debug)]
+pub struct DateTimePartsArrayParts {
+    pub dtype: DType,
+    pub days: ArrayRef,
+    pub seconds: ArrayRef,
+    pub subseconds: ArrayRef,
+}
+
 #[derive(Debug)]
 pub struct DateTimePartsVTable;
 
@@ -249,6 +257,15 @@ impl DateTimePartsArray {
             seconds,
             subseconds,
             stats_set: Default::default(),
+        }
+    }
+
+    pub fn into_parts(self) -> DateTimePartsArrayParts {
+        DateTimePartsArrayParts {
+            dtype: self.dtype,
+            days: self.days,
+            seconds: self.seconds,
+            subseconds: self.subseconds,
         }
     }
 

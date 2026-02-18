@@ -273,7 +273,7 @@ impl BitPackedArray {
         if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
             bitpack_encode(parray, bit_width, None)
         } else {
-            vortex_bail!("Bitpacking can only encode primitive arrays");
+            vortex_bail!(InvalidArgument: "Bitpacking can only encode primitive arrays");
         }
     }
 

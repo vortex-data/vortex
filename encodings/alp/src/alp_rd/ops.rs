@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::Array;
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::ALPRDArray;
 use crate::ALPRDVTable;
@@ -62,7 +62,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_scalar::Scalar;
+    use vortex_array::scalar::Scalar;
 
     use crate::ALPRDFloat;
     use crate::RDEncoder;

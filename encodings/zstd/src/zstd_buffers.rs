@@ -15,6 +15,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::ArrayStats;
@@ -34,7 +35,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::ZstdBuffersMetadata;

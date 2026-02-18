@@ -10,6 +10,7 @@ mod portable;
 use std::sync::LazyLock;
 
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::NativePType;
@@ -111,8 +112,26 @@ impl TakeExecute for PrimitiveVTable {
 // Compiler may see this as unused based on enabled features
 #[allow(unused)]
 #[inline(always)]
-fn take_primitive_scalar<T: NativePType, I: IntegerPType>(array: &[T], indices: &[I]) -> Buffer<T> {
-    indices.iter().map(|idx| array[idx.as_()]).collect()
+fn take_primitive_scalar<T: NativePType, I: IntegerPType>(
+    buffer: &[T],
+    indices: &[I],
+) -> Buffer<T> {
+    // NB: The simpler `indices.iter().map(|idx| buffer[idx.as_()]).collect()` generates suboptimal
+    // assembly where the buffer length is repeatedly loaded from the stack on each iteration.
+
+    let mut result = BufferMut::with_capacity(indices.len());
+    let ptr = result.spare_capacity_mut().as_mut_ptr().cast::<T>();
+
+    // This explicit loop with pointer writes keeps the length in a register and avoids per-element
+    // capacity checks from `push()`.
+    for (i, idx) in indices.iter().enumerate() {
+        // SAFETY: We reserved `indices.len()` capacity, so `ptr.add(i)` is valid.
+        unsafe { ptr.add(i).write(buffer[idx.as_()]) };
+    }
+
+    // SAFETY: We just wrote exactly `indices.len()` elements.
+    unsafe { result.set_len(indices.len()) };
+    result.freeze()
 }
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
@@ -121,7 +140,6 @@ mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::IntoArray;
@@ -129,6 +147,7 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::primitive::compute::take::take_primitive_scalar;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]

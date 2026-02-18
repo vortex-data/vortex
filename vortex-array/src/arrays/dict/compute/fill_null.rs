@@ -3,8 +3,6 @@
 
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use super::DictArray;
 use super::DictVTable;
@@ -18,6 +16,8 @@ use crate::builtins::ArrayBuiltins;
 use crate::compute::Operator;
 use crate::compute::compare;
 use crate::expr::FillNullKernel;
+use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 
 impl FillNullKernel for DictVTable {
     fn fill_null(
@@ -86,7 +86,6 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_error::VortexExpect;
-    use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::ToCanonical;
@@ -94,6 +93,7 @@ mod tests {
     use crate::arrays::dict::DictArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]

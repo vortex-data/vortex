@@ -16,8 +16,6 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
-use vortex_scalar::Scalar;
-use vortex_scalar::arbitrary::random_scalar;
 
 use super::BoolArray;
 use super::ChunkedArray;
@@ -34,6 +32,8 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DecimalBuilder;
 use crate::builders::FixedSizeListBuilder;
 use crate::builders::ListViewBuilder;
+use crate::scalar::Scalar;
+use crate::scalar::arbitrary::random_scalar;
 use crate::validity::Validity;
 
 /// A wrapper type to implement `Arbitrary` for `ArrayRef`.

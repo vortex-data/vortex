@@ -2,17 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use super::DictArray;
 use super::DictVTable;
 use crate::Array as _;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
-use crate::compute::mask;
 use crate::compute::min_max;
 use crate::register_kernel;
+use crate::validity::Validity;
 
 impl MinMaxKernel for DictVTable {
     fn min_max(&self, array: &DictArray) -> VortexResult<Option<MinMaxResult>> {
@@ -27,8 +29,13 @@ impl MinMaxKernel for DictVTable {
         }
 
         // Slow path: compute which values are unreferenced and mask them out
-        let unreferenced_mask = Mask::from_buffer(array.compute_referenced_values_mask(false)?);
-        min_max(&mask(array.values(), &unreferenced_mask)?)
+        let unreferenced_mask = BoolArray::new(
+            array.compute_referenced_values_mask(true)?,
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        min_max(&array.values().clone().mask(unreferenced_mask)?)
     }
 }
 

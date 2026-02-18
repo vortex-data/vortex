@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::compute::BetweenOptions;
-use crate::compute::StrictComparison;
+use crate::expr::BetweenOptions;
 use crate::expr::Expression;
+use crate::expr::StrictComparison;
 use crate::expr::VTableExt;
 use crate::expr::and_collect;
 use crate::expr::exprs::between::Between;
@@ -126,8 +126,8 @@ fn is_strict_comparison(op: Operator) -> Option<StrictComparison> {
 #[cfg(test)]
 mod tests {
     use super::find_between;
-    use crate::compute::BetweenOptions;
-    use crate::compute::StrictComparison;
+    use crate::expr::BetweenOptions;
+    use crate::expr::StrictComparison;
     use crate::expr::exprs::between::between;
     use crate::expr::exprs::binary::and;
     use crate::expr::exprs::binary::gt;

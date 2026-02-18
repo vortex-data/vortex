@@ -5,21 +5,20 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
-use crate::compute::CompareKernel;
-use crate::compute::CompareKernelAdapter;
+use crate::compute;
 use crate::compute::Operator;
-use crate::compute::{self};
-use crate::register_kernel;
+use crate::expr::CompareKernel;
 
 impl CompareKernel for ExtensionVTable {
     fn compare(
-        &self,
         lhs: &ExtensionArray,
         rhs: &dyn Array,
         operator: Operator,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // If the RHS is a constant, we can extract the storage scalar.
         if let Some(const_ext) = rhs.as_constant() {
@@ -41,5 +40,3 @@ impl CompareKernel for ExtensionVTable {
         Ok(None)
     }
 }
-
-register_kernel!(CompareKernelAdapter(ExtensionVTable).lift());

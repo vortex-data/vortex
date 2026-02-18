@@ -42,6 +42,7 @@ use vortex_array::expr::or;
 use vortex_array::expr::root;
 use vortex_array::expr::select;
 use vortex_array::expr::session::ExprSession;
+use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySession;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStreamAdapter;
@@ -64,7 +65,6 @@ use vortex_dtype::datetime::TimestampOptions;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
-use vortex_scalar::Scalar;
 use vortex_scan::ScanBuilder;
 use vortex_session::VortexSession;
 

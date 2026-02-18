@@ -71,6 +71,15 @@ impl Default for BtrBlocksCompressorBuilder {
 }
 
 impl BtrBlocksCompressorBuilder {
+    /// Create a new builder with no encodings enabled.
+    pub fn empty() -> Self {
+        Self {
+            int_schemes: Default::default(),
+            float_schemes: Default::default(),
+            string_schemes: Default::default(),
+        }
+    }
+
     /// Excludes the specified integer compression schemes.
     pub fn exclude_int(mut self, codes: impl IntoIterator<Item = IntCode>) -> Self {
         let codes: HashSet<_> = codes.into_iter().collect();

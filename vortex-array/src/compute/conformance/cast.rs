@@ -7,7 +7,6 @@ use vortex_dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -15,6 +14,7 @@ use crate::IntoArray;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::MinMaxResult;
 use crate::compute::min_max;
+use crate::scalar::Scalar;
 
 /// Cast and force execution via `to_canonical`, returning the canonical array.
 fn cast_and_execute(array: &ArrayRef, dtype: DType) -> VortexResult<ArrayRef> {

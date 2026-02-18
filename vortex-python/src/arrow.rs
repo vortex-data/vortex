@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2016-2025 Copyright The Apache Software Foundation
 // SPDX-FileCopyrightText: 2025 Copyright the Vortex contributors
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileComment: Derived from upstream file arrow-pyarrow/src/lib.rs at commit 549709fb at https://github.com/apache/arrow-rs
+// SPDX-FileComment: Derived from upstream file arrow-pyarrow/src/main at commit 549709fb at https://github.com/apache/arrow-rs
 // SPDX-FileNotice: https://github.com/apache/arrow-rs/blob/549709fbdf91cd1f6c263a7e4540c542b6fecf6b/NOTICE.txt
 #![allow(clippy::same_name_method)]
 

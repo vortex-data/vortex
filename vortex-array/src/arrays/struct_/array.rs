@@ -299,7 +299,7 @@ impl StructArray {
         // Check field count matches
         if fields.len() != dtype.names().len() {
             vortex_bail!(
-                "Got {} fields but dtype has {} names",
+                InvalidArgument: "Got {} fields but dtype has {} names",
                 fields.len(),
                 dtype.names().len()
             );
@@ -309,7 +309,7 @@ impl StructArray {
         for (i, (field, struct_dt)) in fields.iter().zip(dtype.fields()).enumerate() {
             if field.len() != length {
                 vortex_bail!(
-                    "Field {} has length {} but expected {}",
+                    InvalidArgument: "Field {} has length {} but expected {}",
                     i,
                     field.len(),
                     length
@@ -318,7 +318,7 @@ impl StructArray {
 
             if field.dtype() != &struct_dt {
                 vortex_bail!(
-                    "Field {} has dtype {} but expected {}",
+                    InvalidArgument: "Field {} has dtype {} but expected {}",
                     i,
                     field.dtype(),
                     struct_dt
@@ -331,7 +331,7 @@ impl StructArray {
             && validity_len != length
         {
             vortex_bail!(
-                "Validity has length {} but expected {}",
+                InvalidArgument: "Validity has length {} but expected {}",
                 validity_len,
                 length
             );

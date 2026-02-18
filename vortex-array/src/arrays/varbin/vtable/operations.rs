@@ -2,11 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
 use crate::arrays::varbin_scalar;
+use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<VarBinVTable> for VarBinVTable {

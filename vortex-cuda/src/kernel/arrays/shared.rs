@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use async_trait::async_trait;
+use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::SharedVTable;
@@ -14,10 +15,11 @@ use crate::executor::CudaExecutionCtx;
 
 /// CUDA executor for SharedArray.
 #[derive(Debug)]
-pub struct SharedExecutor;
+pub(crate) struct SharedExecutor;
 
 #[async_trait]
 impl CudaExecute for SharedExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,

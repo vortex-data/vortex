@@ -13,7 +13,6 @@ use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 
-use async_compat::Compat;
 use custom_labels::CURRENT_LABELSET;
 use futures::FutureExt;
 use futures::Stream;
@@ -37,7 +36,7 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
-use vortex::expr::Expression;
+use vortex::expr::Expression as VortexExpression;
 use vortex::expr::Pack;
 use vortex::expr::and_collect;
 use vortex::expr::col;
@@ -56,30 +55,30 @@ use crate::RUNTIME;
 use crate::SESSION;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_table_filter;
-use crate::duckdb;
 use crate::duckdb::BindInput;
 use crate::duckdb::BindResult;
 use crate::duckdb::Cardinality;
 use crate::duckdb::ClientContext;
 use crate::duckdb::DataChunk;
+use crate::duckdb::DuckDbFsReader;
+use crate::duckdb::Expression;
 use crate::duckdb::ExtractedValue;
 use crate::duckdb::LogicalType;
+use crate::duckdb::SendableClientContext;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::VirtualColumnsResult;
+use crate::duckdb::duckdb_fs_glob;
 use crate::duckdb::footer_cache::FooterCache;
 use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
-use crate::utils::glob::expand_glob;
-use crate::utils::object_store::s3_store;
 
 pub struct VortexBindData {
     first_file: VortexFile,
-    filter_exprs: Vec<Expression>,
+    filter_exprs: Vec<VortexExpression>,
     file_urls: Vec<Url>,
     column_names: Vec<String>,
     column_types: Vec<LogicalType>,
-    max_threads: u64,
 }
 
 impl Clone for VortexBindData {
@@ -92,7 +91,6 @@ impl Clone for VortexBindData {
             file_urls: self.file_urls.clone(),
             column_names: self.column_names.clone(),
             column_types: self.column_types.clone(),
-            max_threads: self.max_threads,
         }
     }
 }
@@ -148,7 +146,7 @@ fn extract_schema_from_vortex_file(
 }
 
 /// Creates a projection expression based on the table initialization input.
-fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> Expression {
+fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> VortexExpression {
     let projection_ids = init.projection_ids().unwrap_or(&[]);
     let column_ids = init.column_ids();
 
@@ -176,56 +174,50 @@ fn extract_projection_expr(init: &TableInitInput<VortexTableFunction>) -> Expres
 fn extract_table_filter_expr(
     init: &TableInitInput<VortexTableFunction>,
     column_ids: &[u64],
-) -> VortexResult<Option<Expression>> {
-    let mut table_filter_exprs: HashSet<Expression> = if let Some(filter) = init.table_filter_set()
-    {
-        filter
-            .into_iter()
-            .map(|(idx, ex)| {
-                let idx_u: usize = idx.as_();
-                let col_idx: usize = column_ids[idx_u].as_();
-                let name = init
-                    .bind_data()
-                    .column_names
-                    .get(col_idx)
-                    .vortex_expect("exists");
-                try_from_table_filter(
-                    &ex,
-                    &col(name.as_str()),
-                    init.bind_data().first_file.dtype(),
-                )
-            })
-            .collect::<VortexResult<Option<HashSet<_>>>>()?
-            .unwrap_or_else(HashSet::new)
-    } else {
-        HashSet::new()
-    };
+) -> VortexResult<Option<VortexExpression>> {
+    let mut table_filter_exprs: HashSet<VortexExpression> =
+        if let Some(filter) = init.table_filter_set() {
+            filter
+                .into_iter()
+                .map(|(idx, ex)| {
+                    let idx_u: usize = idx.as_();
+                    let col_idx: usize = column_ids[idx_u].as_();
+                    let name = init
+                        .bind_data()
+                        .column_names
+                        .get(col_idx)
+                        .vortex_expect("exists");
+                    try_from_table_filter(
+                        &ex,
+                        &col(name.as_str()),
+                        init.bind_data().first_file.dtype(),
+                    )
+                })
+                .collect::<VortexResult<Option<HashSet<_>>>>()?
+                .unwrap_or_else(HashSet::new)
+        } else {
+            HashSet::new()
+        };
 
     table_filter_exprs.extend(init.bind_data().filter_exprs.clone());
     Ok(and_collect(table_filter_exprs.into_iter().collect_vec()))
 }
 
-/// Helper function to open a Vortex file from either a local or S3 URL
-async fn open_file(url: Url, options: VortexOpenOptions) -> VortexResult<VortexFile> {
-    if url.scheme() == "s3" {
-        assert_eq!(url.scheme(), "s3");
-        let bucket = url
-            .host_str()
-            .ok_or_else(|| vortex_err!("Failed to extract bucket name from URL: {url}"))?;
+/// Helper function to open a Vortex file from either a local path or a URL supported by DuckDB's filesystem.
+fn open_duckdb_reader(
+    client_ctx: SendableClientContext,
+    url: &Url,
+) -> VortexResult<DuckDbFsReader> {
+    unsafe { DuckDbFsReader::open_url(client_ctx.as_ptr(), url) }
+}
 
-        let path = url
-            .path()
-            .strip_prefix("/")
-            .ok_or_else(|| vortex_err!("Invalid S3 path: {url}"))?;
-
-        options.open_object_store(&s3_store(bucket)?, path).await
-    } else {
-        let path = url
-            .to_file_path()
-            .map_err(|_| vortex_err!("Invalid file URL: {url}"))?;
-
-        options.open_path(path).await
-    }
+async fn open_file(
+    client_ctx: SendableClientContext,
+    url: Url,
+    options: VortexOpenOptions,
+) -> VortexResult<VortexFile> {
+    let reader = Arc::new(open_duckdb_reader(client_ctx, &url)?);
+    options.open(reader).await
 }
 
 // taken from duckdb/common/constants.h COLUMN_IDENTIFIER_EMPTY
@@ -278,9 +270,8 @@ impl TableFunction for VortexTableFunction {
 
         tracing::trace!("running scan with max_threads {max_threads}");
 
-        let (file_urls, _metadata) = RUNTIME.block_on(Compat::new(expand_glob(
-            file_glob_string.as_ref().as_string(),
-        )))?;
+        let file_glob = file_glob_string.as_ref().as_string();
+        let file_urls = duckdb_fs_glob(ctx, file_glob.as_ref())?;
 
         // The first file is skipped in `create_file_paths_queue`.
         let Some(first_file_url) = file_urls.first() else {
@@ -288,10 +279,11 @@ impl TableFunction for VortexTableFunction {
         };
 
         let footer_cache = FooterCache::new(ctx.object_cache());
+        let client_ctx = ctx.as_sendable();
         let entry = footer_cache.entry(first_file_url.as_ref());
         let first_file = RUNTIME.block_on(async move {
             let options = entry.apply_to_file(SESSION.open_options());
-            let file = open_file(first_file_url.clone(), options).await?;
+            let file = open_file(client_ctx, first_file_url.clone(), options).await?;
             entry.put_if_absent(|| file.footer().clone());
             VortexResult::Ok(file)
         })?;
@@ -309,7 +301,6 @@ impl TableFunction for VortexTableFunction {
             filter_exprs: vec![],
             column_names,
             column_types,
-            max_threads: max_threads as u64,
         })
     }
 
@@ -389,12 +380,13 @@ impl TableFunction for VortexTableFunction {
                 .map_or_else(|| "true".to_string(), |f| f.to_string())
         );
 
-        // Use the max_threads from bind_data (read from vortex_max_threads setting)
-        #[expect(clippy::cast_possible_truncation, reason = "max_threads fits in usize")]
-        let num_workers = bind_data.max_threads as usize;
-
         let client_context = init_input.client_context()?;
+        let client_ctx_ptr = client_context.as_sendable();
         let object_cache = client_context.object_cache();
+
+        let num_workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
 
         let handle = RUNTIME.handle();
         let first_file = bind_data.first_file.clone();
@@ -417,7 +409,7 @@ impl TableFunction for VortexTableFunction {
                             let cache = FooterCache::new(object_cache);
                             let entry = cache.entry(url.as_ref());
                             let options = entry.apply_to_file(SESSION.open_options());
-                            let file = open_file(url.clone(), options).await?;
+                            let file = open_file(client_ctx_ptr, url.clone(), options).await?;
                             entry.put_if_absent(|| file.footer().clone());
                             VortexResult::Ok(file)
                         }?;
@@ -465,9 +457,9 @@ impl TableFunction for VortexTableFunction {
         unsafe {
             use custom_labels::sys;
 
-            if sys::labelset_current().is_null() {
-                let ls = sys::labelset_new(0);
-                sys::labelset_replace(ls);
+            if sys::current().is_null() {
+                let ls = sys::new(0);
+                sys::replace(ls);
             };
         }
 
@@ -486,7 +478,7 @@ impl TableFunction for VortexTableFunction {
 
     fn pushdown_complex_filter(
         bind_data: &mut Self::BindData,
-        expr: &duckdb::Expression,
+        expr: &Expression,
     ) -> VortexResult<bool> {
         let Some(expr) = try_from_bound_expression(expr)? else {
             return Ok(false);

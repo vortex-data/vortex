@@ -147,7 +147,6 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability::Nullable;
     use vortex_error::VortexResult;
-    use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -157,6 +156,7 @@ mod tests {
     use crate::arrays::VarBinViewArray;
     use crate::arrow::ArrowArrayExecutor;
     use crate::executor::VortexSessionExecute;
+    use crate::scalar::Scalar;
 
     fn dict_type(codes: DataType, values: DataType) -> DataType {
         DataType::Dictionary(Box::new(codes), Box::new(values))

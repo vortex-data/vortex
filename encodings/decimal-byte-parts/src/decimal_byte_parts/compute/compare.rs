@@ -5,12 +5,14 @@ use Sign::Negative;
 use num_traits::NumCast;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::CompareKernel;
-use vortex_array::compute::CompareKernelAdapter;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
-use vortex_array::register_kernel;
+use vortex_array::expr::CompareKernel;
+use vortex_array::scalar::DecimalValue;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -19,19 +21,16 @@ use vortex_dtype::match_each_decimal_value;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use crate::DecimalBytePartsVTable;
 use crate::decimal_byte_parts::compute::compare::Sign::Positive;
 
 impl CompareKernel for DecimalBytePartsVTable {
     fn compare(
-        &self,
         lhs: &Self::Array,
         rhs: &dyn Array,
         operator: Operator,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
@@ -132,8 +131,6 @@ where
     })
 }
 
-register_kernel!(CompareKernelAdapter(DecimalBytePartsVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use vortex_array::Array;
@@ -144,14 +141,14 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
+    use vortex_array::scalar::DecimalValue;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
 
     use crate::DecimalBytePartsArray;
 

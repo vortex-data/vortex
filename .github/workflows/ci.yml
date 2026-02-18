@@ -297,6 +297,18 @@ jobs:
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --locked --all-targets -- -D warnings
 
+  cpp-lint:
+    name: "C/C++ (lint)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: C/C++ Lint - clang-format
+        run: |
+          git ls-files vortex-cuda vortex-cxx vortex-duckdb vortex-ffi \
+            | grep -E '\.(cpp|hpp|cu|cuh|h)$' \
+            | xargs clang-format --dry-run --Werror --style=file
+
   rust-lint-no-default:
     name: "Rust (lint, no default)"
     timeout-minutes: 120
@@ -515,8 +527,6 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
-          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
@@ -526,7 +536,7 @@ jobs:
           # Outline flat layouts for cuda scan.
           FLAT_LAYOUT_INLINE_ARRAY_NODE: true
         run: |
-          cargo +$NIGHTLY_TOOLCHAIN nextest run \
+          cargo nextest run \
             --locked \
             -p vortex-file \
             -p vortex-cuda \
@@ -538,22 +548,22 @@ jobs:
       - name: CUDA - memcheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool memcheck --leak-check=full --error-exitcode 1
-        run: cargo +$NIGHTLY_TOOLCHAIN test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
         # TODO(joe): try to re-enable, This is hanging in CI.
         #      - name: CUDA - racecheck
         #        env:
         #          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool racecheck --error-exitcode 1
-        #        run: cargo +$NIGHTLY_TOOLCHAIN test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+        #        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
       - name: CUDA - synccheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool synccheck --error-exitcode 1
-        run: cargo +$NIGHTLY_TOOLCHAIN test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
       - name: CUDA - initcheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool initcheck --error-exitcode 1
-        run: cargo +$NIGHTLY_TOOLCHAIN test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
       - name: Build cudf test library
-        run: cargo +$NIGHTLY_TOOLCHAIN build --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
+        run: cargo build --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
       - name: Download and run cudf-test-harness
         run: |
           curl -fsSL https://github.com/vortex-data/cudf-test-harness/releases/latest/download/cudf-test-harness-x86_64.tar.gz | tar -xz
@@ -612,7 +622,7 @@ jobs:
             --exclude vortex-cub --exclude vortex-test-e2e-cuda --exclude duckdb-bench `
             --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench `
             --exclude compress-bench --exclude xtask --exclude vortex-datafusion `
-            --exclude vortex-sqllogictest
+            --exclude gpu-scan-cli --exclude vortex-sqllogictest
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
         run: |
@@ -655,9 +665,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-dtype vortex-error" }
-          - { shard: 2, name: "Array types", packages: "vortex-array vortex-scalar vortex-vector", features: "--features _test-harness" }
-          - { shard: 3, name: "Main library", packages: "vortex vortex-compute" }
+          - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-error" }
+          - { shard: 2, name: "Arrays", packages: "vortex-array vortex-dtype", features: "--features _test-harness" }
+          - { shard: 3, name: "Main library", packages: "vortex" }
           - { shard: 4, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
           - { shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }
           - { shard: 6, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }

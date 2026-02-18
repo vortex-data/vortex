@@ -4,12 +4,12 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::compute::CastReduce;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use crate::SequenceArray;
 use crate::SequenceVTable;

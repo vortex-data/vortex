@@ -47,6 +47,22 @@ fn main() {
     match result {
         Ok(bindings) => {
             bindings.write_to_file(&output_file);
+
+            // Run clang-format on the generated header.
+            let status = std::process::Command::new("clang-format")
+                .arg("-i")
+                .arg("--style=file")
+                .arg(&output_file)
+                .status();
+            match status {
+                Ok(s) if s.success() => {}
+                Ok(s) => println!(
+                    "cargo:warning=clang-format exited with status {} for {}",
+                    s,
+                    output_file.display()
+                ),
+                Err(e) => println!("cargo:warning=clang-format not found or failed to run: {e}"),
+            }
         }
         Err(e) => {
             // Check if this might be a sanitizer-related incompatibility

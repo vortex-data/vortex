@@ -7,7 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
+use tracing::instrument;
 use vortex_alp::ALPArray;
 use vortex_alp::ALPFloat;
 use vortex_alp::ALPVTable;
@@ -22,6 +22,7 @@ use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::CudaBufferExt;
@@ -30,14 +31,14 @@ use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
 use crate::kernel::patches::execute_patches;
-use crate::launch_cuda_kernel_impl;
 
 /// CUDA decoder for ALP (Adaptive Lossless floating-Point) decompression.
 #[derive(Debug)]
-pub struct ALPExecutor;
+pub(crate) struct ALPExecutor;
 
 #[async_trait]
 impl CudaExecute for ALPExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -57,7 +58,7 @@ where
     A::ALPInt: NativePType + DeviceRepr + Send + Sync + 'static,
 {
     let array_len = array.encoded().len();
-    assert!(array_len > 0);
+    vortex_ensure!(array_len > 0, "ALP array must not be empty");
 
     // Get the exponent factors from the lookup tables.
     let exponents = array.exponents();
@@ -71,11 +72,7 @@ where
         buffer, validity, ..
     } = primitive.into_parts();
 
-    let device_input: BufferHandle = if buffer.is_on_device() {
-        buffer
-    } else {
-        ctx.move_to_device(buffer)?.await?
-    };
+    let device_input = ctx.ensure_on_device(buffer).await?;
 
     // Get CUDA view of input
     let input_view = device_input.cuda_view::<A::ALPInt>()?;
@@ -90,20 +87,14 @@ where
     // Load kernel function
     let kernel_ptypes = [A::ALPInt::PTYPE, A::PTYPE];
     let cuda_function = ctx.load_function_ptype("alp", &kernel_ptypes)?;
-    {
-        let mut launch_builder = ctx.launch_builder(&cuda_function);
 
-        // Build launch args: input, output, f, e, length
-        launch_builder.arg(&input_view);
-        launch_builder.arg(&output_view);
-        launch_builder.arg(&f);
-        launch_builder.arg(&e);
-        launch_builder.arg(&array_len_u64);
-
-        // Launch kernel
-        let _cuda_events =
-            launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
-    }
+    ctx.launch_kernel(&cuda_function, array_len, |args| {
+        args.arg(&input_view)
+            .arg(&output_view)
+            .arg(&f)
+            .arg(&e)
+            .arg(&array_len_u64);
+    })?;
 
     // Check if there are any patches to decode here
     let output_buf = if let Some(patches) = array.patches() {

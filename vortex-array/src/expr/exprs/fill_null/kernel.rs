@@ -3,7 +3,6 @@
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -17,6 +16,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::expr::FillNull as FillNullExpr;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::scalar::Scalar;
 use crate::vtable::VTable;
 
 /// Fill nulls in an array with a scalar value without reading buffers.

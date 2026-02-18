@@ -4,7 +4,6 @@
 use std::ops::Range;
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -13,6 +12,7 @@ use crate::arrays::ConstantVTable;
 use crate::arrays::DictArray;
 use crate::arrays::DictVTable;
 use crate::arrays::SliceReduce;
+use crate::scalar::Scalar;
 
 impl SliceReduce for DictVTable {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -50,7 +50,6 @@ mod tests {
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType;
     use vortex_error::VortexResult;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::IntoArray;
@@ -58,6 +57,7 @@ mod tests {
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::scalar::Scalar;
 
     #[test]
     fn slice_constant_valid_code() -> VortexResult<()> {

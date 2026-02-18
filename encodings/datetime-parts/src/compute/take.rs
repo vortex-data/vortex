@@ -10,10 +10,10 @@ use vortex_array::arrays::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
+use vortex_array::scalar::Scalar;
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_scalar::Scalar;
 
 use crate::DateTimePartsArray;
 use crate::DateTimePartsVTable;

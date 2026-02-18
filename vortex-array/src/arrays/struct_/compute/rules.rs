@@ -15,6 +15,7 @@ use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::builtins::ArrayBuiltins;
+use crate::compute::MaskReduceAdaptor;
 use crate::expr::Cast;
 use crate::expr::EmptyOptions;
 use crate::expr::GetItem;
@@ -27,6 +28,7 @@ use crate::vtable::ValidityHelper;
 pub(crate) const PARENT_RULES: ParentRuleSet<StructVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&StructCastPushDownRule),
     ParentRuleSet::lift(&StructGetItemRule),
+    ParentRuleSet::lift(&MaskReduceAdaptor(StructVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(StructVTable)),
 ]);
 
@@ -64,7 +66,7 @@ impl ArrayParentReduceRule<StructVTable> for StructCastPushDownRule {
                         target_name
                     );
                     new_fields.push(
-                        ConstantArray::new(vortex_scalar::Scalar::null(target_dtype), array.len())
+                        ConstantArray::new(crate::scalar::Scalar::null(target_dtype), array.len())
                             .into_array(),
                     );
                 }
@@ -115,7 +117,7 @@ impl ArrayParentReduceRule<StructVTable> for StructGetItemRule {
                 // If everything is invalid, the field is also all invalid
                 Ok(Some(
                     ConstantArray::new(
-                        vortex_scalar::Scalar::null(field.dtype().clone()),
+                        crate::scalar::Scalar::null(field.dtype().clone()),
                         field.len(),
                     )
                     .into_array(),
@@ -136,7 +138,6 @@ mod tests {
     use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability;
     use vortex_dtype::StructFields;
-    use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
@@ -145,6 +146,7 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]

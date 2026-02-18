@@ -22,6 +22,9 @@ use vortex_array::SerializeMetadata;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::scalar::DecimalValue;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -42,9 +45,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 use vortex_session::VortexSession;
 
 use crate::decimal_byte_parts::compute::kernel::PARENT_KERNELS;
@@ -322,14 +322,14 @@ mod tests {
     use vortex_array::Array;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::scalar::DecimalValue;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar::ScalarValue;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
-    use vortex_scalar::ScalarValue;
 
     use crate::DecimalBytePartsArray;
 

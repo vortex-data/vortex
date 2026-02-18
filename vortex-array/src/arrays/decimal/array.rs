@@ -241,7 +241,7 @@ impl DecimalArray {
             let expected_len = values_type.byte_width() * validity_len;
             vortex_ensure!(
                 buffer.len() == expected_len,
-                "expected buffer of size {} bytes, was {} bytes",
+                InvalidArgument: "expected buffer of size {} bytes, was {} bytes",
                 expected_len,
                 buffer.len(),
             );

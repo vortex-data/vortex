@@ -21,8 +21,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::ListScalar;
-use vortex_scalar::Scalar;
 
 use crate::Canonical;
 use crate::ToCanonical;
@@ -39,6 +37,8 @@ use crate::builders::UninitRange;
 use crate::builders::builder_with_capacity;
 use crate::builders::lazy_null_builder::LazyBitBufferBuilder;
 use crate::builtins::ArrayBuiltins;
+use crate::scalar::ListScalar;
+use crate::scalar::Scalar;
 
 /// A builder for creating [`ListViewArray`] instances, parameterized by the [`IntegerPType`] of
 /// the `offsets` and the `sizes` builders.
@@ -433,7 +433,6 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType::I32;
-    use vortex_scalar::Scalar;
 
     use super::ListViewBuilder;
     use crate::IntoArray;
@@ -442,6 +441,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::scalar::Scalar;
     use crate::vtable::ValidityHelper;
 
     #[test]

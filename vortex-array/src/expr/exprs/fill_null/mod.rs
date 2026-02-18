@@ -11,7 +11,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::AnyColumnar;
@@ -31,6 +30,7 @@ use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::scalar::Scalar;
 
 /// An expression that replaces null values in the input with a fill value.
 pub struct FillNull;
@@ -157,7 +157,11 @@ fn fill_null_canonical(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     if let Some(result) = precondition(canonical.as_ref(), fill_value)? {
-        return Ok(result);
+        // The result of precondition may return another ScalarFn, in which case we should
+        // apply it immediately.
+        // TODO(aduffy): Remove this once we have better driver check. We're also implicitly
+        //  relying on the fact that Cast execution will do an optimize on its result.
+        return result.execute::<ArrayRef>(ctx);
     }
     match canonical {
         CanonicalView::Bool(a) => <BoolVTable as FillNullKernel>::fill_null(a, fill_value, ctx)?

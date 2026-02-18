@@ -3,11 +3,11 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::builtins::ArrayBuiltins;
+use crate::scalar::Scalar;
 
 /// Replace nulls in the array with another value.
 ///
@@ -16,7 +16,7 @@ use crate::builtins::ArrayBuiltins;
 /// ```
 /// use vortex_array::arrays::{PrimitiveArray};
 /// use vortex_array::compute::{fill_null};
-/// use vortex_scalar::Scalar;
+/// use vortex_array::scalar::Scalar;
 ///
 /// let array =
 ///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);

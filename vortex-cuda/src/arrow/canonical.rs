@@ -28,7 +28,6 @@ use crate::arrow::ExportDeviceArray;
 use crate::arrow::PrivateData;
 use crate::arrow::SyncEvent;
 use crate::arrow::check_validity_empty;
-use crate::arrow::ensure_device_resident;
 use crate::arrow::varbinview::BinaryParts;
 use crate::arrow::varbinview::copy_varbinview_to_varbin;
 use crate::executor::CudaArrayExt;
@@ -75,7 +74,7 @@ fn export_canonical(
 
                 check_validity_empty(&validity)?;
 
-                let buffer = ensure_device_resident(buffer, ctx).await?;
+                let buffer = ctx.ensure_on_device(buffer).await?;
 
                 export_fixed_size(buffer, len, 0, ctx)
             }
@@ -109,7 +108,7 @@ fn export_canonical(
                     "cannot export DecimalArray with values type {values_type}. must be i32 or wider."
                 );
 
-                let buffer = ensure_device_resident(values, ctx).await?;
+                let buffer = ctx.ensure_on_device(values).await?;
 
                 export_fixed_size(buffer, len, 0, ctx)
             }
@@ -127,7 +126,7 @@ fn export_canonical(
 
                 check_validity_empty(&validity)?;
 
-                let buffer = ensure_device_resident(buffer, ctx).await?;
+                let buffer = ctx.ensure_on_device(buffer).await?;
                 export_fixed_size(buffer, len, 0, ctx)
             }
             Canonical::Bool(bool_array) => {
@@ -150,8 +149,8 @@ fn export_canonical(
                 let BinaryParts { offsets, bytes } =
                     copy_varbinview_to_varbin(varbinview, ctx).await?;
 
-                let offsets = ensure_device_resident(offsets, ctx).await?;
-                let bytes = ensure_device_resident(bytes, ctx).await?;
+                let offsets = ctx.ensure_on_device(offsets).await?;
+                let bytes = ctx.ensure_on_device(bytes).await?;
 
                 let buffers = vec![None, Some(offsets), Some(bytes)];
                 let mut private_data = PrivateData::new(buffers, vec![], ctx)?;

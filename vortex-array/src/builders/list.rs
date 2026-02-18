@@ -15,8 +15,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::ListScalar;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -28,6 +26,8 @@ use crate::builders::LazyBitBufferBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::ToCanonical;
+use crate::scalar::ListScalar;
+use crate::scalar::Scalar;
 
 /// The builder for building a [`ListArray`], parametrized by the [`IntegerPType`] of the `offsets`
 /// builder.
@@ -311,7 +311,6 @@ mod tests {
     use vortex_dtype::IntegerPType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
-    use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::ToCanonical;
@@ -322,6 +321,7 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::list::ListBuilder;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 

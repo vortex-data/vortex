@@ -16,20 +16,20 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::BinaryView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::compact::BufferUtilization;
 use crate::builders::ArrayBuilder;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::scalar::Scalar;
 
 /// The builder for building a [`VarBinViewArray`].
 pub struct VarBinViewBuilder {
@@ -929,7 +929,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        use vortex_scalar::Scalar;
+        use crate::scalar::Scalar;
 
         // Test with Utf8 builder.
         let mut utf8_builder =

@@ -28,11 +28,11 @@ pub fn decode_to_temporal(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<TemporalArray> {
     let DType::Extension(ext) = array.dtype().clone() else {
-        vortex_panic!(ComputeError: "expected dtype to be DType::Extension variant")
+        vortex_panic!(Compute: "expected dtype to be DType::Extension variant")
     };
 
     let Some(options) = ext.metadata_opt::<Timestamp>() else {
-        vortex_panic!(ComputeError: "must decode TemporalMetadata from extension metadata");
+        vortex_panic!(Compute: "must decode TemporalMetadata from extension metadata");
     };
 
     let divisor = match options.unit {

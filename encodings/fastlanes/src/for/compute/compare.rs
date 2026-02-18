@@ -6,30 +6,29 @@ use std::ops::Shr;
 use num_traits::WrappingSub;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::CompareKernel;
-use vortex_array::compute::CompareKernelAdapter;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
-use vortex_array::register_kernel;
+use vortex_array::expr::CompareKernel;
+use vortex_array::scalar::PValue;
+use vortex_array::scalar::Scalar;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
-use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
 
 use crate::FoRArray;
 use crate::FoRVTable;
 
 impl CompareKernel for FoRVTable {
     fn compare(
-        &self,
         lhs: &FoRArray,
         rhs: &dyn Array,
         operator: Operator,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(constant) = rhs.as_constant()
             && let Some(constant) = constant.as_primitive_opt()
@@ -39,7 +38,7 @@ impl CompareKernel for FoRVTable {
                     lhs,
                     constant
                         .typed_value::<T>()
-                        .vortex_expect("null scalar handled in top-level"),
+                        .vortex_expect("null scalar handled in adaptor"),
                     rhs.dtype().nullability(),
                     operator,
                 );
@@ -49,8 +48,6 @@ impl CompareKernel for FoRVTable {
         Ok(None)
     }
 }
-
-register_kernel!(CompareKernelAdapter(FoRVTable).lift());
 
 fn compare_constant<T>(
     lhs: &FoRArray,

@@ -2,33 +2,34 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
-use crate::compute::MaskKernel;
-use crate::compute::MaskKernelAdapter;
-use crate::register_kernel;
+use crate::compute::MaskReduce;
+use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl MaskKernel for VarBinViewVTable {
-    fn mask(&self, array: &VarBinViewArray, mask: &Mask) -> VortexResult<ArrayRef> {
+impl MaskReduce for VarBinViewVTable {
+    fn mask(array: &VarBinViewArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: masking the validity does not affect the invariants
         unsafe {
-            Ok(VarBinViewArray::new_handle_unchecked(
-                array.views_handle().clone(),
-                array.buffers().clone(),
-                array.dtype().as_nullable(),
-                array.validity().mask(mask),
-            )
-            .into_array())
+            Ok(Some(
+                VarBinViewArray::new_handle_unchecked(
+                    array.views_handle().clone(),
+                    array.buffers().clone(),
+                    array.dtype().as_nullable(),
+                    array
+                        .validity()
+                        .clone()
+                        .and(Validity::Array(mask.clone()))?,
+                )
+                .into_array(),
+            ))
         }
     }
 }
-
-register_kernel!(MaskKernelAdapter(VarBinViewVTable).lift());
 
 #[cfg(test)]
 mod tests {

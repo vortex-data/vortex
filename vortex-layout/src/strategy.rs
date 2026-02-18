@@ -64,4 +64,24 @@ pub trait LayoutStrategy: 'static + Send + Sync {
         0
     }
 }
+
+#[async_trait]
+impl LayoutStrategy for std::sync::Arc<dyn LayoutStrategy> {
+    async fn write_stream(
+        &self,
+        ctx: ArrayContext,
+        segment_sink: SegmentSinkRef,
+        stream: SendableSequentialStream,
+        eof: SequencePointer,
+        handle: Handle,
+    ) -> VortexResult<LayoutRef> {
+        (**self)
+            .write_stream(ctx, segment_sink, stream, eof, handle)
+            .await
+    }
+
+    fn buffered_bytes(&self) -> u64 {
+        (**self).buffered_bytes()
+    }
+}
 // [layout writer]

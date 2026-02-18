@@ -15,6 +15,7 @@ use crate::cpp::duckdb_data_chunk;
 use crate::cpp::duckdb_logical_type;
 use crate::cpp::duckdb_vx_copy_func_bind_input;
 use crate::cpp::duckdb_vx_error;
+use crate::duckdb::ClientContext;
 use crate::duckdb::CopyFunction;
 use crate::duckdb::Data;
 use crate::duckdb::DataChunk;
@@ -52,6 +53,7 @@ pub(crate) unsafe extern "C-unwind" fn bind_callback<T: CopyFunction>(
 }
 
 pub(crate) unsafe extern "C-unwind" fn global_callback<T: CopyFunction>(
+    client_context: cpp::duckdb_vx_client_context,
     bind_data: *const c_void,
     file_path: *const c_char,
     error_out: *mut duckdb_vx_error,
@@ -62,7 +64,8 @@ pub(crate) unsafe extern "C-unwind" fn global_callback<T: CopyFunction>(
     let bind_data = unsafe { bind_data.cast::<T::BindData>().as_ref() }
         .vortex_expect("global_init_data null pointer");
     try_or_null(error_out, || {
-        let bind_data = T::init_global(bind_data, file_path)?;
+        let ctx = unsafe { ClientContext::borrow(client_context) };
+        let bind_data = T::init_global(ctx, bind_data, file_path)?;
         Ok(Data::from(Box::new(bind_data)).as_ptr())
     })
 }

@@ -62,5 +62,4 @@ vortex = { workspace = true, features = [
     "files",
     "tokio",
     "zstd",
-    "unstable_encodings",
 ] }

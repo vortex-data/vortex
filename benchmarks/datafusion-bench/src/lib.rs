@@ -28,7 +28,7 @@ use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_datafusion::VortexFormat;
 use vortex_datafusion::VortexFormatFactory;
-use vortex_datafusion::VortexOptions;
+use vortex_datafusion::VortexTableOptions;
 
 #[allow(clippy::expect_used)]
 pub fn get_session_context() -> SessionContext {
@@ -45,7 +45,7 @@ pub fn get_session_context() -> SessionContext {
         .build_arc()
         .expect("could not build runtime environment");
 
-    let factory = VortexFormatFactory::new().with_options(VortexOptions {
+    let factory = VortexFormatFactory::new().with_options(VortexTableOptions {
         projection_pushdown: true,
         ..Default::default()
     });

@@ -2,13 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::Array;
+use vortex_array::scalar::PValue;
+use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
-use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
 
 use crate::RunEndArray;
 use crate::RunEndVTable;

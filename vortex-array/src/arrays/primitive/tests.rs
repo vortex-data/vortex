@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::buffer;
-use vortex_scalar::PValue;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -13,6 +12,7 @@ use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::conformance::search_sorted::rstest_reuse::apply;
 use crate::compute::conformance::search_sorted::search_sorted_conformance;
 use crate::compute::conformance::search_sorted::*;
+use crate::scalar::PValue;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;

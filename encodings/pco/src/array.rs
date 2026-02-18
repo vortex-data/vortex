@@ -29,6 +29,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::compute::filter;
+use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -55,7 +56,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::PcoChunkInfo;
