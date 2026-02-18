@@ -31,7 +31,6 @@ use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
@@ -267,8 +266,7 @@ impl ZstdBuffersArray {
     pub fn decode_plan(&self) -> VortexResult<ZstdBuffersDecodePlan> {
         // If invariants are somehow broken, device decompression could have UB, so ensure
         // they still hold.
-        self.validate()
-            .vortex_expect("zstd_buffers invariant violated before decode_plan");
+        self.validate()?;
 
         let output_sizes = self
             .uncompressed_sizes
