@@ -41,7 +41,7 @@ fn take_chunked(
     let mut pairs: Vec<(u64, usize)> = indices_values
         .iter()
         .enumerate()
-        // .filter(|(i, _)| indices_mask.value(*i))
+        .filter(|&(i, _)| indices_mask.value(i))
         .map(|(i, &v)| (v, i))
         .collect();
     pairs.sort_unstable();
@@ -253,6 +253,36 @@ mod test {
                 "mismatch at position {pos}"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_null_indices() -> VortexResult<()> {
+        let c0 = buffer![10i32, 20, 30].into_array();
+        let c1 = buffer![40i32, 50, 60].into_array();
+        let arr = ChunkedArray::try_new(
+            vec![c0, c1],
+            PrimitiveArray::empty::<i32>(Nullability::NonNullable)
+                .dtype()
+                .clone(),
+        )?;
+
+        // Indices with nulls scattered across chunk boundaries.
+        let indices =
+            PrimitiveArray::from_option_iter([Some(5u64), None, Some(0), Some(3), None, Some(2)]);
+        let result = arr.take(indices.to_array())?;
+
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([
+                Some(60i32),
+                None,
+                Some(10),
+                Some(40),
+                None,
+                Some(30)
+            ])
+        );
         Ok(())
     }
 
