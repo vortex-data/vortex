@@ -10,7 +10,6 @@ use flatbuffers::FlatBufferBuilder;
 use flatbuffers::Follow;
 use flatbuffers::WIPOffset;
 use flatbuffers::root;
-use itertools::Itertools;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -330,10 +329,6 @@ impl ArrayParts {
             .find(&encoding_id)
             .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
 
-        let buffers: Vec<_> = (0..self.nbuffers())
-            .map(|idx| self.buffer(idx))
-            .try_collect()?;
-
         let children = ArrayPartsChildren {
             parts: self,
             ctx,
@@ -345,7 +340,7 @@ impl ArrayParts {
             dtype,
             len,
             self.metadata(),
-            &buffers,
+            self.contiguous_buffers(),
             &children,
             session,
         )?;
@@ -444,6 +439,22 @@ impl ArrayParts {
                     self.nbuffers()
                 )
             })
+    }
+
+    /// Returns all buffers for the current array node as a contiguous slice.
+    ///
+    /// Buffer indices are always contiguous (assigned depth-first during serialization),
+    /// so this returns a zero-copy view into the underlying buffer array.
+    fn contiguous_buffers(&self) -> &[BufferHandle] {
+        let Some(fb_buffers) = self.flatbuffer().buffers() else {
+            return &[];
+        };
+        if fb_buffers.is_empty() {
+            return &[];
+        }
+        let start = fb_buffers.get(0) as usize;
+        let count = fb_buffers.len();
+        &self.buffers[start..start + count]
     }
 
     /// Returns the buffer lengths as stored in the flatbuffer metadata.

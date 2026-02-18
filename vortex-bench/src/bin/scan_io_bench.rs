@@ -20,6 +20,8 @@ use clap::ValueEnum;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::future::BoxFuture;
+#[cfg(target_os = "linux")]
+use ktls::CorkStream;
 use object_store::GetOptions;
 use object_store::GetRange;
 use object_store::ObjectStore;
@@ -32,6 +34,24 @@ use object_store::path::Path as ObjectStorePath;
 #[cfg(target_os = "linux")]
 use object_store::signer::Signer;
 use parking_lot::Mutex;
+#[cfg(target_os = "linux")]
+use rustls::ClientConfig;
+#[cfg(target_os = "linux")]
+use rustls::RootCertStore;
+#[cfg(target_os = "linux")]
+use rustls::pki_types::ServerName;
+#[cfg(target_os = "linux")]
+use tokio::io::AsyncReadExt;
+#[cfg(target_os = "linux")]
+use tokio::io::AsyncWriteExt;
+#[cfg(target_os = "linux")]
+use tokio::net::TcpStream;
+#[cfg(target_os = "linux")]
+use tokio::sync::Mutex as TokioMutex;
+#[cfg(target_os = "linux")]
+use tokio::sync::Notify;
+#[cfg(target_os = "linux")]
+use tokio_rustls::TlsConnector;
 use tracing_subscriber::EnvFilter;
 use url::Url;
 use vortex::array::Array;
@@ -80,27 +100,6 @@ use vortex_cuda::CudaSessionExt;
 use vortex_cuda::PinnedByteBufferPool;
 use vortex_cuda::PinnedDeviceAllocator;
 use vortex_scan::ScanBuilder;
-
-#[cfg(target_os = "linux")]
-use ktls::CorkStream;
-#[cfg(target_os = "linux")]
-use rustls::ClientConfig;
-#[cfg(target_os = "linux")]
-use rustls::RootCertStore;
-#[cfg(target_os = "linux")]
-use rustls::pki_types::ServerName;
-#[cfg(target_os = "linux")]
-use tokio::io::AsyncReadExt;
-#[cfg(target_os = "linux")]
-use tokio::io::AsyncWriteExt;
-#[cfg(target_os = "linux")]
-use tokio::net::TcpStream;
-#[cfg(target_os = "linux")]
-use tokio::sync::Mutex as TokioMutex;
-#[cfg(target_os = "linux")]
-use tokio::sync::Notify;
-#[cfg(target_os = "linux")]
-use tokio_rustls::TlsConnector;
 
 #[derive(Parser, Debug)]
 #[command(
