@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 use crate::array::ArrayRef;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
-use crate::compute::CastReduce;
+use crate::expr::CastReduce;
 use crate::vtable::ValidityHelper;
 
 impl CastReduce for BoolVTable {

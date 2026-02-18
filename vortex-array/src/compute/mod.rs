@@ -44,26 +44,6 @@ pub use zip::*;
 use crate::Array;
 use crate::ArrayRef;
 use crate::builders::ArrayBuilder;
-pub use crate::expr::BetweenExecuteAdaptor;
-pub use crate::expr::BetweenKernel;
-pub use crate::expr::BetweenReduce;
-pub use crate::expr::BetweenReduceAdaptor;
-pub use crate::expr::CastExecuteAdaptor;
-pub use crate::expr::CastKernel;
-pub use crate::expr::CastReduce;
-pub use crate::expr::CastReduceAdaptor;
-pub use crate::expr::FillNullExecuteAdaptor;
-pub use crate::expr::FillNullKernel;
-pub use crate::expr::FillNullReduce;
-pub use crate::expr::FillNullReduceAdaptor;
-pub use crate::expr::MaskExecuteAdaptor;
-pub use crate::expr::MaskKernel;
-pub use crate::expr::MaskReduce;
-pub use crate::expr::MaskReduceAdaptor;
-pub use crate::expr::NotExecuteAdaptor;
-pub use crate::expr::NotKernel;
-pub use crate::expr::NotReduce;
-pub use crate::expr::NotReduceAdaptor;
 use crate::scalar::Scalar;
 
 #[cfg(feature = "arbitrary")]

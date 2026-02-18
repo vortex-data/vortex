@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::SliceReduceAdaptor;
-use vortex_array::compute::CastReduceAdaptor;
-use vortex_array::compute::MaskReduceAdaptor;
+use vortex_array::expr::CastReduceAdaptor;
+use vortex_array::expr::MaskReduceAdaptor;
 use vortex_array::optimizer::rules::ParentRuleSet;
 
 use crate::ByteBoolVTable;

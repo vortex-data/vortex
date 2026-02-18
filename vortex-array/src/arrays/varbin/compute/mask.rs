@@ -7,7 +7,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
-use crate::compute::MaskReduce;
+use crate::expr::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
