@@ -36,7 +36,7 @@ jobs:
 
       - name: Release
         run: |
-          cargo +stable publish --no-verify --allow-dirty --workspace
+          cargo publish --no-verify --allow-dirty --workspace
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

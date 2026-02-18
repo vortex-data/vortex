@@ -290,13 +290,13 @@ jobs:
       - name: Rust Lint - Format
         run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
       - name: Rustc check
-        run: RUSTFLAGS="-D warnings" cargo +stable check --locked --all-features --all-targets
+        run: RUSTFLAGS="-D warnings" cargo check --locked --all-features --all-targets
       - name: Rustc check (release)
-        run: RUSTFLAGS="-D warnings" cargo +stable check --locked --all-features --all-targets --release
+        run: RUSTFLAGS="-D warnings" cargo check --locked --all-features --all-targets --release
       - name: Rust Lint - Clippy All Features
-        run: cargo +stable clippy --locked --all-features --all-targets -- -D warnings
+        run: cargo clippy --locked --all-features --all-targets -- -D warnings
       - name: Rust Lint - Clippy Default Features
-        run: cargo +stable clippy --locked --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
   cpp-lint:
     name: "C/C++ (lint)"
@@ -414,7 +414,7 @@ jobs:
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         run: |
-          cargo +stable nextest run --locked --workspace --all-features --no-fail-fast
+          cargo nextest run --locked --workspace --all-features --no-fail-fast
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
       - name: Generate coverage report
@@ -535,7 +535,7 @@ jobs:
           # Outline flat layouts for cuda scan.
           FLAT_LAYOUT_INLINE_ARRAY_NODE: true
         run: |
-          cargo +stable nextest run \
+          cargo nextest run \
             --locked \
             -p vortex-file \
             -p vortex-cuda \
@@ -547,7 +547,7 @@ jobs:
       - name: CUDA - memcheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool memcheck --leak-check=full --error-exitcode 1
-        run: cargo +stable test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
+        run: cargo test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
         # TODO(joe): try to re-enable, This is hanging in CI.
         #      - name: CUDA - racecheck
         #        env:
@@ -556,13 +556,13 @@ jobs:
       - name: CUDA - synccheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool synccheck --error-exitcode 1
-        run: cargo +stable test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
+        run: cargo test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
       - name: CUDA - initcheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool initcheck --error-exitcode 1
-        run: cargo +stable test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
+        run: cargo test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
       - name: Build cudf test library
-        run: cargo +stable build --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
+        run: cargo build --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
       - name: Download and run cudf-test-harness
         run: |
           curl -fsSL https://github.com/vortex-data/cudf-test-harness/releases/latest/download/cudf-test-harness-x86_64.tar.gz | tar -xz
@@ -825,8 +825,8 @@ jobs:
       - uses: ./.github/actions/setup-flatc
       - name: "regenerate all .fbs/.proto Rust code"
         run: |
-          cargo +stable xtask generate-fbs
-          cargo +stable xtask generate-proto
+          cargo xtask generate-fbs
+          cargo xtask generate-proto
       - name: "regenerate FFI header file"
         run: |
           cargo +$NIGHTLY_TOOLCHAIN build -p vortex-ffi
