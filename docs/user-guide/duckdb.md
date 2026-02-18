@@ -40,6 +40,26 @@ without it, DuckDB defaults to CSV.
 COPY (SELECT * FROM my_table) TO 'output.vortex' (FORMAT vortex);
 ```
 
+## Extension Options
+
+### `vortex_filesystem`
+
+Controls which filesystem implementation is used for reading and writing Vortex files.
+
+| Value | Description |
+|-------|-------------|
+| `'vortex'` (default) | Uses Vortex's built-in object store filesystem. Supports `file://` and `s3://` schemes. |
+| `'duckdb'` | Uses DuckDB's built-in filesystem, including any filesystem extensions such as `httpfs`. |
+
+```sql
+SET vortex_filesystem = 'duckdb';
+```
+
+Use `'duckdb'` when you want to leverage DuckDB's filesystem extensions (e.g., `httpfs` for HTTP
+or S3 access with DuckDB's credential management). Use `'vortex'` (the default) for direct
+object store access via Vortex's own S3 integration, which reads credentials from environment
+variables.
+
 ## Python
 
 The DuckDB Python client works with `read_vortex` the same way:

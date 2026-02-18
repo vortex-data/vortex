@@ -245,7 +245,9 @@ impl TableFunction for VortexTableFunction {
             Err(_) => {
                 // Otherwise, we assume it's a file path.
                 let path = if !glob_url_str.as_str().starts_with("/") {
-                    // We cannot use Path::canonicalize to resolve relative paths since it requires the file to exist, and the glob may contain wildcards. Instead, we resolve relative paths against the current working directory.
+                    // We cannot use Path::canonicalize to resolve relative paths since it
+                    // requires the file to exist, and the glob may contain wildcards. Instead,
+                    // we resolve relative paths against the current working directory.
                     let current_dir = std::env::current_dir().map_err(|e| {
                         vortex_err!(
                             "Cannot get current working directory to resolve relative path {}: {}",

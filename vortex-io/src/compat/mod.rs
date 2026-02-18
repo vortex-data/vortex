@@ -28,7 +28,7 @@ use vortex_error::VortexExpect;
 /// is not found.
 ///
 /// From
-fn get_runtime_handle() -> tokio::runtime::Handle {
+fn runtime_handle() -> tokio::runtime::Handle {
     static TOKIO: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
         thread::Builder::new()
             .name("vortex-async-compat".into())
@@ -65,7 +65,7 @@ pin_project! {
             if this.inner.is_some() {
                 // If the inner future wasn't moved out using into_inner,
                 // enter the tokio context while the inner value is dropped.
-                let _guard = get_runtime_handle().enter();
+                let _guard = runtime_handle().enter();
                 this.project().inner.set(None);
             }
         }
@@ -105,7 +105,7 @@ impl<T: Future> Future for Compat<T> {
     type Output = T::Output;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let _guard = get_runtime_handle().enter();
+        let _guard = runtime_handle().enter();
         self.get_pin_mut().poll(cx)
     }
 }
@@ -115,7 +115,7 @@ impl<S: Stream> Stream for Compat<S> {
     type Item = S::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let _guard = get_runtime_handle().enter();
+        let _guard = runtime_handle().enter();
         self.get_pin_mut().poll_next(cx)
     }
 
