@@ -125,10 +125,11 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
-    use vortex::array::dtype::NativePType;
     use vortex::array::scalar::Scalar;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
+    use vortex::dtype::NativePType;
+    use vortex::encodings::fastlanes::BitPackedArray;
     use vortex::encodings::fastlanes::FoRArray;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
@@ -168,5 +169,32 @@ mod tests {
         assert_arrays_eq!(cpu_result.into_array(), gpu_result);
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_signed_ffor() {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let values = (0i8..8i8)
+            .cycle()
+            .take(1024)
+            .collect::<Buffer<_>>()
+            .into_array();
+        let packed = BitPackedArray::encode(&values, 3).unwrap().into_array();
+        let for_array = FoRArray::try_new(packed, (-8i8).into()).unwrap();
+
+        let cpu_result = for_array.to_canonical().unwrap();
+
+        let gpu_result = FoRExecutor
+            .execute(for_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_host()
+            .await
+            .vortex_expect("copying to host failed")
+            .into_array();
+
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
     }
 }
