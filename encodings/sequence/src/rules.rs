@@ -9,5 +9,6 @@ use crate::SequenceVTable;
 
 pub(crate) static RULES: ParentRuleSet<SequenceVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&CastReduceAdaptor(SequenceVTable)),
+    ParentRuleSet::lift(&ListContainsElementReduceAdaptor(SequenceVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(SequenceVTable)),
 ]);

@@ -9,10 +9,10 @@ use std::fmt::Debug;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
-use crate::Connection;
 use crate::cpp;
 use crate::duckdb::ClientContext;
 use crate::duckdb::DataChunk;
+use crate::duckdb::Database;
 use crate::duckdb::LogicalType;
 use crate::duckdb::copy_function::callback::bind_callback;
 use crate::duckdb::copy_function::callback::copy_to_finalize_callback;
@@ -64,7 +64,7 @@ pub trait CopyFunction: Sized + Debug {
     // TODO(joe): there are many more callbacks that can be configured.
 }
 
-impl Connection {
+impl Database {
     pub fn register_copy_function<T: CopyFunction>(
         &self,
         name: &CStr,

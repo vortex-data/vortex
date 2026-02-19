@@ -18,7 +18,7 @@ pub struct vortex_file::segments::FileSegmentSource
 
 impl vortex_file::segments::FileSegmentSource
 
-pub fn vortex_file::segments::FileSegmentSource::open<R: vortex_io::read::VortexReadAt + core::clone::Clone>(segments: alloc::sync::Arc<[vortex_file::SegmentSpec]>, reader: R, handle: vortex_io::runtime::handle::Handle, metrics: vortex_file::segments::RequestMetrics) -> Self
+pub fn vortex_file::segments::FileSegmentSource::open<R: vortex_io::read_at::VortexReadAt + core::clone::Clone>(segments: alloc::sync::Arc<[vortex_file::SegmentSpec]>, reader: R, handle: vortex_io::runtime::handle::Handle, metrics: vortex_file::segments::RequestMetrics) -> Self
 
 impl vortex_layout::segments::source::SegmentSource for vortex_file::segments::FileSegmentSource
 
@@ -232,13 +232,13 @@ pub struct vortex_file::VortexOpenOptions
 
 impl vortex_file::VortexOpenOptions
 
-pub async fn vortex_file::VortexOpenOptions::open(self, source: alloc::sync::Arc<dyn vortex_io::read::VortexReadAt>) -> vortex_error::VortexResult<vortex_file::VortexFile>
+pub async fn vortex_file::VortexOpenOptions::open(self, source: alloc::sync::Arc<dyn vortex_io::read_at::VortexReadAt>) -> vortex_error::VortexResult<vortex_file::VortexFile>
 
 pub fn vortex_file::VortexOpenOptions::open_buffer<B: core::convert::Into<vortex_buffer::ByteBuffer>>(self, buffer: B) -> vortex_error::VortexResult<vortex_file::VortexFile>
 
 pub async fn vortex_file::VortexOpenOptions::open_path(self, path: impl core::convert::AsRef<std::path::Path>) -> vortex_error::VortexResult<vortex_file::VortexFile>
 
-pub async fn vortex_file::VortexOpenOptions::open_read<R: vortex_io::read::VortexReadAt + core::clone::Clone>(self, reader: R) -> vortex_error::VortexResult<vortex_file::VortexFile>
+pub async fn vortex_file::VortexOpenOptions::open_read<R: vortex_io::read_at::VortexReadAt + core::clone::Clone>(self, reader: R) -> vortex_error::VortexResult<vortex_file::VortexFile>
 
 pub fn vortex_file::VortexOpenOptions::with_dtype(self, dtype: vortex_dtype::dtype::DType) -> Self
 
@@ -253,6 +253,8 @@ pub fn vortex_file::VortexOpenOptions::with_labels(self, labels: alloc::vec::Vec
 pub fn vortex_file::VortexOpenOptions::with_metrics_registry(self, metrics: alloc::sync::Arc<dyn vortex_metrics::MetricsRegistry>) -> Self
 
 pub fn vortex_file::VortexOpenOptions::with_segment_cache(self, segment_cache: alloc::sync::Arc<dyn vortex_layout::segments::cache::SegmentCache>) -> Self
+
+pub fn vortex_file::VortexOpenOptions::with_some_file_size(self, file_size: core::option::Option<u64>) -> Self
 
 impl vortex_file::VortexOpenOptions
 

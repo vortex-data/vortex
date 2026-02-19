@@ -84,10 +84,6 @@ pub fn vortex_sequence::SequenceVTable::is_sorted(&self, array: &vortex_sequence
 
 pub fn vortex_sequence::SequenceVTable::is_strict_sorted(&self, array: &vortex_sequence::SequenceArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::compute::list_contains::ListContainsKernel for vortex_sequence::SequenceVTable
-
-pub fn vortex_sequence::SequenceVTable::list_contains(&self, list: &dyn vortex_array::array::Array, element: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
 impl vortex_array::compute::min_max::MinMaxKernel for vortex_sequence::SequenceVTable
 
 pub fn vortex_sequence::SequenceVTable::min_max(&self, array: &vortex_sequence::SequenceArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::min_max::MinMaxResult>>
@@ -99,6 +95,10 @@ pub fn vortex_sequence::SequenceVTable::compare(lhs: &vortex_sequence::SequenceA
 impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_sequence::SequenceVTable
 
 pub fn vortex_sequence::SequenceVTable::cast(array: &vortex_sequence::SequenceArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+
+impl vortex_array::expr::exprs::list_contains::kernel::ListContainsElementReduce for vortex_sequence::SequenceVTable
+
+pub fn vortex_sequence::SequenceVTable::list_contains(list: &dyn vortex_array::array::Array, element: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_sequence::SequenceVTable
 

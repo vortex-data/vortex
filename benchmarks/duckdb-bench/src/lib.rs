@@ -79,7 +79,7 @@ impl DuckClient {
         }?;
 
         let connection = db.connect()?;
-        vortex_duckdb::register_table_functions(&connection)?;
+        vortex_duckdb::initialize(&db)?;
 
         // Install and load httpfs so DuckDB can access remote files (S3, GCS, HTTP).
         connection.query("INSTALL httpfs;")?;

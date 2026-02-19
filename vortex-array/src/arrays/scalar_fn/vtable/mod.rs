@@ -21,7 +21,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
-use crate::AnyColumnar;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -130,28 +129,13 @@ impl VTable for ScalarFnVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let children = &array.children;
-
-        // If all children are AnyColumnar, we expect the scalar function to return a real array,
-        // not another scalar function.
-        let must_return = children.iter().all(|c| c.is::<AnyColumnar>());
-
-        ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn,));
+        ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
         let args = ExecutionArgs {
-            inputs: children.to_vec(),
+            inputs: array.children.clone(),
             row_count: array.len,
             ctx,
         };
-        let result = array.scalar_fn.execute(args)?;
-
-        if must_return && result.is::<ScalarFnVTable>() {
-            vortex_bail!(
-                "Scalar function {} returned another ScalarFnArray with all columnar inputs, a concrete array was expected",
-                array.scalar_fn
-            );
-        }
-
-        Ok(result)
+        array.scalar_fn.execute(args)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

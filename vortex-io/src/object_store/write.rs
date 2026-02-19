@@ -20,7 +20,7 @@ use crate::VortexWrite;
 /// Adapter type to write data through a [`ObjectStore`] instance.
 ///
 /// After writing, the caller must make sure to call `shutdown`, in order to ensure the data is actually persisted.
-pub struct ObjectStoreWriter {
+pub struct ObjectStoreWrite {
     upload: Box<dyn MultipartUpload>,
     buffer: BytesMut,
     put_result: Option<PutResult>,
@@ -29,7 +29,7 @@ pub struct ObjectStoreWriter {
 const CHUNK_SIZE: usize = 16 * 1024 * 1024;
 const BUFFER_SIZE: usize = 128 * 1024 * 1024;
 
-impl ObjectStoreWriter {
+impl ObjectStoreWrite {
     pub async fn new(object_store: Arc<dyn ObjectStore>, location: &Path) -> VortexResult<Self> {
         let upload = object_store.put_multipart(location).await?;
         Ok(Self {
@@ -44,7 +44,7 @@ impl ObjectStoreWriter {
     }
 }
 
-impl VortexWrite for ObjectStoreWriter {
+impl VortexWrite for ObjectStoreWrite {
     async fn write_all<B: IoBuf>(&mut self, buffer: B) -> io::Result<B> {
         self.buffer.extend_from_slice(buffer.as_slice());
         let parts = FuturesUnordered::new();
@@ -128,7 +128,7 @@ mod tests {
         let location = Path::from("test.bin");
 
         for test_store in [memory_store, local_store] {
-            let mut writer = ObjectStoreWriter::new(test_store.clone(), &location).await?;
+            let mut writer = ObjectStoreWrite::new(test_store.clone(), &location).await?;
 
             #[expect(clippy::cast_possible_truncation)]
             let data = (0..3)

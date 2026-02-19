@@ -5420,6 +5420,8 @@ pub fn vortex_array::builtins::ArrayBuiltins::get_item(&self, field_name: impl c
 
 pub fn vortex_array::builtins::ArrayBuiltins::is_null(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
+pub fn vortex_array::builtins::ArrayBuiltins::list_contains(&self, value: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
 pub fn vortex_array::builtins::ArrayBuiltins::mask(self, mask: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::builtins::ArrayBuiltins::not(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -5438,6 +5440,8 @@ pub fn vortex_array::ArrayRef::get_item(&self, field_name: impl core::convert::I
 
 pub fn vortex_array::ArrayRef::is_null(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
+pub fn vortex_array::ArrayRef::list_contains(&self, value: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
 pub fn vortex_array::ArrayRef::mask(self, mask: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::ArrayRef::not(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -5454,6 +5458,8 @@ pub fn vortex_array::builtins::ExprBuiltins::get_item(&self, field_name: impl co
 
 pub fn vortex_array::builtins::ExprBuiltins::is_null(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
+pub fn vortex_array::builtins::ExprBuiltins::list_contains(&self, value: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
 pub fn vortex_array::builtins::ExprBuiltins::mask(&self, mask: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::builtins::ExprBuiltins::not(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
@@ -5469,6 +5475,8 @@ pub fn vortex_array::expr::Expression::fill_null(&self, fill_value: vortex_array
 pub fn vortex_array::expr::Expression::get_item(&self, field_name: impl core::convert::Into<vortex_dtype::field_names::FieldName>) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::is_null(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
+pub fn vortex_array::expr::Expression::list_contains(&self, value: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::mask(&self, mask: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
@@ -5758,35 +5766,37 @@ pub struct vortex_array::compute::IsSortedKernelRef(_)
 
 impl inventory::Collect for vortex_array::compute::IsSortedKernelRef
 
-pub struct vortex_array::compute::ListContains
+pub struct vortex_array::compute::ListContainsElementExecuteAdaptor<V>(pub V)
 
-impl vortex_array::compute::ComputeFnVTable for vortex_array::compute::ListContains
+impl<V: core::default::Default> core::default::Default for vortex_array::expr::ListContainsElementExecuteAdaptor<V>
 
-pub fn vortex_array::compute::ListContains::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>, kernels: &[arcref::ArcRef<dyn vortex_array::compute::Kernel>]) -> vortex_error::VortexResult<vortex_array::compute::Output>
+pub fn vortex_array::expr::ListContainsElementExecuteAdaptor<V>::default() -> vortex_array::expr::ListContainsElementExecuteAdaptor<V>
 
-pub fn vortex_array::compute::ListContains::is_elementwise(&self) -> bool
+impl<V: core::fmt::Debug> core::fmt::Debug for vortex_array::expr::ListContainsElementExecuteAdaptor<V>
 
-pub fn vortex_array::compute::ListContains::return_dtype(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<vortex_dtype::dtype::DType>
+pub fn vortex_array::expr::ListContainsElementExecuteAdaptor<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_array::compute::ListContains::return_len(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<usize>
+impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::ListContainsElementExecuteAdaptor<V> where V: vortex_array::expr::ListContainsElementKernel
 
-pub struct vortex_array::compute::ListContainsKernelAdapter<V: vortex_array::vtable::VTable>(pub V)
+pub type vortex_array::expr::ListContainsElementExecuteAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::ListContains>
 
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::ListContainsKernel> vortex_array::compute::ListContainsKernelAdapter<V>
+pub fn vortex_array::expr::ListContainsElementExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::ListContains>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-pub const fn vortex_array::compute::ListContainsKernelAdapter<V>::lift(&'static self) -> vortex_array::compute::ListContainsKernelRef
+pub struct vortex_array::compute::ListContainsElementReduceAdaptor<V>(pub V)
 
-impl<V: core::fmt::Debug + vortex_array::vtable::VTable> core::fmt::Debug for vortex_array::compute::ListContainsKernelAdapter<V>
+impl<V: core::default::Default> core::default::Default for vortex_array::expr::ListContainsElementReduceAdaptor<V>
 
-pub fn vortex_array::compute::ListContainsKernelAdapter<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::expr::ListContainsElementReduceAdaptor<V>::default() -> vortex_array::expr::ListContainsElementReduceAdaptor<V>
 
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::ListContainsKernel> vortex_array::compute::Kernel for vortex_array::compute::ListContainsKernelAdapter<V>
+impl<V: core::fmt::Debug> core::fmt::Debug for vortex_array::expr::ListContainsElementReduceAdaptor<V>
 
-pub fn vortex_array::compute::ListContainsKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
+pub fn vortex_array::expr::ListContainsElementReduceAdaptor<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub struct vortex_array::compute::ListContainsKernelRef(_)
+impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::expr::ListContainsElementReduceAdaptor<V> where V: vortex_array::expr::ListContainsElementReduce
 
-impl inventory::Collect for vortex_array::compute::ListContainsKernelRef
+pub type vortex_array::expr::ListContainsElementReduceAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::ListContains>
+
+pub fn vortex_array::expr::ListContainsElementReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::ListContains>, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub struct vortex_array::compute::MinMax
 
@@ -5913,16 +5923,6 @@ pub fn vortex_array::compute::ComputeFnVTable::is_elementwise(&self) -> bool
 pub fn vortex_array::compute::ComputeFnVTable::return_dtype(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<vortex_dtype::dtype::DType>
 
 pub fn vortex_array::compute::ComputeFnVTable::return_len(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<usize>
-
-impl vortex_array::compute::ComputeFnVTable for vortex_array::compute::ListContains
-
-pub fn vortex_array::compute::ListContains::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>, kernels: &[arcref::ArcRef<dyn vortex_array::compute::Kernel>]) -> vortex_error::VortexResult<vortex_array::compute::Output>
-
-pub fn vortex_array::compute::ListContains::is_elementwise(&self) -> bool
-
-pub fn vortex_array::compute::ListContains::return_dtype(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<vortex_dtype::dtype::DType>
-
-pub fn vortex_array::compute::ListContains::return_len(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<usize>
 
 impl vortex_array::compute::ComputeFnVTable for vortex_array::compute::MinMax
 
@@ -6076,10 +6076,6 @@ impl<V: vortex_array::vtable::VTable + vortex_array::compute::IsSortedKernel> vo
 
 pub fn vortex_array::compute::IsSortedKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
 
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::ListContainsKernel> vortex_array::compute::Kernel for vortex_array::compute::ListContainsKernelAdapter<V>
-
-pub fn vortex_array::compute::ListContainsKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-
 impl<V: vortex_array::vtable::VTable + vortex_array::compute::MinMaxKernel> vortex_array::compute::Kernel for vortex_array::compute::MinMaxKernelAdapter<V>
 
 pub fn vortex_array::compute::MinMaxKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
@@ -6092,9 +6088,13 @@ impl<V: vortex_array::vtable::VTable + vortex_array::compute::SumKernel> vortex_
 
 pub fn vortex_array::compute::SumKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
 
-pub trait vortex_array::compute::ListContainsKernel: vortex_array::vtable::VTable
+pub trait vortex_array::compute::ListContainsElementKernel: vortex_array::vtable::VTable
 
-pub fn vortex_array::compute::ListContainsKernel::list_contains(&self, list: &dyn vortex_array::Array, element: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::compute::ListContainsElementKernel::list_contains(list: &dyn vortex_array::Array, element: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub trait vortex_array::compute::ListContainsElementReduce: vortex_array::vtable::VTable
+
+pub fn vortex_array::compute::ListContainsElementReduce::list_contains(list: &dyn vortex_array::Array, element: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub trait vortex_array::compute::MinMaxKernel: vortex_array::vtable::VTable
 
@@ -7984,6 +7984,8 @@ pub fn vortex_array::expr::Expression::get_item(&self, field_name: impl core::co
 
 pub fn vortex_array::expr::Expression::is_null(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
+pub fn vortex_array::expr::Expression::list_contains(&self, value: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
 pub fn vortex_array::expr::Expression::mask(&self, mask: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::not(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
@@ -8259,6 +8261,38 @@ pub fn vortex_array::expr::ListContains::return_dtype(&self, _options: &Self::Op
 pub fn vortex_array::expr::ListContains::serialize(&self, _instance: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::expr::ListContains::stat_falsification(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub struct vortex_array::expr::ListContainsElementExecuteAdaptor<V>(pub V)
+
+impl<V: core::default::Default> core::default::Default for vortex_array::expr::ListContainsElementExecuteAdaptor<V>
+
+pub fn vortex_array::expr::ListContainsElementExecuteAdaptor<V>::default() -> vortex_array::expr::ListContainsElementExecuteAdaptor<V>
+
+impl<V: core::fmt::Debug> core::fmt::Debug for vortex_array::expr::ListContainsElementExecuteAdaptor<V>
+
+pub fn vortex_array::expr::ListContainsElementExecuteAdaptor<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::ListContainsElementExecuteAdaptor<V> where V: vortex_array::expr::ListContainsElementKernel
+
+pub type vortex_array::expr::ListContainsElementExecuteAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::ListContains>
+
+pub fn vortex_array::expr::ListContainsElementExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::ListContains>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub struct vortex_array::expr::ListContainsElementReduceAdaptor<V>(pub V)
+
+impl<V: core::default::Default> core::default::Default for vortex_array::expr::ListContainsElementReduceAdaptor<V>
+
+pub fn vortex_array::expr::ListContainsElementReduceAdaptor<V>::default() -> vortex_array::expr::ListContainsElementReduceAdaptor<V>
+
+impl<V: core::fmt::Debug> core::fmt::Debug for vortex_array::expr::ListContainsElementReduceAdaptor<V>
+
+pub fn vortex_array::expr::ListContainsElementReduceAdaptor<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::expr::ListContainsElementReduceAdaptor<V> where V: vortex_array::expr::ListContainsElementReduce
+
+pub type vortex_array::expr::ListContainsElementReduceAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::ListContains>
+
+pub fn vortex_array::expr::ListContainsElementReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::ListContains>, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub struct vortex_array::expr::Literal
 
@@ -8955,6 +8989,14 @@ pub fn vortex_array::expr::LikeReduce::like(array: &Self::Array, pattern: &dyn v
 impl vortex_array::expr::LikeReduce for vortex_array::arrays::DictVTable
 
 pub fn vortex_array::arrays::DictVTable::like(array: &vortex_array::arrays::DictArray, pattern: &dyn vortex_array::Array, options: vortex_array::expr::LikeOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub trait vortex_array::expr::ListContainsElementKernel: vortex_array::vtable::VTable
+
+pub fn vortex_array::expr::ListContainsElementKernel::list_contains(list: &dyn vortex_array::Array, element: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub trait vortex_array::expr::ListContainsElementReduce: vortex_array::vtable::VTable
+
+pub fn vortex_array::expr::ListContainsElementReduce::list_contains(list: &dyn vortex_array::Array, element: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub trait vortex_array::expr::MaskKernel: vortex_array::vtable::VTable
 
@@ -9848,6 +9890,12 @@ pub type vortex_array::expr::LikeExecuteAdaptor<V>::Parent = vortex_array::array
 
 pub fn vortex_array::expr::LikeExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::Like>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::ListContainsElementExecuteAdaptor<V> where V: vortex_array::expr::ListContainsElementKernel
+
+pub type vortex_array::expr::ListContainsElementExecuteAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::ListContains>
+
+pub fn vortex_array::expr::ListContainsElementExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::ListContains>, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::MaskExecuteAdaptor<V> where V: vortex_array::expr::MaskKernel
 
 pub type vortex_array::expr::MaskExecuteAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Mask>
@@ -10047,6 +10095,12 @@ impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_arra
 pub type vortex_array::expr::LikeReduceAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Like>
 
 pub fn vortex_array::expr::LikeReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::Like>, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::expr::ListContainsElementReduceAdaptor<V> where V: vortex_array::expr::ListContainsElementReduce
+
+pub type vortex_array::expr::ListContainsElementReduceAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::ListContains>
+
+pub fn vortex_array::expr::ListContainsElementReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: vortex_array::arrays::ScalarFnArrayView<'_, vortex_array::expr::ListContains>, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::expr::MaskReduceAdaptor<V> where V: vortex_array::expr::MaskReduce
 

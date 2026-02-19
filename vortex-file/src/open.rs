@@ -100,6 +100,15 @@ impl VortexOpenOptions {
         self
     }
 
+    /// Configure a known file size.
+    ///
+    /// This helps to prevent an I/O request to discover the size of the file.
+    /// Of course, all bets are off if you pass an incorrect value.
+    pub fn with_some_file_size(mut self, file_size: Option<u64>) -> Self {
+        self.file_size = file_size;
+        self
+    }
+
     /// Configure a known DType.
     ///
     /// If this is provided, then the Vortex file may be opened with fewer I/O requests.
@@ -145,9 +154,9 @@ impl VortexOpenOptions {
     /// Open a Vortex file from a filesystem path.
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn open_path(self, path: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
-        use vortex_io::file::std_file::FileReadAdapter;
+        use vortex_io::std_file::FileReadAt;
         let handle = self.session.handle();
-        let source = Arc::new(FileReadAdapter::open(path, handle)?);
+        let source = Arc::new(FileReadAt::open(path, handle)?);
         self.open(source).await
     }
 
@@ -289,10 +298,10 @@ impl VortexOpenOptions {
         object_store: &Arc<dyn object_store::ObjectStore>,
         path: &str,
     ) -> VortexResult<VortexFile> {
-        use vortex_io::file::object_store::ObjectStoreSource;
+        use vortex_io::object_store::ObjectStoreReadAt;
 
         let handle = self.session.handle();
-        let source = Arc::new(ObjectStoreSource::new(
+        let source = Arc::new(ObjectStoreReadAt::new(
             object_store.clone(),
             path.into(),
             handle,

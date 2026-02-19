@@ -465,19 +465,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-compat"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1ba85bc55464dcbf728b56d97e119d673f4cf9062be330a9a26f3acf504a590"
-dependencies = [
- "futures-core",
- "futures-io",
- "once_cell",
- "pin-project-lite",
- "tokio",
-]
-
-[[package]]
 name = "async-compression"
 version = "0.4.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9933,8 +9920,6 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
- "vortex-cuda",
- "vortex-cuda-macros",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dtype",
@@ -10334,6 +10319,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-fs",
+ "async-trait",
  "bindgen",
  "bitvec",
  "cbindgen",
@@ -10343,6 +10329,7 @@ dependencies = [
  "itertools 0.14.0",
  "jiff",
  "num-traits",
+ "object_store",
  "once_cell",
  "parking_lot",
  "paste",
@@ -10440,8 +10427,6 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
- "vortex-cuda",
- "vortex-cuda-macros",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dtype",
@@ -10508,7 +10493,6 @@ dependencies = [
  "vortex-error",
  "vortex-file",
  "vortex-io",
- "vortex-layout",
  "vortex-mask",
  "vortex-runend",
  "vortex-session",
@@ -10520,7 +10504,6 @@ name = "vortex-io"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-compat",
  "async-fs",
  "async-stream",
  "async-trait",
@@ -10528,6 +10511,7 @@ dependencies = [
  "custom-labels",
  "futures",
  "getrandom 0.3.4",
+ "glob",
  "handle",
  "itertools 0.14.0",
  "kanal",
@@ -10870,7 +10854,6 @@ dependencies = [
  "taffy",
  "tokio",
  "vortex",
- "vortex-cuda",
  "vortex-datafusion",
 ]
 

@@ -26,7 +26,8 @@ pub use invert::invert;
 pub use is_constant::*;
 pub use is_sorted::*;
 use itertools::Itertools;
-pub use list_contains::*;
+#[expect(deprecated)]
+pub use list_contains::list_contains;
 pub use mask::*;
 pub use min_max::*;
 pub use nan_count::*;
@@ -81,7 +82,6 @@ pub fn warm_up_vtables() {
     #[allow(unused_qualifications)]
     is_constant::warm_up_vtable();
     is_sorted::warm_up_vtable();
-    list_contains::warm_up_vtable();
     min_max::warm_up_vtable();
     nan_count::warm_up_vtable();
     sum::warm_up_vtable();

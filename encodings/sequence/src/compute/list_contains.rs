@@ -4,21 +4,15 @@
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::BoolArray;
-use vortex_array::compute::ListContainsKernel;
-use vortex_array::compute::ListContainsKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_array::compute::ListContainsElementReduce;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::array::SequenceVTable;
 use crate::compute::compare::find_intersection_scalar;
 
-impl ListContainsKernel for SequenceVTable {
-    fn list_contains(
-        &self,
-        list: &dyn Array,
-        element: &Self::Array,
-    ) -> VortexResult<Option<ArrayRef>> {
+impl ListContainsElementReduce for SequenceVTable {
+    fn list_contains(list: &dyn Array, element: &Self::Array) -> VortexResult<Option<ArrayRef>> {
         let Some(list_scalar) = list.as_constant() else {
             return Ok(None);
         };
@@ -51,16 +45,16 @@ impl ListContainsKernel for SequenceVTable {
     }
 }
 
-register_kernel!(ListContainsKernelAdapter(SequenceVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
+    use vortex_array::Array;
     use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::list_contains;
+    use vortex_array::expr::list_contains;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
@@ -69,13 +63,10 @@ mod tests {
 
     #[test]
     fn test_list_contains_seq() {
-        let elements = ConstantArray::new(
-            Scalar::list(
-                Arc::new(I32.into()),
-                vec![1.into(), 3.into()],
-                Nullability::Nullable,
-            ),
-            3,
+        let list_scalar = Scalar::list(
+            Arc::new(I32.into()),
+            vec![1.into(), 3.into()],
+            Nullability::Nullable,
         );
 
         {
@@ -84,7 +75,8 @@ mod tests {
             //            3
             let array = SequenceArray::typed_new(1, 1, Nullability::NonNullable, 3).unwrap();
 
-            let result = list_contains(elements.as_ref(), array.as_ref()).unwrap();
+            let expr = list_contains(lit(list_scalar.clone()), root());
+            let result = array.apply(&expr).unwrap();
             let expected = BoolArray::from_iter([Some(true), Some(false), Some(true)]);
             assert_arrays_eq!(result, expected);
         }
@@ -95,7 +87,8 @@ mod tests {
             //            5
             let array = SequenceArray::typed_new(1, 2, Nullability::NonNullable, 3).unwrap();
 
-            let result = list_contains(elements.as_ref(), array.as_ref()).unwrap();
+            let expr = list_contains(lit(list_scalar), root());
+            let result = array.apply(&expr).unwrap();
             let expected = BoolArray::from_iter([Some(true), Some(true), Some(false)]);
             assert_arrays_eq!(result, expected);
         }
