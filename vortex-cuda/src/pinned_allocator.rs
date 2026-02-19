@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
@@ -61,29 +63,70 @@ impl WriteTarget for PooledPinnedBuffer {
 }
 
 /// Allocator that reads into pinned buffers and transfers to device memory.
+///
+/// Uses multiple CUDA streams with round-robin assignment to enable concurrent
+/// H2D DMA transfers over the PCIe bus.
 pub struct PinnedDeviceAllocator {
     pool: Arc<PinnedByteBufferPool>,
-    stream: VortexCudaStream,
+    streams: Vec<VortexCudaStream>,
+    next_stream: AtomicUsize,
 }
 
 impl PinnedDeviceAllocator {
+    /// Create with a single H2D stream (original behavior).
     pub fn new(pool: Arc<PinnedByteBufferPool>, stream: VortexCudaStream) -> Self {
-        Self { pool, stream }
+        Self {
+            pool,
+            streams: vec![stream],
+            next_stream: AtomicUsize::new(0),
+        }
     }
 
+    /// Create with a single H2D stream from the session.
     pub fn from_session(
         pool: Arc<PinnedByteBufferPool>,
         session: &VortexSession,
     ) -> VortexResult<Self> {
-        let stream = session.cuda_session().new_stream()?;
-        Ok(Self::new(pool, stream))
+        Self::from_session_with_streams(pool, session, 1)
     }
 
+    /// Create with multiple H2D streams for concurrent DMA.
+    pub fn from_session_with_streams(
+        pool: Arc<PinnedByteBufferPool>,
+        session: &VortexSession,
+        num_streams: usize,
+    ) -> VortexResult<Self> {
+        let num_streams = num_streams.max(1);
+        let cuda_session = session.cuda_session();
+        let streams = (0..num_streams)
+            .map(|_| cuda_session.new_stream())
+            .collect::<VortexResult<Vec<_>>>()?;
+        Ok(Self {
+            pool,
+            streams,
+            next_stream: AtomicUsize::new(0),
+        })
+    }
+
+    /// Synchronize all H2D streams.
     pub fn synchronize(&self) -> VortexResult<()> {
-        self.stream
-            .0
-            .synchronize()
-            .map_err(|e| vortex_err!("Failed to synchronize CUDA stream: {e}"))
+        for stream in &self.streams {
+            stream
+                .0
+                .synchronize()
+                .map_err(|e| vortex_err!("Failed to synchronize CUDA stream: {e}"))?;
+        }
+        Ok(())
+    }
+
+    /// Returns the number of H2D streams.
+    pub fn num_streams(&self) -> usize {
+        self.streams.len()
+    }
+
+    fn next_stream(&self) -> &VortexCudaStream {
+        let idx = self.next_stream.fetch_add(1, Ordering::Relaxed) % self.streams.len();
+        &self.streams[idx]
     }
 }
 
@@ -92,7 +135,7 @@ impl BufferAllocator for PinnedDeviceAllocator {
         let buffer = self.pool.get_pooled(len)?;
         Ok(Box::new(PinnedDeviceWriteTarget {
             buffer,
-            stream: self.stream.clone(),
+            stream: self.next_stream().clone(),
         }))
     }
 
@@ -104,7 +147,7 @@ impl BufferAllocator for PinnedDeviceAllocator {
         match self.pool.try_get_pooled(len)? {
             Some(buffer) => Ok(Some(Box::new(PinnedDeviceWriteTarget {
                 buffer,
-                stream: self.stream.clone(),
+                stream: self.next_stream().clone(),
             }))),
             None => Ok(None),
         }

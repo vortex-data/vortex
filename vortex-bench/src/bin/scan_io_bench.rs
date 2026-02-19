@@ -154,6 +154,9 @@ struct Args {
     /// Enable CUDA pinned read + H2D transfer.
     #[arg(long, default_value_t = false)]
     gpu: bool,
+    /// Number of CUDA streams for H2D transfers (requires --gpu).
+    #[arg(long, default_value_t = 4)]
+    gpu_streams: usize,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -210,8 +213,13 @@ async fn main() -> Result<()> {
         let cuda_session = SESSION.cuda_session();
         vortex_cuda::layout::register_cuda_layout(&SESSION);
         let pool = std::sync::Arc::new(PinnedByteBufferPool::new(cuda_session.context().clone()));
-        let allocator =
-            std::sync::Arc::new(PinnedDeviceAllocator::from_session(pool.clone(), &SESSION)?);
+        let allocator = std::sync::Arc::new(
+            PinnedDeviceAllocator::from_session_with_streams(
+                pool.clone(),
+                &SESSION,
+                args.gpu_streams,
+            )?,
+        );
         (Some(allocator), Some(pool))
     } else {
         (None, None)
@@ -674,20 +682,25 @@ async fn read_all_segments(file: &vortex::file::VortexFile, concurrency: usize) 
     let segment_count = file.footer().segment_map().len();
     let segment_source = file.segment_source();
 
-    futures::stream::iter(0..segment_count)
+    // Pre-register ALL segment requests before polling any of them.
+    // request() eagerly sends a ReadEvent::Request to the IO stream,
+    // giving the coalescer the full segment picture for optimal merging.
+    let futures: Vec<_> = (0..segment_count)
         .map(|idx| {
-            let segment_source = segment_source.clone();
-            async move {
-                let segment_id = vortex::layout::segments::SegmentId::try_from(idx)
-                    .map_err(|_| anyhow::anyhow!("segment index exceeds u32: {idx}"))?;
-                let buffer = segment_source.request(segment_id).await?;
-                drop(buffer);
-                Ok::<_, anyhow::Error>(())
+            let segment_id = vortex::layout::segments::SegmentId::try_from(idx)
+                .map_err(|_| anyhow::anyhow!("segment index exceeds u32: {idx}"));
+            match segment_id {
+                Ok(id) => Ok(segment_source.request(id)),
+                Err(e) => Err(e),
             }
         })
+        .collect::<Result<Vec<_>>>()?;
+
+    futures::stream::iter(futures)
         .buffer_unordered(concurrency.max(1))
-        .try_collect::<Vec<_>>()
-        .await?;
+        .try_for_each(|_buffer| async { Ok(()) })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     Ok(())
 }
