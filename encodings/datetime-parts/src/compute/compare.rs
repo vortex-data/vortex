@@ -7,7 +7,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::expr::Operator;
 use vortex_array::compute::compare;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -211,9 +210,9 @@ mod test {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
-    use vortex_array::expr::CompareOperator;
     use vortex_array::dtype::IntegerPType;
     use vortex_array::dtype::datetime::TimeUnit;
+    use vortex_array::expr::CompareOperator;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 

@@ -27,7 +27,6 @@ use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::ScalarFnArrayExt;
 use crate::builtins::ArrayBuiltins;
-use crate::compute;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
@@ -285,11 +284,8 @@ fn list_contains_scalar(
     }
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
-    let matching_elements = Binary.try_new_array(
-        elems.len(),
-        Operator::Eq,
-        &[elems.clone(), rhs.into_array()],
-    )?;
+    let matching_elements =
+        Binary.try_new_array(elems.len(), Operator::Eq, &[elems.clone(), rhs.to_array()])?;
     let matches = matching_elements.to_bool();
 
     // Fast path: no elements match.

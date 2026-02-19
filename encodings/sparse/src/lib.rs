@@ -23,6 +23,8 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::compare;
 use vortex_array::compute::filter;
 use vortex_array::compute::sub_scalar;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::expr::CompareOperator;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
