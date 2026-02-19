@@ -4,6 +4,7 @@
 #![allow(unused_imports)]
 
 use std::env::args;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -14,8 +15,17 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use vortex::VortexSessionDefault;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::DictVTable;
+use vortex::buffer::ByteBuffer;
+use vortex::buffer::ByteBufferMut;
+use vortex::compressor::BtrBlocksCompressorBuilder;
+use vortex::compressor::FloatCode;
+use vortex::compressor::IntCode;
+use vortex::compressor::StringCode;
 use vortex::error::VortexResult;
+use vortex::file::Footer;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::file::WriteOptionsSessionExt;
+use vortex::file::WriteStrategyBuilder;
 use vortex::session::VortexSession;
 use vortex_cuda::CopyDeviceReadAt;
 use vortex_cuda::CudaSession;

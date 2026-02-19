@@ -17,9 +17,14 @@ use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags;
 use futures::executor::block_on;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::validity::Validity::NonNullable;
-use vortex_buffer::Buffer;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::validity::Validity::NonNullable;
+use vortex::buffer::Buffer;
+use vortex::encodings::fastlanes::BitPackedArray;
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
+use vortex::session::VortexSession;
 use vortex_cuda::CudaBufferExt;
 use vortex_cuda::CudaDeviceBuffer;
 use vortex_cuda::CudaExecutionCtx;
@@ -29,11 +34,6 @@ use vortex_cuda::dynamic_dispatch::ScalarOp;
 use vortex_cuda::dynamic_dispatch::SourceOp;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
-use vortex_fastlanes::BitPackedArray;
-use vortex_session::VortexSession;
 
 const BENCH_ARGS: &[(usize, &str)] = &[
     (1_000_000, "1M"),

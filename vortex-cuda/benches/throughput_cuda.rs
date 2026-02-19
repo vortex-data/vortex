@@ -18,11 +18,11 @@ use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
 use cudarc::driver::sys;
 use cudarc::driver::sys::CUevent_flags;
+use vortex::session::VortexSession;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
-use vortex_session::VortexSession;
 
 /// Total data budget per benchmark iteration (100 MiB).
 const TOTAL_BYTES: usize = 100 * 1024 * 1024;

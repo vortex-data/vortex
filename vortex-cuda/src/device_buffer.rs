@@ -12,15 +12,15 @@ use cudarc::driver::DevicePtr;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::sys;
 use futures::future::BoxFuture;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::buffer::DeviceBuffer;
-use vortex_buffer::Alignment;
-use vortex_buffer::ByteBuffer;
-use vortex_buffer::ByteBufferMut;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::buffer::DeviceBuffer;
+use vortex::buffer::Alignment;
+use vortex::buffer::ByteBuffer;
+use vortex::buffer::ByteBufferMut;
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
+use vortex::error::vortex_panic;
 
 use crate::stream::await_stream_callback;
 
@@ -48,8 +48,8 @@ mod private {
     use cudarc::driver::CudaStream;
     use cudarc::driver::CudaView;
     use cudarc::driver::DeviceRepr;
-    use vortex_buffer::Alignment;
-    use vortex_error::VortexExpect;
+    use vortex::buffer::Alignment;
+    use vortex::error::VortexExpect;
 
     pub trait DeviceAllocation: Debug + Send + Sync + 'static {
         /// Get the minimum alignment of the allocation.
