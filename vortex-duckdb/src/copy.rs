@@ -32,8 +32,8 @@ use crate::convert::from_duckdb_table;
 use crate::duckdb::ClientContext;
 use crate::duckdb::CopyFunction;
 use crate::duckdb::DataChunk;
+use crate::duckdb::DuckDbFsWriter;
 use crate::duckdb::LogicalType;
-use crate::duckdb::duckdb_fs_create_writer;
 
 #[derive(Debug)]
 pub struct VortexCopyFunction;
@@ -134,10 +134,9 @@ impl CopyFunction for VortexCopyFunction {
         let ctx = unsafe { client_context.erase_lifetime() };
         let write_task = handle.spawn(async move {
             // Use DuckDB FS exclusively to match the DuckDB client context configuration.
-            let writer =
-                unsafe { duckdb_fs_create_writer(ctx.as_ptr(), &file_path) }.map_err(|e| {
-                    vortex_err!("Failed to create DuckDB FS writer for {file_path}: {e}")
-                })?;
+            let writer = DuckDbFsWriter::new(ctx, &file_path).map_err(|e| {
+                vortex_err!("Failed to create DuckDB FS writer for {file_path}: {e}")
+            })?;
             SESSION.write_options().write(writer, array_stream).await
         });
 

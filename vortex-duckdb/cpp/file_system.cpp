@@ -33,7 +33,7 @@ duckdb_vx_fs_open(duckdb_client_context ctx, const char *path, duckdb_vx_error *
     }
 
     try {
-        auto *client_context = reinterpret_cast<ClientContext *>(ctx);
+        auto client_context = reinterpret_cast<ClientContext *>(ctx);
         auto &fs = FileSystem::GetFileSystem(*client_context);
         auto handle = fs.OpenFile(path, FileFlags::FILE_FLAGS_READ | FileFlags::FILE_FLAGS_PARALLEL_ACCESS);
         return reinterpret_cast<duckdb_vx_file_handle>(new FileHandleWrapper(std::move(handle)));
@@ -51,7 +51,7 @@ duckdb_vx_fs_create(duckdb_client_context ctx, const char *path, duckdb_vx_error
     }
 
     try {
-        auto *client_context = reinterpret_cast<ClientContext *>(ctx);
+        auto client_context = reinterpret_cast<ClientContext *>(ctx);
         auto &fs = FileSystem::GetFileSystem(*client_context);
         auto handle = fs.OpenFile(path,
                                   FileFlags::FILE_FLAGS_WRITE | FileFlags::FILE_FLAGS_FILE_CREATE |
@@ -142,7 +142,7 @@ extern "C" duckdb_state duckdb_vx_fs_list_files(duckdb_client_context ctx,
     }
 
     try {
-        auto *client_context = reinterpret_cast<ClientContext *>(ctx);
+        auto client_context = reinterpret_cast<ClientContext *>(ctx);
         auto &fs = FileSystem::GetFileSystem(*client_context);
 
         fs.ListFiles(directory,

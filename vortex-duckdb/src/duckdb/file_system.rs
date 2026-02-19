@@ -88,23 +88,17 @@ unsafe extern "C-unwind" fn list_files_callback(
     entries.push(DirEntry { name, is_dir });
 }
 
-pub(crate) unsafe fn duckdb_fs_create_writer(
-    ctx: cpp::duckdb_client_context,
-    path: &str,
-) -> VortexResult<DuckDbFsWriter> {
-    unsafe { DuckDbFsWriter::create(ctx, path) }
-}
-
 pub(crate) struct DuckDbFsWriter {
     handle: Arc<OwnedFsFileHandle>,
     pos: u64,
 }
 
 impl DuckDbFsWriter {
-    pub(crate) unsafe fn create(ctx: cpp::duckdb_client_context, path: &str) -> VortexResult<Self> {
+    pub(crate) fn new(ctx: &ClientContext, path: &str) -> VortexResult<Self> {
         let c_path = CString::new(path).map_err(|e| vortex_err!("Invalid path: {e}"))?;
         let mut err: cpp::duckdb_vx_error = ptr::null_mut();
-        let file_handle = unsafe { cpp::duckdb_vx_fs_create(ctx, c_path.as_ptr(), &raw mut err) };
+        let file_handle =
+            unsafe { cpp::duckdb_vx_fs_create(ctx.as_ptr(), c_path.as_ptr(), &raw mut err) };
         if file_handle.is_null() {
             return Err(fs_error(err));
         }
@@ -189,7 +183,7 @@ mod tests {
         let path: PathBuf = dir.path().join("writer_local.vortex");
         let path_str = path.to_string_lossy();
 
-        let mut writer = unsafe { duckdb_fs_create_writer(ctx.as_ptr(), &path_str) }.unwrap();
+        let mut writer = DuckDbFsWriter::new(ctx, &path_str).unwrap();
 
         futures::executor::block_on(async {
             VortexWrite::write_all(&mut writer, vec![1_u8, 2, 3])
