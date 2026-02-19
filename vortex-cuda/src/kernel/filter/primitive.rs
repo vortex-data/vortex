@@ -2,14 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use cudarc::driver::DeviceRepr;
-use vortex_array::Canonical;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::PrimitiveArrayParts;
-use vortex_array::dtype::NativePType;
+use vortex::array::Canonical;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::PrimitiveArrayParts;
+use vortex::array::dtype::NativePType;
+use vortex::error::VortexResult;
+use vortex::mask::Mask;
 use vortex_cub::filter::CubFilterable;
 use vortex_cuda_macros::cuda_tests;
-use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::CudaExecutionCtx;
 use crate::kernel::filter::filter_sized;
@@ -40,14 +40,14 @@ where
 #[cuda_tests]
 mod tests {
     use rstest::rstest;
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::FilterArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_error::VortexExpect;
-    use vortex_error::VortexResult;
-    use vortex_mask::Mask;
-    use vortex_session::VortexSession;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::FilterArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::error::VortexExpect;
+    use vortex::error::VortexResult;
+    use vortex::mask::Mask;
+    use vortex::session::VortexSession;
 
     use crate::CanonicalCudaExt;
     use crate::FilterExecutor;

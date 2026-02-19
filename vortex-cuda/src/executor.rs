@@ -16,18 +16,18 @@ use cudarc::driver::LaunchConfig;
 use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
-use vortex_array::Array;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::StructArray;
-use vortex_array::arrays::StructArrayParts;
-use vortex_array::arrays::StructVTable;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::dtype::PType;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
+use vortex::array::Array;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::ExecutionCtx;
+use vortex::array::IntoArray;
+use vortex::array::arrays::StructArray;
+use vortex::array::arrays::StructArrayParts;
+use vortex::array::arrays::StructVTable;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::dtype::PType;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 
 use crate::CudaSession;
 use crate::ExportDeviceArray;
@@ -259,7 +259,7 @@ impl CudaExecutionCtx {
 
     /// Returns the Vortex session backing this CUDA execution context.
     #[cfg(feature = "unstable_encodings")]
-    pub(crate) fn session(&self) -> &vortex_session::VortexSession {
+    pub(crate) fn session(&self) -> &vortex::session::VortexSession {
         self.ctx.session()
     }
 

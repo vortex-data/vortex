@@ -5,15 +5,15 @@ use std::fmt::Debug;
 
 use async_trait::async_trait;
 use tracing::instrument;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::PrimitiveArrayParts;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::arrays::DecimalArray;
+use vortex::array::arrays::PrimitiveArrayParts;
+use vortex::encodings::decimal_byte_parts::DecimalBytePartsArrayParts;
+use vortex::encodings::decimal_byte_parts::DecimalBytePartsVTable;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex_cuda_macros::cuda_tests;
-use vortex_decimal_byte_parts::DecimalBytePartsArrayParts;
-use vortex_decimal_byte_parts::DecimalBytePartsVTable;
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;
@@ -55,15 +55,15 @@ impl CudaExecute for DecimalBytePartsExecutor {
 #[cuda_tests]
 mod tests {
     use rstest::rstest;
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::dtype::DecimalDType;
-    use vortex_array::validity::Validity;
-    use vortex_buffer::Buffer;
-    use vortex_decimal_byte_parts::DecimalBytePartsArray;
-    use vortex_error::VortexExpect;
-    use vortex_session::VortexSession;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::array::dtype::DecimalDType;
+    use vortex::array::validity::Validity;
+    use vortex::buffer::Buffer;
+    use vortex::encodings::decimal_byte_parts::DecimalBytePartsArray;
+    use vortex::error::VortexExpect;
+    use vortex::session::VortexSession;
 
     use super::*;
     use crate::session::CudaSession;
@@ -74,7 +74,7 @@ mod tests {
     #[case::i32_p18_s4(Buffer::from(vec![100i32, 200, 300, 400, 500]), 18, 4)]
     #[case::i64_p38_s6(Buffer::from(vec![100i64, 200, 300, 400, 500]), 38, 6)]
     #[tokio::test]
-    async fn test_decimal_byte_parts_gpu_decode<T: vortex_array::dtype::NativePType>(
+    async fn test_decimal_byte_parts_gpu_decode<T: vortex::array::dtype::NativePType>(
         #[case] encoded: Buffer<T>,
         #[case] precision: u8,
         #[case] scale: i8,
