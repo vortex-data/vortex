@@ -29,16 +29,17 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::ScalarFnArrayExt;
 use crate::builtins::ArrayBuiltins;
-use crate::compute;
-use crate::compute::Operator;
 use crate::expr;
 use crate::expr::Arity;
+use crate::expr::Binary;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
+use crate::expr::Operator;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -243,12 +244,16 @@ fn constant_list_scalar_contains(
     let false_scalar = Scalar::bool(false, nullability);
 
     for element in elements {
-        let res = compute::compare(
-            ConstantArray::new(element, len).as_ref(),
-            values,
-            Operator::Eq,
-        )?
-        .fill_null(false_scalar.clone())?;
+        let res = Binary
+            .try_new_array(
+                len,
+                Operator::Eq,
+                [
+                    ConstantArray::new(element, len).into_array(),
+                    values.to_array(),
+                ],
+            )?
+            .fill_null(false_scalar.clone())?;
         if let Some(acc) = result {
             result = Some(expr::or_kleene(&acc, &res)?)
         } else {
@@ -279,7 +284,11 @@ fn list_contains_scalar(
     }
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
-    let matching_elements = compute::compare(elems, rhs.as_ref(), Operator::Eq)?;
+    let matching_elements = Binary.try_new_array(
+        elems.len(),
+        Operator::Eq,
+        &[elems.clone(), rhs.into_array()],
+    )?;
     let matches = matching_elements.to_bool();
 
     // Fast path: no elements match.
