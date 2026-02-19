@@ -204,6 +204,8 @@ impl vortex_io::runtime::Handle
 
 pub fn vortex_io::runtime::Handle::find() -> core::option::Option<Self>
 
+pub fn vortex_io::runtime::Handle::new(runtime: alloc::sync::Weak<dyn vortex_io::runtime::Executor>) -> Self
+
 pub fn vortex_io::runtime::Handle::spawn<Fut, R>(&self, f: Fut) -> vortex_io::runtime::Task<R> where Fut: core::future::future::Future<Output = R> + core::marker::Send + 'static, R: core::marker::Send + 'static
 
 pub fn vortex_io::runtime::Handle::spawn_blocking<F, R>(&self, f: F) -> vortex_io::runtime::Task<R> where F: core::ops::function::FnOnce() -> R + core::marker::Send + 'static, R: core::marker::Send + 'static
@@ -231,6 +233,14 @@ pub fn vortex_io::runtime::Task<T>::poll(self: core::pin::Pin<&mut Self>, cx: &m
 impl<T> core::ops::drop::Drop for vortex_io::runtime::Task<T>
 
 pub fn vortex_io::runtime::Task<T>::drop(&mut self)
+
+pub trait vortex_io::runtime::AbortHandle: core::marker::Send + core::marker::Sync
+
+pub fn vortex_io::runtime::AbortHandle::abort(self: alloc::boxed::Box<Self>)
+
+impl vortex_io::runtime::AbortHandle for tokio::runtime::task::abort::AbortHandle
+
+pub fn tokio::runtime::task::abort::AbortHandle::abort(self: alloc::boxed::Box<Self>)
 
 pub trait vortex_io::runtime::BlockingRuntime
 
@@ -271,6 +281,32 @@ pub fn vortex_io::runtime::tokio::TokioRuntime::block_on<Fut, R>(&self, fut: Fut
 pub fn vortex_io::runtime::tokio::TokioRuntime::block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator where S: futures_core::stream::Stream<Item = R> + core::marker::Send + 'a, R: core::marker::Send + 'a
 
 pub fn vortex_io::runtime::tokio::TokioRuntime::handle(&self) -> vortex_io::runtime::Handle
+
+pub trait vortex_io::runtime::Executor: core::marker::Send + core::marker::Sync
+
+pub fn vortex_io::runtime::Executor::spawn(&self, fut: futures_core::future::BoxFuture<'static, ()>) -> vortex_io::runtime::AbortHandleRef
+
+pub fn vortex_io::runtime::Executor::spawn_blocking(&self, task: alloc::boxed::Box<(dyn core::ops::function::FnOnce() + core::marker::Send + 'static)>) -> vortex_io::runtime::AbortHandleRef
+
+pub fn vortex_io::runtime::Executor::spawn_cpu(&self, task: alloc::boxed::Box<(dyn core::ops::function::FnOnce() + core::marker::Send + 'static)>) -> vortex_io::runtime::AbortHandleRef
+
+impl vortex_io::runtime::Executor for async_executor::Executor<'static>
+
+pub fn async_executor::Executor<'static>::spawn(&self, fut: futures_core::future::BoxFuture<'static, ()>) -> vortex_io::runtime::AbortHandleRef
+
+pub fn async_executor::Executor<'static>::spawn_blocking(&self, task: alloc::boxed::Box<(dyn core::ops::function::FnOnce() + core::marker::Send + 'static)>) -> vortex_io::runtime::AbortHandleRef
+
+pub fn async_executor::Executor<'static>::spawn_cpu(&self, task: alloc::boxed::Box<(dyn core::ops::function::FnOnce() + core::marker::Send + 'static)>) -> vortex_io::runtime::AbortHandleRef
+
+impl vortex_io::runtime::Executor for tokio::runtime::handle::Handle
+
+pub fn tokio::runtime::handle::Handle::spawn(&self, fut: futures_core::future::BoxFuture<'static, ()>) -> vortex_io::runtime::AbortHandleRef
+
+pub fn tokio::runtime::handle::Handle::spawn_blocking(&self, task: alloc::boxed::Box<(dyn core::ops::function::FnOnce() + core::marker::Send + 'static)>) -> vortex_io::runtime::AbortHandleRef
+
+pub fn tokio::runtime::handle::Handle::spawn_cpu(&self, cpu: alloc::boxed::Box<(dyn core::ops::function::FnOnce() + core::marker::Send + 'static)>) -> vortex_io::runtime::AbortHandleRef
+
+pub type vortex_io::runtime::AbortHandleRef = alloc::boxed::Box<dyn vortex_io::runtime::AbortHandle>
 
 pub mod vortex_io::session
 
