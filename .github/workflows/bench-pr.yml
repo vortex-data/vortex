@@ -2,6 +2,9 @@
 
 name: PR Benchmarks
 
+env:
+  VORTEX_USE_SCAN_API: 1
+
 concurrency:
   # The group causes runs to queue instead of running in parallel.
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}

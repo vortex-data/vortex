@@ -2,6 +2,9 @@
 
 name: PR SQL Benchmarks
 
+env:
+  VORTEX_USE_SCAN_API: 1
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true

@@ -1,5 +1,8 @@
 name: "SQL-related benchmarks"
 
+env:
+  VORTEX_USE_SCAN_API: 1
+
 on:
   workflow_call:
     inputs:
