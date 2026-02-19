@@ -272,6 +272,11 @@ fn int64_from_proto(v: i64, dtype: &DType) -> VortexResult<ScalarValue> {
         PType::I16 => v.to_i16().map(PValue::I16),
         PType::I32 => v.to_i32().map(PValue::I32),
         PType::I64 => Some(PValue::I64(v)),
+        // It was previously possible for unsigned types to get their stats serialised as signed
+        PType::U8 => v.to_u8().map(PValue::U8),
+        PType::U16 => v.to_u16().map(PValue::U16),
+        PType::U32 => v.to_u32().map(PValue::U32),
+        PType::U64 => v.to_u64().map(PValue::U64),
         ptype => vortex_bail!(
             Serde: "expected signed integer ptype for Int64Value, got {ptype}"
         ),
@@ -297,6 +302,11 @@ fn uint64_from_proto(v: u64, dtype: &DType) -> VortexResult<ScalarValue> {
         PType::U16 => v.to_u16().map(PValue::U16),
         PType::U32 => v.to_u32().map(PValue::U32),
         PType::U64 => Some(PValue::U64(v)),
+        // It was previously possible for signed types to get their stats serialised as unsigned
+        PType::I8 => v.to_i8().map(PValue::I8),
+        PType::I16 => v.to_i16().map(PValue::I16),
+        PType::I32 => v.to_i32().map(PValue::I32),
+        PType::I64 => v.to_i64().map(PValue::I64),
         // Backwards compatibility: f16 values were previously serialized as u64.
         PType::F16 => v.to_u16().map(f16::from_bits).map(PValue::F16),
         ptype => vortex_bail!(
@@ -815,5 +825,31 @@ mod tests {
                 _ => vortex_panic!("Unexpected type after roundtrip for {name}: {read_back:?}"),
             }
         }
+    }
+
+    #[test]
+    fn test_buggy_signed_integer_scalar() {
+        let v = ScalarValue::Primitive(PValue::I64(0));
+        assert_eq!(
+            Scalar::from_proto_value(
+                &pb::ScalarValue::from(&v),
+                &DType::Primitive(PType::U64, Nullability::Nullable)
+            )
+            .unwrap(),
+            Scalar::primitive(0u64, Nullability::Nullable)
+        );
+    }
+
+    #[test]
+    fn test_buggy_unsigned_integer_scalar() {
+        let v = ScalarValue::Primitive(PValue::U64(0));
+        assert_eq!(
+            Scalar::from_proto_value(
+                &pb::ScalarValue::from(&v),
+                &DType::Primitive(PType::I64, Nullability::Nullable)
+            )
+            .unwrap(),
+            Scalar::primitive(0i64, Nullability::Nullable)
+        );
     }
 }
