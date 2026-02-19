@@ -86,10 +86,9 @@ fn take_chunked(
         cursor = range_end;
     }
 
-    let result_dtype = array.dtype().clone();
     // SAFETY: every chunk came from a filter on a chunk with the same base dtype,
     // unioned with the index nullability.
-    let flat = unsafe { ChunkedArray::new_unchecked(chunks, result_dtype) }
+    let flat = unsafe { ChunkedArray::new_unchecked(chunks, array.dtype().clone()) }
         .into_array()
         // TODO(joe): can we relax this.
         .execute::<Canonical>(ctx)?
@@ -118,10 +117,7 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
-    use crate::RecursiveCanonical;
     use crate::ToCanonical;
-    use crate::VortexSessionExecute;
     use crate::array::Array;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
@@ -142,13 +138,7 @@ mod test {
         assert_eq!(arr.len(), 9);
         let indices = buffer![0u64, 0, 6, 4].into_array();
 
-        let result = arr
-            .take(indices.to_array())
-            .unwrap()
-            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .0
-            .into_array();
+        let result = arr.take(indices.to_array()).unwrap();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 1, 1, 2]));
     }
 
@@ -161,13 +151,7 @@ mod test {
         assert_eq!(arr.len(), 9);
         let indices = PrimitiveArray::new(buffer![0u64, 0, 6, 4], Validity::NonNullable);
 
-        let result = arr
-            .take(indices.to_array())
-            .unwrap()
-            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .0
-            .into_array();
+        let result = arr.take(indices.to_array()).unwrap();
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_option_iter([1i32, 1, 1, 2].map(Some))
@@ -186,13 +170,7 @@ mod test {
             Validity::Array(bitbuffer![1 0 0 1].into_array()),
         );
 
-        let result = arr
-            .take(indices.to_array())
-            .unwrap()
-            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
-            .0
-            .into_array();
+        let result = arr.take(indices.to_array()).unwrap();
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_option_iter([1i32, 1, 1, 2].map(Some))
