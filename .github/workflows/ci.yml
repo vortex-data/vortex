@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
 on:
   push:
-    branches: [develop]
+    branches: [ develop ]
   pull_request: { }
   workflow_dispatch: { }
 
@@ -881,7 +881,7 @@ jobs:
       - cpu=8
       - image=ubuntu24-full-x64
       - extras=s3-cache
-      - tag=sql-logic-test
+      - tag=publish-dry-run
     steps:
       - uses: runs-on/action@v2
         with:
@@ -890,15 +890,14 @@ jobs:
       - id: setup-rust
         uses: ./.github/actions/setup-rust
         with:
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Cargo Set Version
         run: |
           # Match publish toolchain
-          cargo +$NIGHTLY_TOOLCHAIN install cargo-edit
+          cargo install cargo-edit
           # This is mostly a dummy version, we don't actually publish anything but it cannot exist in crates.io
-          cargo +$NIGHTLY_TOOLCHAIN set-version --workspace 0.100000.0
+          cargo set-version --workspace 0.100000.0
 
       - name: Test Release
         run: |
-          cargo +$NIGHTLY_TOOLCHAIN publish --dry-run -Zpublish-timeout --no-verify --allow-dirty --workspace
+          cargo publish --dry-run --no-verify --allow-dirty --workspace
