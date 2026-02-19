@@ -370,4 +370,80 @@ mod tests {
         }
         Ok(())
     }
+
+    // --- Demonstrates the internal data/validity mismatch in the deltas child ---
+    //
+    // The deltas child PrimitiveArray stores data in *transposed* (FastLanes)
+    // order but validity in *original* order.  Any pushdown compute that
+    // operates on the deltas child positionally (filter, take, compare) would
+    // correlate the wrong data with the wrong validity.
+    //
+    // This test proves the mismatch exists by decompressing the deltas child
+    // to a PrimitiveArray and showing that scalar_at on that PrimitiveArray
+    // gives a DIFFERENT null/non-null answer than the DeltaArray's own
+    // scalar_at for the same logical position.
+    //
+    // See also: https://github.com/vortex-data/vortex/pull/5048
+
+    use vortex_array::ToCanonical;
+
+    #[test]
+    fn test_deltas_child_data_validity_mismatch() -> VortexResult<()> {
+        // The deltas child PrimitiveArray stores delta values in transposed
+        // (FastLanes lane) order, but validity in original order.  This means
+        // scalar_at(i) on the raw child returns the transposed delta at
+        // buffer position i but the null-flag for original position i.
+        //
+        // At non-null positions, the *values* from the deltas child will
+        // differ from the fully-decompressed DeltaArray values because the
+        // child holds transposed deltas while the DeltaArray decompresses
+        // (undelta + untranspose) back to original values.
+        //
+        // This proves that any pushdown compute operating positionally on
+        // the deltas child would associate the wrong value with the wrong
+        // validity — the root cause behind:
+        //   https://github.com/vortex-data/vortex/pull/5048
+        let null_positions = [1u32, 100, 512, 900];
+        let (delta, _valid) = make_nullable_delta(&null_positions)?;
+
+        let deltas_child = delta.deltas().to_primitive();
+        let delta_arr = delta.into_array();
+
+        let mut value_mismatches = 0usize;
+        for i in 0..1024usize {
+            let decompressed = delta_arr.scalar_at(i)?;
+            let from_child = deltas_child.scalar_at(i)?;
+
+            // Null/non-null matches because both use the same
+            // original-order validity.
+            assert_eq!(
+                decompressed.is_null(),
+                from_child.is_null(),
+                "null-flag unexpectedly differs at position {i}"
+            );
+
+            // But at non-null positions the VALUES should differ because
+            // the child holds a transposed delta while the DeltaArray
+            // returns the fully reconstructed original value.
+            if !decompressed.is_null() {
+                let v_decompressed: u32 = decompressed.as_primitive().typed_value().unwrap();
+                let v_child: u32 = from_child.as_primitive().typed_value().unwrap();
+                if v_decompressed != v_child {
+                    value_mismatches += 1;
+                }
+            }
+        }
+
+        // The transposition reorders values within the 1024-element chunk,
+        // so most non-null positions should show different values between
+        // the raw child and the decompressed DeltaArray.
+        assert!(
+            value_mismatches > 0,
+            "Expected value mismatches between deltas child (transposed) and \
+             decompressed DeltaArray (original order), but found none — \
+             this would mean the transposition is a no-op, which should not \
+             happen for a non-trivial array"
+        );
+        Ok(())
+    }
 }
