@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::IntoArray;
@@ -11,8 +10,9 @@ use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
+use crate::columnar::Columnar;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
+use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
@@ -29,18 +29,17 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             row_count: 1,
             ctx: &mut ctx,
         };
-
         let result = array.scalar_fn.execute(args)?;
 
-        let scalar = match result {
-            ExecutionResult::Array(arr) => {
+        let scalar = match result.execute::<Columnar>(&mut ctx)? {
+            Columnar::Canonical(arr) => {
                 tracing::info!(
                     "Scalar function {} returned non-constant array from execution over all scalar inputs",
                     array.scalar_fn,
                 );
                 arr.as_ref().scalar_at(0)?
             }
-            ExecutionResult::Scalar(constant) => constant.scalar().clone(),
+            Columnar::Constant(constant) => constant.scalar().clone(),
         };
 
         debug_assert_eq!(

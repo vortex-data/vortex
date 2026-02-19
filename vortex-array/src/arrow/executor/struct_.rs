@@ -167,8 +167,13 @@ fn create_from_fields(
             let arrow_fields: Fields = names
                 .iter()
                 .zip_eq(arrow_arrays.iter())
-                .map(|(name, arr)| {
-                    Arc::new(Field::new(name.as_ref(), arr.data_type().clone(), true))
+                .zip_eq(vortex_fields.iter().map(|f| f.dtype().is_nullable()))
+                .map(|((name, arr), vx_nullable)| {
+                    Arc::new(Field::new(
+                        name.as_ref(),
+                        arr.data_type().clone(),
+                        vx_nullable,
+                    ))
                 })
                 .collect();
 
@@ -203,10 +208,12 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::array;
     use crate::arrays;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrow::ArrowArrayExecutor;
+    use crate::arrow::FromArrowArray;
     use crate::arrow::IntoArrowArray;
     use crate::validity::Validity;
 
@@ -312,6 +319,28 @@ mod tests {
             )?,
             &arrow_array
         );
+        Ok(())
+    }
+
+    #[test]
+    fn to_arrow_with_non_nullable_fields() -> VortexResult<()> {
+        let array = StructArray::from_fields(
+            vec![
+                (
+                    "a",
+                    PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2)]).into_array(),
+                ),
+                (
+                    "b",
+                    arrays::VarBinViewArray::from_iter_str(vec!["a", "b", "c"]).into_array(),
+                ),
+            ]
+            .as_slice(),
+        )?;
+        let orig_dtype = array.dtype().clone();
+        let arrow_array = array.into_array().into_arrow_preferred()?;
+        let from_arrow = array::ArrayRef::from_arrow(arrow_array.as_ref(), false)?;
+        assert_eq!(&orig_dtype, from_arrow.dtype());
         Ok(())
     }
 }

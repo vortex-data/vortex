@@ -13,13 +13,16 @@ use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::TakeExecute;
+use crate::executor::ExecutionCtx;
 use crate::vtable::ValidityHelper;
 
-impl TakeKernel for DecimalVTable {
-    fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+impl TakeExecute for DecimalVTable {
+    fn take(
+        array: &DecimalArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.to_primitive();
         let validity = array.validity().take(indices.as_ref())?;
 
@@ -35,11 +38,9 @@ impl TakeKernel for DecimalVTable {
             })
         });
 
-        Ok(decimal.to_array())
+        Ok(Some(decimal.to_array()))
     }
 }
-
-register_kernel!(TakeKernelAdapter(DecimalVTable).lift());
 
 #[inline]
 fn take_to_buffer<I: IntegerPType, T: NativeDecimalType>(indices: &[I], values: &[T]) -> Buffer<T> {
@@ -52,65 +53,44 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_dtype::DecimalDType;
-    use vortex_dtype::Nullability;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::arrays::DecimalArray;
-    use crate::arrays::DecimalVTable;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
     use crate::validity::Validity;
 
     #[test]
     fn test_take() {
+        let ddtype = DecimalDType::new(19, 1);
         let array = DecimalArray::new(
             buffer![10i128, 11i128, 12i128, 13i128],
-            DecimalDType::new(19, 1),
+            ddtype,
             Validity::NonNullable,
         );
 
         let indices = buffer![0, 2, 3].into_array();
-        let taken = take(array.as_ref(), indices.as_ref()).unwrap();
-        let taken_decimals = taken.as_::<DecimalVTable>();
-        assert_eq!(
-            taken_decimals.buffer::<i128>(),
-            buffer![10i128, 12i128, 13i128]
-        );
-        assert_eq!(taken_decimals.decimal_dtype(), DecimalDType::new(19, 1));
+        let taken = array.take(indices.to_array()).unwrap();
+
+        let expected = DecimalArray::from_iter([10i128, 12, 13], ddtype);
+        assert_arrays_eq!(expected, taken);
     }
 
     #[test]
     fn test_take_null_indices() {
+        let ddtype = DecimalDType::new(19, 1);
         let array = DecimalArray::new(
             buffer![i128::MAX, 11i128, 12i128, 13i128],
-            DecimalDType::new(19, 1),
+            ddtype,
             Validity::NonNullable,
         );
 
         let indices = PrimitiveArray::from_option_iter([None, Some(2), Some(3)]).into_array();
-        let taken = take(array.as_ref(), indices.as_ref()).unwrap();
+        let taken = array.take(indices.to_array()).unwrap();
 
-        assert!(taken.scalar_at(0).unwrap().is_null());
-        assert_eq!(
-            taken.scalar_at(1).unwrap(),
-            Scalar::decimal(
-                DecimalValue::I128(12i128),
-                array.decimal_dtype(),
-                Nullability::Nullable
-            )
-        );
-
-        assert_eq!(
-            taken.scalar_at(2).unwrap(),
-            Scalar::decimal(
-                DecimalValue::I128(13i128),
-                array.decimal_dtype(),
-                Nullability::Nullable
-            )
-        );
+        let expected = DecimalArray::from_option_iter([None, Some(12i128), Some(13)], ddtype);
+        assert_arrays_eq!(expected, taken);
     }
 
     #[rstest]

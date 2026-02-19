@@ -14,10 +14,13 @@ pub use arbitrary::ArbitraryDictArray;
 mod array;
 pub use array::*;
 
-mod compute;
+pub(crate) mod compute;
 mod execute;
 
 pub use execute::take_canonical;
+
+mod take;
+pub use take::*;
 
 pub mod vtable;
 pub use vtable::*;

@@ -6,7 +6,7 @@ use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
-use vortex_array::compute::cast;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
@@ -31,11 +31,13 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     let temporal_values = array.temporal_values().to_primitive();
 
     // After this operation, timestamps will be a PrimitiveArray<i64>
-    let timestamps = cast(
-        temporal_values.as_ref(),
-        &DType::Primitive(PType::I64, temporal_values.dtype().nullability()),
-    )?
-    .to_primitive();
+    let timestamps = temporal_values
+        .to_array()
+        .cast(DType::Primitive(
+            PType::I64,
+            temporal_values.dtype().nullability(),
+        ))?
+        .to_primitive();
 
     let length = timestamps.len();
     let mut days = BufferMut::with_capacity(length);

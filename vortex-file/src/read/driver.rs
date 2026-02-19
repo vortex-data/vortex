@@ -4,7 +4,6 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 
@@ -13,15 +12,14 @@ use pin_project_lite::pin_project;
 use vortex_buffer::Alignment;
 use vortex_error::VortexExpect;
 use vortex_io::CoalesceConfig;
-use vortex_metrics::Counter;
-use vortex_metrics::Histogram;
-use vortex_metrics::VortexMetrics;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::read::ReadRequest;
 use crate::read::RequestId;
 use crate::read::request::CoalescedRequest;
 use crate::read::request::IoRequest;
 use crate::segments::ReadEvent;
+use crate::segments::RequestMetrics;
 
 pin_project! {
     /// A stream that performs coalescing and prioritization of I/O requests.
@@ -49,7 +47,7 @@ impl<S> IoRequestStream<S> {
         events: S,
         coalesce_window: Option<CoalesceConfig>,
         coalesced_buffer_alignment: Alignment,
-        metrics: VortexMetrics,
+        metrics: RequestMetrics,
     ) -> Self
     where
         S: Stream<Item = ReadEvent> + Unpin + Send + 'static,
@@ -118,33 +116,17 @@ struct State {
     requests_by_offset: BTreeSet<(u64, RequestId)>,
 
     // Metrics for tracking I/O request patterns
-    metrics: StateMetrics,
+    metrics: RequestMetrics,
     coalesced_buffer_alignment: Alignment,
 }
 
-struct StateMetrics {
-    individual_requests: Arc<Counter>,
-    coalesced_requests: Arc<Counter>,
-    num_requests_coalesced: Arc<Histogram>,
-}
-
-impl StateMetrics {
-    fn new(registry: VortexMetrics) -> Self {
-        Self {
-            individual_requests: registry.counter("io.requests.individual"),
-            coalesced_requests: registry.counter("io.requests.coalesced"),
-            num_requests_coalesced: registry.histogram("io.requests.coalesced.num_coalesced"),
-        }
-    }
-}
-
 impl State {
-    fn new(metrics: VortexMetrics, coalesced_buffer_alignment: Alignment) -> Self {
+    fn new(metrics: RequestMetrics, coalesced_buffer_alignment: Alignment) -> Self {
         Self {
             requests: BTreeMap::new(),
             polled_requests: BTreeMap::new(),
             requests_by_offset: BTreeSet::new(),
-            metrics: StateMetrics::new(metrics),
+            metrics,
             coalesced_buffer_alignment,
         }
     }
@@ -154,12 +136,21 @@ impl State {
         tracing::debug!(?event, "Received ReadEvent");
         match event {
             ReadEvent::Request(req) => {
+                if req.callback.is_closed() {
+                    tracing::debug!(?req, "ReadRequest dropped before registration");
+                    return;
+                }
                 self.requests_by_offset.insert((req.offset, req.id));
                 self.requests.insert(req.id, req);
             }
             ReadEvent::Polled(req_id) => {
                 if let Some(req) = self.requests.remove(&req_id) {
-                    self.polled_requests.insert(req_id, req);
+                    if req.callback.is_closed() {
+                        self.requests_by_offset.remove(&(req.offset, req_id));
+                        tracing::debug!(?req, "ReadRequest dropped before poll");
+                    } else {
+                        self.polled_requests.insert(req_id, req);
+                    }
                 }
             }
             ReadEvent::Dropped(req_id) => {
@@ -179,17 +170,17 @@ impl State {
     fn next(&mut self, coalesce_window: Option<&CoalesceConfig>) -> Option<IoRequest> {
         match coalesce_window {
             None => self.next_uncoalesced().map(|request| {
-                self.metrics.individual_requests.inc();
+                self.metrics.individual_requests.add(1);
                 IoRequest::new_single(request)
             }),
             Some(window) => self.next_coalesced(window).map(|request| {
                 match request.requests.len() {
-                    1 => self.metrics.individual_requests.inc(),
+                    1 => self.metrics.individual_requests.add(1),
                     num_requests => {
-                        self.metrics.coalesced_requests.inc();
+                        self.metrics.coalesced_requests.add(1);
                         self.metrics
                             .num_requests_coalesced
-                            .update(num_requests as i64);
+                            .update(num_requests as f64);
                     }
                 };
                 IoRequest::new_coalesced(request)
@@ -228,7 +219,10 @@ impl State {
         let mut current_end = requests[0].offset + requests[0].length as u64;
         let align = *self.coalesced_buffer_alignment as u64;
 
-        let mut keys_to_remove = Vec::new();
+        // Track requests that we've already decided to remove (or that were cancelled) so that
+        // we don't repeatedly process them during range scans.
+        let mut keys_to_remove: Vec<(u64, RequestId)> = Vec::new();
+        let mut ids_to_remove: HashSet<RequestId> = HashSet::new();
         let mut found_new_requests = true;
 
         // Keep expanding the window while we can find new requests within constraints
@@ -245,7 +239,7 @@ impl State {
                 .range((scan_start, RequestId::MIN)..=(scan_end, RequestId::MAX))
             {
                 // Skip if we've already marked this request for removal
-                if keys_to_remove.iter().any(|&(_, id)| id == req_id) {
+                if ids_to_remove.contains(&req_id) {
                     continue;
                 }
 
@@ -257,7 +251,9 @@ impl State {
 
                 // Skip any cancelled requests
                 if req.callback.is_closed() {
-                    keys_to_remove.push((req_offset, req_id));
+                    if ids_to_remove.insert(req_id) {
+                        keys_to_remove.push((req_offset, req_id));
+                    }
                     continue;
                 }
 
@@ -286,7 +282,9 @@ impl State {
                         .vortex_expect("Missing request in requests_by_offset");
 
                     requests.push(req);
-                    keys_to_remove.push((req_offset, req_id));
+                    if ids_to_remove.insert(req_id) {
+                        keys_to_remove.push((req_offset, req_id));
+                    }
                     found_new_requests = true;
                 }
             }
@@ -328,6 +326,9 @@ mod tests {
     use vortex_array::buffer::BufferHandle;
     use vortex_buffer::Alignment;
     use vortex_error::VortexResult;
+    use vortex_metrics::DefaultMetricsRegistry;
+    use vortex_metrics::MetricValue;
+    use vortex_metrics::MetricsRegistry;
 
     use super::*;
     use crate::read::request::IoRequestInner;
@@ -363,7 +364,8 @@ mod tests {
         coalesced_buffer_alignment: Alignment,
     ) -> Vec<IoRequest> {
         let event_stream = stream::iter(events);
-        let metrics = VortexMetrics::default();
+        let metrics_registry = DefaultMetricsRegistry::default();
+        let metrics = RequestMetrics::new(&metrics_registry, vec![]);
         let io_stream = IoRequestStream::new(
             event_stream,
             coalesce_window,
@@ -577,6 +579,44 @@ mod tests {
         assert_eq!(outputs[0].offset(), 100);
     }
 
+    #[test]
+    fn test_on_event_cleans_cancelled_requests_early() {
+        let metrics_registry = DefaultMetricsRegistry::default();
+        let metrics = RequestMetrics::new(&metrics_registry, vec![]);
+        let mut state = State::new(metrics, Alignment::none());
+
+        // Cancel before registration: request should never enter state indexes.
+        let (tx1, rx1) = oneshot::channel();
+        drop(rx1);
+        let req1 = ReadRequest {
+            id: 1,
+            offset: 10,
+            length: 4,
+            alignment: Alignment::none(),
+            callback: tx1,
+        };
+        state.on_event(ReadEvent::Request(req1));
+        assert!(state.requests.is_empty());
+        assert!(state.polled_requests.is_empty());
+        assert!(state.requests_by_offset.is_empty());
+
+        // Cancel after registration but before first poll: should be removed on Polled event.
+        let (tx2, rx2) = oneshot::channel();
+        let req2 = ReadRequest {
+            id: 2,
+            offset: 20,
+            length: 8,
+            alignment: Alignment::none(),
+            callback: tx2,
+        };
+        state.on_event(ReadEvent::Request(req2));
+        drop(rx2);
+        state.on_event(ReadEvent::Polled(2));
+        assert!(state.requests.is_empty());
+        assert!(state.polled_requests.is_empty());
+        assert!(state.requests_by_offset.is_empty());
+    }
+
     #[tokio::test]
     async fn test_unpolled_requests_ignored() {
         let (req1, _rx1) = create_request(1, 0, 10);
@@ -681,7 +721,8 @@ mod tests {
         ];
 
         let event_stream = stream::iter(events);
-        let metrics = VortexMetrics::default();
+        let metrics_registry = DefaultMetricsRegistry::default();
+        let metrics = RequestMetrics::new(&metrics_registry, vec![]);
         let io_stream = IoRequestStream::new(
             event_stream,
             Some(CoalesceConfig {
@@ -689,28 +730,28 @@ mod tests {
                 max_size: 1024,
             }),
             Alignment::none(),
-            metrics.clone(),
+            metrics,
         );
 
         let outputs: Vec<IoRequest> = io_stream.collect().await;
         assert_eq!(outputs.len(), 2);
 
-        let snapshot = metrics.snapshot();
-        let mut individual_count = 0i64;
-        let mut coalesced_operations = 0i64;
-        let mut coalesced_histogram_count = 0u64;
+        let snapshot = metrics_registry.snapshot();
+        let mut individual_count = 0u64;
+        let mut coalesced_operations = 0u64;
+        let mut coalesced_histogram_count = 0usize;
 
-        for (metric_id, metric) in snapshot.iter() {
-            match metric {
-                vortex_metrics::Metric::Counter(counter) => {
-                    if metric_id.name() == "io.requests.individual" {
-                        individual_count = counter.count();
-                    } else if metric_id.name() == "io.requests.coalesced" {
-                        coalesced_operations = counter.count();
+        for metric in snapshot.iter() {
+            match metric.value() {
+                MetricValue::Counter(counter) => {
+                    if metric.name() == "io.requests.individual" {
+                        individual_count = counter.value();
+                    } else if metric.name() == "io.requests.coalesced" {
+                        coalesced_operations = counter.value();
                     }
                 }
-                vortex_metrics::Metric::Histogram(histogram) => {
-                    if metric_id.name() == "io.requests.coalesced.num_coalesced" {
+                MetricValue::Histogram(histogram) => {
+                    if metric.name() == "io.requests.coalesced.num_coalesced" {
                         coalesced_histogram_count = histogram.count();
                     }
                 }
@@ -740,25 +781,25 @@ mod tests {
         ];
 
         let event_stream = stream::iter(events);
-        let metrics = VortexMetrics::default();
+        let metrics_registry = DefaultMetricsRegistry::default();
+        let metrics = RequestMetrics::new(&metrics_registry, vec![]);
         // No coalescing window - should be individual requests
-        let io_stream =
-            IoRequestStream::new(event_stream, None, Alignment::none(), metrics.clone());
+        let io_stream = IoRequestStream::new(event_stream, None, Alignment::none(), metrics);
 
         let outputs: Vec<IoRequest> = io_stream.collect().await;
         assert_eq!(outputs.len(), 2);
 
         // Check metrics
-        let snapshot = metrics.snapshot();
-        let mut individual_count = 0i64;
-        let mut coalesced_operations = 0i64;
+        let snapshot = metrics_registry.snapshot();
+        let mut individual_count = 0_u64;
+        let mut coalesced_operations = 0_u64;
 
-        for (metric_id, metric) in snapshot.iter() {
-            if let vortex_metrics::Metric::Counter(counter) = metric {
-                if metric_id.name() == "io.requests.individual" {
-                    individual_count = counter.count();
-                } else if metric_id.name() == "io.requests.coalesced.num_coalesced" {
-                    coalesced_operations = counter.count();
+        for metric in snapshot.iter() {
+            if let MetricValue::Counter(counter) = metric.value() {
+                if metric.name() == "io.requests.individual" {
+                    individual_count = counter.value();
+                } else if metric.name() == "io.requests.coalesced.num_coalesced" {
+                    coalesced_operations = counter.value();
                 }
             }
         }

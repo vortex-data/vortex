@@ -11,7 +11,6 @@ use pyo3::types::PyBytes;
 use vortex::array::ArrayBufferVisitor;
 use vortex::array::ArrayChildVisitor;
 use vortex::array::ArrayRef;
-use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::Precision;
 use vortex::array::RawMetadata;
@@ -23,26 +22,22 @@ use vortex::array::validity::Validity;
 use vortex::array::vtable;
 use vortex::array::vtable::ArrayId;
 use vortex::array::vtable::BaseArrayVTable;
-use vortex::array::vtable::ComputeVTable;
 use vortex::array::vtable::OperationsVTable;
 use vortex::array::vtable::VTable;
 use vortex::array::vtable::ValidityVTable;
 use vortex::array::vtable::VisitorVTable;
-use vortex::compute::ComputeFn;
-use vortex::compute::InvocationArgs;
-use vortex::compute::Output;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::scalar::Scalar;
+use vortex::session::VortexSession;
 
 use crate::arrays::py::PythonArray;
 
 vtable!(Python);
 
 /// Wrapper struct encapsulating a Python encoding.
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct PythonVTable;
 
@@ -55,7 +50,6 @@ impl VTable for PythonVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = Self;
 
     fn id(array: &Self::Array) -> ArrayId {
         array.id.clone()
@@ -88,7 +82,13 @@ impl VTable for PythonVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(RawMetadata(bytes.to_vec()))
     }
 
@@ -111,7 +111,7 @@ impl VTable for PythonVTable {
         Ok(())
     }
 
-    fn canonicalize(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         todo!()
     }
 }
@@ -162,16 +162,6 @@ impl VisitorVTable<PythonVTable> for PythonVTable {
     }
 
     fn visit_children(_array: &PythonArray, _visitor: &mut dyn ArrayChildVisitor) {
-        todo!()
-    }
-}
-
-impl ComputeVTable<PythonVTable> for PythonVTable {
-    fn invoke(
-        _array: &PythonArray,
-        _compute_fn: &ComputeFn,
-        _args: &InvocationArgs,
-    ) -> VortexResult<Option<Output>> {
         todo!()
     }
 }

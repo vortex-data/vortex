@@ -12,8 +12,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
+use crate::AnyCanonical;
 use crate::Array;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
@@ -21,19 +22,18 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::slice::array::SliceArray;
-use crate::arrays::slice::rules::RULES;
+use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
+use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::BaseArrayVTable;
-use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
@@ -55,7 +55,6 @@ impl VTable for SliceVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         SliceVTable::ID
@@ -70,7 +69,13 @@ impl VTable for SliceVTable {
         vortex_bail!("Slice array is not serializable")
     }
 
-    fn deserialize(_bytes: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         vortex_bail!("Slice array is not serializable")
     }
 
@@ -103,32 +108,29 @@ impl VTable for SliceVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // Execute the child to get canonical form, then slice it
-        let canonical = array.child.clone().execute::<Canonical>(ctx)?;
-        let result = canonical.as_ref().slice(array.range.clone())?;
-        assert!(
-            result.is_canonical(),
-            "this must be canonical fix the slice impl for the dtype {} showing this error",
-            array.dtype()
-        );
-        // TODO(joe): this is a downcast not a execute.
-        result.execute::<Canonical>(ctx)
+        let Some(canonical) = array.child.as_opt::<AnyCanonical>() else {
+            // If the child is not canonical, recurse.
+            return array
+                .child
+                .clone()
+                .execute::<ArrayRef>(ctx)?
+                .slice(array.slice_range().clone());
+        };
+
+        // TODO(ngates): we should inline canonical slice logic here.
+        Canonical::from(canonical)
+            .as_ref()
+            .slice(array.range.clone())
     }
 
-    fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array)
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let inner_range = array.slice_range();
-
-        let combined_start = inner_range.start + range.start;
-        let combined_end = inner_range.start + range.end;
-
-        Ok(Some(
-            SliceArray::new(array.child().clone(), combined_start..combined_end).into_array(),
-        ))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 
@@ -173,6 +175,17 @@ impl VisitorVTable<SliceVTable> for SliceVTable {
 
     fn visit_children(array: &SliceArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("child", &array.child);
+    }
+
+    fn nchildren(_array: &SliceArray) -> usize {
+        1
+    }
+
+    fn nth_child(array: &SliceArray, idx: usize) -> Option<ArrayRef> {
+        match idx {
+            0 => Some(array.child.clone()),
+            _ => None,
+        }
     }
 }
 

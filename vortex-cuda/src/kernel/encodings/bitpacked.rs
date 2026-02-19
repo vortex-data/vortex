@@ -5,10 +5,11 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use cudarc::driver::CudaFunction;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
+use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
@@ -31,12 +32,11 @@ use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::kernel::launch_cuda_kernel_with_config;
 use crate::kernel::patches::execute_patches;
 
-/// CUDA decoder for ALP (Adaptive Lossless floating-Point) decompression.
+/// CUDA decoder for bit-packed arrays.
 #[derive(Debug)]
-pub struct BitPackedExecutor;
+pub(crate) struct BitPackedExecutor;
 
 impl BitPackedExecutor {
     fn try_specialize(array: ArrayRef) -> Option<BitPackedArray> {
@@ -46,6 +46,7 @@ impl BitPackedExecutor {
 
 #[async_trait]
 impl CudaExecute for BitPackedExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -60,7 +61,33 @@ impl CudaExecute for BitPackedExecutor {
     }
 }
 
-async fn decode_bitpacked<A>(
+const fn bitpacked_thread_count(output_width: usize) -> u32 {
+    if output_width == 64 { 16 } else { 32 }
+}
+
+pub fn bitpacked_cuda_kernel(
+    bit_width: u8,
+    output_width: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<CudaFunction> {
+    // Load kernel function
+    // bit_unpack_{bits}_{bit_width}bw_{thread_count}t
+    let thread_count = bitpacked_thread_count(output_width);
+    let suffixes: [&str; _] = [&format!("{bit_width}bw"), &format!("{thread_count}t")];
+    ctx.load_function(&format!("bit_unpack_{}", output_width), &suffixes)
+}
+
+pub fn bitpacked_cuda_launch_config(output_width: usize, len: usize) -> VortexResult<LaunchConfig> {
+    let thread_count = bitpacked_thread_count(output_width);
+    let num_blocks = u32::try_from(len.div_ceil(1024))?;
+    Ok(LaunchConfig {
+        grid_dim: (num_blocks, 1, 1),
+        block_dim: (thread_count, 1, 1),
+        shared_mem_bytes: 0,
+    })
+}
+
+pub(crate) async fn decode_bitpacked<A>(
     array: BitPackedArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical>
@@ -80,11 +107,7 @@ where
     vortex_ensure!(len > 0, "Non empty array");
     let offset = offset as usize;
 
-    let device_input: BufferHandle = if packed.is_on_device() {
-        packed
-    } else {
-        ctx.move_to_device::<A::Physical>(packed)?.await?
-    };
+    let device_input = ctx.ensure_on_device(packed).await?;
 
     // Get CUDA view of input
     let input_view = device_input.cuda_view::<A::Physical>()?;
@@ -94,32 +117,13 @@ where
     let output_buf = CudaDeviceBuffer::new(output_slice);
     let output_view = output_buf.as_view::<A>();
 
-    // Load kernel function
-    // bit_unpack_{bits}_{bit_width}bw_{thread_count}t
-    let bits = size_of::<A>() * 8;
-    let thread_count = if bits == 64 { 16 } else { 32 };
-    let suffixes: [&str; _] = [&format!("{bit_width}bw"), &format!("{thread_count}t")];
-    let cuda_function = ctx.load_function(&format!("bit_unpack_{}", bits), &suffixes)?;
+    let output_width = size_of::<A>() * 8;
+    let cuda_function = bitpacked_cuda_kernel(bit_width, output_width, ctx)?;
+    let config = bitpacked_cuda_launch_config(output_width, len)?;
 
-    {
-        let mut launch_builder = ctx.launch_builder(&cuda_function);
-
-        // Build launch args: input, output, f, e, length
-        launch_builder.arg(&input_view);
-        launch_builder.arg(&output_view);
-
-        let num_blocks = u32::try_from(len.div_ceil(1024))?;
-
-        let config = LaunchConfig {
-            grid_dim: (num_blocks, 1, 1),
-            block_dim: (thread_count, 1, 1),
-            shared_mem_bytes: 0,
-        };
-
-        // Launch kernel
-        let _cuda_events =
-            launch_cuda_kernel_with_config(&mut launch_builder, config, CU_EVENT_DISABLE_TIMING)?;
-    }
+    ctx.launch_kernel_config(&cuda_function, config, len, |args| {
+        args.arg(&input_view).arg(&output_view);
+    })?;
 
     let output_handle = match patches {
         None => BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len))),

@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 use itertools::Itertools;
 use prost::Message;
 use vortex_dtype::DType;
+use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -17,13 +18,13 @@ use vortex_proto::expr::SelectOpts;
 use vortex_proto::expr::select_opts::Opts;
 use vortex_session::VortexSession;
 
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::expr;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Pack;
 use crate::expr::SimplifyCtx;
@@ -140,7 +141,7 @@ impl VTable for Select {
         &self,
         selection: &FieldSelection,
         mut args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    ) -> VortexResult<ArrayRef> {
         let child = args
             .inputs
             .pop()
@@ -191,6 +192,15 @@ impl VTable for Select {
                 )
                 .is_nullable()
         });
+
+        // If no fields are included, we can trivially simplify to a pack expression.
+        // NOTE(ngates): we do this knowing that our layout expression partitioning logic has
+        //  special-casing for pack, but not for select. We will fix this up when we revisit the
+        //  layout APIs.
+        if included_fields.is_empty() {
+            let empty: Vec<(FieldName, Expression)> = vec![];
+            return Ok(Some(expr::pack(empty, struct_nullability)));
+        }
 
         // We cannot always convert a `select` into a `pack(get_item(f1), get_item(f2), ...)`.
         // This is because `get_item` does a validity intersection of the struct validity with its

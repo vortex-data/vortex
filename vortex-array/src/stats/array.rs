@@ -9,8 +9,6 @@ use parking_lot::RwLock;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use super::MutTypedStatsSetRef;
 use super::StatsSet;
@@ -28,6 +26,8 @@ use crate::compute::sum;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
+use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 // TODO(adamg): This is a very bad name.
@@ -197,8 +197,10 @@ impl StatsSetRef<'_> {
     pub fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
         for &stat in stats {
-            if let Some(s) = self.compute_stat(stat)? {
-                stats_set.set(stat, Precision::exact(s.into_value()))
+            if let Some(s) = self.compute_stat(stat)?
+                && let Some(value) = s.into_value()
+            {
+                stats_set.set(stat, Precision::exact(value));
             }
         }
         Ok(stats_set)

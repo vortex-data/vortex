@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -10,15 +8,16 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
-use crate::arrays::list::vtable::kernel::PARENT_KERNELS;
+use crate::arrays::list::compute::PARENT_KERNELS;
+use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::list_view_from_list;
 use crate::buffer::BufferHandle;
 use crate::metadata::DeserializeMetadata;
@@ -27,13 +26,10 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod kernel;
 mod operations;
 mod validity;
 mod visitor;
@@ -57,21 +53,17 @@ impl VTable for ListVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            ListArray::new(
-                array.elements().clone(),
-                array.offsets().slice(range.start..range.end + 1)?,
-                array.validity().slice(range)?,
-            )
-            .into_array(),
-        ))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn metadata(array: &ListArray) -> VortexResult<Self::Metadata> {
@@ -85,7 +77,13 @@ impl VTable for ListVTable {
         Ok(Some(SerializeMetadata::serialize(metadata)))
     }
 
-    fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(
             <ProstMetadata<ListMetadata> as DeserializeMetadata>::deserialize(bytes)?,
         ))
@@ -150,8 +148,8 @@ impl VTable for ListVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::List(list_view_from_list(array.clone(), ctx)?))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(list_view_from_list(array.clone(), ctx)?.into_array())
     }
 
     fn execute_parent(

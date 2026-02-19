@@ -7,55 +7,57 @@ mod filter;
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::TakeExecute;
 use vortex_array::arrays::VarBinVTable;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
-use vortex_array::compute::fill_null;
-use vortex_array::compute::take;
-use vortex_array::register_kernel;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::scalar::Scalar;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
+use vortex_error::vortex_err;
 
 use crate::FSSTArray;
 use crate::FSSTVTable;
 
-impl TakeKernel for FSSTVTable {
-    // Take on an FSSTArray is a simple take on the codes array.
-    fn take(&self, array: &FSSTArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        Ok(FSSTArray::try_new(
-            array
-                .dtype()
-                .clone()
-                .union_nullability(indices.dtype().nullability()),
-            array.symbols().clone(),
-            array.symbol_lengths().clone(),
-            take(array.codes().as_ref(), indices)?
-                .as_::<VarBinVTable>()
-                .clone(),
-            fill_null(
-                &take(array.uncompressed_lengths(), indices)?,
-                &Scalar::new(
-                    array.uncompressed_lengths_dtype().clone(),
-                    ScalarValue::from(0),
-                ),
-            )?,
-        )?
-        .into_array())
+impl TakeExecute for FSSTVTable {
+    fn take(
+        array: &FSSTArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            FSSTArray::try_new(
+                array
+                    .dtype()
+                    .clone()
+                    .union_nullability(indices.dtype().nullability()),
+                array.symbols().clone(),
+                array.symbol_lengths().clone(),
+                VarBinVTable::take(array.codes(), indices, _ctx)?
+                    .vortex_expect("cannot fail")
+                    .try_into::<VarBinVTable>()
+                    .map_err(|_| vortex_err!("take for codes must return varbin array"))?,
+                array
+                    .uncompressed_lengths()
+                    .take(indices.to_array())?
+                    .fill_null(Scalar::zero_value(
+                        &array.uncompressed_lengths_dtype().clone(),
+                    ))?,
+            )?
+            .into_array(),
+        ))
     }
 }
-
-register_kernel!(TakeKernelAdapter(FSSTVTable).lift());
 
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::compute::take;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
 
@@ -72,14 +74,14 @@ mod tests {
         let idx1: PrimitiveArray = (0..1).collect();
 
         assert_eq!(
-            take(fsst.as_ref(), idx1.as_ref()).unwrap().dtype(),
+            fsst.take(idx1.to_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::NonNullable)
         );
 
         let idx2: PrimitiveArray = PrimitiveArray::from_option_iter(vec![Some(0)]);
 
         assert_eq!(
-            take(fsst.as_ref(), idx2.as_ref()).unwrap().dtype(),
+            fsst.take(idx2.to_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::Nullable)
         );
     }

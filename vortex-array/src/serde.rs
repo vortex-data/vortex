@@ -22,10 +22,10 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_flatbuffers::FlatBuffer;
-use vortex_flatbuffers::ReadFlatBuffer;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::array as fba;
 use vortex_flatbuffers::array::Compression;
+use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayContext;
@@ -33,7 +33,7 @@ use crate::ArrayRef;
 use crate::ArrayVisitor;
 use crate::ArrayVisitorExt;
 use crate::buffer::BufferHandle;
-use crate::session::ArrayRegistry;
+use crate::session::ArraySessionExt;
 use crate::stats::StatsSet;
 
 /// Options for serializing an array.
@@ -269,6 +269,19 @@ pub trait ArrayChildren {
     }
 }
 
+impl ArrayChildren for &[ArrayRef] {
+    fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
+        let array = self[index].clone();
+        assert_eq!(array.len(), len);
+        assert_eq!(array.dtype(), dtype);
+        Ok(array)
+    }
+
+    fn len(&self) -> usize {
+        <[_]>::len(self)
+    }
+}
+
 /// [`ArrayParts`] represents a parsed but not-yet-decoded deserialized [`Array`].
 /// It contains all the information from the serialized form, without anything extra. i.e.
 /// it is missing a [`DType`] and `len`, and the `encoding_id` is not yet resolved to a concrete
@@ -305,13 +318,15 @@ impl ArrayParts {
         dtype: &DType,
         len: usize,
         ctx: &ArrayContext,
-        registry: &ArrayRegistry,
+        session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         let encoding_idx = self.flatbuffer().encoding();
         let encoding_id = ctx
             .resolve(encoding_idx)
             .ok_or_else(|| vortex_err!("Unknown encoding index: {}", encoding_idx))?;
-        let vtable = registry
+        let vtable = session
+            .arrays()
+            .registry()
             .find(&encoding_id)
             .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
 
@@ -322,7 +337,7 @@ impl ArrayParts {
         let children = ArrayPartsChildren {
             parts: self,
             ctx,
-            registry,
+            session,
         };
 
         let decoded = vtable.build(
@@ -332,6 +347,7 @@ impl ArrayParts {
             self.metadata(),
             &buffers,
             &children,
+            session,
         )?;
 
         assert_eq!(
@@ -361,7 +377,7 @@ impl ArrayParts {
         // Populate statistics from the serialized array.
         if let Some(stats) = self.flatbuffer().stats() {
             let decoded_statistics = decoded.statistics();
-            StatsSet::read_flatbuffer(&stats)?
+            StatsSet::from_flatbuffer(&stats, dtype)?
                 .into_iter()
                 .for_each(|(stat, val)| decoded_statistics.set(stat, val));
         }
@@ -445,6 +461,35 @@ impl ArrayParts {
             .unwrap_or_default()
     }
 
+    /// Validate and align the array tree flatbuffer, returning the aligned buffer and root location.
+    fn validate_array_tree(array_tree: impl Into<ByteBuffer>) -> VortexResult<(FlatBuffer, usize)> {
+        let fb_buffer = FlatBuffer::align_from(array_tree.into());
+        let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
+        let fb_root = fb_array
+            .root()
+            .ok_or_else(|| vortex_err!("Array must have a root node"))?;
+        let flatbuffer_loc = fb_root._tab.loc();
+        Ok((fb_buffer, flatbuffer_loc))
+    }
+
+    /// Create an [`ArrayParts`] from a pre-existing array tree flatbuffer and pre-resolved buffer
+    /// handles.
+    ///
+    /// The caller is responsible for resolving buffers from whatever source (device segments, host
+    /// overrides, or a mix). The buffers must be in the same order as the `Array.buffers` descriptor
+    /// list in the flatbuffer.
+    pub fn from_flatbuffer_with_buffers(
+        array_tree: impl Into<ByteBuffer>,
+        buffers: Vec<BufferHandle>,
+    ) -> VortexResult<Self> {
+        let (flatbuffer, flatbuffer_loc) = Self::validate_array_tree(array_tree)?;
+        Ok(ArrayParts {
+            flatbuffer,
+            flatbuffer_loc,
+            buffers: buffers.into(),
+        })
+    }
+
     /// Create an [`ArrayParts`] from a raw array tree flatbuffer (metadata only).
     ///
     /// This constructor creates an `ArrayParts` with no buffer data, useful for
@@ -454,15 +499,9 @@ impl ArrayParts {
     /// Note: Calling `buffer()` on the returned `ArrayParts` will fail since
     /// no actual buffer data is available.
     pub fn from_array_tree(array_tree: impl Into<ByteBuffer>) -> VortexResult<Self> {
-        let fb_buffer = FlatBuffer::align_from(array_tree.into());
-        let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
-        let fb_root = fb_array
-            .root()
-            .ok_or_else(|| vortex_err!("Array must have a root node"))?;
-        let flatbuffer_loc = fb_root._tab.loc();
-
+        let (flatbuffer, flatbuffer_loc) = Self::validate_array_tree(array_tree)?;
         Ok(ArrayParts {
-            flatbuffer: fb_buffer,
+            flatbuffer,
             flatbuffer_loc,
             buffers: Arc::new([]),
         })
@@ -494,35 +533,27 @@ impl ArrayParts {
         // for host-resident buffers. Device buffers are sliced directly.
         let segment = segment.ensure_aligned(Alignment::none())?;
 
-        let fb_buffer = FlatBuffer::align_from(array_tree);
+        // this can't return the validated array because there is no lifetime to give it, so we
+        // need to cast it below, which is safe.
+        let (fb_buffer, flatbuffer_loc) = Self::validate_array_tree(array_tree)?;
+        // SAFETY: fb_buffer was already validated by validate_array_tree above.
+        let fb_array = unsafe { fba::root_as_array_unchecked(fb_buffer.as_ref()) };
 
-        // Parse the flatbuffer to extract buffer descriptors and root location.
-        let (flatbuffer_loc, buffers) = {
-            let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
-            let fb_root = fb_array.root().vortex_expect("Array must have a root node");
-            let flatbuffer_loc = fb_root._tab.loc();
-
-            let mut offset = 0;
-            let buffers = fb_array
-                .buffers()
-                .unwrap_or_default()
-                .iter()
-                .map(|fb_buf| {
-                    // Skip padding
-                    offset += fb_buf.padding() as usize;
-
-                    let buffer_len = fb_buf.length() as usize;
-
-                    // Extract a buffer and ensure it's aligned, copying if necessary
-                    let buffer = segment.slice(offset..(offset + buffer_len));
-                    let buffer = buffer
-                        .ensure_aligned(Alignment::from_exponent(fb_buf.alignment_exponent()))?;
-                    offset += buffer_len;
-                    Ok(buffer)
-                })
-                .collect::<VortexResult<Arc<[_]>>>()?;
-            (flatbuffer_loc, buffers)
-        };
+        let mut offset = 0;
+        let buffers = fb_array
+            .buffers()
+            .unwrap_or_default()
+            .iter()
+            .map(|fb_buf| {
+                offset += fb_buf.padding() as usize;
+                let buffer_len = fb_buf.length() as usize;
+                let buffer = segment.slice(offset..(offset + buffer_len));
+                let buffer =
+                    buffer.ensure_aligned(Alignment::from_exponent(fb_buf.alignment_exponent()))?;
+                offset += buffer_len;
+                Ok(buffer)
+            })
+            .collect::<VortexResult<Arc<[_]>>>()?;
 
         Ok(ArrayParts {
             flatbuffer: fb_buffer,
@@ -535,14 +566,14 @@ impl ArrayParts {
 struct ArrayPartsChildren<'a> {
     parts: &'a ArrayParts,
     ctx: &'a ArrayContext,
-    registry: &'a ArrayRegistry,
+    session: &'a VortexSession,
 }
 
 impl ArrayChildren for ArrayPartsChildren<'_> {
     fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
         self.parts
             .child(index)
-            .decode(dtype, len, self.ctx, self.registry)
+            .decode(dtype, len, self.ctx, self.session)
     }
 
     fn len(&self) -> usize {
@@ -568,40 +599,10 @@ impl TryFrom<ByteBuffer> for ArrayParts {
         }
 
         let fb_offset = value.len() - 4 - fb_length;
-        let fb_buffer = value.slice(fb_offset..fb_offset + fb_length);
-        let fb_buffer = FlatBuffer::align_from(fb_buffer);
+        let array_tree = value.slice(fb_offset..fb_offset + fb_length);
+        let segment = BufferHandle::new_host(value.slice(0..fb_offset));
 
-        let fb_array = root::<fba::Array>(fb_buffer.as_ref())?;
-        let fb_root = fb_array.root().vortex_expect("Array must have a root node");
-
-        let mut offset = 0;
-        let buffers: Arc<[_]> = fb_array
-            .buffers()
-            .unwrap_or_default()
-            .iter()
-            .map(|fb_buffer| {
-                // Skip padding
-                offset += fb_buffer.padding() as usize;
-
-                let buffer_len = fb_buffer.length() as usize;
-
-                // Extract a buffer and ensure it's aligned, copying if necessary
-                let buffer = value
-                    .slice(offset..(offset + buffer_len))
-                    .aligned(Alignment::from_exponent(fb_buffer.alignment_exponent()));
-
-                offset += buffer_len;
-                BufferHandle::new_host(buffer)
-            })
-            .collect();
-
-        let flatbuffer_loc = fb_root._tab.loc();
-
-        Ok(ArrayParts {
-            flatbuffer: fb_buffer,
-            flatbuffer_loc,
-            buffers,
-        })
+        Self::from_flatbuffer_and_segment(array_tree, segment)
     }
 }
 

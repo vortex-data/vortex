@@ -8,21 +8,23 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
-use crate::compute::CastKernel;
-use crate::compute::CastKernelAdapter;
-use crate::compute::{self};
-use crate::register_kernel;
+use crate::builtins::ArrayBuiltins;
+use crate::compute::CastReduce;
 use crate::vtable::ValidityHelper;
 
-impl CastKernel for ListViewVTable {
-    fn cast(&self, array: &ListViewArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for ListViewVTable {
+    fn cast(array: &ListViewArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Check if we're casting to a `List` type.
         let Some(target_element_type) = dtype.as_list_element_opt() else {
             return Ok(None);
         };
 
         // Cast the elements to the target element type.
-        let new_elements = compute::cast(array.elements(), target_element_type)?;
+        let new_elements = array
+            .elements()
+            .cast((**target_element_type).clone())?
+            .to_canonical()?
+            .into_array();
         let validity = array
             .validity()
             .clone()
@@ -43,5 +45,3 @@ impl CastKernel for ListViewVTable {
         ))
     }
 }
-
-register_kernel!(CastKernelAdapter(ListViewVTable).lift());

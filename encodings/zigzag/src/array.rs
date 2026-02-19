@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::ops::Range;
 
 use vortex_array::Array;
 use vortex_array::ArrayBufferVisitor;
@@ -10,19 +9,18 @@ use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -35,10 +33,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
+use crate::kernel::PARENT_KERNELS;
+use crate::rules::RULES;
 use crate::zigzag_decode;
 
 vtable!(ZigZag);
@@ -52,7 +52,6 @@ impl VTable for ZigZagVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -66,7 +65,13 @@ impl VTable for ZigZagVTable {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -98,16 +103,25 @@ impl VTable for ZigZagVTable {
         Ok(())
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            ZigZagArray::new(array.encoded().slice(range)?).into_array(),
-        ))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(zigzag_decode(array.encoded().clone().execute(ctx)?).into_array())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(zigzag_decode(
-            array.encoded().clone().execute(ctx)?,
-        )))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
@@ -182,7 +196,7 @@ impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
     fn scalar_at(array: &ZigZagArray, index: usize) -> VortexResult<Scalar> {
         let scalar = array.encoded().scalar_at(index)?;
         if scalar.is_null() {
-            return Ok(scalar.reinterpret_cast(array.ptype()));
+            return scalar.primitive_reinterpret_cast(array.ptype());
         }
 
         let pscalar = scalar.as_primitive();
@@ -208,8 +222,16 @@ impl ValidityChild<ZigZagVTable> for ZigZagVTable {
 impl VisitorVTable<ZigZagVTable> for ZigZagVTable {
     fn visit_buffers(_array: &ZigZagArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &ZigZagArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &ZigZagArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("encoded", array.encoded())
+    }
+
+    fn nchildren(_array: &ZigZagArray) -> usize {
+        1
     }
 }
 
@@ -217,8 +239,8 @@ impl VisitorVTable<ZigZagVTable> for ZigZagVTable {
 mod test {
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
+    use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
-    use vortex_scalar::Scalar;
 
     use super::*;
     use crate::zigzag_encode;

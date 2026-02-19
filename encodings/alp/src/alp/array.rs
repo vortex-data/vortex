@@ -10,14 +10,12 @@ use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::arrays::SliceVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
@@ -27,7 +25,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -39,10 +36,13 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::decompress::execute_decompress;
+use crate::alp::rules::PARENT_KERNELS;
+use crate::alp::rules::RULES;
 
 vtable!(ALP);
 
@@ -55,7 +55,6 @@ impl VTable for ALPVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -77,9 +76,15 @@ impl VTable for ALPVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(
-            <ProstMetadata<ALPMetadata> as DeserializeMetadata>::deserialize(buffer)?,
+            <ProstMetadata<ALPMetadata> as DeserializeMetadata>::deserialize(bytes)?,
         ))
     }
 
@@ -166,39 +171,26 @@ impl VTable for ALPVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // TODO(joe): take by value
-        Ok(Canonical::Primitive(execute_decompress(
-            array.clone(),
-            ctx,
-        )?))
+        Ok(execute_decompress(array.clone(), ctx)?.into_array())
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
-        _child_idx: usize,
-        _ctx: &mut ExecutionCtx,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // CPU-only: if parent is SliceArray, perform slicing of the buffer and any patches
-        // Note that this triggers compute (binary searching Patches) which we cannot do when the
-        // buffers live in GPU memory.
-        if let Some(slice_array) = parent.as_opt::<SliceVTable>() {
-            let range = slice_array.slice_range().clone();
-            let sliced_alp = ALPArray::new(
-                array.encoded().slice(range.clone())?,
-                array.exponents(),
-                array
-                    .patches()
-                    .map(|p| p.slice(range))
-                    .transpose()?
-                    .flatten(),
-            )
-            .into_array();
-            return Ok(Some(sliced_alp));
-        }
-
-        Ok(None)
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
@@ -462,11 +454,22 @@ impl BaseArrayVTable<ALPVTable> for ALPVTable {
 impl VisitorVTable<ALPVTable> for ALPVTable {
     fn visit_buffers(_array: &ALPArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &ALPArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &ALPArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("encoded", array.encoded());
         if let Some(patches) = array.patches() {
             visitor.visit_patches(patches);
         }
+    }
+
+    fn nchildren(array: &ALPArray) -> usize {
+        // encoded + optional patches (indices + values + optional chunk_offsets)
+        1 + array
+            .patches()
+            .map_or(0, |p| 2 + p.chunk_offsets().is_some() as usize)
     }
 }
 
@@ -476,6 +479,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;

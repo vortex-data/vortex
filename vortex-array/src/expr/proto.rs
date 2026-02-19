@@ -51,7 +51,7 @@ impl Expression {
             .children
             .iter()
             .map(|e| Expression::from_proto(e, session))
-            .collect::<VortexResult<Arc<_>>>()?;
+            .collect::<VortexResult<Vec<_>>>()?;
 
         Expression::try_new(vtable.deserialize(expr.metadata(), session)?, children)
     }
@@ -73,9 +73,9 @@ mod tests {
 
     use super::ExprSerializeProtoExt;
     use crate::LEGACY_SESSION;
-    use crate::compute::BetweenOptions;
-    use crate::compute::StrictComparison;
+    use crate::expr::BetweenOptions;
     use crate::expr::Expression;
+    use crate::expr::StrictComparison;
     use crate::expr::exprs::between::between;
     use crate::expr::exprs::binary::and;
     use crate::expr::exprs::binary::eq;

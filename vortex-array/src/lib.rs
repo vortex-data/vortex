@@ -6,7 +6,7 @@
 //!
 //! At the heart of Vortex are [arrays](ArrayRef).
 //!
-//! Arrays are typed views of memory buffers that hold [scalars](vortex_scalar::Scalar). These
+//! Arrays are typed views of memory buffers that hold [scalars](crate::scalar::Scalar). These
 //! buffers can be held in a number of physical encodings to perform lightweight compression that
 //! exploits the particular data distribution of the array's values.
 //!
@@ -17,6 +17,7 @@ use std::sync::LazyLock;
 
 pub use array::*;
 pub use canonical::*;
+pub use columnar::*;
 pub use context::*;
 pub use executor::*;
 pub use hash::*;
@@ -36,7 +37,7 @@ pub mod buffer;
 pub mod builders;
 pub mod builtins;
 mod canonical;
-pub(crate) mod canonical_to_vector;
+mod columnar;
 pub mod compute;
 mod context;
 pub mod display;
@@ -54,6 +55,7 @@ pub mod normalize;
 pub mod optimizer;
 mod partial_ord;
 pub mod patches;
+pub mod scalar;
 pub mod search_sorted;
 pub mod serde;
 pub mod session;
@@ -63,7 +65,6 @@ pub mod stream;
 pub mod test_harness;
 pub mod validity;
 pub mod variants;
-pub mod vectors;
 pub mod vtable;
 
 pub mod flatbuffers {
@@ -74,5 +75,5 @@ pub mod flatbuffers {
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute
 //  from the new array encodings to support back-compat for legacy encodings. So we hold a session
 //  here...
-static LEGACY_SESSION: LazyLock<VortexSession> =
+pub static LEGACY_SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());

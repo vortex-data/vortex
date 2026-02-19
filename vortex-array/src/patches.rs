@@ -15,10 +15,8 @@ use vortex_dtype::IntegerPType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_dtype::PType;
-use vortex_dtype::PTypeDowncastExt;
 use vortex_dtype::UnsignedPType;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -28,11 +26,7 @@ use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_mask::MaskMut;
-use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_vector::primitive::PVectorMut;
-use vortex_vector::primitive::PrimitiveVectorMut;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -40,10 +34,11 @@ use crate::ArrayVisitor;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
-use crate::compute::cast;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::filter;
 use crate::compute::is_sorted;
-use crate::compute::take;
+use crate::scalar::PValue;
+use crate::scalar::Scalar;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;
@@ -358,7 +353,7 @@ impl Patches {
                 self.array_len,
                 self.offset,
                 self.indices,
-                cast(&self.values, values_dtype)?,
+                self.values.cast(values_dtype.clone())?,
                 self.chunk_offsets,
                 self.offset_within_chunk,
             ))
@@ -800,10 +795,9 @@ impl Patches {
             array_len: new_array_len,
             offset: 0,
             indices: new_indices.clone(),
-            values: take(
-                self.values(),
-                &PrimitiveArray::new(values_indices, values_validity).into_array(),
-            )?,
+            values: self
+                .values()
+                .take(PrimitiveArray::new(values_indices, values_validity).into_array())?,
             chunk_offsets: None,
             offset_within_chunk: Some(0), // Reset when creating new Patches.
         }))
@@ -837,7 +831,7 @@ impl Patches {
             return Ok(None);
         };
 
-        let taken_values = take(self.values(), &value_indices)?;
+        let taken_values = self.values().take(value_indices)?;
 
         Ok(Some(Patches {
             array_len: new_length,
@@ -848,28 +842,6 @@ impl Patches {
             chunk_offsets: None,
             offset_within_chunk: self.offset_within_chunk,
         }))
-    }
-
-    /// Applies patches to a primitive vector, returning the patched vector.
-    pub fn apply_to_primitive_vector(&self, vector: PrimitiveVectorMut) -> PrimitiveVectorMut {
-        match_each_native_ptype!(vector.ptype(), |T| {
-            self.apply_to_pvector(vector.downcast::<T>()).into()
-        })
-    }
-
-    /// Applies patches to a [`PVectorMut<T>`], returning the patched vector.
-    ///
-    /// This function modifies the elements buffer in-place at the positions specified by the patch
-    /// indices. It also updates the validity mask to reflect the nullability of patch values.
-    pub fn apply_to_pvector<T: NativePType>(&self, pvector: PVectorMut<T>) -> PVectorMut<T> {
-        let (mut elements, mut validity) = pvector.into_parts();
-
-        // SAFETY: We maintain the invariant that elements and validity have the same length, and all
-        // patch indices are valid after offset adjustment (guaranteed by `Patches`).
-        unsafe { self.apply_to_buffer(elements.as_mut_slice(), &mut validity) };
-
-        // SAFETY: We have not modified the length of elements or validity.
-        unsafe { PVectorMut::new_unchecked(elements, validity) }
     }
 
     /// Apply patches to a mutable buffer and validity mask.
@@ -1044,9 +1016,11 @@ where
             AllOr::None => true,
             AllOr::Some(buf) => !buf.value(idx_in_take),
         };
-        if include_nulls && is_null {
-            new_sparse_indices.push(idx_in_take as u64);
-            value_indices.push(0);
+        if is_null {
+            if include_nulls {
+                new_sparse_indices.push(idx_in_take as u64);
+                value_indices.push(0);
+            }
         } else if ti >= min_index && ti <= max_index {
             let ti_as_i = I::try_from(ti)
                 .map_err(|_| vortex_err!("take index does not fit in index type"))?;
@@ -1185,10 +1159,13 @@ fn take_indices_with_search_fn<
     let mut new_indices = BufferMut::with_capacity(take_indices.len());
 
     for (new_patch_idx, &take_idx) in take_indices.iter().enumerate() {
-        if include_nulls && !take_validity.value(new_patch_idx) {
-            // For nulls, patch index doesn't matter - use 0 for consistency
-            values_indices.push(0u64);
-            new_indices.push(new_patch_idx as u64);
+        if !take_validity.value(new_patch_idx) {
+            if include_nulls {
+                // For nulls, patch index doesn't matter - use 0 for consistency
+                values_indices.push(0u64);
+                new_indices.push(new_patch_idx as u64);
+            }
+            continue;
         } else {
             let search_result = match I::from(take_idx) {
                 Some(idx) => search_fn(idx)?,

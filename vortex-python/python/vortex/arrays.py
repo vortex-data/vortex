@@ -101,7 +101,7 @@ def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
 Array.to_arrow_table = _Array_to_arrow_table
 
 
-def _Array_to_pandas_df(self: _arrays.Array) -> pandas.DataFrame:
+def _Array_to_pandas(self: _arrays.Array) -> pandas.DataFrame:
     """Construct a Pandas dataframe from this Vortex array.
 
     Warning
@@ -124,7 +124,7 @@ def _Array_to_pandas_df(self: _arrays.Array) -> pandas.DataFrame:
     ...     {'name': 'Angela', 'age': 33},
     ...     {'name': 'Mikhail', 'age': 57},
     ... ])
-    >>> array.to_pandas_df()
+    >>> array.to_pandas()
        age      name
     0   25    Joseph
     1   31  Narendra
@@ -137,7 +137,7 @@ def _Array_to_pandas_df(self: _arrays.Array) -> pandas.DataFrame:
     return self.to_arrow_table().to_pandas(types_mapper=pandas.ArrowDtype)  # pyright: ignore[reportUnknownMemberType]
 
 
-Array.to_pandas_df = _Array_to_pandas_df
+Array.to_pandas = _Array_to_pandas
 
 
 def _Array_to_polars_dataframe(

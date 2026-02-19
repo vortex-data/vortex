@@ -4,10 +4,11 @@
 #include <stdint.h>
 #include "fastlanes_common.cuh"
 
-__device__ void _bit_unpack_16_0bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_0bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t zero = 0ULL;
-    
+
     out[INDEX(0, lane)] = zero;
     out[INDEX(1, lane)] = zero;
     out[INDEX(2, lane)] = zero;
@@ -26,23 +27,12 @@ __device__ void _bit_unpack_16_0bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = zero;
 }
 
-__device__ void _bit_unpack_16_0bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_0bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_0bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_0bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 0 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_0bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_1bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_1bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
-    
+
     src = in[lane];
     tmp = (src >> 0) & MASK(uint16_t, 1);
     out[INDEX(0, lane)] = tmp;
@@ -78,23 +68,12 @@ __device__ void _bit_unpack_16_1bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp;
 }
 
-__device__ void _bit_unpack_16_1bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_1bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_1bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_1bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 1 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_1bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_2bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_2bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
-    
+
     src = in[lane];
     tmp = (src >> 0) & MASK(uint16_t, 2);
     out[INDEX(0, lane)] = tmp;
@@ -132,23 +111,12 @@ __device__ void _bit_unpack_16_2bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp;
 }
 
-__device__ void _bit_unpack_16_2bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_2bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_2bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_2bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 2 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_2bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_3bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_3bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
-    
+
     src = in[lane];
     tmp = (src >> 0) & MASK(uint16_t, 3);
     out[INDEX(0, lane)] = tmp;
@@ -188,23 +156,12 @@ __device__ void _bit_unpack_16_3bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp;
 }
 
-__device__ void _bit_unpack_16_3bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_3bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_3bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_3bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 3 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_3bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_4bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_4bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
-    
+
     src = in[lane];
     tmp = (src >> 0) & MASK(uint16_t, 4);
     out[INDEX(0, lane)] = tmp;
@@ -246,23 +203,12 @@ __device__ void _bit_unpack_16_4bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp;
 }
 
-__device__ void _bit_unpack_16_4bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_4bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_4bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_4bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 4 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_4bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_5bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_5bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
-    
+
     src = in[lane];
     tmp = (src >> 0) & MASK(uint16_t, 5);
     out[INDEX(0, lane)] = tmp;
@@ -306,23 +252,12 @@ __device__ void _bit_unpack_16_5bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp;
 }
 
-__device__ void _bit_unpack_16_5bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_5bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_5bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_5bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 5 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_5bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_6bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_6bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
-    
+
     src = in[lane];
     tmp = (src >> 0) & MASK(uint16_t, 6);
     out[INDEX(0, lane)] = tmp;
@@ -368,23 +303,12 @@ __device__ void _bit_unpack_16_6bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp;
 }
 
-__device__ void _bit_unpack_16_6bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_6bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_6bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_6bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 6 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_6bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_7bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_7bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
-    
+
     src = in[lane];
     tmp = (src >> 0) & MASK(uint16_t, 7);
     out[INDEX(0, lane)] = tmp;
@@ -432,23 +356,12 @@ __device__ void _bit_unpack_16_7bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp;
 }
 
-__device__ void _bit_unpack_16_7bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_7bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_7bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_7bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 7 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_7bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_8bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_8bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
-    
+
     src = in[lane];
     tmp = (src >> 0) & MASK(uint16_t, 8);
     out[INDEX(0, lane)] = tmp;
@@ -498,23 +411,12 @@ __device__ void _bit_unpack_16_8bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp;
 }
 
-__device__ void _bit_unpack_16_8bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_8bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_8bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_8bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 8 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_8bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_9bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_9bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
-    
+
     src = in[lane];
     tmp = (src >> 0) & MASK(uint16_t, 9);
     out[INDEX(0, lane)] = tmp;
@@ -566,23 +468,12 @@ __device__ void _bit_unpack_16_9bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp;
 }
 
-__device__ void _bit_unpack_16_9bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_9bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_9bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_9bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 9 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_9bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_10bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_10bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
-    
+
     src = in[lane];
     tmp = (src >> 0) & MASK(uint16_t, 10);
     out[INDEX(0, lane)] = tmp;
@@ -636,23 +527,12 @@ __device__ void _bit_unpack_16_10bw_lane(const uint16_t *__restrict in, uint16_t
     out[INDEX(15, lane)] = tmp;
 }
 
-__device__ void _bit_unpack_16_10bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_10bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_10bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_10bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 10 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_10bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_11bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_11bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
-    
+
     src = in[lane];
     tmp = (src >> 0) & MASK(uint16_t, 11);
     out[INDEX(0, lane)] = tmp;
@@ -708,23 +588,12 @@ __device__ void _bit_unpack_16_11bw_lane(const uint16_t *__restrict in, uint16_t
     out[INDEX(15, lane)] = tmp;
 }
 
-__device__ void _bit_unpack_16_11bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_11bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_11bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_11bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 11 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_11bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_12bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_12bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
-    
+
     src = in[lane];
     tmp = (src >> 0) & MASK(uint16_t, 12);
     out[INDEX(0, lane)] = tmp;
@@ -782,23 +651,12 @@ __device__ void _bit_unpack_16_12bw_lane(const uint16_t *__restrict in, uint16_t
     out[INDEX(15, lane)] = tmp;
 }
 
-__device__ void _bit_unpack_16_12bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_12bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_12bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_12bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 12 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_12bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_13bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_13bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
-    
+
     src = in[lane];
     tmp = (src >> 0) & MASK(uint16_t, 13);
     out[INDEX(0, lane)] = tmp;
@@ -858,23 +716,12 @@ __device__ void _bit_unpack_16_13bw_lane(const uint16_t *__restrict in, uint16_t
     out[INDEX(15, lane)] = tmp;
 }
 
-__device__ void _bit_unpack_16_13bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_13bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_13bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_13bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 13 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_13bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_14bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_14bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
-    
+
     src = in[lane];
     tmp = (src >> 0) & MASK(uint16_t, 14);
     out[INDEX(0, lane)] = tmp;
@@ -936,23 +783,12 @@ __device__ void _bit_unpack_16_14bw_lane(const uint16_t *__restrict in, uint16_t
     out[INDEX(15, lane)] = tmp;
 }
 
-__device__ void _bit_unpack_16_14bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_14bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_14bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_14bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 14 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_14bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_15bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_15bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
-    
+
     src = in[lane];
     tmp = (src >> 0) & MASK(uint16_t, 15);
     out[INDEX(0, lane)] = tmp;
@@ -1016,21 +852,10 @@ __device__ void _bit_unpack_16_15bw_lane(const uint16_t *__restrict in, uint16_t
     out[INDEX(15, lane)] = tmp;
 }
 
-__device__ void _bit_unpack_16_15bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_15bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_15bw_lane(in, out, thread_idx * 2 + 1);
-}
-
-extern "C" __global__ void bit_unpack_16_15bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
-    int thread_idx = threadIdx.x;
-    auto in = full_in + (blockIdx.x * (128 * 15 / sizeof(uint16_t)));
-    auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_16_15bw_32t(in, out, thread_idx);
-}
-
-__device__ void _bit_unpack_16_16bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
+__device__ void
+_bit_unpack_16_16bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, unsigned int lane) {
     unsigned int LANE_COUNT = 64;
-    
+
     out[INDEX(0, lane)] = in[LANE_COUNT * 0 + lane];
     out[INDEX(1, lane)] = in[LANE_COUNT * 1 + lane];
     out[INDEX(2, lane)] = in[LANE_COUNT * 2 + lane];
@@ -1049,15 +874,385 @@ __device__ void _bit_unpack_16_16bw_lane(const uint16_t *__restrict in, uint16_t
     out[INDEX(15, lane)] = in[LANE_COUNT * 15 + lane];
 }
 
-__device__ void _bit_unpack_16_16bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
-    _bit_unpack_16_16bw_lane(in, out, thread_idx * 2 + 0);
-    _bit_unpack_16_16bw_lane(in, out, thread_idx * 2 + 1);
+/// Runtime dispatch to the optimized lane decoder for the given bit width.
+__device__ inline void bit_unpack_16_lane(const uint16_t *__restrict in,
+                                          uint16_t *__restrict out,
+                                          unsigned int lane,
+                                          uint32_t bit_width) {
+    switch (bit_width) {
+    case 0:
+        _bit_unpack_16_0bw_lane(in, out, lane);
+        break;
+    case 1:
+        _bit_unpack_16_1bw_lane(in, out, lane);
+        break;
+    case 2:
+        _bit_unpack_16_2bw_lane(in, out, lane);
+        break;
+    case 3:
+        _bit_unpack_16_3bw_lane(in, out, lane);
+        break;
+    case 4:
+        _bit_unpack_16_4bw_lane(in, out, lane);
+        break;
+    case 5:
+        _bit_unpack_16_5bw_lane(in, out, lane);
+        break;
+    case 6:
+        _bit_unpack_16_6bw_lane(in, out, lane);
+        break;
+    case 7:
+        _bit_unpack_16_7bw_lane(in, out, lane);
+        break;
+    case 8:
+        _bit_unpack_16_8bw_lane(in, out, lane);
+        break;
+    case 9:
+        _bit_unpack_16_9bw_lane(in, out, lane);
+        break;
+    case 10:
+        _bit_unpack_16_10bw_lane(in, out, lane);
+        break;
+    case 11:
+        _bit_unpack_16_11bw_lane(in, out, lane);
+        break;
+    case 12:
+        _bit_unpack_16_12bw_lane(in, out, lane);
+        break;
+    case 13:
+        _bit_unpack_16_13bw_lane(in, out, lane);
+        break;
+    case 14:
+        _bit_unpack_16_14bw_lane(in, out, lane);
+        break;
+    case 15:
+        _bit_unpack_16_15bw_lane(in, out, lane);
+        break;
+    case 16:
+        _bit_unpack_16_16bw_lane(in, out, lane);
+        break;
+    }
 }
 
-extern "C" __global__ void bit_unpack_16_16bw_32t(const uint16_t *__restrict full_in, uint16_t *__restrict full_out) {
+__device__ void
+_bit_unpack_16_0bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_0bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_0bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_0bw_32t(const uint16_t *__restrict full_in,
+                                                 uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 0 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_0bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_1bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_1bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_1bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_1bw_32t(const uint16_t *__restrict full_in,
+                                                 uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 1 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_1bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_2bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_2bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_2bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_2bw_32t(const uint16_t *__restrict full_in,
+                                                 uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 2 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_2bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_3bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_3bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_3bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_3bw_32t(const uint16_t *__restrict full_in,
+                                                 uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 3 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_3bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_4bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_4bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_4bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_4bw_32t(const uint16_t *__restrict full_in,
+                                                 uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 4 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_4bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_5bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_5bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_5bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_5bw_32t(const uint16_t *__restrict full_in,
+                                                 uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 5 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_5bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_6bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_6bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_6bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_6bw_32t(const uint16_t *__restrict full_in,
+                                                 uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 6 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_6bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_7bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_7bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_7bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_7bw_32t(const uint16_t *__restrict full_in,
+                                                 uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 7 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_7bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_8bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_8bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_8bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_8bw_32t(const uint16_t *__restrict full_in,
+                                                 uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 8 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_8bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_9bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_9bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_9bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_9bw_32t(const uint16_t *__restrict full_in,
+                                                 uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 9 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_9bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_10bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_10bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_10bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_10bw_32t(const uint16_t *__restrict full_in,
+                                                  uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 10 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_10bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_11bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_11bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_11bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_11bw_32t(const uint16_t *__restrict full_in,
+                                                  uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 11 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_11bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_12bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_12bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_12bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_12bw_32t(const uint16_t *__restrict full_in,
+                                                  uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 12 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_12bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_13bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_13bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_13bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_13bw_32t(const uint16_t *__restrict full_in,
+                                                  uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 13 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_13bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_14bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_14bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_14bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_14bw_32t(const uint16_t *__restrict full_in,
+                                                  uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 14 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_14bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_15bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_15bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_15bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_15bw_32t(const uint16_t *__restrict full_in,
+                                                  uint16_t *__restrict full_out) {
+    int thread_idx = threadIdx.x;
+    auto in = full_in + (blockIdx.x * (128 * 15 / sizeof(uint16_t)));
+    auto out = full_out + (blockIdx.x * 1024);
+    _bit_unpack_16_15bw_32t(in, out, thread_idx);
+}
+
+__device__ void
+_bit_unpack_16_16bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, int thread_idx) {
+    __shared__ uint16_t shared_out[1024];
+    _bit_unpack_16_16bw_lane(in, shared_out, thread_idx * 2 + 0);
+    _bit_unpack_16_16bw_lane(in, shared_out, thread_idx * 2 + 1);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
+}
+
+extern "C" __global__ void bit_unpack_16_16bw_32t(const uint16_t *__restrict full_in,
+                                                  uint16_t *__restrict full_out) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 16 / sizeof(uint16_t)));
     auto out = full_out + (blockIdx.x * 1024);
     _bit_unpack_16_16bw_32t(in, out, thread_idx);
 }
-

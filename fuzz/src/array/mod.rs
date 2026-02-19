@@ -44,6 +44,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::compute::MinMaxResult;
 use vortex_array::compute::Operator;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::arbitrary::random_scalar;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -52,8 +54,6 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
-use vortex_scalar::arbitrary::random_scalar;
 use vortex_utils::aliases::hash_set::HashSet;
 
 #[derive(Debug)]
@@ -376,7 +376,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         current_array
                             .to_canonical()
                             .vortex_expect("to_canonical should succeed in fuzz test"),
-                        &Mask::from_iter(mask.iter().copied()),
+                        &Mask::from_iter(mask.clone()),
                     )
                     .vortex_expect("mask_canonical_array should succeed in fuzz test");
                     // Update current_array to the result for chaining
@@ -517,15 +517,22 @@ fn random_action_from_list(
 /// Compress an array using the given strategy.
 #[cfg(feature = "zstd")]
 pub fn compress_array(array: &dyn Array, strategy: CompressorStrategy) -> ArrayRef {
-    use vortex_layout::layouts::compact::CompactCompressor;
+    use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    use vortex_btrblocks::FloatCode;
+    use vortex_btrblocks::IntCode;
+    use vortex_btrblocks::StringCode;
 
     match strategy {
         CompressorStrategy::Default => BtrBlocksCompressor::default()
             .compress(array)
             .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test"),
-        CompressorStrategy::Compact => CompactCompressor::default()
+        CompressorStrategy::Compact => BtrBlocksCompressorBuilder::default()
+            .include_string([StringCode::Zstd])
+            .include_int([IntCode::Pco])
+            .include_float([FloatCode::Pco])
+            .build()
             .compress(array)
-            .vortex_expect("CompactCompressor compress should succeed in fuzz test"),
+            .vortex_expect("Compact compress should succeed in fuzz test"),
     }
 }
 
@@ -546,14 +553,10 @@ pub fn compress_array(array: &dyn Array, _strategy: CompressorStrategy) -> Array
 #[allow(clippy::result_large_err)]
 pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzzResult<bool> {
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::compare;
-    use vortex_array::compute::fill_null;
-    use vortex_array::compute::mask;
     use vortex_array::compute::min_max;
     use vortex_array::compute::sum;
-    use vortex_array::compute::take;
-
     let FuzzArrayAction { array, actions } = fuzz_action;
     let mut current_array = array.to_array();
 
@@ -576,7 +579,8 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 if indices.is_empty() {
                     return Ok(false); // Reject
                 }
-                current_array = take(&current_array, &indices)
+                current_array = current_array
+                    .take(indices)
                     .vortex_expect("take operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
@@ -611,7 +615,8 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 current_array = compare_result;
             }
             Action::Cast(to) => {
-                let cast_result = cast(&current_array, &to)
+                let cast_result = current_array
+                    .cast(to.clone())
                     .vortex_expect("cast operation should succeed in fuzz test");
                 if let Err(e) = assert_array_eq(&expected.array(), &cast_result, i) {
                     vortex_panic!(
@@ -632,12 +637,14 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 assert_min_max_eq(&expected.min_max(), &min_max_result, i)?;
             }
             Action::FillNull(fill_value) => {
-                current_array = fill_null(&current_array, &fill_value)
+                current_array = current_array
+                    .fill_null(fill_value.clone())
                     .vortex_expect("fill_null operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Mask(mask_val) => {
-                current_array = mask(&current_array, &mask_val)
+                current_array = current_array
+                    .mask(mask_val.into_array())
                     .vortex_expect("mask operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }

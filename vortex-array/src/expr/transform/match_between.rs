@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::compute::BetweenOptions;
-use crate::compute::StrictComparison;
+use crate::expr::BetweenOptions;
 use crate::expr::Expression;
+use crate::expr::StrictComparison;
 use crate::expr::VTableExt;
+use crate::expr::and_collect;
 use crate::expr::exprs::between::Between;
 use crate::expr::exprs::binary::Binary;
-use crate::expr::exprs::binary::and;
 use crate::expr::exprs::get_item::GetItem;
 use crate::expr::exprs::literal::Literal;
 use crate::expr::exprs::literal::lit;
@@ -45,7 +45,7 @@ pub fn find_between(expr: Expression) -> Expression {
         }
     }
 
-    rest.into_iter().reduce(and).unwrap_or_else(|| lit(true))
+    and_collect(rest).unwrap_or_else(|| lit(true))
 }
 
 fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
@@ -126,8 +126,8 @@ fn is_strict_comparison(op: Operator) -> Option<StrictComparison> {
 #[cfg(test)]
 mod tests {
     use super::find_between;
-    use crate::compute::BetweenOptions;
-    use crate::compute::StrictComparison;
+    use crate::expr::BetweenOptions;
+    use crate::expr::StrictComparison;
     use crate::expr::exprs::between::between;
     use crate::expr::exprs::binary::and;
     use crate::expr::exprs::binary::gt;

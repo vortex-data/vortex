@@ -12,79 +12,84 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::TakeExecute;
 use crate::arrays::chunked::ChunkedArray;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::compute::cast;
-use crate::compute::take;
-use crate::register_kernel;
+use crate::builtins::ArrayBuiltins;
+use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 
-impl TakeKernel for ChunkedVTable {
-    fn take(&self, array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = cast(
-            indices,
-            &DType::Primitive(PType::U64, indices.dtype().nullability()),
-        )?
+fn take_chunked(array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let indices = indices
+        .to_array()
+        .cast(DType::Primitive(PType::U64, indices.dtype().nullability()))?
         .to_primitive();
 
-        // TODO(joe): Should we split this implementation based on indices nullability?
-        let nullability = indices.dtype().nullability();
-        let indices_mask = indices.validity_mask()?;
-        let indices = indices.as_slice::<u64>();
+    // TODO(joe): Should we split this implementation based on indices nullability?
+    let nullability = indices.dtype().nullability();
+    let indices_mask = indices.validity_mask()?;
+    let indices = indices.as_slice::<u64>();
 
-        let mut chunks = Vec::new();
-        let mut indices_in_chunk = BufferMut::<u64>::empty();
-        let mut start = 0;
-        let mut stop = 0;
-        // We assume indices are non-empty as it's handled in the top-level `take` function
-        let mut prev_chunk_idx = array.find_chunk_idx(indices[0].try_into()?)?.0;
-        for idx in indices {
-            let idx = usize::try_from(*idx)?;
-            let (chunk_idx, idx_in_chunk) = array.find_chunk_idx(idx)?;
+    let mut chunks = Vec::new();
+    let mut indices_in_chunk = BufferMut::<u64>::empty();
+    let mut start = 0;
+    let mut stop = 0;
+    // We assume indices are non-empty as it's handled in the top-level `take` function
+    let mut prev_chunk_idx = array.find_chunk_idx(indices[0].try_into()?)?.0;
+    for idx in indices {
+        let idx = usize::try_from(*idx)?;
+        let (chunk_idx, idx_in_chunk) = array.find_chunk_idx(idx)?;
 
-            if chunk_idx != prev_chunk_idx {
-                // Start a new chunk
-                let indices_in_chunk_array = PrimitiveArray::new(
-                    indices_in_chunk.clone().freeze(),
-                    Validity::from_mask(indices_mask.slice(start..stop), nullability),
-                );
-                chunks.push(take(
-                    array.chunk(prev_chunk_idx),
-                    indices_in_chunk_array.as_ref(),
-                )?);
-                indices_in_chunk.clear();
-                start = stop;
-            }
-
-            indices_in_chunk.push(idx_in_chunk as u64);
-            stop += 1;
-            prev_chunk_idx = chunk_idx;
-        }
-
-        if !indices_in_chunk.is_empty() {
+        if chunk_idx != prev_chunk_idx {
+            // Start a new chunk
             let indices_in_chunk_array = PrimitiveArray::new(
-                indices_in_chunk.freeze(),
+                indices_in_chunk.clone().freeze(),
                 Validity::from_mask(indices_mask.slice(start..stop), nullability),
             );
-            chunks.push(take(
-                array.chunk(prev_chunk_idx),
-                indices_in_chunk_array.as_ref(),
-            )?);
+            chunks.push(
+                array
+                    .chunk(prev_chunk_idx)
+                    .take(indices_in_chunk_array.into_array())?,
+            );
+            indices_in_chunk.clear();
+            start = stop;
         }
 
-        // SAFETY: take on chunks that all have same DType retains same DType
-        unsafe {
-            Ok(ChunkedArray::new_unchecked(
-                chunks,
-                array.dtype().clone().union_nullability(nullability),
-            )
-            .into_array())
-        }
+        indices_in_chunk.push(idx_in_chunk as u64);
+        stop += 1;
+        prev_chunk_idx = chunk_idx;
+    }
+
+    if !indices_in_chunk.is_empty() {
+        let indices_in_chunk_array = PrimitiveArray::new(
+            indices_in_chunk.freeze(),
+            Validity::from_mask(indices_mask.slice(start..stop), nullability),
+        );
+        chunks.push(
+            array
+                .chunk(prev_chunk_idx)
+                .take(indices_in_chunk_array.into_array())?,
+        );
+    }
+
+    // SAFETY: take on chunks that all have same DType retains same DType
+    unsafe {
+        Ok(ChunkedArray::new_unchecked(
+            chunks,
+            array.dtype().clone().union_nullability(nullability),
+        )
+        .into_array())
     }
 }
 
-register_kernel!(TakeKernelAdapter(ChunkedVTable).lift());
+impl TakeExecute for ChunkedVTable {
+    fn take(
+        array: &ChunkedArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        take_chunked(array, indices).map(Some)
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -100,7 +105,6 @@ mod test {
     use crate::arrays::chunked::ChunkedArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
     use crate::validity::Validity;
 
     #[test]
@@ -112,7 +116,7 @@ mod test {
         assert_eq!(arr.len(), 9);
         let indices = buffer![0u64, 0, 6, 4].into_array();
 
-        let result = take(arr.as_ref(), indices.as_ref()).unwrap();
+        let result = arr.take(indices.to_array()).unwrap();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 1, 1, 2]));
     }
 
@@ -124,11 +128,9 @@ mod test {
 
         let arr = ChunkedArray::from_iter(vec![struct_array.to_array(), struct_array.to_array()]);
 
-        let result = take(
-            arr.as_ref(),
-            PrimitiveArray::from_option_iter(vec![Some(0), None, Some(101)]).as_ref(),
-        )
-        .unwrap();
+        let result = arr
+            .take(PrimitiveArray::from_option_iter(vec![Some(0), None, Some(101)]).to_array())
+            .unwrap();
 
         let expect = StructArray::try_new(
             FieldNames::default(),
@@ -149,7 +151,7 @@ mod test {
         assert_eq!(arr.len(), 9);
 
         let indices = PrimitiveArray::empty::<u64>(Nullability::NonNullable);
-        let result = take(arr.as_ref(), indices.as_ref()).unwrap();
+        let result = arr.take(indices.to_array()).unwrap();
 
         assert!(result.is_empty());
         assert_eq!(result.dtype(), arr.dtype());

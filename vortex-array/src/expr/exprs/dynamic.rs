@@ -13,8 +13,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -25,7 +23,6 @@ use crate::expr::Arity;
 use crate::expr::Binary;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -34,6 +31,8 @@ use crate::expr::VTableExt;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeVisitor;
 use crate::expr::traversal::TraversalOrder;
+use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT
@@ -91,7 +90,7 @@ impl VTable for DynamicComparison {
         ))
     }
 
-    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<ExecutionResult> {
+    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
         if let Some(scalar) = data.rhs.scalar() {
             let [lhs]: [ArrayRef; _] = args
                 .inputs
@@ -108,10 +107,11 @@ impl VTable for DynamicComparison {
         let ret_dtype =
             DType::Bool(args.inputs[0].dtype().nullability() | data.rhs.dtype.nullability());
 
-        Ok(ExecutionResult::Scalar(ConstantArray::new(
-            Scalar::new(ret_dtype, data.default.into()),
+        Ok(ConstantArray::new(
+            Scalar::try_new(ret_dtype, Some(data.default.into()))?,
             args.row_count,
-        )))
+        )
+        .into_array())
     }
 
     fn stat_falsification(
@@ -194,7 +194,10 @@ pub struct DynamicComparisonExpr {
 
 impl DynamicComparisonExpr {
     pub fn scalar(&self) -> Option<Scalar> {
-        (self.rhs.value)().map(|v| Scalar::new(self.rhs.dtype.clone(), v))
+        (self.rhs.value)().map(|v| {
+            Scalar::try_new(self.rhs.dtype.clone(), Some(v))
+                .vortex_expect("`DynamicComparisonExpr` was invalid")
+        })
     }
 }
 
@@ -238,7 +241,9 @@ struct Rhs {
 
 impl Rhs {
     pub fn scalar(&self) -> Option<Scalar> {
-        (self.value)().map(|v| Scalar::new(self.dtype.clone(), v))
+        (self.value)().map(|v| {
+            Scalar::try_new(self.dtype.clone(), Some(v)).vortex_expect("`Rhs` was invalid")
+        })
     }
 }
 
@@ -284,7 +289,12 @@ impl DynamicExprUpdates {
         let exprs = visitor.0.into_boxed_slice();
         let prev_versions = exprs
             .iter()
-            .map(|expr| (expr.rhs.value)().map(|v| Scalar::new(expr.rhs.dtype.clone(), v)))
+            .map(|expr| {
+                (expr.rhs.value)().map(|v| {
+                    Scalar::try_new(expr.rhs.dtype.clone(), Some(v))
+                        .vortex_expect("`DynamicExprUpdates` was invalid")
+                })
+            })
             .collect();
 
         Some(Self {

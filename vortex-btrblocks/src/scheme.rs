@@ -8,13 +8,12 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use vortex_array::ArrayRef;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::BtrBlocksCompressor;
 use crate::CompressorContext;
 use crate::CompressorStats;
-use crate::stats::SAMPLE_COUNT;
+use crate::sample::sample_count_approx_one_percent;
 use crate::stats::SAMPLE_SIZE;
 
 /// Top-level compression scheme trait.
@@ -89,21 +88,8 @@ pub trait SchemeExt: Scheme {
         let sample = if ctx.is_sample {
             stats.clone()
         } else {
-            // We want to sample about 1% of data
             let source_len = stats.source().len();
-
-            // We want to sample about 1% of data, while keeping a minimal sample of 1024 values.
-            let approximately_one_percent = (source_len / 100)
-                / usize::try_from(SAMPLE_SIZE).vortex_expect("SAMPLE_SIZE must fit in usize");
-            let sample_count = u32::max(
-                u32::next_multiple_of(
-                    approximately_one_percent
-                        .try_into()
-                        .vortex_expect("sample count must fit in u32"),
-                    16,
-                ),
-                SAMPLE_COUNT,
-            );
+            let sample_count = sample_count_approx_one_percent(source_len);
 
             tracing::trace!(
                 "Sampling {} values out of {}",

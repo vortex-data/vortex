@@ -2,35 +2,30 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
-use crate::compute::FillNullKernel;
-use crate::compute::FillNullKernelAdapter;
-use crate::compute::fill_null;
-use crate::register_kernel;
+use crate::builtins::ArrayBuiltins;
+use crate::expr::FillNullReduce;
+use crate::scalar::Scalar;
 
-impl FillNullKernel for ChunkedVTable {
-    fn fill_null(&self, array: &ChunkedArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
-        // SAFETY: fill_null applied to all chunks gives them same DType
-        unsafe {
-            Ok(ChunkedArray::new_unchecked(
-                array
-                    .chunks()
-                    .iter()
-                    .map(|c| fill_null(c, fill_value))
-                    .collect::<VortexResult<Vec<_>>>()?,
-                fill_value.dtype().clone(),
-            )
-            .into_array())
-        }
+impl FillNullReduce for ChunkedVTable {
+    fn fill_null(array: &ChunkedArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
+        let new_chunks = array
+            .chunks()
+            .iter()
+            .map(|c| c.fill_null(fill_value.clone()))
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        // SAFETY: wrapping each chunk in ScalarFnArray preserves the same DType across all chunks.
+        Ok(Some(
+            unsafe { ChunkedArray::new_unchecked(new_chunks, fill_value.dtype().clone()) }
+                .into_array(),
+        ))
     }
 }
-
-register_kernel!(FillNullKernelAdapter(ChunkedVTable).lift());
 
 #[cfg(test)]
 mod tests {
@@ -41,7 +36,8 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
-    use crate::compute::fill_null;
+    use crate::builtins::ArrayBuiltins;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]
@@ -55,7 +51,7 @@ mod tests {
         )
         .unwrap();
 
-        let filled = fill_null(chunked.as_ref(), &false.into()).unwrap();
+        let filled = chunked.to_array().fill_null(Scalar::from(false)).unwrap();
         assert_eq!(*filled.dtype(), DType::Bool(Nullability::NonNullable));
     }
 }

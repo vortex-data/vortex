@@ -6,14 +6,13 @@ mod canonical;
 mod operations;
 mod validity;
 
-use std::ops::Range;
-
+use kernel::PARENT_KERNELS;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
@@ -23,18 +22,22 @@ use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedArray;
+use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
+use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::VisitorVTable;
+use crate::vtable::validity_nchildren;
+use crate::vtable::validity_to_child;
+
+mod kernel;
 
 vtable!(Masked);
 
@@ -52,6 +55,18 @@ impl VisitorVTable<MaskedVTable> for MaskedVTable {
         visitor.visit_child("child", &array.child);
         visitor.visit_validity(&array.validity, array.child.len());
     }
+
+    fn nchildren(array: &MaskedArray) -> usize {
+        1 + validity_nchildren(&array.validity)
+    }
+
+    fn nth_child(array: &MaskedArray, idx: usize) -> Option<ArrayRef> {
+        match idx {
+            0 => Some(array.child.clone()),
+            1 => validity_to_child(&array.validity, array.child.len()),
+            _ => None,
+        }
+    }
 }
 
 impl VTable for MaskedVTable {
@@ -63,25 +78,9 @@ impl VTable for MaskedVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let child = array.child.slice(range.clone())?;
-        let validity = array.validity.slice(range)?;
-
-        Ok(Some(
-            MaskedArray {
-                child,
-                validity,
-                dtype: array.dtype.clone(),
-                stats: ArrayStats::default(),
-            }
-            .into_array(),
-        ))
     }
 
     fn metadata(_array: &MaskedArray) -> VortexResult<Self::Metadata> {
@@ -92,7 +91,13 @@ impl VTable for MaskedVTable {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -124,14 +129,15 @@ impl VTable for MaskedVTable {
         MaskedArray::try_new(child, validity)
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let validity_mask = array.validity_mask()?;
 
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {
-            return ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
-                .into_array()
-                .execute::<Canonical>(ctx);
+            return Ok(
+                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
+                    .into_array(),
+            );
         }
 
         // NB: We intentionally do NOT have a fast path for `validity_mask.all_true()`.
@@ -141,22 +147,24 @@ impl VTable for MaskedVTable {
         // `AllTrue` masks (no data copying), so there's no benefit.
 
         let child = array.child().clone().execute::<Canonical>(ctx)?;
-        let canonical = mask_validity_canonical(child, &validity_mask, ctx)?;
+        Ok(mask_validity_canonical(child, &validity_mask, ctx)?.into_array())
+    }
 
-        vortex_ensure!(
-            canonical.as_ref().dtype() == array.dtype(),
-            "Mask result dtype mismatch: expected {:?}, got {:?}",
-            array.dtype(),
-            canonical.as_ref().dtype()
-        );
-        vortex_ensure!(
-            canonical.len() == array.len(),
-            "Mask result length mismatch: expected {}, got {}",
-            array.len(),
-            canonical.len()
-        );
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
+    }
 
-        Ok(canonical)
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -190,7 +198,6 @@ mod tests {
     use vortex_error::VortexError;
 
     use crate::ArrayContext;
-    use crate::ArraySession;
     use crate::Canonical;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -238,10 +245,8 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let session = ArraySession::default();
-
         let parts = ArrayParts::try_from(concat).unwrap();
-        let decoded = parts.decode(&dtype, len, &ctx, session.registry()).unwrap();
+        let decoded = parts.decode(&dtype, len, &ctx, &LEGACY_SESSION).unwrap();
 
         assert!(decoded.is::<MaskedVTable>());
         assert_eq!(

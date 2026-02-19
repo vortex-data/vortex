@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Range;
 
 use vortex_array::Array;
 use vortex_array::ArrayBufferVisitor;
@@ -11,7 +10,6 @@ use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -25,7 +23,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -38,8 +35,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::canonical::decode_to_temporal;
+use crate::compute::kernel::PARENT_KERNELS;
 use crate::compute::rules::PARENT_RULES;
 
 vtable!(DateTimeParts);
@@ -83,7 +82,6 @@ impl VTable for DateTimePartsVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -101,9 +99,15 @@ impl VTable for DateTimePartsVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(
-            <ProstMetadata<DateTimePartsMetadata> as DeserializeMetadata>::deserialize(buffer)?,
+            <ProstMetadata<DateTimePartsMetadata> as DeserializeMetadata>::deserialize(bytes)?,
         ))
     }
 
@@ -155,8 +159,8 @@ impl VTable for DateTimePartsVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(decode_to_temporal(array, ctx)?.into()))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(decode_to_temporal(array, ctx)?.into_array())
     }
 
     fn reduce_parent(
@@ -167,17 +171,13 @@ impl VTable for DateTimePartsVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        // SAFETY: slicing all components preserves values
-        Ok(Some(unsafe {
-            DateTimePartsArray::new_unchecked(
-                array.dtype().clone(),
-                array.days().slice(range.clone())?,
-                array.seconds().slice(range.clone())?,
-                array.subseconds().slice(range)?,
-            )
-            .into_array()
-        }))
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
@@ -188,6 +188,14 @@ pub struct DateTimePartsArray {
     seconds: ArrayRef,
     subseconds: ArrayRef,
     stats_set: ArrayStats,
+}
+
+#[derive(Clone, Debug)]
+pub struct DateTimePartsArrayParts {
+    pub dtype: DType,
+    pub days: ArrayRef,
+    pub seconds: ArrayRef,
+    pub subseconds: ArrayRef,
 }
 
 #[derive(Debug)]
@@ -252,6 +260,15 @@ impl DateTimePartsArray {
         }
     }
 
+    pub fn into_parts(self) -> DateTimePartsArrayParts {
+        DateTimePartsArrayParts {
+            dtype: self.dtype,
+            days: self.days,
+            seconds: self.seconds,
+            subseconds: self.subseconds,
+        }
+    }
+
     pub fn days(&self) -> &ArrayRef {
         &self.days
     }
@@ -310,9 +327,17 @@ impl ValidityChild<DateTimePartsVTable> for DateTimePartsVTable {
 impl VisitorVTable<DateTimePartsVTable> for DateTimePartsVTable {
     fn visit_buffers(_array: &DateTimePartsArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &DateTimePartsArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &DateTimePartsArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("days", array.days());
         visitor.visit_child("seconds", array.seconds());
         visitor.visit_child("subseconds", array.subseconds());
+    }
+
+    fn nchildren(_array: &DateTimePartsArray) -> usize {
+        3
     }
 }

@@ -3,51 +3,56 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_array::arrays::TakeExecute;
 use vortex_error::VortexResult;
 
 use crate::SparseArray;
 use crate::SparseVTable;
 
-impl TakeKernel for SparseVTable {
-    fn take(&self, array: &SparseArray, take_indices: &dyn Array) -> VortexResult<ArrayRef> {
+impl TakeExecute for SparseVTable {
+    fn take(
+        array: &SparseArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let patches_take = if array.fill_scalar().is_null() {
-            array.patches().take(take_indices)?
+            array.patches().take(indices)?
         } else {
-            array.patches().take_with_nulls(take_indices)?
+            array.patches().take_with_nulls(indices)?
         };
 
         let Some(new_patches) = patches_take else {
             let result_fill_scalar = array.fill_scalar().cast(
                 &array
                     .dtype()
-                    .union_nullability(take_indices.dtype().nullability()),
+                    .union_nullability(indices.dtype().nullability()),
             )?;
-            return Ok(ConstantArray::new(result_fill_scalar, take_indices.len()).into_array());
+            return Ok(Some(
+                ConstantArray::new(result_fill_scalar, indices.len()).into_array(),
+            ));
         };
 
         // See `SparseEncoding::slice`.
         if new_patches.array_len() == new_patches.values().len() {
-            return Ok(new_patches.into_values());
+            return Ok(Some(new_patches.into_values()));
         }
 
-        Ok(SparseArray::try_new_from_patches(
-            new_patches,
-            array.fill_scalar().cast(
-                &array
-                    .dtype()
-                    .union_nullability(take_indices.dtype().nullability()),
-            )?,
-        )?
-        .into_array())
+        Ok(Some(
+            SparseArray::try_new_from_patches(
+                new_patches,
+                array.fill_scalar().cast(
+                    &array
+                        .dtype()
+                        .union_nullability(indices.dtype().nullability()),
+                )?,
+            )?
+            .into_array(),
+        ))
     }
 }
-
-register_kernel!(TakeKernelAdapter(SparseVTable).lift());
 
 #[cfg(test)]
 mod test {
@@ -55,22 +60,19 @@ mod test {
     use vortex_array::Array;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::take;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
 
     use crate::SparseArray;
-    use crate::SparseVTable;
 
     fn test_array_fill_value() -> Scalar {
         // making this const is annoying
-        Scalar::null_typed::<f64>()
+        Scalar::null_native::<f64>()
     }
 
     fn sparse_array() -> ArrayRef {
@@ -88,7 +90,7 @@ mod test {
     fn take_with_non_zero_offset() {
         let sparse = sparse_array();
         let sparse = sparse.slice(30..40).unwrap();
-        let taken = take(&sparse, &buffer![6, 7, 8].into_array()).unwrap();
+        let taken = sparse.take(buffer![6, 7, 8].into_array()).unwrap();
         let expected = PrimitiveArray::from_option_iter([Option::<f64>::None, Some(0.47), None]);
         assert_arrays_eq!(taken, expected.to_array());
     }
@@ -96,7 +98,7 @@ mod test {
     #[test]
     fn sparse_take() {
         let sparse = sparse_array();
-        let taken = take(&sparse, &buffer![0, 47, 47, 0, 99].into_array()).unwrap();
+        let taken = sparse.take(buffer![0, 47, 47, 0, 99].into_array()).unwrap();
         let expected = PrimitiveArray::from_option_iter([
             Some(1.23f64),
             Some(9.99),
@@ -110,7 +112,7 @@ mod test {
     #[test]
     fn nonexistent_take() {
         let sparse = sparse_array();
-        let taken = take(&sparse, &buffer![69].into_array()).unwrap();
+        let taken = sparse.take(buffer![69].into_array()).unwrap();
         let expected = ConstantArray::new(test_array_fill_value(), 1).into_array();
         assert_arrays_eq!(taken, expected);
     }
@@ -118,18 +120,11 @@ mod test {
     #[test]
     fn ordered_take() {
         let sparse = sparse_array();
-        let taken_arr = take(&sparse, &buffer![69, 37].into_array()).unwrap();
-        let taken = taken_arr.as_::<SparseVTable>();
-
-        assert_arrays_eq!(
-            taken.patches().indices().to_primitive(),
-            PrimitiveArray::from_iter([1u64])
-        );
-        assert_arrays_eq!(
-            taken.patches().values().to_primitive(),
-            PrimitiveArray::from_option_iter([Some(0.47f64)])
-        );
-        assert_eq!(taken.len(), 2);
+        // Note: take returns a canonical array, not SparseArray
+        let taken = sparse.take(buffer![69, 37].into_array()).unwrap();
+        // Index 69 is not in sparse array (fill value is null), index 37 has value 0.47
+        let expected = PrimitiveArray::from_option_iter([Option::<f64>::None, Some(0.47f64)]);
+        assert_arrays_eq!(taken, expected.to_array());
     }
 
     #[test]
@@ -142,12 +137,12 @@ mod test {
         )
         .unwrap();
 
-        let taken = take(
-            arr.as_ref(),
-            PrimitiveArray::from_option_iter([Some(2u32), Some(1u32), Option::<u32>::None])
-                .as_ref(),
-        )
-        .unwrap();
+        let taken = arr
+            .take(
+                PrimitiveArray::from_option_iter([Some(2u32), Some(1u32), Option::<u32>::None])
+                    .to_array(),
+            )
+            .unwrap();
 
         let expected = PrimitiveArray::from_option_iter([Some(1), Some(10), Option::<i32>::None]);
         assert_arrays_eq!(taken, expected.to_array());
@@ -163,12 +158,12 @@ mod test {
         )
         .unwrap();
 
-        let taken = take(
-            arr.as_ref(),
-            PrimitiveArray::from_option_iter([Some(2u32), Some(1u32), Option::<u32>::None])
-                .as_ref(),
-        )
-        .unwrap();
+        let taken = arr
+            .take(
+                PrimitiveArray::from_option_iter([Some(2u32), Some(1u32), Option::<u32>::None])
+                    .to_array(),
+            )
+            .unwrap();
 
         let expected = PrimitiveArray::from_option_iter([Some(1), Some(10), Option::<i32>::None]);
         assert_arrays_eq!(taken, expected.to_array());
@@ -179,7 +174,7 @@ mod test {
         buffer![0u64, 37, 47, 99].into_array(),
         PrimitiveArray::new(buffer![1.23f64, 0.47, 9.99, 3.5], Validity::AllValid).into_array(),
         100,
-        Scalar::null_typed::<f64>(),
+        Scalar::null_native::<f64>(),
     ).unwrap())]
     #[case(SparseArray::try_new(
         buffer![1u32, 3, 7, 8, 9].into_array(),
@@ -193,7 +188,7 @@ mod test {
             buffer![2u64, 4, 6].into_array(),
             nullable_values.into_array(),
             10,
-            Scalar::null_typed::<i64>(),
+            Scalar::null_native::<i64>(),
         ).unwrap()
     })]
     #[case(SparseArray::try_new(

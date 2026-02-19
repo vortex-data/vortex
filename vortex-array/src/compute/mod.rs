@@ -15,41 +15,64 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 
 use arcref::ArcRef;
-pub use between::*;
 pub use boolean::*;
-pub use cast::*;
+#[expect(deprecated)]
+pub use cast::cast;
 pub use compare::*;
 pub use fill_null::*;
 pub use filter::*;
-pub use invert::*;
+#[expect(deprecated)]
+pub use invert::invert;
 pub use is_constant::*;
 pub use is_sorted::*;
 use itertools::Itertools;
-pub use like::*;
-pub use list_contains::*;
+#[expect(deprecated)]
+pub use list_contains::list_contains;
 pub use mask::*;
 pub use min_max::*;
 pub use nan_count::*;
 pub use numeric::*;
 use parking_lot::RwLock;
 pub use sum::*;
-pub use take::*;
 use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
 pub use zip::*;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::builders::ArrayBuilder;
+pub use crate::expr::BetweenExecuteAdaptor;
+pub use crate::expr::BetweenKernel;
+pub use crate::expr::BetweenReduce;
+pub use crate::expr::BetweenReduceAdaptor;
+pub use crate::expr::CastExecuteAdaptor;
+pub use crate::expr::CastKernel;
+pub use crate::expr::CastReduce;
+pub use crate::expr::CastReduceAdaptor;
+pub use crate::expr::FillNullExecuteAdaptor;
+pub use crate::expr::FillNullKernel;
+pub use crate::expr::FillNullReduce;
+pub use crate::expr::FillNullReduceAdaptor;
+pub use crate::expr::ListContainsElementExecuteAdaptor;
+pub use crate::expr::ListContainsElementKernel;
+pub use crate::expr::ListContainsElementReduce;
+pub use crate::expr::ListContainsElementReduceAdaptor;
+pub use crate::expr::MaskExecuteAdaptor;
+pub use crate::expr::MaskKernel;
+pub use crate::expr::MaskReduce;
+pub use crate::expr::MaskReduceAdaptor;
+pub use crate::expr::NotExecuteAdaptor;
+pub use crate::expr::NotKernel;
+pub use crate::expr::NotReduce;
+pub use crate::expr::NotReduceAdaptor;
+use crate::scalar::Scalar;
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
-mod between;
 mod boolean;
 mod cast;
 mod compare;
@@ -60,14 +83,12 @@ mod filter;
 mod invert;
 mod is_constant;
 mod is_sorted;
-mod like;
 mod list_contains;
 mod mask;
 mod min_max;
 mod nan_count;
 mod numeric;
 mod sum;
-mod take;
 mod zip;
 
 /// An instance of a compute function holding the implementation vtable and a set of registered
@@ -83,24 +104,11 @@ pub struct ComputeFn {
 /// Mostly useful for small benchmarks where the overhead might cause noise depending on the order of benchmarks.
 pub fn warm_up_vtables() {
     #[allow(unused_qualifications)]
-    between::warm_up_vtable();
-    boolean::warm_up_vtable();
-    cast::warm_up_vtable();
-    compare::warm_up_vtable();
-    fill_null::warm_up_vtable();
-    filter::warm_up_vtable();
-    invert::warm_up_vtable();
     is_constant::warm_up_vtable();
     is_sorted::warm_up_vtable();
-    like::warm_up_vtable();
-    list_contains::warm_up_vtable();
-    mask::warm_up_vtable();
     min_max::warm_up_vtable();
     nan_count::warm_up_vtable();
-    numeric::warm_up_vtable();
     sum::warm_up_vtable();
-    take::warm_up_vtable();
-    zip::warm_up_vtable();
 }
 
 impl ComputeFn {
@@ -156,7 +164,7 @@ impl ComputeFn {
                 args.inputs
                     .iter()
                     .filter_map(|input| input.array())
-                    .format_with(",", |array, f| f(&array.display_tree()))
+                    .format_with(",", |array, f| f(&array.encoding_id()))
             );
         }
         if output.len() != expected_len {

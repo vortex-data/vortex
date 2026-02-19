@@ -9,19 +9,21 @@ use vortex_dtype::match_each_float_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::stats::Stat;
+use crate::scalar::Scalar;
 
 /// Expression that represents a literal scalar value.
 pub struct Literal;
@@ -36,7 +38,7 @@ impl VTable for Literal {
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::LiteralOpts {
-                value: Some(instance.as_ref().into()),
+                value: Some(instance.into()),
             }
             .encode_to_vec(),
         ))
@@ -77,8 +79,8 @@ impl VTable for Literal {
         Ok(options.dtype().clone())
     }
 
-    fn execute(&self, scalar: &Scalar, args: ExecutionArgs) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::constant(scalar.clone(), args.row_count))
+    fn execute(&self, scalar: &Scalar, args: ExecutionArgs) -> VortexResult<ArrayRef> {
+        Ok(ConstantArray::new(scalar.clone(), args.row_count).into_array())
     }
 
     fn stat_expression(
@@ -151,7 +153,7 @@ impl VTable for Literal {
 /// use vortex_array::arrays::PrimitiveArray;
 /// use vortex_dtype::Nullability;
 /// use vortex_array::expr::{lit, Literal};
-/// use vortex_scalar::Scalar;
+/// use vortex_array::scalar::Scalar;
 ///
 /// let number = lit(34i32);
 ///
@@ -168,10 +170,10 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_dtype::StructFields;
-    use vortex_scalar::Scalar;
 
     use super::lit;
     use crate::expr::test_harness;
+    use crate::scalar::Scalar;
 
     #[test]
     fn dtype() {

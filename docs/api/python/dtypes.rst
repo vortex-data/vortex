@@ -13,10 +13,15 @@ Factory Functions
 .. autofunction:: vortex.float_
 .. autofunction:: vortex.int_
 .. autofunction:: vortex.uint
+.. autofunction:: vortex.decimal
 .. autofunction:: vortex.utf8
 .. autofunction:: vortex.binary
 .. autofunction:: vortex.struct
 .. autofunction:: vortex.list_
+.. autofunction:: vortex.fixed_size_list
+.. autofunction:: vortex.date
+.. autofunction:: vortex.time
+.. autofunction:: vortex.timestamp
 
 Base Class
 ----------

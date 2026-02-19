@@ -14,18 +14,10 @@ use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::BinaryScalar;
-use vortex_scalar::BoolScalar;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::ExtScalar;
-use vortex_scalar::ListScalar;
-use vortex_scalar::Scalar;
-use vortex_scalar::StructScalar;
-use vortex_scalar::Utf8Scalar;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::Canonical;
 use crate::IntoArray;
+use crate::arrays::BinaryView;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
@@ -37,10 +29,12 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::builders::builder_with_capacity;
+use crate::scalar::DecimalValue;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// Shared implementation for both `canonicalize` and `execute` methods.
-pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canonical> {
+pub(crate) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canonical> {
     let scalar = array.scalar();
 
     let validity = match array.dtype().nullability() {
@@ -54,11 +48,7 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
     Ok(match array.dtype() {
         DType::Null => Canonical::Null(NullArray::new(array.len())),
         DType::Bool(..) => Canonical::Bool(BoolArray::new(
-            if BoolScalar::try_from(scalar)
-                .vortex_expect("must be bool")
-                .value()
-                .unwrap_or_default()
-            {
+            if scalar.as_bool().value().unwrap_or_default() {
                 BitBuffer::new_set(array.len())
             } else {
                 BitBuffer::new_unset(array.len())
@@ -111,9 +101,7 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
             Canonical::Decimal(decimal_array)
         }
         DType::Utf8(_) => {
-            let value = Utf8Scalar::try_from(scalar)
-                .vortex_expect("Must be a utf8 scalar")
-                .value();
+            let value = scalar.as_utf8().value();
             let const_value = value.as_ref().map(|v| v.as_bytes());
             Canonical::VarBinView(constant_canonical_byte_view(
                 const_value,
@@ -122,9 +110,7 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
             ))
         }
         DType::Binary(_) => {
-            let value = BinaryScalar::try_from(scalar)
-                .vortex_expect("must be a binary scalar")
-                .value();
+            let value = scalar.as_binary().value().cloned();
             let const_value = value.as_ref().map(|v| v.as_slice());
             Canonical::VarBinView(constant_canonical_byte_view(
                 const_value,
@@ -133,18 +119,21 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
             ))
         }
         DType::Struct(struct_dtype, _) => {
-            let value = StructScalar::try_from(scalar).vortex_expect("must be struct");
-            let fields: Vec<_> = match value.fields() {
+            let value = scalar.as_struct();
+            let fields: Vec<_> = match value.fields_iter() {
                 Some(fields) => fields
                     .into_iter()
                     .map(|s| ConstantArray::new(s, array.len()).into_array())
                     .collect(),
                 None => {
                     assert!(validity.all_invalid(array.len())?);
+                    // The struct is entirely null, so fields just need placeholder values with the
+                    // correct dtype. We use `default_value` which returns a zero for non-nullable
+                    // dtypes and null for nullable dtypes, preserving each field's nullability.
                     struct_dtype
                         .fields()
                         .map(|dt| {
-                            let scalar = Scalar::default_value(dt);
+                            let scalar = Scalar::default_value(&dt);
                             ConstantArray::new(scalar, array.len()).into_array()
                         })
                         .collect()
@@ -158,7 +147,7 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
         }
         DType::List(..) => Canonical::List(constant_canonical_list_array(scalar, array.len())),
         DType::FixedSizeList(element_dtype, list_size, _) => {
-            let value = ListScalar::try_from(scalar).vortex_expect("must be list");
+            let value = scalar.as_list();
 
             Canonical::FixedSizeList(constant_canonical_fixed_size_list_array(
                 value.elements(),
@@ -169,9 +158,9 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
             ))
         }
         DType::Extension(ext_dtype) => {
-            let s = ExtScalar::try_from(scalar).vortex_expect("must be an extension scalar");
+            let s = scalar.as_extension();
 
-            let storage_scalar = s.storage();
+            let storage_scalar = s.to_storage_scalar();
             let storage_self = ConstantArray::new(storage_scalar, array.len()).into_array();
             Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
         }
@@ -227,7 +216,7 @@ fn constant_canonical_byte_view(
 /// We basically just project the list scalar value into list view components. If the caller wants
 /// a fully decompressed and non-overlapping array, they can rebuild the array.
 fn constant_canonical_list_array(scalar: &Scalar, len: usize) -> ListViewArray {
-    let list = ListScalar::try_from(scalar).vortex_expect("must be list");
+    let list = scalar.as_list();
 
     // Since "canonicalize" only applies to the top level array, we can simply have 1 scalar in our
     // child `elements` and have all list views point to that scalar.
@@ -328,7 +317,6 @@ mod tests {
     use vortex_dtype::PType;
     use vortex_dtype::half::f16;
     use vortex_error::VortexResult;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::IntoArray;
@@ -340,6 +328,7 @@ mod tests {
     use crate::canonical::ToCanonical;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 

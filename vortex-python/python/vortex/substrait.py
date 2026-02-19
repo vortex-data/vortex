@@ -3,7 +3,7 @@
 
 import operator
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from google.protobuf.internal.containers import RepeatedCompositeFieldContainer
 
@@ -50,16 +50,34 @@ def literal(substrait_object: Expression.Literal) -> _expr.Expr:
             return _expr.literal(_dtype.float_(32, nullable=False), substrait_object.fp32)
         case "fp64":
             return _expr.literal(_dtype.float_(64, nullable=False), substrait_object.fp64)
+        case "decimal":
+            substrait_decimal = substrait_object.decimal
+            return _expr.literal(
+                _dtype.decimal(precision=substrait_decimal.precision, scale=substrait_decimal.scale, nullable=False),
+                int.from_bytes(substrait_decimal.value, byteorder="little", signed=True),
+            )
         case "string":
             return _expr.literal(_dtype.utf8(nullable=False), substrait_object.string)
         case "binary":
             return _expr.literal(_dtype.binary(nullable=False), substrait_object.binary)
         case "timestamp":
-            raise NotImplementedError
+            # The unit here is from the substrait definition
+            return _expr.literal(_dtype.timestamp(unit="us", nullable=False), substrait_object.timestamp)
+        case "precision_timestamp":
+            unit = _precision_to_unit("precision_timestamp", substrait_object.precision_timestamp.precision)
+
+            return _expr.literal(
+                _dtype.timestamp(unit=unit, nullable=False), substrait_object.precision_timestamp.value
+            )
         case "date":
-            raise NotImplementedError
+            # The unit here is from the substrait definition
+            return _expr.literal(_dtype.date(unit="days", nullable=False), substrait_object.date)
         case "time":
-            raise NotImplementedError
+            # The unit here is from the substrait definition
+            return _expr.literal(_dtype.time(unit="us", nullable=False), substrait_object.time)
+        case "precision_time":
+            unit = _precision_to_unit("precision_time", substrait_object.precision_time.precision)
+            return _expr.literal(_dtype.time(unit=unit, nullable=False), substrait_object.precision_time.value)
         case "interval_year_to_month":
             raise NotImplementedError
         case "interval_day_to_second":
@@ -71,10 +89,6 @@ def literal(substrait_object: Expression.Literal) -> _expr.Expr:
         case "var_char":
             raise NotImplementedError
         case "fixed_binary":
-            raise NotImplementedError
-        case "decimal":
-            raise NotImplementedError
-        case "precision_timestamp":
             raise NotImplementedError
         case "precision_timestamp_tz":
             raise NotImplementedError
@@ -101,6 +115,20 @@ def literal(substrait_object: Expression.Literal) -> _expr.Expr:
             raise NotImplementedError
         case literal_type:
             raise ValueError(f"unknown literal_type {literal_type}")
+
+
+def _precision_to_unit(type_: str, p: int) -> Literal["s", "ms", "us", "ns"]:
+    match p:
+        case 0:
+            return "s"
+        case 3:
+            return "ms"
+        case 6:
+            return "us"
+        case 9:
+            return "ns"
+        case other:
+            raise ValueError(f"{type_} with a precision of {other} is not supported with Vortex")
 
 
 def field_reference(substrait_object: Expression.FieldReference, schema: NamedStruct) -> _expr.Expr:
@@ -146,8 +174,6 @@ def scalar_function(
 ) -> _expr.Expr:
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/extensions/extensions.proto#L57
     function = functions[substrait_object.function_reference]
-    if len(substrait_object.options) != 0:
-        raise NotImplementedError(substrait_object.options)
     arguments = [function_argument(argument, functions, schema) for argument in substrait_object.arguments]
     return function(*arguments)
 
@@ -200,13 +226,32 @@ def extension_function(
                 case "gte":
                     return operator.__ge__
                 case "is_null":
-                    raise NotImplementedError
+                    return _expr.is_null
                 case "is_not_null":
-                    raise NotImplementedError
+                    return _is_not_null
                 case name:
                     raise NotImplementedError(f"Function name {name} not supported")
+        case "https://github.com/substrait-io/substrait/blob/main/extensions/functions_arithmetic.yaml":
+            match substrait_object.name:
+                case "add":
+                    return operator.__add__
+                case "subtract":
+                    return operator.__sub__
+                case "multiply":
+                    return operator.__mul__
+                case "divide":
+                    return operator.__truediv__
+                case name:
+                    raise NotImplementedError(f"Arithmetic function {name} not supported")
         case uri:
             raise NotImplementedError(f"Extension URI {uri} not supported")
+
+
+def _is_not_null(e: _expr.Expr) -> _expr.Expr:
+    """
+    Helper function to have a well-typed callable to return
+    """
+    return _expr.not_(_expr.is_null(e))
 
 
 def expression(

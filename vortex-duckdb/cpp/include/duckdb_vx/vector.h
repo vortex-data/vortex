@@ -16,7 +16,8 @@ extern "C" {
 /// the provided selection vector.
 ///
 /// A dictionary slice holds a strong reference to all memory it uses.
-void duckdb_vx_vector_slice_to_dictionary(duckdb_vector ffi_vector, duckdb_selection_vector selection_vector,
+void duckdb_vx_vector_slice_to_dictionary(duckdb_vector ffi_vector,
+                                          duckdb_selection_vector selection_vector,
                                           idx_t selection_vector_length);
 
 /// Creates a dictionary vector for a given values vector and selection vector.
@@ -25,8 +26,11 @@ void duckdb_vx_vector_slice_to_dictionary(duckdb_vector ffi_vector, duckdb_selec
 ///
 /// `dictionary` differs from `slice_to_dictionary` in that it initializes hash caching:
 /// https://github.com/duckdb/duckdb/blob/0dcf633f603a629981d089202f93b9080cb1a3e9/src/common/types/vector.cpp#L293
-void duckdb_vx_vector_dictionary(duckdb_vector ffi_vector, duckdb_vector ffi_dict, idx_t dictionary_size,
-                                 duckdb_selection_vector ffi_sel_vec, idx_t count);
+void duckdb_vx_vector_dictionary(duckdb_vector ffi_vector,
+                                 duckdb_vector ffi_dict,
+                                 idx_t dictionary_size,
+                                 duckdb_selection_vector ffi_sel_vec,
+                                 idx_t count);
 
 void duckdb_vx_set_dictionary_vector_id(duckdb_vector dict, const char *id, unsigned int id_len);
 
@@ -35,9 +39,9 @@ void duckdb_vx_set_dictionary_vector_length(duckdb_vector dict, unsigned int len
 // Add the buffer to the string vector (basically, keep it alive as long as the vector).
 void duckdb_vx_string_vector_add_vector_data_buffer(duckdb_vector ffi_vector, duckdb_vx_vector_buffer buffer);
 
-
-// Add the buffer to the data vector (basically, keep it alive as long as the vector) and set the data pointer.
-// You must ensure that the ptr is valid for the lifetime of the vector and the ptr addr + size is valid.
+// Add the buffer to the data vector (basically, keep it alive as long as the vector) and set the data
+// pointer. You must ensure that the ptr is valid for the lifetime of the vector and the ptr addr + size is
+// valid.
 void duckdb_vx_vector_set_vector_data_buffer(duckdb_vector ffi_vector, duckdb_vx_vector_buffer buffer);
 
 // Set the data pointer for the vector. This is the start of the values array in the vector.
@@ -49,6 +53,8 @@ void duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t st
 void duckdb_vector_flatten(duckdb_vector vector, unsigned long len);
 
 const char *duckdb_vector_to_string(duckdb_vector vector, unsigned long len, duckdb_vx_error *err);
+
+duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx_t index);
 
 #ifdef __cplusplus /* End C ABI */
 }

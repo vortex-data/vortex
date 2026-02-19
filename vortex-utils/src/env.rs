@@ -59,7 +59,7 @@ pub struct EnvVarGuard {
     key: &'static str,
     /// We store this to ensure the mutex stays locked for our lifetime.
     /// The () is just a dummy value - we only care about the lock.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     lock_guard: parking_lot::MutexGuard<'static, ()>,
 }
 

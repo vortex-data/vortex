@@ -1,23 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
+use kernel::PARENT_KERNELS;
 use vortex_buffer::Alignment;
 use vortex_dtype::DType;
+use vortex_dtype::DecimalType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_scalar::DecimalType;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
@@ -25,20 +23,16 @@ use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
+mod kernel;
 mod operations;
-pub mod rules;
 mod validity;
 mod visitor;
 
-pub use rules::DecimalMaskedValidityRule;
-
-use crate::arrays::decimal::vtable::rules::RULES;
+use crate::arrays::decimal::compute::rules::RULES;
 use crate::vtable::ArrayId;
 
 vtable!(Decimal);
@@ -59,7 +53,6 @@ impl VTable for DecimalVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -75,7 +68,13 @@ impl VTable for DecimalVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         let metadata = ProstMetadata::<DecimalMetadata>::deserialize(bytes)?;
         Ok(ProstMetadata(metadata))
     }
@@ -136,8 +135,8 @@ impl VTable for DecimalVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Decimal(array.clone()))
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(array.to_array())
     }
 
     fn reduce_parent(
@@ -148,15 +147,13 @@ impl VTable for DecimalVTable {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let result = match_each_decimal_value_type!(array.values_type(), |D| {
-            let sliced = array.buffer::<D>().slice(range.clone());
-            let validity = array.validity().clone().slice(range)?;
-            // SAFETY: Slicing preserves all DecimalArray invariants
-            unsafe { DecimalArray::new_unchecked(sliced, array.decimal_dtype(), validity) }
-                .into_array()
-        });
-        Ok(Some(result))
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
@@ -175,11 +172,11 @@ mod tests {
 
     use crate::ArrayContext;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::arrays::DecimalArray;
     use crate::arrays::DecimalVTable;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
-    use crate::session::ArraySession;
     use crate::validity::Validity;
 
     #[test]
@@ -204,10 +201,8 @@ mod tests {
 
         let concat = concat.freeze();
 
-        let session = ArraySession::default();
-
         let parts = ArrayParts::try_from(concat).unwrap();
-        let decoded = parts.decode(&dtype, 5, &ctx, session.registry()).unwrap();
+        let decoded = parts.decode(&dtype, 5, &ctx, &LEGACY_SESSION).unwrap();
         assert!(decoded.is::<DecimalVTable>());
     }
 }

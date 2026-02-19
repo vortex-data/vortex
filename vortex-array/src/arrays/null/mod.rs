@@ -2,22 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::ops::Range;
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::Precision;
+use crate::arrays::null::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
@@ -25,13 +24,12 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::BaseArrayVTable;
-use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
 
-mod compute;
+pub(crate) mod compute;
 
 vtable!(Null);
 
@@ -44,7 +42,6 @@ impl VTable for NullVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -58,7 +55,13 @@ impl VTable for NullVTable {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -81,12 +84,16 @@ impl VTable for NullVTable {
         Ok(())
     }
 
-    fn slice(_array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(NullArray::new(range.len()).into_array()))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Null(array.clone()))
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(array.to_array())
     }
 }
 
@@ -165,6 +172,14 @@ impl VisitorVTable<NullVTable> for NullVTable {
     fn visit_buffers(_array: &NullArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(_array: &NullArray, _visitor: &mut dyn ArrayChildVisitor) {}
+
+    fn nchildren(_array: &NullArray) -> usize {
+        0
+    }
+
+    fn nth_child(_array: &NullArray, _idx: usize) -> Option<ArrayRef> {
+        None
+    }
 }
 
 impl OperationsVTable<NullVTable> for NullVTable {

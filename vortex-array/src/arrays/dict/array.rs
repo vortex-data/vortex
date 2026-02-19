@@ -103,18 +103,18 @@ impl DictArray {
 
     /// Build a new `DictArray` from its components, `codes` and `values`.
     ///
-    /// The codes must be unsigned integers, and may be nullable. Values can be any type, and
-    /// may also be nullable. This mirrors the nullability of the Arrow `DictionaryArray`.
+    /// The codes must be integers, and may be nullable. Values can be any
+    /// type, and may also be nullable. This mirrors the nullability of the Arrow `DictionaryArray`.
     ///
     /// # Errors
     ///
-    /// The `codes` **must** be unsigned integers, and the maximum code must be less than the length
+    /// The `codes` **must** be integers, and the maximum code must be less than the length
     /// of the `values` array. Otherwise, this constructor returns an error.
     ///
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
     pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
-        if !codes.dtype().is_unsigned_int() {
-            vortex_bail!(MismatchedTypes: "unsigned int", codes.dtype());
+        if !codes.dtype().is_int() {
+            vortex_bail!(MismatchedTypes: "int", codes.dtype());
         }
 
         Ok(unsafe { Self::new_unchecked(codes, values) })
@@ -194,7 +194,11 @@ impl DictArray {
         match codes_validity.bit_buffer() {
             AllOr::All => {
                 match_each_integer_ptype!(codes_primitive.ptype(), |P| {
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
+                    )]
                     for &code in codes_primitive.as_slice::<P>().iter() {
                         values_vec[code as usize] = referenced_value;
                     }
@@ -205,7 +209,11 @@ impl DictArray {
                 match_each_integer_ptype!(codes_primitive.ptype(), |P| {
                     let codes = codes_primitive.as_slice::<P>();
 
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
+                    )]
                     buf.set_indices().for_each(|idx| {
                         values_vec[codes[idx] as usize] = referenced_value;
                     })

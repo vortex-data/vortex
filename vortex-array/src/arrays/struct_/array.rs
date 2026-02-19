@@ -8,7 +8,6 @@ use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
-use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -151,7 +150,6 @@ pub struct StructArray {
 
 pub struct StructArrayParts {
     pub struct_fields: StructFields,
-    pub nullability: Nullability,
     pub fields: Arc<[ArrayRef]>,
     pub validity: Validity,
 }
@@ -301,7 +299,7 @@ impl StructArray {
         // Check field count matches
         if fields.len() != dtype.names().len() {
             vortex_bail!(
-                "Got {} fields but dtype has {} names",
+                InvalidArgument: "Got {} fields but dtype has {} names",
                 fields.len(),
                 dtype.names().len()
             );
@@ -311,7 +309,7 @@ impl StructArray {
         for (i, (field, struct_dt)) in fields.iter().zip(dtype.fields()).enumerate() {
             if field.len() != length {
                 vortex_bail!(
-                    "Field {} has length {} but expected {}",
+                    InvalidArgument: "Field {} has length {} but expected {}",
                     i,
                     field.len(),
                     length
@@ -320,7 +318,7 @@ impl StructArray {
 
             if field.dtype() != &struct_dt {
                 vortex_bail!(
-                    "Field {} has dtype {} but expected {}",
+                    InvalidArgument: "Field {} has dtype {} but expected {}",
                     i,
                     field.dtype(),
                     struct_dt
@@ -333,7 +331,7 @@ impl StructArray {
             && validity_len != length
         {
             vortex_bail!(
-                "Validity has length {} but expected {}",
+                InvalidArgument: "Validity has length {} but expected {}",
                 validity_len,
                 length
             );
@@ -356,11 +354,9 @@ impl StructArray {
     }
 
     pub fn into_parts(self) -> StructArrayParts {
-        let nullability = self.dtype.nullability();
         let struct_fields = self.dtype.into_struct_fields();
         StructArrayParts {
             struct_fields,
-            nullability,
             fields: self.fields,
             validity: self.validity,
         }

@@ -15,24 +15,25 @@ use vortex_mask::Mask;
 use vortex_mask::MaskIter;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::VarBinVTable;
+use crate::arrays::filter::FilterKernel;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
-use crate::compute::FilterKernel;
-use crate::compute::FilterKernelAdapter;
-use crate::register_kernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl FilterKernel for VarBinVTable {
-    fn filter(&self, array: &VarBinArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        filter_select_var_bin(array, mask).map(|a| a.into_array())
+    fn filter(
+        array: &VarBinArray,
+        mask: &Mask,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        filter_select_var_bin(array, mask).map(|a| Some(a.into_array()))
     }
 }
-
-register_kernel!(FilterKernelAdapter(VarBinVTable).lift());
 
 fn filter_select_var_bin(arr: &VarBinArray, mask: &Mask) -> VortexResult<VarBinArray> {
     match mask

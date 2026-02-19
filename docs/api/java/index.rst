@@ -1,5 +1,5 @@
-Vortex Java API
-===============
+Java API
+========
 
 The Vortex Java API provides bindings for the Vortex library, enabling Java applications to work with Vortex arrays and files.
 
@@ -48,12 +48,12 @@ Here's a basic example of using the Vortex Java API to read a Vortex file:
 
     import dev.vortex.api.File;
     import dev.vortex.api.Array;
-    
+
     // Open a Vortex file
     File vortexFile = File.open("path/to/file.vortex");
-    
+
     // Read arrays from the file
     Array array = vortexFile.readArray();
-    
+
     // Work with the array data
     System.out.println("Array length: " + array.getLength());

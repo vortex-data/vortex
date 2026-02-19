@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod binary_numeric;
-mod boolean;
 mod cast;
-mod compare;
 mod fill_null;
 mod filter;
-mod invert;
-mod mask;
 mod min_max;
+mod not;
+pub(crate) mod rules;
+mod slice;
 mod sum;
 mod take;
 
@@ -17,17 +15,17 @@ mod take;
 mod test {
     use rstest::rstest;
     use vortex_dtype::half::f16;
-    use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
+    use crate::scalar::Scalar;
 
     #[test]
     fn test_mask_constant() {
-        test_mask_conformance(&ConstantArray::new(Scalar::null_typed::<i32>(), 5).into_array());
+        test_mask_conformance(&ConstantArray::new(Scalar::null_native::<i32>(), 5).into_array());
         test_mask_conformance(&ConstantArray::new(Scalar::from(3u16), 5).into_array());
         test_mask_conformance(&ConstantArray::new(Scalar::from(1.0f32 / 0.0f32), 5).into_array());
         test_mask_conformance(
@@ -37,7 +35,7 @@ mod test {
 
     #[test]
     fn test_filter_constant() {
-        test_filter_conformance(&ConstantArray::new(Scalar::null_typed::<i32>(), 5).into_array());
+        test_filter_conformance(&ConstantArray::new(Scalar::null_native::<i32>(), 5).into_array());
         test_filter_conformance(&ConstantArray::new(Scalar::from(3u16), 5).into_array());
         test_filter_conformance(&ConstantArray::new(Scalar::from(1.0f32 / 0.0f32), 5).into_array());
         test_filter_conformance(

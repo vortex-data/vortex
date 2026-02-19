@@ -12,6 +12,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
+use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::list_from_list_view;
@@ -137,6 +138,63 @@ impl BtrBlocksCompressor {
             btr_blocks_compressor: self,
         }
     }
+
+    /// Compresses a [`ListArray`] by narrowing offsets and recursively compressing elements.
+    fn compress_list_array(
+        &self,
+        list_array: ListArray,
+        ctx: CompressorContext,
+    ) -> VortexResult<ArrayRef> {
+        // Reset the offsets to remove garbage data that might prevent us from narrowing our
+        // offsets (there could be a large amount of trailing garbage data that the current
+        // views do not reference at all).
+        let list_array = list_array.reset_offsets(true)?;
+
+        let compressed_elems = self.compress(list_array.elements())?;
+
+        // Note that since the type of our offsets are not encoded in our `DType`, and since
+        // we guarantee above that all elements are referenced by offsets, we may narrow the
+        // widths.
+        let compressed_offsets = self.compress_canonical(
+            Canonical::Primitive(list_array.offsets().to_primitive().narrow()?),
+            ctx,
+            Excludes::from(&[IntCode::Dict]),
+        )?;
+
+        Ok(ListArray::try_new(
+            compressed_elems,
+            compressed_offsets,
+            list_array.validity().clone(),
+        )?
+        .into_array())
+    }
+
+    /// Compresses a [`ListViewArray`] by narrowing offsets/sizes and recursively compressing
+    /// elements.
+    fn compress_list_view_array(
+        &self,
+        list_view: ListViewArray,
+        ctx: CompressorContext,
+    ) -> VortexResult<ArrayRef> {
+        let compressed_elems = self.compress(list_view.elements())?;
+        let compressed_offsets = self.compress_canonical(
+            Canonical::Primitive(list_view.offsets().to_primitive().narrow()?),
+            ctx,
+            Excludes::none(),
+        )?;
+        let compressed_sizes = self.compress_canonical(
+            Canonical::Primitive(list_view.sizes().to_primitive().narrow()?),
+            ctx,
+            Excludes::none(),
+        )?;
+        Ok(ListViewArray::try_new(
+            compressed_elems,
+            compressed_offsets,
+            compressed_sizes,
+            list_view.validity().clone(),
+        )?
+        .into_array())
+    }
 }
 
 impl CanonicalCompressor for BtrBlocksCompressor {
@@ -179,33 +237,14 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                 .into_array())
             }
             Canonical::List(list_view_array) => {
-                // TODO(joe): We might want to write list views in the future and chose between
-                // list and list view.
-                let list_array = list_from_list_view(list_view_array)?;
-
-                // Reset the offsets to remove garbage data that might prevent us from narrowing our
-                // offsets (there could be a large amount of trailing garbage data that the current
-                // views do not reference at all).
-                let list_array = list_array.reset_offsets(true)?;
-
-                let compressed_elems = self.compress(list_array.elements())?;
-
-                // Note that since the type of our offsets are not encoded in our `DType`, and since
-                // we guarantee above that all elements are referenced by offsets, we may narrow the
-                // widths.
-
-                let compressed_offsets = self.compress_canonical(
-                    Canonical::Primitive(list_array.offsets().to_primitive().narrow()?),
-                    ctx,
-                    Excludes::from(&[IntCode::Dict]),
-                )?;
-
-                Ok(ListArray::try_new(
-                    compressed_elems,
-                    compressed_offsets,
-                    list_array.validity().clone(),
-                )?
-                .into_array())
+                if list_view_array.is_zero_copy_to_list() || list_view_array.elements().is_empty() {
+                    // Offsets are already monotonic and non-overlapping, so we
+                    // can drop the sizes array and compress as a ListArray.
+                    let list_array = list_from_list_view(list_view_array)?;
+                    self.compress_list_array(list_array, ctx)
+                } else {
+                    self.compress_list_view_array(list_view_array, ctx)
+                }
             }
             Canonical::FixedSizeList(fsl_array) => {
                 let compressed_elems = self.compress(fsl_array.elements())?;
@@ -273,5 +312,56 @@ impl CanonicalCompressor for BtrBlocksCompressor {
 
     fn string_schemes(&self) -> &[&'static dyn StringScheme] {
         &self.string_schemes
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vortex_array::Array;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::ListVTable;
+    use vortex_array::arrays::ListViewArray;
+    use vortex_array::arrays::ListViewVTable;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+
+    use crate::BtrBlocksCompressor;
+
+    #[rstest]
+    #[case::zctl(
+        unsafe {
+            ListViewArray::new_unchecked(
+                buffer![1i32, 2, 3, 4, 5].into_array(),
+                buffer![0i32, 3].into_array(),
+                buffer![3i32, 2].into_array(),
+                Validity::NonNullable,
+            ).with_zero_copy_to_list(true)
+        },
+        true,
+    )]
+    #[case::overlapping(
+        ListViewArray::new(
+            buffer![1i32, 2, 3].into_array(),
+            buffer![0i32, 0, 0].into_array(),
+            buffer![3i32, 3, 3].into_array(),
+            Validity::NonNullable,
+        ),
+        false,
+    )]
+    fn listview_compress_roundtrip(
+        #[case] input: ListViewArray,
+        #[case] expect_list: bool,
+    ) -> VortexResult<()> {
+        let result = BtrBlocksCompressor::default().compress(input.as_ref())?;
+        if expect_list {
+            assert!(result.as_opt::<ListVTable>().is_some());
+        } else {
+            assert!(result.as_opt::<ListViewVTable>().is_some());
+        }
+        assert_arrays_eq!(result, input);
+        Ok(())
     }
 }

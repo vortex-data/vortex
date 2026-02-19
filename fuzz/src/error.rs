@@ -13,10 +13,10 @@ use std::fmt::Formatter;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::compute::MinMaxResult;
+use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_error::VortexError;
-use vortex_scalar::Scalar;
 
 #[cfg(target_arch = "wasm32")]
 #[derive(Default)]

@@ -60,8 +60,8 @@ pub struct TimestampOptions {
 impl Display for TimestampOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self.tz {
-            Some(tz) => write!(f, "unit={}, tz={}", self.unit, tz),
-            None => write!(f, "unit={}", self.unit),
+            Some(tz) => write!(f, "{}, tz={}", self.unit, tz),
+            None => write!(f, "{}", self.unit),
         }
     }
 }
@@ -97,10 +97,15 @@ impl ExtDTypeVTable for Timestamp {
     }
 
     fn deserialize(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
+        vortex_ensure!(data.len() >= 3);
+
         let tag = data[0];
         let time_unit = TimeUnit::try_from(tag)?;
-        let tz_len_bytes = &data[1..3];
-        let tz_len = u16::from_le_bytes(tz_len_bytes.try_into()?) as usize;
+        let tz_len_bytes: [u8; 2] = data[1..3]
+            .try_into()
+            .ok()
+            .vortex_expect("Verified to have two bytes");
+        let tz_len = u16::from_le_bytes(tz_len_bytes) as usize;
         if tz_len == 0 {
             return Ok(TimestampOptions {
                 unit: time_unit,

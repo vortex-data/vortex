@@ -24,10 +24,9 @@ vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
-vortex-scalar = { workspace = true }
+vortex-session = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-error = { workspace = true }
-vortex-session = { workspace = true }

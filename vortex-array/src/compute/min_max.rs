@@ -11,7 +11,6 @@ use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::arrays::ConstantVTable;
@@ -24,6 +23,7 @@ use crate::compute::UnaryArgs;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
+use crate::scalar::Scalar;
 use crate::vtable::VTable;
 
 static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["min", "max"]));
@@ -102,13 +102,17 @@ impl ComputeFnVTable for MinMax {
                     array.encoding_id()
                 );
 
-                // Update the stats set with the computed min/max
-                array
-                    .statistics()
-                    .set(Stat::Min, Precision::Exact(min.value().clone()));
-                array
-                    .statistics()
-                    .set(Stat::Max, Precision::Exact(max.value().clone()));
+                // Update the stats set with the computed min/max.
+                if let Some(min_value) = min.value() {
+                    array
+                        .statistics()
+                        .set(Stat::Min, Precision::Exact(min_value.clone()));
+                }
+                if let Some(max_value) = max.value() {
+                    array
+                        .statistics()
+                        .set(Stat::Max, Precision::Exact(max_value.clone()));
+                }
 
                 // Return the min/max as a struct scalar
                 Ok(Scalar::struct_(return_dtype, vec![min, max]).into())
@@ -179,9 +183,6 @@ fn min_max_impl(
         if let Some(output) = kernel.invoke(&args)? {
             return MinMaxResult::from_scalar(output.unwrap_scalar()?);
         }
-    }
-    if let Some(output) = array.invoke(&MIN_MAX_FN, &args)? {
-        return MinMaxResult::from_scalar(output.unwrap_scalar()?);
     }
 
     if !array.is_canonical() {

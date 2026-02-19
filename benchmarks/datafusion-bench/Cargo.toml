@@ -18,6 +18,7 @@ publish = false
 anyhow = { workspace = true }
 arrow-ipc.workspace = true
 clap = { workspace = true, features = ["derive"] }
+custom-labels = { workspace = true }
 datafusion = { workspace = true, features = [
     "parquet",
     "datetime_expressions",
@@ -38,9 +39,11 @@ url = { workspace = true }
 vortex-bench = { workspace = true }
 vortex-cuda = { workspace = true, optional = true }
 vortex-datafusion = { workspace = true }
+vortex-metrics = { workspace = true }
 
 [build-dependencies]
 get_dir = { workspace = true }
+custom-labels = { workspace = true }
 
 [features]
 cuda = ["dep:vortex-cuda"]

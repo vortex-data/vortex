@@ -35,8 +35,8 @@ from ._lib.compress import compress  # pyright: ignore[reportMissingModuleSource
 from ._lib.dtype import (  # pyright: ignore[reportMissingModuleSource]
     BinaryDType,
     BoolDType,
+    DecimalDType,
     DType,
-    # TODO(connor): Is this missing a `DecimalDType` and `decimal` function?
     ExtensionDType,
     FixedSizeListDType,
     ListDType,
@@ -48,6 +48,7 @@ from ._lib.dtype import (  # pyright: ignore[reportMissingModuleSource]
     binary,
     bool_,
     date,
+    decimal,
     fixed_size_list,
     float_,
     int_,
@@ -116,6 +117,7 @@ __all__ = [
     "PType",
     "NullDType",
     "BoolDType",
+    "DecimalDType",
     "PrimitiveDType",
     "Utf8DType",
     "BinaryDType",
@@ -123,9 +125,9 @@ __all__ = [
     "ListDType",
     "FixedSizeListDType",
     "ExtensionDType",
-    # TODO(connor): Is this missing `DecimalDType` and `decimal_`?
     "null",
     "bool_",
+    "decimal",
     "int_",
     "uint",
     "float_",

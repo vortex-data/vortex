@@ -12,14 +12,19 @@ use lance::dataset::WriteParams;
 use lance_encoding::version::LanceFileVersion;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use vortex_bench::Format;
-use vortex_bench::datasets::taxi_data::taxi_data_parquet;
+use vortex_bench::datasets::feature_vectors;
+use vortex_bench::datasets::nested_lists;
+use vortex_bench::datasets::nested_structs;
+use vortex_bench::datasets::taxi_data;
 use vortex_bench::idempotent_async;
 use vortex_bench::random_access::RandomAccessor;
+use vortex_bench::random_access::data_path;
 
-pub async fn taxi_data_lance() -> anyhow::Result<PathBuf> {
-    idempotent_async("taxi/taxi.lance", |output_fname| async move {
-        let parquet_path = taxi_data_parquet().await?;
-
+/// Convert a parquet file to lance format.
+///
+/// Uses `idempotent_async` to skip conversion if the output already exists.
+async fn parquet_to_lance_file(parquet_path: PathBuf, lance_path: &str) -> anyhow::Result<PathBuf> {
+    idempotent_async(lance_path, |output_fname| async move {
         let file = File::open(&parquet_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let reader = builder.build()?;
@@ -39,13 +44,58 @@ pub async fn taxi_data_lance() -> anyhow::Result<PathBuf> {
     .await
 }
 
+pub async fn taxi_data_lance() -> anyhow::Result<PathBuf> {
+    let parquet_path = taxi_data::taxi_data_parquet().await?;
+    parquet_to_lance_file(parquet_path, &data_path(taxi_data::DATASET, Format::Lance)).await
+}
+
+pub async fn feature_vectors_lance() -> anyhow::Result<PathBuf> {
+    let parquet_path = feature_vectors::feature_vectors_parquet().await?;
+    parquet_to_lance_file(
+        parquet_path,
+        &data_path(feature_vectors::DATASET, Format::Lance),
+    )
+    .await
+}
+
+pub async fn nested_lists_lance() -> anyhow::Result<PathBuf> {
+    let parquet_path = nested_lists::nested_lists_parquet().await?;
+    parquet_to_lance_file(
+        parquet_path,
+        &data_path(nested_lists::DATASET, Format::Lance),
+    )
+    .await
+}
+
+pub async fn nested_structs_lance() -> anyhow::Result<PathBuf> {
+    let parquet_path = nested_structs::nested_structs_parquet().await?;
+    parquet_to_lance_file(
+        parquet_path,
+        &data_path(nested_structs::DATASET, Format::Lance),
+    )
+    .await
+}
+
+/// Random accessor for Lance format files.
+///
+/// The dataset handle is opened at construction time and reused across `take()` calls.
 pub struct LanceRandomAccessor {
-    path: PathBuf,
+    name: String,
+    dataset: Dataset,
 }
 
 impl LanceRandomAccessor {
-    pub fn new(path: PathBuf) -> Self {
-        Self { path }
+    /// Open a Lance dataset and return a ready-to-use accessor.
+    pub async fn open(path: PathBuf, name: impl Into<String>) -> anyhow::Result<Self> {
+        let dataset = Dataset::open(
+            path.to_str()
+                .ok_or_else(|| anyhow!("Invalid dataset path"))?,
+        )
+        .await?;
+        Ok(Self {
+            name: name.into(),
+            dataset,
+        })
     }
 }
 
@@ -56,22 +106,12 @@ impl RandomAccessor for LanceRandomAccessor {
     }
 
     fn name(&self) -> &str {
-        "random-access/lance-tokio-local-disk"
+        &self.name
     }
 
-    fn path(&self) -> &PathBuf {
-        &self.path
-    }
-
-    async fn take(&self, indices: Vec<u64>) -> anyhow::Result<usize> {
-        let dataset = Dataset::open(
-            self.path
-                .to_str()
-                .ok_or_else(|| anyhow!("Invalid dataset path"))?,
-        )
-        .await?;
-        let projection = ProjectionRequest::from_schema(dataset.schema().clone()); // All columns.
-        let result = dataset.take(indices.as_slice(), projection).await?;
+    async fn take(&self, indices: &[u64]) -> anyhow::Result<usize> {
+        let projection = ProjectionRequest::from_schema(self.dataset.schema().clone());
+        let result = self.dataset.take(indices, projection).await?;
         Ok(result.num_rows())
     }
 }

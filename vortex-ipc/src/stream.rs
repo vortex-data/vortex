@@ -16,8 +16,6 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use pin_project_lite::pin_project;
 use vortex_array::ArrayRef;
-use vortex_array::session::ArrayRegistry;
-use vortex_array::session::ArraySessionExt;
 use vortex_array::stream::ArrayStream;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -36,7 +34,7 @@ pin_project! {
         #[pin]
         reader: AsyncMessageReader<R>,
         dtype: DType,
-        registry: ArrayRegistry,
+        session: VortexSession,
     }
 }
 
@@ -59,7 +57,7 @@ impl<R: AsyncRead + Unpin> AsyncIPCReader<R> {
         Ok(AsyncIPCReader {
             reader,
             dtype,
-            registry: session.arrays().registry().clone(),
+            session: session.clone(),
         })
     }
 }
@@ -84,7 +82,7 @@ impl<R: AsyncRead> Stream for AsyncIPCReader<R> {
             Some(msg) => match msg {
                 Ok(DecoderMessage::Array((array_parts, ctx, row_count))) => Poll::Ready(Some(
                     array_parts
-                        .decode(this.dtype, row_count, &ctx, this.registry)
+                        .decode(this.dtype, row_count, &ctx, this.session)
                         .and_then(|array| {
                             if array.dtype() != this.dtype {
                                 Err(vortex_err!(

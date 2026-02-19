@@ -59,7 +59,7 @@ Scalar binary(const uint8_t *data, size_t length) {
     return Scalar(ffi::binary_scalar_new(rust::Slice<const uint8_t>(data, length)));
 }
 
-Scalar cast(Scalar scalar, DType dtype) {
+Scalar cast(Scalar scalar, dtype::DType dtype) {
     return Scalar(std::move(scalar).IntoImpl()->cast_scalar(*std::move(dtype).GetImpl()));
 }
 

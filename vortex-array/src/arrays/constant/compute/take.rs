@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -11,25 +10,26 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::MaskedArray;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::TakeReduce;
+use crate::arrays::TakeReduceAdaptor;
+use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
-impl TakeKernel for ConstantVTable {
-    fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        match indices.validity_mask()?.bit_buffer() {
+impl TakeReduce for ConstantVTable {
+    fn take(array: &ConstantArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+        let result = match indices.validity_mask()?.bit_buffer() {
             AllOr::All => {
-                let scalar = Scalar::new(
+                let scalar = Scalar::try_new(
                     array
                         .scalar()
                         .dtype()
                         .union_nullability(indices.dtype().nullability()),
-                    array.scalar().value().clone(),
-                );
-                Ok(ConstantArray::new(scalar, indices.len()).into_array())
+                    array.scalar().value().cloned(),
+                )?;
+                ConstantArray::new(scalar, indices.len()).into_array()
             }
-            AllOr::None => Ok(ConstantArray::new(
+            AllOr::None => ConstantArray::new(
                 Scalar::null(
                     array
                         .dtype()
@@ -37,21 +37,25 @@ impl TakeKernel for ConstantVTable {
                 ),
                 indices.len(),
             )
-            .into_array()),
+            .into_array(),
             AllOr::Some(v) => {
                 let arr = ConstantArray::new(array.scalar().clone(), indices.len()).into_array();
 
                 if array.scalar().is_null() {
-                    return Ok(arr);
+                    return Ok(Some(arr));
                 }
 
-                Ok(MaskedArray::try_new(arr, Validity::from(v.clone()))?.into_array())
+                MaskedArray::try_new(arr, Validity::from(v.clone()))?.into_array()
             }
-        }
+        };
+        Ok(Some(result))
     }
 }
 
-register_kernel!(TakeKernelAdapter(ConstantVTable).lift());
+impl ConstantVTable {
+    pub const TAKE_RULES: ParentRuleSet<Self> =
+        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+}
 
 #[cfg(test)]
 mod tests {
@@ -59,7 +63,6 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_mask::AllOr;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::IntoArray;
@@ -68,21 +71,21 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]
     fn take_nullable_indices() {
         let array = ConstantArray::new(42, 10).to_array();
-        let taken = take(
-            &array,
-            &PrimitiveArray::new(
-                buffer![0, 5, 7],
-                Validity::from_iter(vec![false, true, false]),
+        let taken = array
+            .take(
+                PrimitiveArray::new(
+                    buffer![0, 5, 7],
+                    Validity::from_iter(vec![false, true, false]),
+                )
+                .into_array(),
             )
-            .into_array(),
-        )
-        .unwrap();
+            .unwrap();
         let valid_indices: &[usize] = &[1usize];
         assert_eq!(
             &array.dtype().with_nullability(Nullability::Nullable),
@@ -104,11 +107,9 @@ mod tests {
     #[test]
     fn take_all_valid_indices() {
         let array = ConstantArray::new(42, 10).to_array();
-        let taken = take(
-            &array,
-            &PrimitiveArray::new(buffer![0, 5, 7], Validity::AllValid).into_array(),
-        )
-        .unwrap();
+        let taken = array
+            .take(PrimitiveArray::new(buffer![0, 5, 7], Validity::AllValid).into_array())
+            .unwrap();
         assert_eq!(
             &array.dtype().with_nullability(Nullability::Nullable),
             taken.dtype()
@@ -124,7 +125,7 @@ mod tests {
     #[case(ConstantArray::new(42i32, 5))]
     #[case(ConstantArray::new(std::f64::consts::PI, 10))]
     #[case(ConstantArray::new(Scalar::from("hello"), 3))]
-    #[case(ConstantArray::new(Scalar::null_typed::<i64>(), 5))]
+    #[case(ConstantArray::new(Scalar::null_native::<i64>(), 5))]
     #[case(ConstantArray::new(true, 1))]
     fn test_take_constant_conformance(#[case] array: ConstantArray) {
         test_take_conformance(array.as_ref());

@@ -11,10 +11,10 @@ use vortex_dtype::extension::ExtDTypeRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_scalar::PValue;
 
 use crate::Array;
 use crate::compute::sum;
+use crate::scalar::PValue;
 use crate::search_sorted::IndexOrd;
 
 impl dyn Array + '_ {
@@ -82,7 +82,7 @@ impl dyn Array + '_ {
     }
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct NullTyped<'a>(&'a dyn Array);
 
 pub struct BoolTyped<'a>(&'a dyn Array);
@@ -122,7 +122,7 @@ impl PrimitiveTyped<'_> {
             .scalar_at(idx)?
             .as_primitive()
             .pvalue()
-            .unwrap_or_else(|| PValue::zero(self.ptype())))
+            .unwrap_or_else(|| PValue::zero(&self.ptype())))
     }
 }
 
@@ -150,13 +150,13 @@ impl IndexOrd<PValue> for PrimitiveTyped<'_> {
     }
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct Utf8Typed<'a>(&'a dyn Array);
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct BinaryTyped<'a>(&'a dyn Array);
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct DecimalTyped<'a>(&'a dyn Array);
 
 pub struct StructTyped<'a>(&'a dyn Array);
@@ -181,7 +181,7 @@ impl StructTyped<'_> {
     }
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct ListTyped<'a>(&'a dyn Array);
 
 pub struct ExtensionTyped<'a>(&'a dyn Array);

@@ -9,7 +9,9 @@ use futures::future::BoxFuture;
 use futures::try_join;
 use once_cell::sync::OnceCell;
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::Expression;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
@@ -98,7 +100,7 @@ impl ArrayFutureExt for ArrayFuture {
     fn masked(self, mask: MaskFuture) -> Self {
         Box::pin(async move {
             let (array, mask) = try_join!(self, mask)?;
-            vortex_array::compute::mask(array.as_ref(), &mask)
+            array.mask(mask.into_array())
         })
     }
 }

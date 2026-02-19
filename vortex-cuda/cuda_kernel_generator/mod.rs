@@ -81,6 +81,41 @@ fn generate_lane_decoder<T: FastLanes, W: Write>(
     writeln!(output, "}}")
 }
 
+/// Generate a runtime dispatch function that routes
+/// to the appropriate bit-width-specific lane decoder.
+fn generate_lane_dispatch<T: FastLanes, W: Write>(
+    output: &mut IndentedWriter<W>,
+) -> io::Result<()> {
+    let bits = <T>::T;
+
+    writeln!(
+        output,
+        "/// Runtime dispatch to the optimized lane decoder for the given bit width."
+    )?;
+    writeln!(output, "__device__ inline void bit_unpack_{bits}_lane(")?;
+    writeln!(output, "    const uint{bits}_t *__restrict in,")?;
+    writeln!(output, "    uint{bits}_t *__restrict out,")?;
+    writeln!(output, "    unsigned int lane,")?;
+    writeln!(output, "    uint32_t bit_width")?;
+    writeln!(output, ") {{")?;
+
+    output.indent(|output| {
+        writeln!(output, "switch (bit_width) {{")?;
+        output.indent(|output| {
+            for bw in 0..=bits {
+                writeln!(
+                    output,
+                    "case {bw}: _bit_unpack_{bits}_{bw}bw_lane(in, out, lane); break;"
+                )?;
+            }
+            Ok(())
+        })?;
+        writeln!(output, "}}")
+    })?;
+
+    writeln!(output, "}}")
+}
+
 fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
     output: &mut IndentedWriter<W>,
     bit_width: usize,
@@ -89,6 +124,7 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
     let bits = <T>::T;
     let lanes = T::LANES;
     let per_thread_loop_count = lanes / thread_count;
+    let shared_copy_ncount = 1024 / thread_count;
 
     let func_name = format!("bit_unpack_{bits}_{bit_width}bw_{thread_count}t");
 
@@ -99,10 +135,18 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
     writeln!(output, "__device__ void _{func_name}{local_func_params} {{")?;
 
     output.indent(|output| {
+        writeln!(output, "__shared__ uint{bits}_t shared_out[1024];")?;
+
         for thread_lane in 0..per_thread_loop_count {
-            writeln!(output, "_bit_unpack_{bits}_{bit_width}bw_lane(in, out, thread_idx * {per_thread_loop_count} + {thread_lane});")?;
+            writeln!(output, "_bit_unpack_{bits}_{bit_width}bw_lane(in, shared_out, thread_idx * {per_thread_loop_count} + {thread_lane});")?;
         }
-        Ok(())
+
+        writeln!(output, "for (int i = 0; i < {shared_copy_ncount}; i++) {{")?;
+        output.indent(|output| {
+            writeln!(output, "auto idx = i * {thread_count} + thread_idx;")?;
+            writeln!(output, "out[idx] = shared_out[idx];")
+        })?;
+        writeln!(output, "}}")
     })?;
 
     writeln!(output, "}}")
@@ -138,13 +182,13 @@ fn generate_global_kernel_for_width<T: FastLanes, W: Write>(
     writeln!(output, "}}")
 }
 
-/// # Errors
-///
-/// Will return Err if writing to the underlying writer fails.
+/// Generate CUDA lane decoders, dispatch function, and kernel wrappers for all bit widths.
 pub fn generate_cuda_unpack_for_width<T: FastLanes, W: Write>(
     output: &mut IndentedWriter<W>,
     thread_count: usize,
 ) -> io::Result<()> {
+    let bits = <T>::T;
+
     writeln!(output, "// AUTO-GENERATED. Do not edit by hand!")?;
     writeln!(output, "#include <cuda.h>")?;
     writeln!(output, "#include <cuda_runtime.h>")?;
@@ -152,9 +196,18 @@ pub fn generate_cuda_unpack_for_width<T: FastLanes, W: Write>(
     writeln!(output, "#include \"fastlanes_common.cuh\"")?;
     writeln!(output)?;
 
-    for bit_width in 0..=<T>::T {
+    // First, emit all lane decoders.
+    for bit_width in 0..=bits {
         generate_lane_decoder::<T, _>(output, bit_width)?;
         writeln!(output)?;
+    }
+
+    // Emit the runtime lane dispatch function (used by dynamic_dispatch.cu).
+    generate_lane_dispatch::<T, _>(output)?;
+    writeln!(output)?;
+
+    // Emit device and global kernel wrappers.
+    for bit_width in 0..=bits {
         generate_device_kernel_for_width::<T, _>(output, bit_width, thread_count)?;
         writeln!(output)?;
 

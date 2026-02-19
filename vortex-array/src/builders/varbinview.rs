@@ -16,22 +16,20 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::BinaryScalar;
-use vortex_scalar::Scalar;
-use vortex_scalar::Utf8Scalar;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::BinaryView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::compact::BufferUtilization;
 use crate::builders::ArrayBuilder;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::scalar::Scalar;
 
 /// The builder for building a [`VarBinViewArray`].
 pub struct VarBinViewBuilder {
@@ -252,20 +250,14 @@ impl ArrayBuilder for VarBinViewBuilder {
         );
 
         match self.dtype() {
-            DType::Utf8(_) => {
-                let utf8_scalar = Utf8Scalar::try_from(scalar)?;
-                match utf8_scalar.value() {
-                    Some(value) => self.append_value(value),
-                    None => self.append_null(),
-                }
-            }
-            DType::Binary(_) => {
-                let binary_scalar = BinaryScalar::try_from(scalar)?;
-                match binary_scalar.value() {
-                    Some(value) => self.append_value(value),
-                    None => self.append_null(),
-                }
-            }
+            DType::Utf8(_) => match scalar.as_utf8().value() {
+                Some(value) => self.append_value(value),
+                None => self.append_null(),
+            },
+            DType::Binary(_) => match scalar.as_binary().value() {
+                Some(value) => self.append_value(value),
+                None => self.append_null(),
+            },
             _ => vortex_bail!(
                 "VarBinViewBuilder can only handle Utf8 or Binary scalars, got {:?}",
                 scalar.dtype()
@@ -937,7 +929,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        use vortex_scalar::Scalar;
+        use crate::scalar::Scalar;
 
         // Test with Utf8 builder.
         let mut utf8_builder =
@@ -1028,7 +1020,13 @@ mod tests {
         assert_eq!(array.len(), 1);
 
         // Verify the value was stored correctly
-        let retrieved = array.scalar_at(0).unwrap().as_binary().value().unwrap();
+        let retrieved = array
+            .scalar_at(0)
+            .unwrap()
+            .as_binary()
+            .value()
+            .cloned()
+            .unwrap();
         assert_eq!(retrieved.len(), 8192);
         assert_eq!(retrieved.as_slice(), &large_value);
     }

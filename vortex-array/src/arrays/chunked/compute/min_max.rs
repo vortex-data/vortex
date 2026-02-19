@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
@@ -14,6 +13,7 @@ use crate::compute::min_max;
 use crate::partial_ord::partial_max;
 use crate::partial_ord::partial_min;
 use crate::register_kernel;
+use crate::scalar::Scalar;
 
 impl MinMaxKernel for ChunkedVTable {
     fn min_max(&self, array: &ChunkedArray) -> VortexResult<Option<MinMaxResult>> {

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_scalar::NumericOperator;
 
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
@@ -12,6 +11,7 @@ use crate::compute::IsConstantOpts;
 use crate::compute::is_constant;
 use crate::compute::numeric;
 use crate::register_kernel;
+use crate::scalar::NumericOperator;
 
 const SMALL_ARRAY_THRESHOLD: usize = 64;
 

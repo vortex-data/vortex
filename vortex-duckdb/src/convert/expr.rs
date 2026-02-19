@@ -5,9 +5,6 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use tracing::debug;
-use vortex::compute::BetweenOptions;
-use vortex::compute::LikeOptions;
-use vortex::compute::StrictComparison;
 use vortex::dtype::Nullability;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
@@ -15,11 +12,14 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::Between;
+use vortex::expr::BetweenOptions;
 use vortex::expr::Binary;
 use vortex::expr::Expression;
 use vortex::expr::Like;
+use vortex::expr::LikeOptions;
 use vortex::expr::Literal;
 use vortex::expr::Operator;
+use vortex::expr::StrictComparison;
 use vortex::expr::VTableExt;
 use vortex::expr::and_collect;
 use vortex::expr::col;
@@ -51,10 +51,7 @@ pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Opt
         return Ok(None);
     };
     Ok(Some(match value {
-        duckdb::ExpressionClass::BoundColumnRef(col_ref) => col(col_ref
-            .name
-            .to_str()
-            .map_err(|e| vortex_err!("invalid utf-8: {e}"))?),
+        duckdb::ExpressionClass::BoundColumnRef(col_ref) => col(col_ref.name.as_ref()),
         duckdb::ExpressionClass::BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
         duckdb::ExpressionClass::BoundComparison(compare) => {
             let operator: Operator = compare.op.try_into()?;

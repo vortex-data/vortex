@@ -21,8 +21,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::ListScalar;
-use vortex_scalar::Scalar;
 
 use crate::Canonical;
 use crate::ToCanonical;
@@ -38,7 +36,9 @@ use crate::builders::PrimitiveBuilder;
 use crate::builders::UninitRange;
 use crate::builders::builder_with_capacity;
 use crate::builders::lazy_null_builder::LazyBitBufferBuilder;
-use crate::compute;
+use crate::builtins::ArrayBuiltins;
+use crate::scalar::ListScalar;
+use crate::scalar::Scalar;
 
 /// A builder for creating [`ListViewArray`] instances, parameterized by the [`IntegerPType`] of
 /// the `offsets` and the `sizes` builders.
@@ -337,9 +337,13 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         self.offsets_builder.reserve_exact(extend_length);
 
         // The incoming sizes might have a different type than the builder, so we need to cast.
-        let cast_sizes = compute::cast(listview.sizes(), self.sizes_builder.dtype()).vortex_expect(
-            "was somehow unable to cast the new sizes to the type of the builder sizes",
-        );
+        let cast_sizes = listview
+            .sizes()
+            .to_array()
+            .cast(self.sizes_builder.dtype().clone())
+            .vortex_expect(
+                "was somehow unable to cast the new sizes to the type of the builder sizes",
+            );
         self.sizes_builder.extend_from_array(cast_sizes.as_ref());
 
         // Now we need to adjust all of the offsets by adding the current number of elements in the
@@ -429,7 +433,6 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType::I32;
-    use vortex_scalar::Scalar;
 
     use super::ListViewBuilder;
     use crate::IntoArray;
@@ -438,6 +441,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::scalar::Scalar;
     use crate::vtable::ValidityHelper;
 
     #[test]

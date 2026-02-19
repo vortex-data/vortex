@@ -3,16 +3,17 @@
 
 use std::ops::BitAnd;
 
+use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
-use vortex_scalar::Scalar;
 
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::register_kernel;
+use crate::scalar::Scalar;
 
 impl SumKernel for BoolVTable {
     fn sum(&self, array: &BoolArray, accumulator: &Scalar) -> VortexResult<Scalar> {
@@ -30,13 +31,15 @@ impl SumKernel for BoolVTable {
             }
         };
 
-        let accumulator = accumulator
+        let acc_value = accumulator
             .as_primitive()
             .as_::<u64>()
             .vortex_expect("cannot be null");
-        Ok(Scalar::from(
-            true_count.and_then(|tc| accumulator.checked_add(tc)),
-        ))
+        let result = true_count.and_then(|tc| acc_value.checked_add(tc));
+        Ok(match result {
+            Some(v) => Scalar::primitive(v, Nullability::Nullable),
+            None => Scalar::null_native::<u64>(),
+        })
     }
 }
 

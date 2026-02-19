@@ -45,8 +45,12 @@ jobs:
         benchmark:
           - id: random-access-bench
             name: Random Access
+            build_args: "--features lance"
+            formats: "parquet,lance,vortex"
           - id: compress-bench
             name: Compression
+            build_args: "--features lance"
+            formats: "parquet,lance,vortex"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -62,28 +66,30 @@ jobs:
           chmod +x duckdb
           echo "$PWD" >> $GITHUB_PATH
 
+      - uses: ./.github/actions/system-info
+
       - name: Build binary
         shell: bash
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug --features lance
+          cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }}
 
       - name: Setup Polar Signals
-        uses: polarsignals/gh-actions-ps-profiling@v0.7.0
+        uses: polarsignals/gh-actions-ps-profiling@v0.8.1
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}"
-          parca_agent_version: "0.45.0"
           project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
-          extra_args: "--off-cpu-threshold=0.001"  # Personally tuned by @brancz
+          profiling_frequency: 199
+          extra_args: "--off-cpu-threshold=0.03"  # Personally tuned by @brancz
 
       - name: Run ${{ matrix.benchmark.name }} benchmark
         shell: bash
         env:
           RUST_BACKTRACE: full
         run: |
-          target/release_debug/${{ matrix.benchmark.id }} --formats parquet,lance,vortex -d gh-json -o results.json
+          target/release_debug/${{ matrix.benchmark.id }} --formats ${{ matrix.benchmark.formats }} -d gh-json -o results.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v5
@@ -95,6 +101,14 @@ jobs:
         shell: bash
         run: |
           bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz results.json
+
+      - name: Alert incident.io
+        if: failure()
+        uses: ./.github/actions/alert-incident-io
+        with:
+          api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+          alert-title: "${{ matrix.benchmark.name }} benchmark failed on develop"
+          deduplication-key: ci-bench-${{ matrix.benchmark.id }}-failure
 
   sql:
     uses: ./.github/workflows/sql-benchmarks.yml
@@ -172,5 +186,12 @@ jobs:
             "local_dir": "vortex-bench/data/fineweb",
             "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/fineweb/",
             "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact"
+          },
+          {
+            "id": "polarsignals",
+            "subcommand": "polarsignals",
+            "name": "PolarSignals Profiling",
+            "targets": "datafusion:vortex",
+            "scale_factor": "1"
           },
         ]

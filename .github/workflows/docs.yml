@@ -10,7 +10,9 @@ on:
   workflow_dispatch: { }
 
 permissions:
-  contents: read
+  # Weirdly, we need write permissions to see draft releases.
+  # See https://github.com/cli/cli/issues/3037
+  contents: write
 
 jobs:
   build:
@@ -32,6 +34,12 @@ jobs:
         with:
           sync: false
           prune-cache: false
+      - name: Generate changelog from GitHub releases
+        run: uv run --no-project docs/generate_changelog.py
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Doxygen
+        uses: ssciwr/doxygen-install@v1
       - name: Generate Javadoc for Java projects
         run: |
           cd java

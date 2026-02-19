@@ -8,9 +8,13 @@ use vortex_array::arrays::AnyScalarFn;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ConstantVTable;
 use vortex_array::arrays::FilterArray;
+use vortex_array::arrays::FilterReduceAdaptor;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::CastReduceAdaptor;
+use vortex_array::compute::MaskReduceAdaptor;
 use vortex_array::expr::Between;
 use vortex_array::expr::Binary;
 use vortex_array::optimizer::ArrayOptimizer;
@@ -28,6 +32,10 @@ use crate::timestamp;
 pub(crate) const PARENT_RULES: ParentRuleSet<DateTimePartsVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DTPFilterPushDownRule),
     ParentRuleSet::lift(&DTPComparisonPushDownRule),
+    ParentRuleSet::lift(&CastReduceAdaptor(DateTimePartsVTable)),
+    ParentRuleSet::lift(&FilterReduceAdaptor(DateTimePartsVTable)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(DateTimePartsVTable)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(DateTimePartsVTable)),
 ]);
 
 /// Push the filter into the days column of a date time parts, we could extend this to other fields
@@ -143,7 +151,7 @@ fn try_extract_days_constant(array: &ArrayRef) -> Option<i64> {
     // Extract the timestamp value
     let timestamp = constant
         .as_extension()
-        .storage()
+        .to_storage_scalar()
         .as_primitive()
         .as_::<i64>()?;
 
@@ -167,7 +175,7 @@ fn try_extract_days_constant(array: &ArrayRef) -> Option<i64> {
 fn is_constant_zero(array: &ArrayRef) -> bool {
     array
         .as_opt::<ConstantVTable>()
-        .is_some_and(|c| c.scalar().is_zero())
+        .is_some_and(|c| c.scalar().is_zero() == Some(true))
 }
 
 #[cfg(test)]
@@ -175,15 +183,15 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::ScalarFnArrayExt;
     use vortex_array::arrays::TemporalArray;
-    use vortex_array::compute::BetweenOptions;
-    use vortex_array::compute::StrictComparison;
+    use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::Operator;
+    use vortex_array::expr::StrictComparison;
     use vortex_array::optimizer::ArrayOptimizer;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_dtype::datetime::TimeUnit;
     use vortex_dtype::datetime::TimestampOptions;
-    use vortex_scalar::Scalar;
 
     use super::*;
 

@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Range;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
@@ -26,6 +25,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::build_views::BinaryView;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::compute::filter;
+use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -33,13 +33,13 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
 use vortex_array::vtable::VisitorVTable;
+use vortex_array::vtable::validity_nchildren;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -54,7 +54,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
-use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
 use crate::ZstdFrameMetadata;
 use crate::ZstdMetadata;
@@ -92,7 +92,6 @@ impl VTable for ZstdVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -106,8 +105,14 @@ impl VTable for ZstdVTable {
         Ok(Some(metadata.0.encode_to_vec()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(ZstdMetadata::decode(buffer)?))
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(ZstdMetadata::decode(bytes)?))
     }
 
     fn build(
@@ -172,12 +177,16 @@ impl VTable for ZstdVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         array.decompress()?.execute(ctx)
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(array._slice(range.start, range.end).into_array()))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        crate::rules::RULES.evaluate(array, parent, child_idx)
     }
 }
 
@@ -280,6 +289,7 @@ pub fn reconstruct_views(buffer: &ByteBuffer) -> Buffer<BinaryView> {
                 .get(offset..offset + size_of::<ViewLen>())
                 .vortex_expect("corrupted zstd length")
                 .try_into()
+                .ok()
                 .vortex_expect("must fit ViewLen size"),
         ) as usize;
         offset += size_of::<ViewLen>();
@@ -638,11 +648,10 @@ impl ZstdArray {
 
         // then we actually decompress those frames
         let mut decompressor = if let Some(dictionary) = &self.dictionary {
-            zstd::bulk::Decompressor::with_dictionary(dictionary)
+            zstd::bulk::Decompressor::with_dictionary(dictionary)?
         } else {
-            zstd::bulk::Decompressor::new()
-        }
-        .vortex_expect("Decompressor encountered io error");
+            zstd::bulk::Decompressor::new()?
+        };
         let mut decompressed = ByteBufferMut::with_capacity_aligned(
             uncompressed_size_to_decompress,
             Alignment::new(byte_width),
@@ -655,8 +664,7 @@ impl ZstdArray {
         let mut uncompressed_start = 0;
         for frame in frames_to_decompress {
             let uncompressed_written = decompressor
-                .decompress_to_buffer(frame.as_slice(), &mut decompressed[uncompressed_start..])
-                .vortex_expect("error while decompressing zstd array");
+                .decompress_to_buffer(frame.as_slice(), &mut decompressed[uncompressed_start..])?;
             uncompressed_start += uncompressed_written;
         }
         if uncompressed_start != uncompressed_size_to_decompress {
@@ -907,7 +915,15 @@ impl VisitorVTable<ZstdVTable> for ZstdVTable {
         }
     }
 
+    fn nbuffers(array: &ZstdArray) -> usize {
+        array.dictionary.is_some() as usize + array.frames.len()
+    }
+
     fn visit_children(array: &ZstdArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(&array.unsliced_validity, array.unsliced_n_rows());
+    }
+
+    fn nchildren(array: &ZstdArray) -> usize {
+        validity_nchildren(&array.unsliced_validity)
     }
 }

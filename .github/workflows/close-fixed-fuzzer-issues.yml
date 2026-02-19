@@ -1,0 +1,62 @@
+name: Close Fixed Fuzzer Issues
+
+on:
+  schedule:
+    - cron: "0 0 * * 0"  # every Sunday at midnight UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run without closing issues (retest only)"
+        type: boolean
+        default: false
+
+permissions:
+  issues: write
+  contents: read
+  actions: read
+
+env:
+  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+
+jobs:
+  close-fixed:
+    name: "Retest ${{ matrix.target }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [file_io, array_ops, compress_roundtrip]
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m8g.large
+      - image=ubuntu24-full-arm64
+      - disk=large
+      - extras=s3-cache
+      - tag=fuzzer-cleanup-${{ matrix.target }}
+    timeout-minutes: 60
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+
+      - name: Install llvm
+        uses: aminya/setup-cpp@v1
+        with:
+          compiler: llvm
+
+      - name: Install cargo fuzz
+        run: cargo install --locked cargo-fuzz
+
+      - name: Retest and close fixed fuzzer issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          python3 .github/scripts/close_fixed_fuzzer_issues.py
+          --target ${{ matrix.target }}
+          ${{ inputs.dry_run && '--dry-run' || '' }}

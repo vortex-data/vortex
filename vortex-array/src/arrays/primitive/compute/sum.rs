@@ -7,17 +7,18 @@ use num_traits::Float;
 use num_traits::ToPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_dtype::NativePType;
+use vortex_dtype::Nullability;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
-use vortex_scalar::Scalar;
 
 use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::register_kernel;
+use crate::scalar::Scalar;
 
 impl SumKernel for PrimitiveVTable {
     fn sum(&self, array: &PrimitiveArray, accumulator: &Scalar) -> VortexResult<Scalar> {
@@ -26,9 +27,27 @@ impl SumKernel for PrimitiveVTable {
                 // All-valid
                 match_each_native_ptype!(
                     array.ptype(),
-                    unsigned: |T| { sum_integer::<_, u64>(array.as_slice::<T>(), accumulator.as_primitive().as_::<u64>().vortex_expect("cannot be null")).into() },
-                    signed: |T| { sum_integer::<_, i64>(array.as_slice::<T>(), accumulator.as_primitive().as_::<i64>().vortex_expect("cannot be null")).into() },
-                    floating: |T| { Some(sum_float(array.as_slice::<T>(), accumulator.as_primitive().as_::<f64>().vortex_expect("cannot be null"))).into() }
+                    unsigned: |T| {
+                        Scalar::from(sum_integer::<_, u64>(
+                            array.as_slice::<T>(),
+                            accumulator.as_primitive().as_::<u64>().vortex_expect("cannot be null"),
+                        ))
+                    },
+                    signed: |T| {
+                        Scalar::from(sum_integer::<_, i64>(
+                            array.as_slice::<T>(),
+                            accumulator.as_primitive().as_::<i64>().vortex_expect("cannot be null"),
+                        ))
+                    },
+                    floating: |T| {
+                        Scalar::primitive(
+                            sum_float(
+                                array.as_slice::<T>(),
+                                accumulator.as_primitive().as_::<f64>().vortex_expect("cannot be null"),
+                            ),
+                            Nullability::Nullable,
+                        )
+                    }
                 )
             }
             AllOr::None => {
@@ -40,13 +59,28 @@ impl SumKernel for PrimitiveVTable {
                 match_each_native_ptype!(
                     array.ptype(),
                     unsigned: |T| {
-                        sum_integer_with_validity::<_, u64>(array.as_slice::<T>(), validity_mask, accumulator.as_primitive().as_::<u64>().vortex_expect("cannot be null")).into()
+                        Scalar::from(sum_integer_with_validity::<_, u64>(
+                            array.as_slice::<T>(),
+                            validity_mask,
+                            accumulator.as_primitive().as_::<u64>().vortex_expect("cannot be null"),
+                        ))
                     },
                     signed: |T| {
-                        sum_integer_with_validity::<_, i64>(array.as_slice::<T>(), validity_mask, accumulator.as_primitive().as_::<i64>().vortex_expect("cannot be null")).into()
+                        Scalar::from(sum_integer_with_validity::<_, i64>(
+                            array.as_slice::<T>(),
+                            validity_mask,
+                            accumulator.as_primitive().as_::<i64>().vortex_expect("cannot be null"),
+                        ))
                     },
                     floating: |T| {
-                        Some(sum_float_with_validity(array.as_slice::<T>(), validity_mask, accumulator.as_primitive().as_::<f64>().vortex_expect("cannot be null"))).into()
+                        Scalar::primitive(
+                            sum_float_with_validity(
+                                array.as_slice::<T>(),
+                                validity_mask,
+                                accumulator.as_primitive().as_::<f64>().vortex_expect("cannot be null"),
+                            ),
+                            Nullability::Nullable,
+                        )
                     }
                 )
             }

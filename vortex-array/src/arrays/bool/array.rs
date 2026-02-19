@@ -60,7 +60,6 @@ pub struct BoolArray {
 }
 
 pub struct BoolArrayParts {
-    pub dtype: DType,
     pub bits: BufferHandle,
     pub offset: usize,
     pub len: usize,
@@ -196,7 +195,6 @@ impl BoolArray {
     #[inline]
     pub fn into_parts(self) -> BoolArrayParts {
         BoolArrayParts {
-            dtype: self.dtype,
             bits: self.bits,
             offset: self.offset,
             len: self.len,
@@ -219,14 +217,14 @@ impl BoolArray {
 
     /// Returns the underlying [`BitBuffer`] of the array.
     pub fn to_bit_buffer(&self) -> BitBuffer {
-        self.clone().into_bit_buffer()
+        let buffer = self.bits.as_host().clone();
+
+        BitBuffer::new_with_offset(buffer, self.len, self.offset)
     }
 
     /// Returns the underlying [`BitBuffer`] of the array
     pub fn into_bit_buffer(self) -> BitBuffer {
-        let buffer = self.bits.as_host().clone();
-
-        BitBuffer::new_with_offset(buffer, self.len, self.offset)
+        self.to_bit_buffer()
     }
 
     pub fn to_mask(&self) -> Mask {

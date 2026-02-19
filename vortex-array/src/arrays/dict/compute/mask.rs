@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use vortex_error::VortexResult;
+
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::DictArray;
+use crate::arrays::DictVTable;
+use crate::arrays::ScalarFnArrayExt;
+use crate::compute::MaskReduce;
+use crate::expr::EmptyOptions;
+use crate::expr::mask::Mask as MaskExpr;
+
+impl MaskReduce for DictVTable {
+    fn mask(array: &DictArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let masked_codes = MaskExpr.try_new_array(
+            array.codes().len(),
+            EmptyOptions,
+            [array.codes().clone(), mask.clone()],
+        )?;
+        // SAFETY: masking codes doesn't change dict invariants
+        Ok(Some(unsafe {
+            DictArray::new_unchecked(masked_codes, array.values().clone()).into_array()
+        }))
+    }
+}

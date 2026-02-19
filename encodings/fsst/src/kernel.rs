@@ -1,63 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
-use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::FilterArray;
-use vortex_array::arrays::FilterVTable;
-use vortex_array::arrays::VarBinVTable;
-use vortex_array::compute::FilterKernel;
-use vortex_array::compute::filter_preconditions;
-use vortex_array::kernel::ExecuteParentKernel;
+use vortex_array::arrays::FilterExecuteAdaptor;
+use vortex_array::arrays::TakeExecuteAdaptor;
+use vortex_array::expr::CompareExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
-use vortex_error::VortexResult;
 
-use crate::FSSTArray;
 use crate::FSSTVTable;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<FSSTVTable> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&FSSTFilterKernel)]);
-
-#[derive(Debug)]
-struct FSSTFilterKernel;
-
-impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
-    type Parent = FilterVTable;
-
-    fn execute_parent(
-        &self,
-        array: &FSSTArray,
-        parent: &FilterArray,
-        _child_idx: usize,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        // TODO(joe): add a pattern to adding checks to all filter impls
-        let mask = parent.filter_mask();
-        if let Some(array) = filter_preconditions(array.as_ref(), mask) {
-            return Ok(Some(array));
-        }
-        // TODO(ngates): pass execution context when we update the FilterKernel trait.
-        let filtered_codes =
-            FilterKernel::filter(&VarBinVTable, array.codes(), parent.filter_mask())?
-                .as_::<VarBinVTable>()
-                .clone();
-
-        Ok(Some(
-            FSSTArray::try_new(
-                array.dtype().clone(),
-                array.symbols().clone(),
-                array.symbol_lengths().clone(),
-                filtered_codes,
-                array
-                    .uncompressed_lengths()
-                    .filter(parent.filter_mask().clone())?,
-            )?
-            .into_array(),
-        ))
-    }
-}
+pub(super) const PARENT_KERNELS: ParentKernelSet<FSSTVTable> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&CompareExecuteAdaptor(FSSTVTable)),
+    ParentKernelSet::lift(&FilterExecuteAdaptor(FSSTVTable)),
+    ParentKernelSet::lift(&TakeExecuteAdaptor(FSSTVTable)),
+]);
 
 #[cfg(test)]
 mod tests {

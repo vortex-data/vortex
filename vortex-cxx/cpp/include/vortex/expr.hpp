@@ -8,7 +8,6 @@
 #include <vector>
 
 namespace vortex::expr {
-using scalar::Scalar;
 class Expr {
 public:
     Expr() = delete;
@@ -33,7 +32,7 @@ private:
     rust::Box<ffi::Expr> impl_;
 };
 
-Expr literal(Scalar scalar);
+Expr literal(scalar::Scalar scalar);
 Expr root();
 Expr column(std::string_view name);
 Expr get_item(std::string_view field, Expr expr);

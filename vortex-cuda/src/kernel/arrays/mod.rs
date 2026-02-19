@@ -3,6 +3,8 @@
 
 mod constant;
 mod dict;
+mod shared;
 
-pub use constant::ConstantNumericExecutor;
-pub use dict::DictExecutor;
+pub(crate) use constant::ConstantNumericExecutor;
+pub(crate) use dict::DictExecutor;
+pub(crate) use shared::SharedExecutor;

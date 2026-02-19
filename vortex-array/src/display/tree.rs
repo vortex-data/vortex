@@ -6,6 +6,7 @@ use std::fmt::{self};
 
 use humansize::DECIMAL;
 use humansize::format_size;
+use vortex_error::VortexExpect as _;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -115,88 +116,136 @@ impl fmt::Display for StatsDisplay<'_> {
     }
 }
 
-pub(crate) struct TreeDisplayWrapper(pub(crate) ArrayRef);
+#[derive(Clone)]
+pub(crate) struct TreeDisplayWrapper {
+    pub(crate) array: ArrayRef,
+    pub(crate) buffers: bool,
+    pub(crate) metadata: bool,
+    pub(crate) stats: bool,
+}
 
 impl fmt::Display for TreeDisplayWrapper {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let TreeDisplayWrapper {
+            array,
+            buffers,
+            metadata,
+            stats,
+        } = self.clone();
         let mut array_fmt = TreeFormatter {
             fmt,
             indent: "".to_string(),
-            total_size: None,
+            ancestor_sizes: Vec::new(),
+            buffers,
+            metadata,
+            stats,
         };
-        array_fmt.format("root", self.0.clone())
+        array_fmt.format("root", array)
     }
 }
 
 pub struct TreeFormatter<'a, 'b: 'a> {
     fmt: &'a mut fmt::Formatter<'b>,
     indent: String,
-    total_size: Option<u64>,
+    ancestor_sizes: Vec<Option<u64>>,
+    buffers: bool,
+    metadata: bool,
+    stats: bool,
 }
 
 impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
     fn format(&mut self, name: &str, array: ArrayRef) -> fmt::Result {
-        let nbytes = array.nbytes();
-        let total_size = self.total_size.unwrap_or(nbytes);
-        let percent = if total_size == 0 {
-            0.0
-        } else {
-            100_f64 * nbytes as f64 / total_size as f64
-        };
+        if self.stats {
+            let nbytes = array.nbytes();
+            let total_size = self
+                .ancestor_sizes
+                .last()
+                .cloned()
+                .flatten()
+                .unwrap_or(nbytes);
 
-        writeln!(
-            self,
-            "{}: {} nbytes={} ({:.2}%){}",
-            name,
-            array.display_as(DisplayOptions::MetadataOnly),
-            format_size(nbytes, DECIMAL),
-            percent,
-            StatsDisplay(array.as_ref()),
-        )?;
+            self.ancestor_sizes.push(if array.is::<ChunkedVTable>() {
+                // Treat each chunk as a new root
+                None
+            } else {
+                // Children will present themselves as a percentage of our size.
+                Some(nbytes)
+            });
+            let percent = if total_size == 0 {
+                0.0
+            } else {
+                100_f64 * nbytes as f64 / total_size as f64
+            };
+
+            writeln!(
+                self,
+                "{}: {} nbytes={} ({:.2}%){}",
+                name,
+                array.display_as(DisplayOptions::MetadataOnly),
+                format_size(nbytes, DECIMAL),
+                percent,
+                StatsDisplay(array.as_ref()),
+            )?;
+        } else {
+            writeln!(
+                self,
+                "{}: {}",
+                name,
+                array.display_as(DisplayOptions::MetadataOnly)
+            )?;
+        }
 
         self.indent(|i| {
-            write!(i, "metadata: ")?;
-            array.metadata_fmt(i.fmt)?;
-            writeln!(i.fmt)?;
+            if i.metadata {
+                write!(i, "metadata: ")?;
+                array.metadata_fmt(i.fmt)?;
+                writeln!(i.fmt)?;
+            }
 
-            for (name, buffer) in array.named_buffers() {
-                let buffer_percent = if nbytes == 0 {
-                    0.0
-                } else {
-                    100_f64 * buffer.len() as f64 / nbytes as f64
-                };
-                let loc = if buffer.is_on_device() {
-                    "device"
-                } else if buffer.is_on_host() {
-                    "host"
-                } else {
-                    "location-unknown"
-                };
-                let align = if buffer.is_on_host() {
-                    buffer.as_host().alignment().to_string()
-                } else {
-                    "".to_string()
-                };
-                writeln!(
-                    i,
-                    "buffer: {} {loc} {} (align={}) ({:.2}%)",
-                    name,
-                    format_size(buffer.len(), DECIMAL),
-                    align,
-                    buffer_percent
-                )?;
+            if i.buffers {
+                let nbytes = array.nbytes();
+                for (name, buffer) in array.named_buffers() {
+                    let loc = if buffer.is_on_device() {
+                        "device"
+                    } else if buffer.is_on_host() {
+                        "host"
+                    } else {
+                        "location-unknown"
+                    };
+                    let align = if buffer.is_on_host() {
+                        buffer.as_host().alignment().to_string()
+                    } else {
+                        "".to_string()
+                    };
+
+                    if i.stats {
+                        let buffer_percent = if nbytes == 0 {
+                            0.0
+                        } else {
+                            100_f64 * buffer.len() as f64 / nbytes as f64
+                        };
+                        writeln!(
+                            i,
+                            "buffer: {} {loc} {} (align={}) ({:.2}%)",
+                            name,
+                            format_size(buffer.len(), DECIMAL),
+                            align,
+                            buffer_percent
+                        )?;
+                    } else {
+                        writeln!(
+                            i,
+                            "buffer: {} {loc} {} (align={})",
+                            name,
+                            format_size(buffer.len(), DECIMAL),
+                            align,
+                        )?;
+                    }
+                }
             }
 
             Ok(())
         })?;
-
-        let old_total_size = self.total_size;
-        if array.is::<ChunkedVTable>() {
-            // Clear the total size so each chunk is treated as a new root.
-            self.total_size = None
-        } else {
-            self.total_size = Some(nbytes);
-        }
 
         self.indent(|i| {
             for (name, child) in array
@@ -209,7 +258,13 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
             Ok(())
         })?;
 
-        self.total_size = old_total_size;
+        if self.stats {
+            let _ = self
+                .ancestor_sizes
+                .pop()
+                .vortex_expect("pushes and pops are matched");
+        }
+
         Ok(())
     }
 

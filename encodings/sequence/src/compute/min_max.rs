@@ -5,9 +5,9 @@ use vortex_array::compute::MinMaxKernel;
 use vortex_array::compute::MinMaxKernelAdapter;
 use vortex_array::compute::MinMaxResult;
 use vortex_array::register_kernel;
+use vortex_array::scalar::Scalar;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::SequenceArray;
 use crate::array::SequenceVTable;

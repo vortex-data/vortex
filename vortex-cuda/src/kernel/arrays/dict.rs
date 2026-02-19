@@ -6,6 +6,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
+use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::DecimalArray;
@@ -15,14 +16,16 @@ use vortex_array::arrays::DictArrayParts;
 use vortex_array::arrays::DictVTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::VarBinViewArrayParts;
 use vortex_array::buffer::BufferHandle;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::DType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_native_simd_ptype;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -32,14 +35,14 @@ use crate::CudaDeviceBuffer;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel_impl;
 
 /// CUDA executor for dictionary-encoded arrays.
 #[derive(Debug)]
-pub struct DictExecutor;
+pub(crate) struct DictExecutor;
 
 #[async_trait]
 impl CudaExecute for DictExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -54,6 +57,7 @@ impl CudaExecute for DictExecutor {
         match &values_dtype {
             DType::Decimal(..) => execute_dict_decimal(dict_array, ctx).await,
             DType::Primitive(..) => execute_dict_prim(dict_array, ctx).await,
+            DType::Utf8(..) | DType::Binary(..) => execute_dict_varbinview(dict_array, ctx).await,
             dt => vortex_bail!("unsupported decompress for DType={dt}"),
         }
     }
@@ -75,7 +79,7 @@ async fn execute_dict_prim(dict: DictArray, ctx: &mut CudaExecutionCtx) -> Vorte
 
     // Dispatch based on both value type and code type
     match_each_native_simd_ptype!(values_ptype, |V| {
-        match_each_unsigned_integer_ptype!(codes_ptype, |I| {
+        match_each_integer_ptype!(codes_ptype, |I| {
             execute_dict_prim_typed::<V, I>(values_prim, codes_prim, ctx).await
         })
     })
@@ -102,17 +106,8 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
     } = codes.into_parts();
 
     // Get device buffers for values and codes
-    let values_device = if values_buffer.is_on_device() {
-        values_buffer
-    } else {
-        ctx.move_to_device::<V>(values_buffer)?.await?
-    };
-
-    let codes_device = if codes_buffer.is_on_device() {
-        codes_buffer
-    } else {
-        ctx.move_to_device::<I>(codes_buffer)?.await?
-    };
+    let values_device = ctx.ensure_on_device(values_buffer).await?;
+    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
 
     // Allocate output buffer on device
     let output_slice = ctx.device_alloc::<V>(codes_len)?;
@@ -124,15 +119,14 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
     let output_view = output_device.as_view::<V>();
 
     let codes_len_u64 = codes_len as u64;
-    // Launch the dict kernel
-    let _cuda_events = crate::launch_cuda_kernel!(
-        execution_ctx: ctx,
-        module: "dict",
-        ptypes: &[value_ptype, I::PTYPE],
-        launch_args: [codes_view, codes_len_u64, values_view, output_view],
-        event_recording: cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING,
-        array_len: codes_len
-    );
+
+    let kernel_function = ctx.load_function_ptype("dict", &[value_ptype, I::PTYPE])?;
+    ctx.launch_kernel(&kernel_function, codes_len, |args| {
+        args.arg(&codes_view)
+            .arg(&codes_len_u64)
+            .arg(&values_view)
+            .arg(&output_view);
+    })?;
 
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         BufferHandle::new_device(Arc::new(output_device)),
@@ -165,7 +159,7 @@ async fn execute_dict_decimal(
     let decimal_type = values_decimal.values_type();
 
     match_each_decimal_value_type!(decimal_type, |V| {
-        match_each_unsigned_integer_ptype!(codes_ptype, |C| {
+        match_each_integer_ptype!(codes_ptype, |C| {
             execute_dict_decimal_typed::<V, C>(values_decimal, codes_prim, dtype, ctx).await
         })
     })
@@ -183,9 +177,7 @@ async fn execute_dict_decimal_typed<
 ) -> VortexResult<Canonical> {
     assert!(!codes.is_empty());
     let codes_len = codes.len();
-    if codes_len == 0 {
-        vortex_bail!("Cannot execute dict on empty codes array");
-    }
+    let codes_len_u64 = codes_len as u64;
 
     let DecimalArrayParts {
         values: values_buffer,
@@ -200,18 +192,8 @@ async fn execute_dict_decimal_typed<
     } = codes.into_parts();
 
     // Copy buffers to device if needed
-    // Note: We use u8 for the buffer type since we're treating these as raw bytes
-    let values_device = if values_buffer.is_on_device() {
-        values_buffer
-    } else {
-        ctx.move_to_device::<V>(values_buffer)?.await?
-    };
-
-    let codes_device = if codes_buffer.is_on_device() {
-        codes_buffer
-    } else {
-        ctx.move_to_device::<C>(codes_buffer)?.await?
-    };
+    let values_device = ctx.ensure_on_device(values_buffer).await?;
+    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
 
     // Allocate output buffer on device (codes_len * value_byte_width bytes)
     let output_slice = ctx.device_alloc::<V>(codes_len)?;
@@ -227,18 +209,13 @@ async fn execute_dict_decimal_typed<
         "dict",
         &[&V::DECIMAL_TYPE.to_string(), &C::PTYPE.to_string()],
     )?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
 
-    launch_builder.arg(&codes_view);
-    launch_builder.arg(&codes_len);
-    launch_builder.arg(&values_view);
-    launch_builder.arg(&output_view);
-
-    let _cuda_events = launch_cuda_kernel_impl(
-        &mut launch_builder,
-        cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING,
-        codes_len,
-    )?;
+    ctx.launch_kernel(&cuda_function, codes_len, |args| {
+        args.arg(&codes_view)
+            .arg(&codes_len_u64)
+            .arg(&values_view)
+            .arg(&output_view);
+    })?;
 
     Ok(Canonical::Decimal(DecimalArray::new_handle(
         BufferHandle::new_device(Arc::new(output_device)),
@@ -248,12 +225,88 @@ async fn execute_dict_decimal_typed<
     )))
 }
 
+/// Dictionary array decompression for string (UTF-8/Binary) values.
+///
+/// Reinterprets the dictionary's `BinaryView` buffer as `i128` values and gathers
+/// them by code index. Both inlined (≤ 12 bytes) and outlined (> 12 bytes) views
+/// are supported. For outlined views, the output shares the values' data buffers.
+async fn execute_dict_varbinview(
+    dict: DictArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Canonical> {
+    let DictArrayParts {
+        values,
+        codes,
+        dtype,
+        ..
+    } = dict.into_parts();
+
+    let codes_prim = codes.execute_cuda(ctx).await?.into_primitive();
+    let codes_ptype = codes_prim.ptype();
+    let codes_len = codes_prim.len();
+    let values_vbv = values.execute_cuda(ctx).await?.into_varbinview();
+
+    let VarBinViewArrayParts {
+        views: values_views_handle,
+        buffers: values_data_buffers,
+        validity: values_validity,
+        ..
+    } = values_vbv.into_parts();
+    let output_validity = values_validity.take(codes_prim.as_ref())?;
+
+    let PrimitiveArrayParts {
+        buffer: codes_buffer,
+        ..
+    } = codes_prim.into_parts();
+
+    // Move buffers to device if needed.
+    let values_device = ctx.ensure_on_device(values_views_handle).await?;
+    let codes_device = ctx.ensure_on_device(codes_buffer).await?;
+
+    // Allocate output: one i128 per code.
+    let output_slice = ctx.device_alloc::<i128>(codes_len)?;
+    let output_device = CudaDeviceBuffer::new(output_slice);
+
+    // Dispatch by code type, reusing the existing dict_i128_<code_type> kernel.
+    // BinaryView is repr(C, align(16)) and 16 bytes — identical layout to i128.
+    match_each_integer_ptype!(codes_ptype, |C| {
+        let values_view = values_device.cuda_view::<i128>()?;
+        let codes_view = codes_device.cuda_view::<C>()?;
+        let output_view = output_device.as_view::<i128>();
+
+        let codes_ptype_str = C::PTYPE.to_string();
+        let cuda_function = ctx.load_function("dict", &["i128", &codes_ptype_str])?;
+
+        let codes_len_u64 = codes_len as u64;
+
+        ctx.launch_kernel(&cuda_function, codes_len, |args| {
+            args.arg(&codes_view);
+            args.arg(&codes_len_u64);
+            args.arg(&values_view);
+            args.arg(&output_view);
+        })?;
+    });
+
+    // Output views gathered by the kernel share the values' data buffers.
+    // Outlined views reference into these buffers via buffer_index + offset,
+    // and inlined views are self-contained within the 16-byte view.
+    Ok(Canonical::VarBinView(unsafe {
+        VarBinViewArray::new_handle_unchecked(
+            BufferHandle::new_device(Arc::new(output_device)),
+            values_data_buffers,
+            dtype,
+            output_validity,
+        )
+    }))
+}
+
 #[cuda_tests]
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity::NonNullable;
     use vortex_buffer::Buffer;
@@ -263,6 +316,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
     /// Copy a CUDA primitive array result to host memory.
@@ -381,7 +435,7 @@ mod tests {
         let values: Vec<u32> = (0..256).map(|i| i * 1000).collect();
         let values_array = PrimitiveArray::new(Buffer::from(values), NonNullable);
 
-        let codes: Vec<u16> = (0..5000).map(|i| (i % 256) as u16).collect();
+        let codes: Vec<u16> = (0..2050).map(|i| (i % 256) as u16).collect();
         let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
 
         let dict_array = DictArray::try_new(codes_array.into_array(), values_array.into_array())
@@ -404,8 +458,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_cuda_dict_values_with_validity() -> VortexResult<()> {
+    #[tokio::test]
+    async fn test_cuda_dict_values_with_validity() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
@@ -423,14 +477,11 @@ mod tests {
         // Get baseline from CPU canonicalization
         let baseline = dict_array.to_canonical()?;
 
-        let cuda_result = futures::executor::block_on(async {
-            // Execute on CUDA
-            DictExecutor
-                .execute(dict_array.into_array(), &mut cuda_ctx)
-                .await
-                .vortex_expect("GPU decompression failed")
-                .into_primitive()
-        });
+        let cuda_result = DictExecutor
+            .execute(dict_array.into_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_primitive();
 
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
@@ -754,6 +805,205 @@ mod tests {
             .vortex_expect("GPU decompression failed")
             .into_decimal();
         let cuda_result = cuda_decimal_to_host(cuda_result)?;
+
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
+        Ok(())
+    }
+
+    /// Helper to copy a CUDA VarBinViewArray result to host memory.
+    async fn cuda_varbinview_to_host(vbv: VarBinViewArray) -> VortexResult<VarBinViewArray> {
+        Ok(Canonical::VarBinView(vbv)
+            .into_host()
+            .await?
+            .into_varbinview())
+    }
+
+    #[tokio::test]
+    async fn test_cuda_dict_string_values_u8_codes() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let values = VarBinViewArray::from_iter_str(["cat", "dog", "bird", "fish"]);
+        let codes: Vec<u8> = vec![0, 1, 2, 3, 0, 1, 2, 3, 2, 2, 1, 0];
+        let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+
+        let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
+            .vortex_expect("failed to create Dict array");
+
+        let baseline = dict_array.to_canonical()?;
+
+        let cuda_result = DictExecutor
+            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_varbinview();
+        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cuda_dict_string_values_u16_codes() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let values = VarBinViewArray::from_iter_str(["alpha", "beta", "gamma", "delta", "epsilon"]);
+        let codes: Vec<u16> = vec![4, 3, 2, 1, 0, 0, 1, 2, 3, 4];
+        let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+
+        let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
+            .vortex_expect("failed to create Dict array");
+
+        let baseline = dict_array.to_canonical()?;
+
+        let cuda_result = DictExecutor
+            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_varbinview();
+        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cuda_dict_string_max_inlined_12_bytes() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Exactly 12 bytes — the maximum inlined BinaryView size
+        let values =
+            VarBinViewArray::from_iter_str(["abcdefghijkl", "123456789012", "xxxxyyyyzzzz"]);
+        let codes: Vec<u8> = vec![0, 1, 2, 2, 1, 0, 0, 2];
+        let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+
+        let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
+            .vortex_expect("failed to create Dict array");
+
+        let baseline = dict_array.to_canonical()?;
+
+        let cuda_result = DictExecutor
+            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_varbinview();
+        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cuda_dict_string_outlined_views() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // 13+ bytes — outlined BinaryViews that reference data buffers
+        let values = VarBinViewArray::from_iter_str([
+            "short",
+            "this_is_a_longer_string_that_is_outlined",
+            "another_outlined_string_value",
+        ]);
+        let codes: Vec<u8> = vec![0, 1, 2, 1, 0, 2, 1];
+        let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+
+        let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
+            .vortex_expect("failed to create Dict array");
+
+        let baseline = dict_array.to_canonical()?;
+
+        let cuda_result = DictExecutor
+            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_varbinview();
+        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cuda_dict_string_empty_strings() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let values = VarBinViewArray::from_iter_str(["", "a", ""]);
+        let codes: Vec<u8> = vec![0, 1, 2, 0, 1, 2];
+        let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+
+        let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
+            .vortex_expect("failed to create Dict array");
+
+        let baseline = dict_array.to_canonical()?;
+
+        let cuda_result = DictExecutor
+            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_varbinview();
+        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cuda_dict_string_values_with_validity() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let values = VarBinViewArray::from_iter_nullable_str([Some("hello"), None, Some("world")]);
+
+        let codes: Vec<u8> = vec![0, 1, 2, 0, 1, 2];
+        let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+
+        let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
+            .vortex_expect("failed to create Dict array");
+
+        let baseline = dict_array.to_canonical()?;
+
+        let cuda_result = DictExecutor
+            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_varbinview();
+        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cuda_dict_string_outlined_with_validity() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Mix of inlined, outlined, and null dictionary values
+        let values = VarBinViewArray::from_iter_nullable_str([
+            Some("short"),
+            None,
+            Some("a_very_long_outlined_string_value_here"),
+            Some("another_long_outlined_string"),
+        ]);
+
+        // Codes referencing all value indices including the null
+        let codes: Vec<u8> = vec![0, 1, 2, 3, 0, 2, 1, 3];
+        let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+
+        let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
+            .vortex_expect("failed to create Dict array");
+
+        let baseline = dict_array.to_canonical()?;
+
+        let cuda_result = DictExecutor
+            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_varbinview();
+        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
 
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
         Ok(())

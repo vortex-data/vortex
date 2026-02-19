@@ -189,7 +189,7 @@ impl VarBinArray {
         // Check nullability matches
         vortex_ensure!(
             dtype.is_nullable() != (validity == &Validity::NonNullable),
-            "incorrect validity {:?} for dtype {}",
+            InvalidArgument: "incorrect validity {:?} for dtype {}",
             validity,
             dtype
         );
@@ -197,13 +197,8 @@ impl VarBinArray {
         // Check offsets has at least one element
         vortex_ensure!(
             !offsets.is_empty(),
-            "Offsets must have at least one element"
+            InvalidArgument: "Offsets must have at least one element"
         );
-
-        // Check offsets are sorted
-        if let Some(is_sorted) = offsets.statistics().compute_is_sorted() {
-            vortex_ensure!(is_sorted, "offsets must be sorted");
-        }
 
         // Skip host-only validation when offsets/bytes are not host-resident.
         if offsets.is_host() && bytes.is_on_host() {
@@ -211,10 +206,12 @@ impl VarBinArray {
                 .scalar_at(offsets.len() - 1)?
                 .as_primitive()
                 .as_::<usize>()
-                .ok_or_else(|| vortex_err!("Last offset must be convertible to usize"))?;
+                .ok_or_else(
+                    || vortex_err!(InvalidArgument: "Last offset must be convertible to usize"),
+                )?;
             vortex_ensure!(
                 last_offset <= bytes.len(),
-                "Last offset {} exceeds bytes length {}",
+                InvalidArgument: "Last offset {} exceeds bytes length {}",
                 last_offset,
                 bytes.len()
             );
@@ -355,10 +352,10 @@ impl VarBinArray {
             self.len()
         );
 
-        self.offsets()
+        (&self
+            .offsets()
             .scalar_at(index)
-            .vortex_expect("offsets must support scalar_at")
-            .as_ref()
+            .vortex_expect("offsets must support scalar_at"))
             .try_into()
             .vortex_expect("Failed to convert offset to usize")
     }
@@ -383,28 +380,6 @@ impl VarBinArray {
 impl VarBinArray {
     /// Return an array containing the same data, but where the internal `offsets` start at zero
     /// and all wasted space in the bytes child has been clipped.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # fn main() -> vortex_error::VortexResult<()> {
-    /// # use vortex_array::arrays::VarBinArray;
-    /// # use vortex_array::arrays::VarBinVTable;
-    /// # use vortex_dtype::DType;
-    /// # use vortex_dtype::Nullability::NonNullable;
-    /// let items = VarBinArray::from_iter_nonnull(["abc", "def", "ghi"], DType::Utf8(NonNullable));
-    /// let sliced = items.slice(1..3)?.as_::<VarBinVTable>().clone();
-    ///
-    /// // After slicing, there is some unused data at the front of the bytes.
-    /// assert_eq!(sliced.offset_at(0), 3);
-    ///
-    /// // But after zeroing the offsets, the extraneous data is gone.
-    /// let truncated = sliced.zero_offsets();
-    /// assert_eq!(truncated.offset_at(0), 0);
-    /// assert_eq!(truncated.len(), 2);
-    /// # Ok(())
-    /// # }
-    /// ```
     #[doc(hidden)]
     pub fn zero_offsets(self) -> Self {
         if self.is_empty() {

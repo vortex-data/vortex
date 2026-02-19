@@ -203,7 +203,7 @@ impl TryFrom<ViewedDType> for DType {
                 );
                 let storage_dtype = fb_ext.storage_dtype().ok_or_else(|| {
                     vortex_err!(
-                InvalidSerde: "storage_dtype must be present on DType fbs message")
+                Serde: "storage_dtype must be present on DType fbs message")
                 })?;
                 let storage_view = ViewedDType::from_fb_loc(
                     storage_dtype._tab.loc(),
@@ -408,7 +408,7 @@ impl TryFrom<fb::PType> for PType {
             fb::PType::F16 => Self::F16,
             fb::PType::F32 => Self::F32,
             fb::PType::F64 => Self::F64,
-            _ => vortex_bail!(InvalidSerde: "Unknown PType variant"),
+            _ => vortex_bail!(Serde: "Unknown PType variant"),
         })
     }
 }

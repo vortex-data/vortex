@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# Struct filtering tests - test filtering on nested struct fields
+
+include ./setup.slt
+
+# Create a file with nested struct data
+query I
+COPY (SELECT * FROM (VALUES
+    ({'name': 'alice', 'info': {'age': 30, 'city': 'NYC'}}, 100),
+    ({'name': 'bob', 'info': {'age': 25, 'city': 'LA'}}, 200),
+    ({'name': 'charlie', 'info': {'age': 35, 'city': 'NYC'}}, 300),
+    ({'name': 'diana', 'info': {'age': 28, 'city': 'SF'}}, 400),
+    ({'name': 'eve', 'info': {'age': 30, 'city': 'LA'}}, 500)
+) AS t(person, value)) TO '$__TEST_DIR__/nested_structs.vortex';
+----
+5
+
+# Test filter on top-level struct field
+query I rowsort
+SELECT value FROM '$__TEST_DIR__/nested_structs.vortex' WHERE person.name = 'bob';
+----
+200
+
+# Test filter on nested struct field (age)
+query I rowsort
+SELECT value FROM '$__TEST_DIR__/nested_structs.vortex' WHERE person.info.age = 30 ORDER BY value;
+----
+100
+500
+
+# Test filter on nested struct field (city)
+query I rowsort
+SELECT value FROM '$__TEST_DIR__/nested_structs.vortex' WHERE person.info.city = 'NYC' ORDER BY value;
+----
+100
+300
+
+# Test comparison on nested struct field
+query I rowsort
+SELECT value FROM '$__TEST_DIR__/nested_structs.vortex' WHERE person.info.age > 28 ORDER BY value;
+----
+100
+300
+500
+
+# Test combined filter on multiple nested fields
+query I rowsort
+SELECT value FROM '$__TEST_DIR__/nested_structs.vortex' WHERE person.info.age >= 30 AND person.info.city = 'NYC';
+----
+100
+300
+
+# Test IN clause on nested struct field
+query I rowsort
+SELECT SUM(value) FROM '$__TEST_DIR__/nested_structs.vortex' WHERE person.info.city IN ('NYC', 'SF');
+----
+800
+
+# Create a file with deeper nesting
+query I
+COPY (SELECT * FROM (VALUES
+    ({'level1': {'level2': {'level3': 1}}}, 'a'),
+    ({'level1': {'level2': {'level3': 2}}}, 'b'),
+    ({'level1': {'level2': {'level3': 3}}}, 'c'),
+    ({'level1': {'level2': {'level3': 1}}}, 'd')
+) AS t(deep, label)) TO '$__TEST_DIR__/deep_nested.vortex';
+----
+4
+
+# Test filter on deeply nested field
+query T rowsort
+SELECT label FROM '$__TEST_DIR__/deep_nested.vortex' WHERE deep.level1.level2.level3 = 1 ORDER BY label;
+----
+a
+d
+
+# Test range filter on deeply nested field
+query T rowsort
+SELECT label FROM '$__TEST_DIR__/deep_nested.vortex' WHERE deep.level1.level2.level3 >= 2 ORDER BY label;
+----
+b
+c

@@ -2,68 +2,40 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use core::fmt;
-use std::any::Any;
 use std::cmp::Ordering;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::sync::LazyLock;
 
-use arcref::ArcRef;
-use arrow_array::Array as ArrowArray;
 use arrow_array::BooleanArray;
 use arrow_buffer::NullBuffer;
-use arrow_ord::cmp;
 use arrow_ord::ord::make_comparator;
 use arrow_schema::SortOptions;
 use vortex_buffer::BitBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::IntoArray;
-use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
-use crate::arrow::Datum;
-use crate::arrow::IntoArrowArray;
-use crate::arrow::from_arrow_array_with_len;
-use crate::compute::ComputeFn;
-use crate::compute::ComputeFnVTable;
-use crate::compute::InvocationArgs;
-use crate::compute::Kernel;
-use crate::compute::Options;
-use crate::compute::Output;
-use crate::vtable::VTable;
-
-static COMPARE_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("compare".into(), ArcRef::new_ref(&Compare));
-    for kernel in inventory::iter::<CompareKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
-pub(crate) fn warm_up_vtable() -> usize {
-    COMPARE_FN.kernels().len()
-}
+use crate::arrays::ScalarFnArray;
+use crate::expr::Binary;
+use crate::expr::ScalarFn;
+use crate::expr::operators;
+use crate::scalar::Scalar;
 
 /// Compares two arrays and returns a new boolean array with the result of the comparison.
-/// Or, returns None if comparison is not supported for these arrays.
+///
+/// The returned array is lazy (a [`ScalarFnArray`]) and will be evaluated on demand.
 pub fn compare(left: &dyn Array, right: &dyn Array, operator: Operator) -> VortexResult<ArrayRef> {
-    COMPARE_FN
-        .invoke(&InvocationArgs {
-            inputs: &[left.into(), right.into()],
-            options: &operator,
-        })?
-        .unwrap_array()
+    let expr_op: operators::Operator = operator.into();
+    Ok(ScalarFnArray::try_new(
+        ScalarFn::new(Binary, expr_op),
+        vec![left.to_array(), right.to_array()],
+        left.len(),
+    )?
+    .into_array())
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Hash)]
@@ -121,189 +93,6 @@ impl Operator {
     }
 }
 
-pub struct CompareKernelRef(ArcRef<dyn Kernel>);
-inventory::collect!(CompareKernelRef);
-
-pub trait CompareKernel: VTable {
-    fn compare(
-        &self,
-        lhs: &Self::Array,
-        rhs: &dyn Array,
-        operator: Operator,
-    ) -> VortexResult<Option<ArrayRef>>;
-}
-
-#[derive(Debug)]
-pub struct CompareKernelAdapter<V: VTable>(pub V);
-
-impl<V: VTable + CompareKernel> CompareKernelAdapter<V> {
-    pub const fn lift(&'static self) -> CompareKernelRef {
-        CompareKernelRef(ArcRef::new_ref(self))
-    }
-}
-
-impl<V: VTable + CompareKernel> Kernel for CompareKernelAdapter<V> {
-    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
-        let inputs = CompareArgs::try_from(args)?;
-        let Some(array) = inputs.lhs.as_opt::<V>() else {
-            return Ok(None);
-        };
-        Ok(V::compare(&self.0, array, inputs.rhs, inputs.operator)?.map(|array| array.into()))
-    }
-}
-
-struct Compare;
-
-impl ComputeFnVTable for Compare {
-    fn invoke(
-        &self,
-        args: &InvocationArgs,
-        kernels: &[ArcRef<dyn Kernel>],
-    ) -> VortexResult<Output> {
-        let CompareArgs { lhs, rhs, operator } = CompareArgs::try_from(args)?;
-
-        let return_dtype = self.return_dtype(args)?;
-
-        if lhs.is_empty() {
-            return Ok(Canonical::empty(&return_dtype).into_array().into());
-        }
-
-        let left_constant_null = lhs.as_constant().map(|l| l.is_null()).unwrap_or(false);
-        let right_constant_null = rhs.as_constant().map(|r| r.is_null()).unwrap_or(false);
-        if left_constant_null || right_constant_null {
-            return Ok(ConstantArray::new(Scalar::null(return_dtype), lhs.len())
-                .into_array()
-                .into());
-        }
-
-        let right_is_constant = rhs.is::<ConstantVTable>();
-
-        // Always try to put constants on the right-hand side so encodings can optimise themselves.
-        if lhs.is::<ConstantVTable>() && !right_is_constant {
-            return Ok(compare(rhs, lhs, operator.swap())?.into());
-        }
-
-        // First try lhs op rhs, then invert and try again.
-        for kernel in kernels {
-            if let Some(output) = kernel.invoke(args)? {
-                return Ok(output);
-            }
-        }
-        if let Some(output) = lhs.invoke(&COMPARE_FN, args)? {
-            return Ok(output);
-        }
-
-        // Try inverting the operator and swapping the arguments
-        let inverted_args = InvocationArgs {
-            inputs: &[rhs.into(), lhs.into()],
-            options: &operator.swap(),
-        };
-        for kernel in kernels {
-            if let Some(output) = kernel.invoke(&inverted_args)? {
-                return Ok(output);
-            }
-        }
-        if let Some(output) = rhs.invoke(&COMPARE_FN, &inverted_args)? {
-            return Ok(output);
-        }
-
-        // Only log missing compare implementation if there's possibly better one than arrow,
-        // i.e. lhs isn't arrow or rhs isn't arrow or constant
-        if !(lhs.is_arrow() && (rhs.is_arrow() || right_is_constant)) {
-            tracing::debug!(
-                "No compare implementation found for LHS {}, RHS {}, and operator {} (or inverse)",
-                lhs.encoding_id(),
-                rhs.encoding_id(),
-                operator,
-            );
-        }
-
-        // Fallback to arrow on canonical types
-        Ok(arrow_compare(lhs, rhs, operator)?.into())
-    }
-
-    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
-        let CompareArgs { lhs, rhs, .. } = CompareArgs::try_from(args)?;
-
-        if !lhs.dtype().eq_ignore_nullability(rhs.dtype()) {
-            if lhs.dtype().is_float() && rhs.dtype().is_float() {
-                vortex_bail!(
-                    "Cannot compare different floating-point types ({}, {}). Consider using cast.",
-                    lhs.dtype(),
-                    rhs.dtype(),
-                );
-            }
-            if lhs.dtype().is_int() && rhs.dtype().is_int() {
-                vortex_bail!(
-                    "Cannot compare different fixed-width types ({}, {}). Consider using cast.",
-                    lhs.dtype(),
-                    rhs.dtype()
-                );
-            }
-            vortex_bail!(
-                "Cannot compare different DTypes {} and {}",
-                lhs.dtype(),
-                rhs.dtype()
-            );
-        }
-
-        Ok(DType::Bool(
-            lhs.dtype().nullability() | rhs.dtype().nullability(),
-        ))
-    }
-
-    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
-        let CompareArgs { lhs, rhs, .. } = CompareArgs::try_from(args)?;
-        if lhs.len() != rhs.len() {
-            vortex_bail!(
-                "Compare operations only support arrays of the same length, got {} and {}",
-                lhs.len(),
-                rhs.len()
-            );
-        }
-        Ok(lhs.len())
-    }
-
-    fn is_elementwise(&self) -> bool {
-        true
-    }
-}
-
-struct CompareArgs<'a> {
-    lhs: &'a dyn Array,
-    rhs: &'a dyn Array,
-    operator: Operator,
-}
-
-impl Options for Operator {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-impl<'a> TryFrom<&InvocationArgs<'a>> for CompareArgs<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
-        if value.inputs.len() != 2 {
-            vortex_bail!("Expected 2 inputs, found {}", value.inputs.len());
-        }
-        let lhs = value.inputs[0]
-            .array()
-            .ok_or_else(|| vortex_err!("Expected first input to be an array"))?;
-        let rhs = value.inputs[1]
-            .array()
-            .ok_or_else(|| vortex_err!("Expected second input to be an array"))?;
-        let operator = *value
-            .options
-            .as_any()
-            .downcast_ref::<Operator>()
-            .vortex_expect("Expected options to be an operator");
-
-        Ok(CompareArgs { lhs, rhs, operator })
-    }
-}
-
 /// Helper function to compare empty values with arrays that have external value length information
 /// like `VarBin`.
 pub fn compare_lengths_to_empty<P, I>(lengths: I, op: Operator) -> BitBuffer
@@ -353,48 +142,6 @@ pub(crate) fn compare_nested_arrow_arrays(
     Ok(BooleanArray::new(values, nulls))
 }
 
-/// Implementation of `CompareFn` using the Arrow crate.
-fn arrow_compare(
-    left: &dyn Array,
-    right: &dyn Array,
-    operator: Operator,
-) -> VortexResult<ArrayRef> {
-    assert_eq!(left.len(), right.len());
-
-    let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
-
-    // Arrow's vectorized comparison kernels (`cmp::eq`, etc.) are faster but don't support nested
-    // types. For nested types, we fall back to `make_comparator` which does element-wise
-    // comparison.
-    let array = if left.dtype().is_nested() || right.dtype().is_nested() {
-        let rhs = right.to_array().into_arrow_preferred()?;
-        let lhs = left.to_array().into_arrow(rhs.data_type())?;
-
-        assert!(
-            lhs.data_type().equals_datatype(rhs.data_type()),
-            "lhs data_type: {}, rhs data_type: {}",
-            lhs.data_type(),
-            rhs.data_type()
-        );
-
-        compare_nested_arrow_arrays(lhs.as_ref(), rhs.as_ref(), operator)?
-    } else {
-        // Fast path: use vectorized kernels for primitive types.
-        let lhs = Datum::try_new(left)?;
-        let rhs = Datum::try_new_with_target_datatype(right, lhs.data_type())?;
-
-        match operator {
-            Operator::Eq => cmp::eq(&lhs, &rhs)?,
-            Operator::NotEq => cmp::neq(&lhs, &rhs)?,
-            Operator::Gt => cmp::gt(&lhs, &rhs)?,
-            Operator::Gte => cmp::gt_eq(&lhs, &rhs)?,
-            Operator::Lt => cmp::lt(&lhs, &rhs)?,
-            Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
-        }
-    };
-    from_arrow_array_with_len(&array, left.len(), nullable)
-}
-
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
     if lhs.is_null() | rhs.is_null() {
         Scalar::null(DType::Bool(Nullability::Nullable))
@@ -430,9 +177,6 @@ mod tests {
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
-    use crate::expr::get_item;
-    use crate::expr::lt;
-    use crate::expr::root;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 
@@ -486,15 +230,10 @@ mod tests {
         let left = ConstantArray::new(Scalar::from(2u32), 10);
         let right = ConstantArray::new(Scalar::from(10u32), 10);
 
-        let compare = compare(left.as_ref(), right.as_ref(), Operator::Gt).unwrap();
-        let res = compare.as_constant().unwrap();
-        assert_eq!(res.as_bool().value(), Some(false));
-        assert_eq!(compare.len(), 10);
-
-        let compare = arrow_compare(&left.into_array(), &right.into_array(), Operator::Gt).unwrap();
-        let res = compare.as_constant().unwrap();
-        assert_eq!(res.as_bool().value(), Some(false));
-        assert_eq!(compare.len(), 10);
+        let result = compare(left.as_ref(), right.as_ref(), Operator::Gt).unwrap();
+        assert_eq!(result.len(), 10);
+        let scalar = result.scalar_at(0).unwrap();
+        assert_eq!(scalar.as_bool().value(), Some(false));
     }
 
     #[rstest]
@@ -661,59 +400,5 @@ mod tests {
         assert!(result.scalar_at(0).unwrap().is_valid());
         assert!(result.scalar_at(1).unwrap().is_valid());
         assert!(result.scalar_at(2).unwrap().is_valid());
-    }
-
-    #[test]
-    fn test_different_floats_error_messages() {
-        let result = compare(
-            &buffer![0.0f32].into_array(),
-            &buffer![0.0f64].into_array(),
-            Operator::Lt,
-        );
-        assert!(result.as_ref().is_err_and(|err| {
-            err.to_string()
-                .contains("Cannot compare different floating-point types")
-        }));
-
-        let expr = lt(get_item("l", root()), get_item("r", root()));
-        let array = StructArray::from_fields(&[
-            ("l", buffer![0.0f32].into_array()),
-            ("r", buffer![0.0f64].into_array()),
-        ])
-        .unwrap()
-        .into_array();
-        // Force evaluation by calling scalar_at
-        let result = array.apply(&expr).and_then(|arr| arr.scalar_at(0));
-        assert!(result.as_ref().is_err_and(|err| {
-            err.to_string()
-                .contains("Cannot compare different floating-point types")
-        }));
-    }
-
-    #[test]
-    fn test_different_ints_error_messages() {
-        let result = compare(
-            &buffer![0u8].into_array(),
-            &buffer![0u16].into_array(),
-            Operator::Lt,
-        );
-        assert!(result.as_ref().is_err_and(|err| {
-            err.to_string()
-                .contains("Cannot compare different fixed-width types")
-        }));
-
-        let expr = lt(get_item("l", root()), get_item("r", root()));
-        let array = StructArray::from_fields(&[
-            ("l", buffer![0u8].into_array()),
-            ("r", buffer![0u16].into_array()),
-        ])
-        .unwrap()
-        .into_array();
-        // Force evaluation by calling scalar_at
-        let result = array.apply(&expr).and_then(|arr| arr.scalar_at(0));
-        assert!(result.as_ref().is_err_and(|err| {
-            err.to_string()
-                .contains("Cannot compare different fixed-width types")
-        }));
     }
 }

@@ -5,6 +5,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
 
+use arrow_schema::Schema;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
@@ -38,23 +39,28 @@ use vortex::error::VortexError;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
-use vortex::metrics::VortexMetrics;
+use vortex::metrics::Label;
+use vortex::metrics::MetricsRegistry;
 use vortex::scan::ScanBuilder;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
 use crate::VortexAccessPlan;
-use crate::VortexReaderFactory;
 use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::make_vortex_predicate;
 use crate::convert::schema::calculate_physical_schema;
+use crate::metrics::PARTITION_LABEL;
+use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
+use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::stream::PrunableStream;
 
 #[derive(Clone)]
 pub(crate) struct VortexOpener {
+    /// The partition this opener is assigned to. Only used for labeling metrics.
+    pub partition: usize,
     pub session: VortexSession,
     pub vortex_reader_factory: Arc<dyn VortexReaderFactory>,
     /// Optional table schema projection. The indices are w.r.t. the `table_schema`, which is
@@ -76,7 +82,7 @@ pub(crate) struct VortexOpener {
     /// If provided, the scan will not return more than this many rows.
     pub limit: Option<u64>,
     /// A metrics object for tracking performance of the scan.
-    pub metrics: VortexMetrics,
+    pub metrics_registry: Arc<dyn MetricsRegistry>,
     /// A shared cache of file readers.
     ///
     /// To save on the overhead of reparsing FlatBuffers and rebuilding the layout tree, we cache
@@ -87,14 +93,19 @@ pub(crate) struct VortexOpener {
 
     pub expression_convertor: Arc<dyn ExpressionConvertor>,
     pub file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
+    /// Whether to enable expression pushdown into the underlying Vortex scan.
+    pub projection_pushdown: bool,
+    pub scan_concurrency: Option<usize>,
 }
 
 impl FileOpener for VortexOpener {
     fn open(&self, file: PartitionedFile) -> DFResult<FileOpenFuture> {
         let session = self.session.clone();
-        let metrics = self
-            .metrics
-            .child_with_tags([("file_path", file.path().to_string())]);
+        let metrics_registry = self.metrics_registry.clone();
+        let labels = vec![
+            Label::new(PATH_LABEL, file.path().to_string()),
+            Label::new(PARTITION_LABEL, self.partition.to_string()),
+        ];
 
         let mut projection = self.projection.clone();
         let mut filter = self.filter.clone();
@@ -103,7 +114,8 @@ impl FileOpener for VortexOpener {
             .vortex_reader_factory
             .create_reader(file.path().as_ref(), &session)?;
 
-        let reader = InstrumentedReadAt::new(reader, &metrics);
+        let reader =
+            InstrumentedReadAt::new_with_labels(reader, metrics_registry.as_ref(), labels.clone());
 
         let file_pruning_predicate = self.file_pruning_predicate.clone();
         let expr_adapter_factory = self.expr_adapter_factory.clone();
@@ -114,8 +126,10 @@ impl FileOpener for VortexOpener {
         let limit = self.limit;
         let layout_reader = self.layout_readers.clone();
         let has_output_ordering = self.has_output_ordering;
+        let scan_concurrency = self.scan_concurrency;
 
         let expr_convertor = self.expression_convertor.clone();
+        let projection_pushdown = self.projection_pushdown;
 
         // Replace column access for partition columns with literals
         #[allow(clippy::disallowed_types)]
@@ -169,7 +183,8 @@ impl FileOpener for VortexOpener {
             let mut open_opts = session
                 .open_options()
                 .with_file_size(file.object_meta.size)
-                .with_metrics(metrics.clone());
+                .with_metrics_registry(metrics_registry.clone())
+                .with_labels(labels);
 
             if let Some(file_metadata_cache) = file_metadata_cache
                 && let Some(file_metadata) = file_metadata_cache.get(&file.object_meta)
@@ -216,18 +231,38 @@ impl FileOpener for VortexOpener {
             let ProcessedProjection {
                 scan_projection,
                 leftover_projection,
-            } = expr_convertor.split_projection(
-                projection,
-                &this_file_schema,
-                &projected_physical_schema,
-            )?;
+            } = if projection_pushdown {
+                expr_convertor.split_projection(
+                    projection.clone(),
+                    &this_file_schema,
+                    &projected_physical_schema,
+                )?
+            } else {
+                // When projection pushdown is disabled, read only the required columns
+                // and apply the full projection after the scan.
+                expr_convertor.no_pushdown_projection(projection.clone(), &this_file_schema)?
+            };
 
             // The schema of the stream returned from the vortex scan.
-            // We use the physical_file_schema as reference for types that don't roundtrip.
+            // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
             let scan_dtype = scan_projection.return_dtype(vxf.dtype()).map_err(|_e| {
                 exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
             })?;
-            let stream_schema = calculate_physical_schema(&scan_dtype, &projected_physical_schema)?;
+
+            // When projection pushdown is enabled, the scan outputs the projected columns.
+            // When disabled, the scan outputs raw columns and the projection is applied after.
+            let scan_reference_schema = if projection_pushdown {
+                projected_physical_schema
+            } else {
+                // Build schema from the raw columns being read
+                let column_indices = projection.column_indices();
+                let fields: Vec<_> = column_indices
+                    .into_iter()
+                    .map(|idx| this_file_schema.field(idx).clone())
+                    .collect();
+                Schema::new(fields)
+            };
+            let stream_schema = calculate_physical_schema(&scan_dtype, &scan_reference_schema)?;
 
             let leftover_projection = leftover_projection
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
@@ -317,8 +352,12 @@ impl FileOpener for VortexOpener {
                 scan_builder = scan_builder.with_limit(limit);
             }
 
+            if let Some(concurrency) = scan_concurrency {
+                scan_builder = scan_builder.with_concurrency(concurrency);
+            }
+
             let stream = scan_builder
-                .with_metrics(metrics)
+                .with_metrics_registry(metrics_registry)
                 .with_projection(scan_projection)
                 .with_some_filter(filter)
                 .with_ordered(has_output_ordering)
@@ -438,15 +477,16 @@ mod tests {
     use vortex::array::arrow::FromArrowArray;
     use vortex::buffer::Buffer;
     use vortex::file::WriteOptionsSessionExt;
-    use vortex::io::ObjectStoreWriter;
     use vortex::io::VortexWrite;
+    use vortex::io::object_store::ObjectStoreWrite;
+    use vortex::metrics::DefaultMetricsRegistry;
     use vortex::scan::Selection;
     use vortex::session::VortexSession;
 
     use super::*;
-    use crate::DefaultVortexReaderFactory;
     use crate::VortexAccessPlan;
     use crate::convert::exprs::DefaultExpressionConvertor;
+    use crate::persistent::reader::DefaultVortexReaderFactory;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
@@ -500,7 +540,7 @@ mod tests {
         let array = ArrayRef::from_arrow(rb, false)?;
         let path = Path::parse(path)?;
 
-        let mut write = ObjectStoreWriter::new(object_store, &path).await?;
+        let mut write = ObjectStoreWrite::new(object_store, &path).await?;
         let summary = SESSION
             .write_options()
             .write(&mut write, array.to_array_stream())
@@ -516,6 +556,7 @@ mod tests {
         filter: Option<PhysicalExprRef>,
     ) -> VortexOpener {
         VortexOpener {
+            partition: 1,
             session: SESSION.clone(),
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store)),
             projection: ProjectionExprs::from_indices(&[0], table_schema.file_schema()),
@@ -525,11 +566,13 @@ mod tests {
             table_schema,
             batch_size: 100,
             limit: None,
-            metrics: Default::default(),
+            metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
+            projection_pushdown: false,
+            scan_concurrency: None,
         }
     }
 
@@ -607,6 +650,7 @@ mod tests {
         )])));
 
         let make_opener = |filter| VortexOpener {
+            partition: 1,
             session: SESSION.clone(),
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store.clone())),
             projection: ProjectionExprs::from_indices(&[0], table_schema.file_schema()),
@@ -616,11 +660,13 @@ mod tests {
             table_schema: table_schema.clone(),
             batch_size: 100,
             limit: None,
-            metrics: Default::default(),
+            metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
+            projection_pushdown: false,
+            scan_concurrency: None,
         };
 
         let filter = col("a").lt(lit(100_i32));
@@ -690,6 +736,7 @@ mod tests {
         ]));
 
         let opener = VortexOpener {
+            partition: 1,
             session: SESSION.clone(),
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store)),
             projection: ProjectionExprs::from_indices(&[0, 1, 2], &table_schema),
@@ -699,14 +746,15 @@ mod tests {
             table_schema: TableSchema::from_file_schema(table_schema.clone()),
             batch_size: 100,
             limit: None,
-            metrics: Default::default(),
+            metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
+            projection_pushdown: false,
+            scan_concurrency: None,
         };
 
-        // The opener should successfully open the file and reorder columns
         let stream = opener.open(file)?.await?;
 
         let format_opts = FormatOptions::new().with_types_info(true);
@@ -839,6 +887,7 @@ mod tests {
         let projection = vec![0, 2];
 
         let opener = VortexOpener {
+            partition: 1,
             session: SESSION.clone(),
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store.clone())),
             projection: ProjectionExprs::from_indices(
@@ -851,11 +900,13 @@ mod tests {
             table_schema: table_schema.clone(),
             batch_size: 100,
             limit: None,
-            metrics: Default::default(),
+            metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
+            projection_pushdown: false,
+            scan_concurrency: None,
         };
 
         // This should succeed and return the correctly projected and cast data
@@ -898,6 +949,7 @@ mod tests {
         projection: ProjectionExprs,
     ) -> VortexOpener {
         VortexOpener {
+            partition: 1,
             session: SESSION.clone(),
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store)),
             projection,
@@ -907,11 +959,13 @@ mod tests {
             table_schema: TableSchema::from_file_schema(schema),
             batch_size: 100,
             limit: None,
-            metrics: Default::default(),
+            metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
+            projection_pushdown: false,
+            scan_concurrency: None,
         }
     }
 
@@ -1096,6 +1150,7 @@ mod tests {
         )]);
 
         let opener = VortexOpener {
+            partition: 1,
             session: SESSION.clone(),
             vortex_reader_factory: Arc::new(DefaultVortexReaderFactory::new(object_store.clone())),
             projection,
@@ -1105,11 +1160,13 @@ mod tests {
             table_schema,
             batch_size: 100,
             limit: None,
-            metrics: Default::default(),
+            metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
+            projection_pushdown: false,
+            scan_concurrency: None,
         };
 
         let file = PartitionedFile::new(file_path.to_string(), data_size);

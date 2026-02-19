@@ -9,24 +9,26 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
+use crate::arrays::BinaryView;
+use crate::arrays::TakeExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::buffer::BufferHandle;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::register_kernel;
+use crate::executor::ExecutionCtx;
 use crate::vtable::ValidityHelper;
 
-/// Take involves creating a new array that references the old array, just with the given set of views.
-impl TakeKernel for VarBinViewVTable {
-    fn take(&self, array: &VarBinViewArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        // Compute the new validity.
+impl TakeExecute for VarBinViewVTable {
+    /// Take involves creating a new array that references the old array, just with the given set of views.
+    fn take(
+        array: &VarBinViewArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity().take(indices)?;
         let indices = indices.to_primitive();
 
@@ -37,20 +39,20 @@ impl TakeKernel for VarBinViewVTable {
 
         // SAFETY: taking all components at same indices maintains invariants
         unsafe {
-            Ok(VarBinViewArray::new_handle_unchecked(
-                BufferHandle::new_host(views_buffer.into_byte_buffer()),
-                array.buffers().clone(),
-                array
-                    .dtype()
-                    .union_nullability(indices.dtype().nullability()),
-                validity,
-            )
-            .into_array())
+            Ok(Some(
+                VarBinViewArray::new_handle_unchecked(
+                    BufferHandle::new_host(views_buffer.into_byte_buffer()),
+                    array.buffers().clone(),
+                    array
+                        .dtype()
+                        .union_nullability(indices.dtype().nullability()),
+                    validity,
+                )
+                .into_array(),
+            ))
         }
     }
 }
-
-register_kernel!(TakeKernelAdapter(VarBinViewVTable).lift());
 
 fn take_views<I: AsPrimitive<usize>>(
     views_ref: &[BinaryView],
@@ -95,7 +97,6 @@ mod tests {
     use crate::arrays::VarBinViewArray;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
     use crate::validity::Validity;
 
     #[test]
@@ -109,7 +110,7 @@ mod tests {
             Some("six"),
         ]);
 
-        let taken = take(arr.as_ref(), &buffer![0, 3].into_array()).unwrap();
+        let taken = arr.take(buffer![0, 3].into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(
@@ -130,7 +131,7 @@ mod tests {
             Validity::from(BitBuffer::from(vec![true, false])),
         );
 
-        let taken = take(arr.as_ref(), indices.as_ref()).unwrap();
+        let taken = arr.take(indices.to_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(

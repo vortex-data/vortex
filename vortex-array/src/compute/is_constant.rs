@@ -11,7 +11,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::arrays::ConstantVTable;
@@ -26,6 +25,7 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::expr::stats::StatsProviderExt;
+use crate::scalar::Scalar;
 use crate::vtable::VTable;
 
 static IS_CONSTANT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -85,7 +85,8 @@ impl ComputeFnVTable for IsConstant {
 
         // We try and rely on some easy-to-get stats
         if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsConstant) {
-            return Ok(Scalar::from(Some(value)).into());
+            let scalar: Scalar = Some(value).into();
+            return Ok(scalar.into());
         }
 
         let value = is_constant_impl(array, options, kernels)?;
@@ -105,7 +106,8 @@ impl ComputeFnVTable for IsConstant {
                 .set(Stat::IsConstant, Precision::Exact(value.into()));
         }
 
-        Ok(Scalar::from(value).into())
+        let scalar: Scalar = value.into();
+        Ok(scalar.into())
     }
 
     fn return_dtype(&self, _args: &InvocationArgs) -> VortexResult<DType> {
@@ -181,9 +183,6 @@ fn is_constant_impl(
             return Ok(output.unwrap_scalar()?.as_bool().value());
         }
     }
-    if let Some(output) = array.invoke(&IS_CONSTANT_FN, &args)? {
-        return Ok(output.unwrap_scalar()?.as_bool().value());
-    }
 
     tracing::debug!(
         "No is_constant implementation found for {}",
@@ -230,7 +229,8 @@ impl<V: VTable + IsConstantKernel> Kernel for IsConstantKernelAdapter<V> {
             return Ok(None);
         };
         let is_constant = V::is_constant(&self.0, array, args.options)?;
-        Ok(Some(Scalar::from(is_constant).into()))
+        let scalar: Scalar = is_constant.into();
+        Ok(Some(scalar.into()))
     }
 }
 

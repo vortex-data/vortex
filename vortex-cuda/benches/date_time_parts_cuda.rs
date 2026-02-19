@@ -1,0 +1,97 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! CUDA benchmarks for DateTimeParts decoding.
+
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::cast_possible_truncation)]
+
+mod common;
+
+use std::mem::size_of;
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+
+use criterion::BenchmarkId;
+use criterion::Criterion;
+use criterion::Throughput;
+use futures::executor::block_on;
+use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
+use vortex_cuda::CudaSession;
+use vortex_cuda::executor::CudaArrayExt;
+use vortex_cuda_macros::cuda_available;
+use vortex_cuda_macros::cuda_not_available;
+use vortex_datetime_parts::DateTimePartsArray;
+use vortex_dtype::DType;
+use vortex_dtype::Nullability;
+use vortex_dtype::datetime::TimeUnit;
+use vortex_dtype::datetime::Timestamp;
+use vortex_error::VortexExpect;
+use vortex_session::VortexSession;
+
+use crate::common::TimedLaunchStrategy;
+
+fn make_datetimeparts_array(len: usize, time_unit: TimeUnit) -> DateTimePartsArray {
+    let days: Vec<i16> = (0..len).map(|i| (i / 1000) as i16).collect();
+    let days_arr = PrimitiveArray::new(Buffer::from(days), Validity::NonNullable).into_array();
+    let seconds_arr = ConstantArray::new(0i8, len).into_array();
+    let subseconds_arr = ConstantArray::new(0i8, len).into_array();
+
+    let dtype = DType::Extension(Timestamp::new(time_unit, Nullability::NonNullable).erased());
+
+    DateTimePartsArray::try_new(dtype, days_arr, seconds_arr, subseconds_arr)
+        .vortex_expect("Failed to create DateTimePartsArray")
+}
+
+fn benchmark_datetimeparts(c: &mut Criterion) {
+    let mut group = c.benchmark_group("datetimeparts_cuda");
+    group.sample_size(10);
+
+    for (len, len_str) in [
+        (1_000_000usize, "1M"),
+        (10_000_000usize, "10M"),
+        (100_000_000usize, "100M"),
+    ] {
+        group.throughput(Throughput::Bytes((len * size_of::<i64>()) as u64));
+
+        let (time_unit, unit_str) = (TimeUnit::Milliseconds, "ms");
+        let dtp_array = make_datetimeparts_array(len, time_unit);
+
+        group.bench_with_input(
+            BenchmarkId::new("datetimeparts", format!("{len_str}_{unit_str}")),
+            &dtp_array,
+            |b, dtp_array| {
+                b.iter_custom(|iters| {
+                    let timed = TimedLaunchStrategy::default();
+                    let timer = Arc::clone(&timed.total_time_ns);
+
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+                        .vortex_expect("failed to create execution context")
+                        .with_launch_strategy(Arc::new(timed));
+
+                    for _ in 0..iters {
+                        // block on immediately here
+                        block_on(dtp_array.to_array().execute_cuda(&mut cuda_ctx)).unwrap();
+                    }
+
+                    Duration::from_nanos(timer.load(Ordering::Relaxed))
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+criterion::criterion_group!(benches, benchmark_datetimeparts);
+
+#[cuda_available]
+criterion::criterion_main!(benches);
+
+#[cuda_not_available]
+fn main() {}

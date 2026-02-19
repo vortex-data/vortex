@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 // FastLanes ordering array
-__device__ int FL_ORDER[] = {0, 4, 2, 6, 1, 5, 3, 7};
+__constant__ int FL_ORDER[] = {0, 4, 2, 6, 1, 5, 3, 7};
 
 // Compute the index in the FastLanes layout
 #define INDEX(row, lane) (FL_ORDER[row / 8] * 16 + (row % 8) * 128 + lane)

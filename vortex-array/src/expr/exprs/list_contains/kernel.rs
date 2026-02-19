@@ -1,0 +1,100 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+
+use crate::Array;
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::arrays::ExactScalarFn;
+use crate::arrays::ScalarFnArrayView;
+use crate::arrays::ScalarFnVTable;
+use crate::expr::ListContains as ListContainsExpr;
+use crate::kernel::ExecuteParentKernel;
+use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::vtable::VTable;
+
+/// Check list-contains without reading buffers (metadata-only).
+///
+/// This trait dispatches on the **element** (needle) child at index 1 of the `ListContains`
+/// expression. `Self::Array` is the concrete element encoding, while the list (haystack) is
+/// passed as an opaque `&dyn Array`.
+///
+/// A future `ListContainsListReduce` could dispatch on the list side (child 0) for encodings
+/// with specialized list representations.
+///
+/// Return `None` if the operation cannot be resolved from metadata alone.
+pub trait ListContainsElementReduce: VTable {
+    fn list_contains(list: &dyn Array, element: &Self::Array) -> VortexResult<Option<ArrayRef>>;
+}
+
+/// Check list-contains, potentially reading buffers.
+///
+/// Like [`ListContainsElementReduce`], this dispatches on the **element** (needle) child at
+/// index 1. Unlike the reduce variant, implementations may read and execute on buffers via
+/// the provided [`ExecutionCtx`].
+pub trait ListContainsElementKernel: VTable {
+    fn list_contains(
+        list: &dyn Array,
+        element: &Self::Array,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>>;
+}
+
+/// Adaptor that wraps a [`ListContainsElementReduce`] impl as an [`ArrayParentReduceRule`].
+#[derive(Default, Debug)]
+pub struct ListContainsElementReduceAdaptor<V>(pub V);
+
+impl<V> ArrayParentReduceRule<V> for ListContainsElementReduceAdaptor<V>
+where
+    V: ListContainsElementReduce,
+{
+    type Parent = ExactScalarFn<ListContainsExpr>;
+
+    fn reduce_parent(
+        &self,
+        array: &V::Array,
+        parent: ScalarFnArrayView<'_, ListContainsExpr>,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Only process the element/needle child (index 1), not the list child (index 0).
+        if child_idx != 1 {
+            return Ok(None);
+        }
+        let scalar_fn_array = parent
+            .as_opt::<ScalarFnVTable>()
+            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
+        let list = &scalar_fn_array.children()[0];
+        <V as ListContainsElementReduce>::list_contains(list.as_ref(), array)
+    }
+}
+
+/// Adaptor that wraps a [`ListContainsElementKernel`] impl as an [`ExecuteParentKernel`].
+#[derive(Default, Debug)]
+pub struct ListContainsElementExecuteAdaptor<V>(pub V);
+
+impl<V> ExecuteParentKernel<V> for ListContainsElementExecuteAdaptor<V>
+where
+    V: ListContainsElementKernel,
+{
+    type Parent = ExactScalarFn<ListContainsExpr>;
+
+    fn execute_parent(
+        &self,
+        array: &V::Array,
+        parent: ScalarFnArrayView<'_, ListContainsExpr>,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Only process the element/needle child (index 1), not the list child (index 0).
+        if child_idx != 1 {
+            return Ok(None);
+        }
+        let scalar_fn_array = parent
+            .as_opt::<ScalarFnVTable>()
+            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
+        let list = &scalar_fn_array.children()[0];
+        <V as ListContainsElementKernel>::list_contains(list.as_ref(), array, ctx)
+    }
+}

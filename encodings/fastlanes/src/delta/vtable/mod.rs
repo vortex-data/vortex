@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cmp::min;
-use std::ops::Range;
-
 use fastlanes::FastLanes;
 use prost::Message;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ProstMetadata;
@@ -15,7 +11,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
 use vortex_dtype::DType;
@@ -24,12 +19,15 @@ use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::DeltaArray;
 use crate::delta::array::delta_decompress::delta_decompress;
 
 mod array;
 mod operations;
+mod rules;
+mod slice;
 mod validity;
 mod visitor;
 
@@ -53,36 +51,17 @@ impl VTable for DeltaVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let physical_start = range.start + array.offset();
-        let physical_stop = range.end + array.offset();
-
-        let start_chunk = physical_start / 1024;
-        let stop_chunk = physical_stop.div_ceil(1024);
-
-        let bases = array.bases();
-        let deltas = array.deltas();
-        let lanes = array.lanes();
-
-        let new_bases = bases.slice(
-            min(start_chunk * lanes, array.bases_len())..min(stop_chunk * lanes, array.bases_len()),
-        )?;
-
-        let new_deltas = deltas.slice(
-            min(start_chunk * 1024, array.deltas_len())..min(stop_chunk * 1024, array.deltas_len()),
-        )?;
-
-        // SAFETY: slicing valid bases/deltas preserves correctness
-        Ok(Some(unsafe {
-            DeltaArray::new_unchecked(new_bases, new_deltas, physical_start % 1024, range.len())
-                .into_array()
-        }))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        rules::RULES.evaluate(array, parent, child_idx)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -113,8 +92,14 @@ impl VTable for DeltaVTable {
         Ok(Some(metadata.0.encode_to_vec()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(DeltaMetadata::decode(buffer)?))
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(DeltaMetadata::decode(bytes)?))
     }
 
     fn build(
@@ -141,8 +126,8 @@ impl VTable for DeltaVTable {
         DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(delta_decompress(array, ctx)?))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(delta_decompress(array, ctx)?.into_array())
     }
 }
 

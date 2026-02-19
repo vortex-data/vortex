@@ -5,12 +5,14 @@ use Sign::Negative;
 use num_traits::NumCast;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::CompareKernel;
-use vortex_array::compute::CompareKernelAdapter;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
-use vortex_array::register_kernel;
+use vortex_array::expr::CompareKernel;
+use vortex_array::scalar::DecimalValue;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -19,19 +21,16 @@ use vortex_dtype::match_each_decimal_value;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use crate::DecimalBytePartsVTable;
 use crate::decimal_byte_parts::compute::compare::Sign::Positive;
 
 impl CompareKernel for DecimalBytePartsVTable {
     fn compare(
-        &self,
         lhs: &Self::Array,
         rhs: &dyn Array,
         operator: Operator,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(rhs_const) = rhs.as_constant() else {
             return Ok(None);
@@ -46,9 +45,9 @@ impl CompareKernel for DecimalBytePartsVTable {
             .vortex_expect("checked for null in entry func");
 
         match decimal_value_wrapper_to_primitive(rhs_decimal, lhs.msp.as_primitive_typed().ptype())
-            .map(|value| Scalar::new(scalar_type.clone(), value))
         {
-            Ok(encoded_scalar) => {
+            Ok(value) => {
+                let encoded_scalar = Scalar::try_new(scalar_type, Some(value))?;
                 let encoded_const = ConstantArray::new(encoded_scalar, rhs.len());
                 compare(&lhs.msp, &encoded_const.to_array(), operator).map(Some)
             }
@@ -132,8 +131,6 @@ where
     })
 }
 
-register_kernel!(CompareKernelAdapter(DecimalBytePartsVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use vortex_array::Array;
@@ -144,14 +141,14 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
+    use vortex_array::scalar::DecimalValue;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
 
     use crate::DecimalBytePartsArray;
 
@@ -165,7 +162,10 @@ mod tests {
         )
         .unwrap()
         .to_array();
-        let rhs = ConstantArray::new(Scalar::new(dtype, DecimalValue::I64(400).into()), lhs.len());
+        let rhs = ConstantArray::new(
+            Scalar::try_new(dtype, Some(DecimalValue::I64(400).into())).unwrap(),
+            lhs.len(),
+        );
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
@@ -215,10 +215,11 @@ mod tests {
         .to_array();
         // This cannot be converted to a i32.
         let rhs = ConstantArray::new(
-            Scalar::new(
+            Scalar::try_new(
                 dtype.clone(),
-                DecimalValue::I128(-9999999999999965304).into(),
-            ),
+                Some(DecimalValue::I128(-9999999999999965304).into()),
+            )
+            .unwrap(),
             lhs.len(),
         );
 
@@ -236,7 +237,7 @@ mod tests {
 
         // This cannot be converted to a i32.
         let rhs = ConstantArray::new(
-            Scalar::new(dtype, DecimalValue::I128(9999999999999965304).into()),
+            Scalar::try_new(dtype, Some(DecimalValue::I128(9999999999999965304).into())).unwrap(),
             lhs.len(),
         );
 

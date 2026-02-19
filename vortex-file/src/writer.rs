@@ -206,7 +206,10 @@ impl VortexWriteOptions {
             if self.file_statistics.is_empty() {
                 None
             } else {
-                Some(FileStatistics(file_stats.stats_sets().into()))
+                Some(FileStatistics::new_with_dtype(
+                    file_stats.stats_sets().into(),
+                    &dtype,
+                ))
             },
             ctx,
         );
@@ -457,7 +460,7 @@ impl WriteSummary {
         self.size
     }
 
-    /// The footer of the written Vortex file.
+    /// The total number of rows in the written Vortex file.
     pub fn row_count(&self) -> u64 {
         self.footer.row_count()
     }

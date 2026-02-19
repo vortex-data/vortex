@@ -6,17 +6,18 @@ use std::fmt::Debug;
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
+use tracing::instrument;
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
-use vortex_array::buffer::BufferHandle;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_simd_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_fastlanes::FoRArray;
 use vortex_fastlanes::FoRVTable;
@@ -25,11 +26,10 @@ use crate::CudaBufferExt;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel_impl;
 
 /// CUDA decoder for frame-of-reference.
 #[derive(Debug)]
-pub struct FoRExecutor;
+pub(crate) struct FoRExecutor;
 
 impl FoRExecutor {
     fn try_specialize(array: ArrayRef) -> Option<FoRArray> {
@@ -39,6 +39,7 @@ impl FoRExecutor {
 
 #[async_trait]
 impl CudaExecute for FoRExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -55,7 +56,7 @@ where
     P: NativePType + DeviceRepr + Send + Sync + 'static,
 {
     let array_len = array.encoded().len();
-    assert!(array_len > 0);
+    vortex_ensure!(array_len > 0, "FoR encoded array must not be empty");
 
     let reference: P = array
         .reference_scalar()
@@ -70,11 +71,7 @@ where
         buffer, validity, ..
     } = primitive.into_parts();
 
-    let device_buffer: BufferHandle = if buffer.is_on_device() {
-        buffer
-    } else {
-        ctx.move_to_device::<P>(buffer)?.await?
-    };
+    let device_buffer = ctx.ensure_on_device(buffer).await?;
 
     // Get CUDA view of the buffer
     let cuda_view = device_buffer.cuda_view::<P>()?;
@@ -83,16 +80,10 @@ where
     // Load kernel function
     let kernel_ptypes = [P::PTYPE];
     let cuda_function = ctx.load_function_ptype("for", &kernel_ptypes)?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
 
-    // Build launch args: buffer, reference, length
-    launch_builder.arg(&cuda_view);
-    launch_builder.arg(&reference);
-    launch_builder.arg(&array_len_u64);
-
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+    ctx.launch_kernel(&cuda_function, array_len, |args| {
+        args.arg(&cuda_view).arg(&reference).arg(&array_len_u64);
+    })?;
 
     // Build result - in-place reuses the same buffer
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
@@ -108,12 +99,12 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity::NonNullable;
     use vortex_buffer::Buffer;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
     use vortex_fastlanes::FoRArray;
-    use vortex_scalar::Scalar;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -129,10 +120,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case::u8(make_for_array((0..5000).map(|i| (i % 246) as u8).collect(), 10u8))]
-    #[case::u16(make_for_array((0..5000).map(|i| (i % 5000) as u16).collect(), 1000u16))]
-    #[case::u32(make_for_array((0..5000).map(|i| (i % 5000) as u32).collect(), 100000u32))]
-    #[case::u64(make_for_array((0..5000).map(|i| (i % 5000) as u64).collect(), 1000000u64))]
+    #[case::u8(make_for_array((0..2050).map(|i| (i % 246) as u8).collect(), 10u8))]
+    #[case::u16(make_for_array((0..2050).map(|i| (i % 2050) as u16).collect(), 1000u16))]
+    #[case::u32(make_for_array((0..2050).map(|i| (i % 2050) as u32).collect(), 100000u32))]
+    #[case::u64(make_for_array((0..2050).map(|i| (i % 2050) as u64).collect(), 1000000u64))]
     #[tokio::test]
     async fn test_cuda_for_decompression(#[case] for_array: FoRArray) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())

@@ -24,8 +24,7 @@ mod tests {
         let array =
             PrimitiveArray::new(Buffer::from_iter(values), Validity::NonNullable).into_array();
 
-        // Write in parallel and verify all sizes match expected
-        const EXPECTED_SIZE: usize = 216020;
+        // Write concurrently and verify all sizes match expected
         let futures: Vec<_> = (0..5)
             .map(|_| {
                 let array = array.clone();
@@ -41,9 +40,17 @@ mod tests {
             })
             .collect();
 
+        #[cfg(feature = "unstable_encodings")]
+        const EXPECTED_SIZE: usize = 216188;
+        #[cfg(not(feature = "unstable_encodings"))]
+        const EXPECTED_SIZE: usize = 216156;
+
         let sizes = futures::future::try_join_all(futures).await?;
         for (i, size) in sizes.iter().enumerate() {
-            assert_eq!(*size, EXPECTED_SIZE, "Run {i} produced size {size}");
+            assert_eq!(
+                *size, EXPECTED_SIZE,
+                "Run {i} compressed the array to {size} bytes instead of the expected {EXPECTED_SIZE}."
+            );
         }
 
         Ok(())

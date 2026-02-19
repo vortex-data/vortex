@@ -20,4 +20,5 @@ help:
 	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
 serve:
-	sphinx-autobuild "$(SOURCEDIR)" "$(BUILDDIR)/html"
+	@rm -rf "$(BUILDDIR)"
+	sphinx-autobuild "$(SOURCEDIR)" "$(BUILDDIR)/html" --re-ignore '$(BUILDDIR)/.*'

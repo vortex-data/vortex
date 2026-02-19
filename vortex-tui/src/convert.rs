@@ -15,11 +15,10 @@ use tokio::io::AsyncWriteExt;
 use vortex::array::ArrayRef;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::stream::ArrayStreamAdapter;
-use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::VortexError;
 use vortex::error::VortexExpect;
+use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::session::VortexSession;
@@ -76,7 +75,7 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
         .build()?
         .map(|record_batch| {
             record_batch
-                .map_err(|e| VortexError::generic(e.into()))
+                .map_err(|e| vortex_err!(External: e))
                 .and_then(|rb| ArrayRef::from_arrow(rb, false))
         })
         .boxed();
@@ -95,7 +94,7 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
     let strategy = WriteStrategyBuilder::default();
     let strategy = match flags.strategy {
         Strategy::Btrblocks => strategy,
-        Strategy::Compact => strategy.with_compressor(CompactCompressor::default()),
+        Strategy::Compact => strategy.with_compact_encodings(),
     };
 
     let mut file = File::create(output_path).await?;

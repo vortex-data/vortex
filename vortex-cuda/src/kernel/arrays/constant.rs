@@ -7,7 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
+use tracing::instrument;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::ConstantArray;
@@ -31,14 +31,13 @@ use vortex_error::vortex_err;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel_impl;
 
 /// CUDA executor for constant arrays with numeric types.
 ///
 /// Materializes a constant array by filling a device buffer with the scalar value.
 /// Supports primitive types (integers, floats) and decimal types (i128, i256).
 #[derive(Debug)]
-pub struct ConstantNumericExecutor;
+pub(crate) struct ConstantNumericExecutor;
 
 impl ConstantNumericExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ConstantArray> {
@@ -48,6 +47,7 @@ impl ConstantNumericExecutor {
 
 #[async_trait]
 impl CudaExecute for ConstantNumericExecutor {
+    #[instrument(level = "trace", skip_all, fields(executor = ?self))]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -114,16 +114,12 @@ where
     // Load kernel function
     let kernel_ptypes = [P::PTYPE];
     let cuda_function = ctx.load_function_ptype("constant_numeric", &kernel_ptypes)?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
 
-    // Build launch args: output, value, length
-    launch_builder.arg(&output_view);
-    launch_builder.arg(&value);
-    launch_builder.arg(&array_len_u64);
-
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+    ctx.launch_kernel(&cuda_function, array_len, |args| {
+        args.arg(&output_view);
+        args.arg(&value);
+        args.arg(&array_len_u64);
+    })?;
 
     // Wrap the CudaSlice in a CudaDeviceBuffer and then BufferHandle
     let device_buffer = CudaDeviceBuffer::new(output_buffer);
@@ -174,16 +170,12 @@ where
 
     // Load kernel function
     let cuda_function = ctx.load_function("constant_numeric", &[&D::DECIMAL_TYPE.to_string()])?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
 
-    // Build launch args: output, value, length
-    launch_builder.arg(&output_view);
-    launch_builder.arg(&value);
-    launch_builder.arg(&array_len_u64);
-
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+    ctx.launch_kernel(&cuda_function, array_len, |args| {
+        args.arg(&output_view);
+        args.arg(&value);
+        args.arg(&array_len_u64);
+    })?;
 
     // Wrap the CudaSlice in a CudaDeviceBuffer and then BufferHandle
     let device_buffer = CudaDeviceBuffer::new(output_buffer);
@@ -203,10 +195,10 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::scalar::Scalar;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
-    use vortex_scalar::Scalar;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -218,16 +210,16 @@ mod tests {
     }
 
     #[rstest]
-    #[case::u8(make_constant_array(42u8, 5000))]
-    #[case::u16(make_constant_array(1234u16, 5000))]
-    #[case::u32(make_constant_array(100000u32, 5000))]
-    #[case::u64(make_constant_array(1000000u64, 5000))]
-    #[case::i8(make_constant_array(-42i8, 5000))]
-    #[case::i16(make_constant_array(-1234i16, 5000))]
-    #[case::i32(make_constant_array(-100000i32, 5000))]
-    #[case::i64(make_constant_array(-1000000i64, 5000))]
-    #[case::f32(make_constant_array(3.14f32, 5000))]
-    #[case::f64(make_constant_array(2.71828f64, 5000))]
+    #[case::u8(make_constant_array(42u8, 2050))]
+    #[case::u16(make_constant_array(1234u16, 2050))]
+    #[case::u32(make_constant_array(100000u32, 2050))]
+    #[case::u64(make_constant_array(1000000u64, 2050))]
+    #[case::i8(make_constant_array(-42i8, 2050))]
+    #[case::i16(make_constant_array(-1234i16, 2050))]
+    #[case::i32(make_constant_array(-100000i32, 2050))]
+    #[case::i64(make_constant_array(-1000000i64, 2050))]
+    #[case::f32(make_constant_array(1.23f32, 2050))]
+    #[case::f64(make_constant_array(4.56789f64, 2050))]
     #[tokio::test]
     async fn test_cuda_constant_materialization(
         #[case] constant_array: ConstantArray,

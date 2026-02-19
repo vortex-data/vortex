@@ -3,13 +3,13 @@
 
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use super::DictVTable;
 use crate::Array;
 use crate::IntoArray;
 use crate::arrays::dict::DictArray;
-use crate::compute::fill_null;
+use crate::builtins::ArrayBuiltins;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
 
@@ -29,9 +29,10 @@ impl ValidityVTable<DictVTable> for DictVTable {
                     Validity::Array(codes_validity)
                 }
                 (Validity::AllValid | Validity::NonNullable, Validity::Array(values_validity)) => {
+                    // We know codes are all valid, so the cast is free.
+                    let codes = array.codes().cast(array.codes().dtype().as_nonnullable())?;
                     Validity::Array(
-                        unsafe { DictArray::new_unchecked(array.codes().clone(), values_validity) }
-                            .into_array(),
+                        unsafe { DictArray::new_unchecked(codes, values_validity) }.into_array(),
                     )
                 }
                 (Validity::Array(_codes_validity), Validity::Array(values_validity)) => {
@@ -39,10 +40,8 @@ impl ValidityVTable<DictVTable> for DictVTable {
                     let values_valid_mask =
                         unsafe { DictArray::new_unchecked(array.codes().clone(), values_validity) }
                             .into_array();
-                    let values_valid_mask = fill_null(
-                        &values_valid_mask,
-                        &Scalar::bool(false, Nullability::NonNullable),
-                    )?;
+                    let values_valid_mask = values_valid_mask
+                        .fill_null(Scalar::bool(false, Nullability::NonNullable))?;
 
                     Validity::Array(values_valid_mask)
                 }

@@ -2,30 +2,33 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::ops::Range;
 
 use num_traits::cast::FromPrimitive;
 use vortex_array::ArrayBufferVisitor;
 use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::expr::stats::Precision as StatPrecision;
+use vortex_array::expr::stats::Stat;
+use vortex_array::match_each_pvalue;
+use vortex_array::scalar::PValue;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::StatsSet;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -43,12 +46,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_mask::AllOr;
-use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
+use vortex_session::VortexSession;
 
 use crate::kernel::PARENT_KERNELS;
+use crate::rules::RULES;
 
 vtable!(Sequence);
 
@@ -130,13 +131,34 @@ impl SequenceArray {
         length: usize,
     ) -> Self {
         let dtype = DType::Primitive(ptype, nullability);
+
+        // A sequence A[i] = base + i * multiplier is sorted iff multiplier >= 0,
+        // and strictly sorted iff multiplier > 0.
+
+        let (is_sorted, is_strict_sorted) = match_each_pvalue!(
+            multiplier,
+            uint: |v| { (true, v> 0) },
+            int: |v| { (v >= 0, v > 0) },
+            float: |_v| { unreachable!("float multiplier not supported") }
+        );
+
+        // SAFETY: we don't have duplicate stats
+        let stats_set = unsafe {
+            StatsSet::new_unchecked(vec![
+                (Stat::IsSorted, StatPrecision::Exact(is_sorted.into())),
+                (
+                    Stat::IsStrictSorted,
+                    StatPrecision::Exact(is_strict_sorted.into()),
+                ),
+            ])
+        };
+
         Self {
             base,
             multiplier,
             dtype,
             len: length,
-            // TODO(joe): add stats, on construct or on use?
-            stats_set: Default::default(),
+            stats_set: ArrayStats::from(stats_set),
         }
     }
 
@@ -162,9 +184,8 @@ impl SequenceArray {
             let len_t = <P>::from_usize(length - 1)
                 .ok_or_else(|| vortex_err!("cannot convert length {} into {}", length, ptype))?;
 
-            let base = base.cast::<P>();
-            let multiplier = multiplier.cast::<P>();
-
+            let base = base.cast::<P>()?;
+            let multiplier = multiplier.cast::<P>()?;
             let last = len_t
                 .checked_mul(multiplier)
                 .and_then(|offset| offset.checked_add(base))
@@ -177,8 +198,11 @@ impl SequenceArray {
         assert!(idx < self.len, "index_value({idx}): index out of bounds");
 
         match_each_native_ptype!(self.ptype(), |P| {
-            let base = self.base.cast::<P>();
-            let multiplier = self.multiplier.cast::<P>();
+            let base = self.base.cast::<P>().vortex_expect("must be able to cast");
+            let multiplier = self
+                .multiplier
+                .cast::<P>()
+                .vortex_expect("must be able to cast");
             let value = base + (multiplier * <P>::from_usize(idx).vortex_expect("must fit"));
 
             PValue::from(value)
@@ -211,7 +235,6 @@ impl VTable for SequenceVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -228,9 +251,15 @@ impl VTable for SequenceVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(
-            <ProstMetadata<SequenceMetadata> as DeserializeMetadata>::deserialize(buffer)?,
+            <ProstMetadata<SequenceMetadata> as DeserializeMetadata>::deserialize(bytes)?,
         ))
     }
 
@@ -244,28 +273,26 @@ impl VTable for SequenceVTable {
         let ptype = dtype.as_ptype();
 
         // We go via scalar to cast the scalar values into the correct PType
-        let base = Scalar::new(
-            DType::Primitive(ptype, NonNullable),
+        let base = Scalar::from_proto_value(
             metadata
                 .0
                 .base
                 .as_ref()
-                .ok_or_else(|| vortex_err!("base required"))?
-                .try_into()?,
-        )
+                .ok_or_else(|| vortex_err!("base required"))?,
+            &DType::Primitive(ptype, NonNullable),
+        )?
         .as_primitive()
         .pvalue()
         .vortex_expect("non-nullable primitive");
 
-        let multiplier = Scalar::new(
-            DType::Primitive(ptype, NonNullable),
+        let multiplier = Scalar::from_proto_value(
             metadata
                 .0
                 .multiplier
                 .as_ref()
-                .ok_or_else(|| vortex_err!("base required"))?
-                .try_into()?,
-        )
+                .ok_or_else(|| vortex_err!("multiplier required"))?,
+            &DType::Primitive(ptype, NonNullable),
+        )?
         .as_primitive()
         .pvalue()
         .vortex_expect("non-nullable primitive");
@@ -288,10 +315,10 @@ impl VTable for SequenceVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let prim = match_each_native_ptype!(array.ptype(), |P| {
-            let base = array.base().cast::<P>();
-            let multiplier = array.multiplier().cast::<P>();
+            let base = array.base().cast::<P>()?;
+            let multiplier = array.multiplier().cast::<P>()?;
             let values = BufferMut::from_iter(
                 (0..array.len())
                     .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
@@ -299,7 +326,7 @@ impl VTable for SequenceVTable {
             PrimitiveArray::new(values, array.dtype.nullability().into())
         });
 
-        Ok(Canonical::Primitive(prim))
+        Ok(prim.into_array())
     }
 
     fn execute_parent(
@@ -308,70 +335,16 @@ impl VTable for SequenceVTable {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Try parent kernels first (e.g., comparison fusion)
-        if let Some(result) = PARENT_KERNELS.execute(array, parent, child_idx, ctx)? {
-            return Ok(Some(result));
-        }
-
-        // Special-case filtered execution.
-        let Some(filter) = parent.as_opt::<FilterVTable>() else {
-            return Ok(None);
-        };
-
-        match filter.filter_mask().indices() {
-            AllOr::All => Ok(None),
-            AllOr::None => Ok(Some(Canonical::empty(array.dtype()).into_array())),
-            AllOr::Some(indices) => Ok(Some(match_each_native_ptype!(array.ptype(), |P| {
-                let base = array.base().cast::<P>();
-                let multiplier = array.multiplier().cast::<P>();
-                execute_iter(
-                    base,
-                    multiplier,
-                    indices.iter().copied(),
-                    array.dtype().nullability(),
-                )
-                .into_array()
-            }))),
-        }
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn reduce_parent(
-        _array: &SequenceArray,
-        _parent: &ArrayRef,
-        _child_idx: usize,
+        array: &SequenceArray,
+        parent: &ArrayRef,
+        child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        Ok(None)
+        RULES.evaluate(array, parent, child_idx)
     }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            SequenceArray::unchecked_new(
-                array.index_value(range.start),
-                array.multiplier,
-                array.ptype(),
-                array.dtype().nullability(),
-                range.len(),
-            )
-            .to_array(),
-        ))
-    }
-}
-
-fn execute_iter<P: NativePType, I: Iterator<Item = usize>>(
-    base: P,
-    multiplier: P,
-    iter: I,
-    nullability: Nullability,
-) -> PrimitiveArray {
-    let values = if multiplier == <P>::one() {
-        BufferMut::from_iter(iter.map(|i| base + <P>::from_usize(i).vortex_expect("must fit")))
-    } else {
-        BufferMut::from_iter(
-            iter.map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
-        )
-    };
-
-    PrimitiveArray::new(values, nullability.into())
 }
 
 impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
@@ -408,10 +381,10 @@ impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
 
 impl OperationsVTable<SequenceVTable> for SequenceVTable {
     fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::new(
+        Scalar::try_new(
             array.dtype().clone(),
-            ScalarValue::from(array.index_value(index)),
-        ))
+            Some(ScalarValue::Primitive(array.index_value(index))),
+        )
     }
 }
 
@@ -426,7 +399,15 @@ impl VisitorVTable<SequenceVTable> for SequenceVTable {
         // TODO(joe): expose scalar values
     }
 
+    fn nbuffers(_array: &SequenceArray) -> usize {
+        0
+    }
+
     fn visit_children(_array: &SequenceArray, _visitor: &mut dyn ArrayChildVisitor) {}
+
+    fn nchildren(_array: &SequenceArray) -> usize {
+        0
+    }
 }
 
 #[derive(Debug)]
@@ -440,9 +421,13 @@ impl SequenceVTable {
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::expr::stats::Precision as StatPrecision;
+    use vortex_array::expr::stats::Stat;
+    use vortex_array::expr::stats::StatsProviderExt;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar::ScalarValue;
     use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
-    use vortex_scalar::ScalarValue;
+    use vortex_error::VortexResult;
 
     use crate::array::SequenceArray;
 
@@ -476,7 +461,7 @@ mod tests {
 
         assert_eq!(
             scalar,
-            Scalar::new(scalar.dtype().clone(), ScalarValue::from(8i64))
+            Scalar::try_new(scalar.dtype().clone(), Some(ScalarValue::from(8i64))).unwrap()
         )
     }
 
@@ -490,5 +475,74 @@ mod tests {
     fn test_sequence_too_big() {
         assert!(SequenceArray::typed_new(127i8, 1i8, Nullability::NonNullable, 2).is_err());
         assert!(SequenceArray::typed_new(-128i8, -1i8, Nullability::NonNullable, 2).is_err());
+    }
+
+    #[test]
+    fn positive_multiplier_is_strict_sorted() -> VortexResult<()> {
+        let arr = SequenceArray::typed_new(0i64, 3, Nullability::NonNullable, 4)?;
+
+        let is_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+        assert_eq!(is_sorted, Some(StatPrecision::Exact(true)));
+
+        let is_strict_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+        assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(true)));
+        Ok(())
+    }
+
+    #[test]
+    fn zero_multiplier_is_sorted_not_strict() -> VortexResult<()> {
+        let arr = SequenceArray::typed_new(5i64, 0, Nullability::NonNullable, 4)?;
+
+        let is_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+        assert_eq!(is_sorted, Some(StatPrecision::Exact(true)));
+
+        let is_strict_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+        assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(false)));
+        Ok(())
+    }
+
+    #[test]
+    fn negative_multiplier_not_sorted() -> VortexResult<()> {
+        let arr = SequenceArray::typed_new(10i64, -1, Nullability::NonNullable, 4)?;
+
+        let is_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+        assert_eq!(is_sorted, Some(StatPrecision::Exact(false)));
+
+        let is_strict_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+        assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(false)));
+        Ok(())
+    }
+
+    // This is regression test for an issue caught by the fuzzer, where SequenceArrays with
+    // multiplier > i64::MAX were unable to be constructed.
+    #[test]
+    fn test_large_multiplier_sorted() -> VortexResult<()> {
+        let large_multiplier = (i64::MAX as u64) + 1;
+        let arr = SequenceArray::typed_new(0, large_multiplier, Nullability::NonNullable, 2)?;
+
+        let is_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+
+        let is_strict_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+
+        assert_eq!(is_sorted, Some(StatPrecision::Exact(true)));
+        assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(true)));
+
+        Ok(())
     }
 }

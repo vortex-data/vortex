@@ -17,6 +17,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::VarBinViewVTable;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::compute::is_constant;
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexExpect;
@@ -25,7 +26,6 @@ use vortex_error::vortex_err;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
-use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
 use vortex_sparse::SparseVTable;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -124,6 +124,10 @@ pub const ALL_STRING_SCHEMES: &[&dyn StringScheme] = &[
     &FSSTScheme,
     &ConstantScheme,
     &NullDominated,
+    #[cfg(feature = "zstd")]
+    &ZstdScheme,
+    #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+    &ZstdBuffersScheme,
 ];
 
 /// [`Compressor`] for strings.
@@ -209,6 +213,16 @@ pub struct ConstantScheme;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct NullDominated;
 
+/// Zstd compression without dictionaries (nvCOMP compatible).
+#[cfg(feature = "zstd")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ZstdScheme;
+
+/// Zstd buffer-level compression preserving array layout for GPU decompression.
+#[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ZstdBuffersScheme;
+
 /// Unique identifier for string compression schemes.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence, Ord, PartialOrd)]
 pub enum StringCode {
@@ -222,6 +236,10 @@ pub enum StringCode {
     Constant,
     /// Sparse encoding for null-dominated arrays.
     Sparse,
+    /// Zstd compression without dictionaries.
+    Zstd,
+    /// Zstd buffer-level compression preserving array layout.
+    ZstdBuffers,
 }
 
 impl Scheme for UncompressedScheme {
@@ -499,6 +517,50 @@ impl Scheme for NullDominated {
         } else {
             Ok(sparse_encoded)
         }
+    }
+}
+
+#[cfg(feature = "zstd")]
+impl Scheme for ZstdScheme {
+    type StatsType = StringStats;
+    type CodeType = StringCode;
+
+    fn code(&self) -> StringCode {
+        StringCode::Zstd
+    }
+
+    fn compress(
+        &self,
+        _compressor: &BtrBlocksCompressor,
+        stats: &Self::StatsType,
+        _ctx: CompressorContext,
+        _excludes: &[StringCode],
+    ) -> VortexResult<ArrayRef> {
+        let compacted = stats.source().compact_buffers()?;
+        Ok(
+            vortex_zstd::ZstdArray::from_var_bin_view_without_dict(&compacted, 3, 8192)?
+                .into_array(),
+        )
+    }
+}
+
+#[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+impl Scheme for ZstdBuffersScheme {
+    type StatsType = StringStats;
+    type CodeType = StringCode;
+
+    fn code(&self) -> StringCode {
+        StringCode::ZstdBuffers
+    }
+
+    fn compress(
+        &self,
+        _compressor: &BtrBlocksCompressor,
+        stats: &Self::StatsType,
+        _ctx: CompressorContext,
+        _excludes: &[StringCode],
+    ) -> VortexResult<ArrayRef> {
+        Ok(vortex_zstd::ZstdBuffersArray::compress(&stats.source().to_array(), 3)?.into_array())
     }
 }
 

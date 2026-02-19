@@ -7,6 +7,7 @@ use std::fmt::Debug;
 use vortex_array::Array;
 use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
+use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::IndexOrd;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
@@ -19,7 +20,6 @@ use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 
 struct SearchNullableSlice<T>(Vec<Option<T>>);
 

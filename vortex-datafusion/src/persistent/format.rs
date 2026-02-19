@@ -39,11 +39,9 @@ use futures::FutureExt;
 use futures::StreamExt as _;
 use futures::TryStreamExt as _;
 use futures::stream;
-use itertools::Itertools;
 use object_store::ObjectMeta;
 use object_store::ObjectStore;
 use vortex::VortexSessionDefault;
-use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -57,7 +55,7 @@ use vortex::file::EOF_SIZE;
 use vortex::file::MAX_POSTSCRIPT_SIZE;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VORTEX_FILE_EXTENSION;
-use vortex::io::file::object_store::ObjectStoreSource;
+use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
@@ -73,7 +71,7 @@ const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usi
 /// Vortex implementation of a DataFusion [`FileFormat`].
 pub struct VortexFormat {
     session: VortexSession,
-    opts: VortexOptions,
+    opts: VortexTableOptions,
 }
 
 impl Debug for VortexFormat {
@@ -90,22 +88,34 @@ config_namespace! {
     /// Can be set through a DataFusion [`SessionConfig`].
     ///
     /// [`SessionConfig`]: https://docs.rs/datafusion/latest/datafusion/prelude/struct.SessionConfig.html
-    pub struct VortexOptions {
+    pub struct VortexTableOptions {
         /// The number of bytes to read when parsing a file footer.
         ///
         /// Values smaller than `MAX_POSTSCRIPT_SIZE + EOF_SIZE` will be clamped to that minimum
         /// during footer parsing.
         pub footer_initial_read_size_bytes: usize, default = DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES
+        /// Whether to enable projection pushdown into the underlying Vortex scan.
+        ///
+        /// When enabled, projection expressions may be partially evaluated during
+        /// the scan. When disabled, Vortex reads only the referenced columns and
+        /// all expressions are evaluated after the scan.
+        pub projection_pushdown: bool, default = false
+        /// The intra-partition scan concurrency, controlling the number of row splits to process
+        /// concurrently per-thread within each file.
+        ///
+        /// This does not affect the overall parallelism
+        /// across partitions, which is controlled by DataFusion's execution configuration.
+        pub scan_concurrency: Option<usize>, default = None
     }
 }
 
-impl Eq for VortexOptions {}
+impl Eq for VortexTableOptions {}
 
 /// Minimal factory to create [`VortexFormat`] instances.
 #[derive(Debug)]
 pub struct VortexFormatFactory {
     session: VortexSession,
-    options: Option<VortexOptions>,
+    options: Option<VortexTableOptions>,
 }
 
 impl GetExt for VortexFormatFactory {
@@ -130,7 +140,7 @@ impl VortexFormatFactory {
     /// Creates a new instance with customized session and default options for all [`VortexFormat`] instances created from this factory.
     ///
     /// The options can be overridden by table-level configuration pass in [`FileFormatFactory::create`].
-    pub fn new_with_options(session: VortexSession, options: VortexOptions) -> Self {
+    pub fn new_with_options(session: VortexSession, options: VortexTableOptions) -> Self {
         Self {
             session,
             options: Some(options),
@@ -141,11 +151,11 @@ impl VortexFormatFactory {
     ///
     /// For example:
     /// ```rust
-    /// use vortex_datafusion::{VortexFormatFactory, VortexOptions};
+    /// use vortex_datafusion::{VortexFormatFactory, VortexTableOptions};
     ///
-    /// let factory = VortexFormatFactory::new().with_options(VortexOptions::default());
+    /// let factory = VortexFormatFactory::new().with_options(VortexTableOptions::default());
     /// ```
-    pub fn with_options(mut self, options: VortexOptions) -> Self {
+    pub fn with_options(mut self, options: VortexTableOptions) -> Self {
         self.options = Some(options);
         self
     }
@@ -185,16 +195,16 @@ impl FileFormatFactory for VortexFormatFactory {
 impl VortexFormat {
     /// Create a new instance with default options.
     pub fn new(session: VortexSession) -> Self {
-        Self::new_with_options(session, VortexOptions::default())
+        Self::new_with_options(session, VortexTableOptions::default())
     }
 
-    /// Creates a new instance with configured by a [`VortexOptions`].
-    pub fn new_with_options(session: VortexSession, opts: VortexOptions) -> Self {
+    /// Creates a new instance with configured by a [`VortexTableOptions`].
+    pub fn new_with_options(session: VortexSession, opts: VortexTableOptions) -> Self {
         Self { session, opts }
     }
 
     /// Return the format specific configuration
-    pub fn options(&self) -> &VortexOptions {
+    pub fn options(&self) -> &VortexTableOptions {
         &self.opts
     }
 }
@@ -251,7 +261,7 @@ impl FileFormat for VortexFormat {
                     }
 
                     // Not cached or invalid - open the file
-                    let reader = Arc::new(ObjectStoreSource::new(
+                    let reader = Arc::new(ObjectStoreReadAt::new(
                         store,
                         object.location.clone(),
                         session.handle(),
@@ -318,7 +328,7 @@ impl FileFormat for VortexFormat {
                 Some(metadata) => metadata,
                 None => {
                     // Not cached - open the file
-                    let reader = Arc::new(ObjectStoreSource::new(
+                    let reader = Arc::new(ObjectStoreReadAt::new(
                         store,
                         object.location.clone(),
                         session.handle(),
@@ -367,81 +377,87 @@ impl FileFormat for VortexFormat {
                 });
             };
 
-            let stats = table_schema
-                .fields()
-                .iter()
-                .map(|field| struct_dtype.find(field.name()))
-                .map(|idx| match idx {
-                    None => StatsSet::default(),
-                    Some(id) => file_stats[id].clone(),
-                })
-                .collect_vec();
+            let mut sum_of_column_byte_sizes = stats::Precision::exact(0_usize);
+            let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
 
-            let total_byte_size = stats
-                .iter()
-                .map(|stats_set| {
-                    stats_set
-                        .get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into())
-                        .unwrap_or_else(|| stats::Precision::inexact(0_usize))
-                })
-                .fold(stats::Precision::exact(0_usize), |acc, stats_set| {
-                    acc.zip(stats_set).map(|(acc, stats_set)| acc + stats_set)
+            for field in table_schema.fields().iter() {
+                // If the column does not exist, continue. This can happen if the schema has evolved
+                // but we have not yet updated the Vortex file.
+                let Some(col_idx) = struct_dtype.find(field.name()) else {
+                    // The default sets all statistics to `Precision<Absent>`.
+                    column_statistics.push(ColumnStatistics::default());
+                    continue;
+                };
+                let (stats_set, stats_dtype) = file_stats.get(col_idx);
+
+                // Update the total size in bytes.
+                let column_size = stats_set
+                    .get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into())
+                    .unwrap_or_else(|| stats::Precision::inexact(0_usize));
+                sum_of_column_byte_sizes = sum_of_column_byte_sizes
+                    .zip(column_size)
+                    .map(|(acc, size)| acc + size);
+
+                // TODO(connor): There's a lot that can go wrong here, should probably handle this
+                // more gracefully...
+                // Find the min statistic.
+                let min = stats_set.get(Stat::Min).and_then(|pstat_val| {
+                    pstat_val
+                        .map(|stat_val| {
+                            // Because of DataFusion's Schema evolution, it is possible that the
+                            // type of the min/max stat has changed. Thus we construct the stat as
+                            // the file datatype first and only then do we cast accordingly.
+                            Scalar::try_new(
+                                Stat::Min
+                                    .dtype(stats_dtype)
+                                    .vortex_expect("must have a valid dtype"),
+                                Some(stat_val),
+                            )
+                            .vortex_expect("`Stat::Min` somehow had an incompatible `DType`")
+                            .cast(&DType::from_arrow(field.as_ref()))
+                            .vortex_expect("Unable to cast to target type that DataFusion wants")
+                            .try_to_df()
+                            .ok()
+                        })
+                        .transpose()
                 });
 
-            // Sum up the total byte size across all the columns.
-            let total_byte_size = total_byte_size.to_df();
-
-            let column_statistics = stats
-                .into_iter()
-                .zip(table_schema.fields().iter())
-                .map(|(stats_set, field)| {
-                    let null_count = stats_set.get_as::<usize>(Stat::NullCount, &PType::U64.into());
-                    let min = stats_set.get(Stat::Min).and_then(|n| {
-                        n.map(|n| {
-                            Scalar::new(
-                                Stat::Min
-                                    .dtype(&DType::from_arrow(field.as_ref()))
-                                    .vortex_expect("must have a valid dtype"),
-                                n,
-                            )
-                            .try_to_df()
-                            .ok()
-                        })
-                        .transpose()
-                    });
-
-                    let max = stats_set.get(Stat::Max).and_then(|n| {
-                        n.map(|n| {
-                            Scalar::new(
+                // Find the max statistic.
+                let max = stats_set.get(Stat::Max).and_then(|pstat_val| {
+                    pstat_val
+                        .map(|stat_val| {
+                            Scalar::try_new(
                                 Stat::Max
-                                    .dtype(&DType::from_arrow(field.as_ref()))
+                                    .dtype(stats_dtype)
                                     .vortex_expect("must have a valid dtype"),
-                                n,
+                                Some(stat_val),
                             )
+                            .vortex_expect("`Stat::Max` somehow had an incompatible `DType`")
+                            .cast(&DType::from_arrow(field.as_ref()))
+                            .vortex_expect("Unable to cast to target type that DataFusion wants")
                             .try_to_df()
                             .ok()
                         })
                         .transpose()
-                    });
+                });
 
-                    ColumnStatistics {
-                        null_count: null_count.to_df(),
-                        max_value: max.to_df(),
-                        min_value: min.to_df(),
-                        sum_value: Precision::Absent,
-                        distinct_count: stats_set
-                            .get_as::<bool>(
-                                Stat::IsConstant,
-                                &DType::Bool(Nullability::NonNullable),
-                            )
-                            .and_then(|is_constant| {
-                                is_constant.as_exact().map(|_| Precision::Exact(1))
-                            })
-                            .unwrap_or(Precision::Absent),
-                        byte_size: Precision::Absent,
-                    }
+                let null_count = stats_set.get_as::<usize>(Stat::NullCount, &PType::U64.into());
+
+                column_statistics.push(ColumnStatistics {
+                    null_count: null_count.to_df(),
+                    min_value: min.to_df(),
+                    max_value: max.to_df(),
+                    sum_value: Precision::Absent,
+                    distinct_count: stats_set
+                        .get_as::<bool>(Stat::IsConstant, &DType::Bool(Nullability::NonNullable))
+                        .and_then(|is_constant| is_constant.as_exact().map(|_| Precision::Exact(1)))
+                        .unwrap_or(Precision::Absent),
+                    // TODO(connor): Is this correct?
+                    byte_size: column_size.to_df(),
                 })
-                .collect::<Vec<_>>();
+            }
+
+            let total_byte_size = sum_of_column_byte_sizes.to_df();
 
             Ok(Statistics {
                 num_rows: Precision::Exact(
@@ -497,7 +513,14 @@ impl FileFormat for VortexFormat {
     }
 
     fn file_source(&self, table_schema: TableSchema) -> Arc<dyn FileSource> {
-        Arc::new(VortexSource::new(table_schema, self.session.clone()))
+        let mut source = VortexSource::new(table_schema, self.session.clone())
+            .with_projection_pushdown(self.opts.projection_pushdown);
+
+        if let Some(scan_concurrency) = self.opts.scan_concurrency {
+            source = source.with_scan_concurrency(scan_concurrency);
+        }
+
+        Arc::new(source) as _
     }
 }
 
@@ -535,7 +558,7 @@ mod tests {
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex \
                 LOCATION 'table/' \
-                OPTIONS( footer_initial_read_size_bytes '12345' );",
+                OPTIONS( footer_initial_read_size_bytes '12345', scan_concurrency '3' );",
             )
             .await?
             .collect()
@@ -546,7 +569,7 @@ mod tests {
 
     #[test]
     fn format_plumbs_footer_initial_read_size() {
-        let mut opts = VortexOptions::default();
+        let mut opts = VortexTableOptions::default();
         opts.set("footer_initial_read_size_bytes", "12345").unwrap();
 
         let format = VortexFormat::new_with_options(VortexSession::default(), opts);

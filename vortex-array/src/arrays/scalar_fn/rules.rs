@@ -11,7 +11,6 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::ArrayVisitor;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
@@ -20,6 +19,7 @@ use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
+use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::StructArray;
 use crate::expr::Pack;
 use crate::expr::ReduceCtx;
@@ -38,8 +38,10 @@ pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> = ReduceRuleSet::new(&[
     &ScalarFnAbstractReduceRule,
 ]);
 
-pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&ScalarFnUnaryFilterPushDownRule)]);
+pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&ScalarFnUnaryFilterPushDownRule),
+    ParentRuleSet::lift(&SliceReduceAdaptor(ScalarFnVTable)),
+]);
 
 /// Converts a ScalarFnArray with Pack into a StructArray directly.
 #[derive(Debug)]
@@ -87,11 +89,10 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
 struct ScalarFnAbstractReduceRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
     fn reduce(&self, array: &ScalarFnArray) -> VortexResult<Option<ArrayRef>> {
-        if let Some(reduced) = array.scalar_fn.reduce(
-            // Blergh, re-boxing
-            &array.to_array(),
-            &ArrayReduceCtx { len: array.len },
-        )? {
+        if let Some(reduced) = array
+            .scalar_fn
+            .reduce(array, &ArrayReduceCtx { len: array.len })?
+        {
             return Ok(Some(
                 reduced
                     .as_any()
@@ -104,25 +105,48 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
     }
 }
 
+impl ReduceNode for ScalarFnArray {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn node_dtype(&self) -> VortexResult<DType> {
+        Ok(self.dtype().clone())
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn scalar_fn(&self) -> Option<&ScalarFn> {
+        Some(ScalarFnArray::scalar_fn(self))
+    }
+
+    fn child(&self, idx: usize) -> ReduceNodeRef {
+        Arc::new(self.children()[idx].clone())
+    }
+
+    fn child_count(&self) -> usize {
+        self.children.len()
+    }
+}
+
 impl ReduceNode for ArrayRef {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn node_dtype(&self) -> VortexResult<DType> {
-        Ok(self.as_ref().dtype().clone())
+        self.as_ref().node_dtype()
     }
 
     fn scalar_fn(&self) -> Option<&ScalarFn> {
-        self.as_opt::<ScalarFnVTable>().map(|a| a.scalar_fn())
+        self.as_ref().scalar_fn()
     }
 
     fn child(&self, idx: usize) -> ReduceNodeRef {
-        Arc::new(<dyn Array>::children(self)[idx].clone())
+        self.as_ref().child(idx)
     }
 
     fn child_count(&self) -> usize {
-        self.nchildren()
+        self.as_ref().child_count()
     }
 }
 

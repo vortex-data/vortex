@@ -9,8 +9,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use crate::Array;
 use crate::compute::ComputeFn;
@@ -22,6 +20,8 @@ use crate::compute::UnaryArgs;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
+use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 use crate::vtable::VTable;
 
 static NAN_COUNT_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -141,13 +141,6 @@ fn nan_count_impl(array: &dyn Array, kernels: &[ArcRef<dyn Kernel>]) -> VortexRe
                 .as_::<usize>()
                 .ok_or_else(|| vortex_err!("NaN count should not return null"));
         }
-    }
-    if let Some(output) = array.invoke(&NAN_COUNT_FN, &args)? {
-        return output
-            .unwrap_scalar()?
-            .as_primitive()
-            .as_::<usize>()
-            .ok_or_else(|| vortex_err!("NaN count should not return null"));
     }
 
     if !array.is_canonical() {

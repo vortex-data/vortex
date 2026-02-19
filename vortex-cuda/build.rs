@@ -9,6 +9,7 @@ use std::env;
 use std::fs::File;
 use std::io;
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
 use fastlanes::FastLanes;
@@ -48,10 +49,28 @@ fn main() {
     {
         println!("cargo:rerun-if-changed={}", entry.path().display());
     }
-    generate_unpack::<u8>(&kernels_src, 32).expect("Failed to generate unpack for u8");
-    generate_unpack::<u16>(&kernels_src, 32).expect("Failed to generate unpack for u16");
-    generate_unpack::<u32>(&kernels_src, 32).expect("Failed to generate unpack for u32");
-    generate_unpack::<u64>(&kernels_src, 16).expect("Failed to generate unpack for u64");
+    let unpack_files = [
+        generate_unpack::<u8>(&kernels_src, 32).expect("Failed to generate unpack for u8"),
+        generate_unpack::<u16>(&kernels_src, 32).expect("Failed to generate unpack for u16"),
+        generate_unpack::<u32>(&kernels_src, 32).expect("Failed to generate unpack for u32"),
+        generate_unpack::<u64>(&kernels_src, 16).expect("Failed to generate unpack for u64"),
+    ];
+    // Run clang-format on the generated files.
+    if let Ok(status) = Command::new("clang-format")
+        .arg("-i")
+        .arg("--style=file")
+        .args(&unpack_files)
+        .status()
+    {
+        if !status.success() {
+            println!("cargo:warning=clang-format exited with status {status}");
+        }
+    } else {
+        println!("cargo:warning=clang-format not found, skipping formatting of generated files");
+    }
+
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
+    generate_dynamic_dispatch_bindings(&kernels_src, &out_dir);
 
     if !is_cuda_available() {
         return;
@@ -66,7 +85,9 @@ fn main() {
                 .is_some_and(|n| n.starts_with("bit_unpack_"));
 
             match path.extension().and_then(|e| e.to_str()) {
-                Some("cuh") => println!("cargo:rerun-if-changed={}", path.display()),
+                Some("cuh") | Some("h") => {
+                    println!("cargo:rerun-if-changed={}", path.display())
+                }
                 Some("cu") => {
                     // Only watch hand-written .cu files, not generated ones
                     // (generated files are rebuilt when cuda_kernel_generator changes)
@@ -86,10 +107,12 @@ fn main() {
     }
 }
 
-fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::Result<()> {
-    let mut cu_file = File::create(output_dir.join(format!("bit_unpack_{}.cu", T::T)))?;
+fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::Result<PathBuf> {
+    let path = output_dir.join(format!("bit_unpack_{}.cu", T::T));
+    let mut cu_file = File::create(&path)?;
     let mut cu_writer = IndentedWriter::new(&mut cu_file);
-    generate_cuda_unpack_for_width::<T, _>(&mut cu_writer, thread_count)
+    generate_cuda_unpack_for_width::<T, _>(&mut cu_writer, thread_count)?;
+    Ok(path)
 }
 
 fn nvcc_compile_ptx(
@@ -172,6 +195,26 @@ fn nvcc_compile_ptx(
         )));
     }
     Ok(())
+}
+
+/// Generate bindings for the dynamic dispatch shared header.
+///
+/// `DynamicDispatchPlan` and related types are shared between CUDA kernels
+/// and Rust host code.
+fn generate_dynamic_dispatch_bindings(kernels_src: &Path, out_dir: &Path) {
+    let header = kernels_src.join("dynamic_dispatch.h");
+    println!("cargo:rerun-if-changed={}", header.display());
+
+    let bindings = bindgen::Builder::default()
+        .header(header.to_string_lossy())
+        .derive_copy(true)
+        .derive_debug(true)
+        .generate()
+        .expect("Failed to generate dynamic_dispatch bindings");
+
+    bindings
+        .write_to_file(out_dir.join("dynamic_dispatch.rs"))
+        .expect("Failed to write dynamic_dispatch.rs");
 }
 
 /// Check if CUDA is available based on nvcc.

@@ -9,8 +9,6 @@ use bytes::BytesMut;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::iter::ArrayIterator;
-use vortex_array::session::ArrayRegistry;
-use vortex_array::session::ArraySessionExt;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -26,7 +24,7 @@ use crate::messages::SyncMessageReader;
 pub struct SyncIPCReader<R: Read> {
     reader: SyncMessageReader<R>,
     dtype: DType,
-    registry: ArrayRegistry,
+    session: VortexSession,
 }
 
 impl<R: Read> SyncIPCReader<R> {
@@ -39,7 +37,7 @@ impl<R: Read> SyncIPCReader<R> {
                     Ok(SyncIPCReader {
                         reader,
                         dtype,
-                        registry: session.arrays().registry().clone(),
+                        session: session.clone(),
                     })
                 }
                 msg => {
@@ -65,7 +63,7 @@ impl<R: Read> Iterator for SyncIPCReader<R> {
             Ok(msg) => match msg {
                 DecoderMessage::Array((array_parts, ctx, row_count)) => Some(
                     array_parts
-                        .decode(&self.dtype, row_count, &ctx, &self.registry)
+                        .decode(&self.dtype, row_count, &ctx, &self.session)
                         .and_then(|array| {
                             if array.dtype() != self.dtype() {
                                 Err(vortex_err!(

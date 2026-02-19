@@ -12,8 +12,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use crate::expr::stats::IsConstant;
 use crate::expr::stats::IsSorted;
@@ -30,6 +28,8 @@ use crate::expr::stats::StatsProvider;
 use crate::expr::stats::StatsProviderExt;
 use crate::expr::stats::Sum;
 use crate::expr::stats::UncompressedSizeInBytes;
+use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
@@ -132,7 +132,11 @@ impl StatsSet {
     ) -> Option<Precision<T>> {
         self.get(stat).map(|v| {
             v.map(|v| {
-                T::try_from(&Scalar::new(dtype.clone(), v)).unwrap_or_else(|err| {
+                T::try_from(
+                    &Scalar::try_new(dtype.clone(), Some(v))
+                        .vortex_expect("failed to construct a scalar statistic"),
+                )
+                .unwrap_or_else(|err| {
                     vortex_panic!(
                         err,
                         "Failed to get stat {} as {}",
@@ -225,11 +229,12 @@ impl StatsProvider for TypedStatsSetRef<'_, '_> {
     fn get(&self, stat: Stat) -> Option<Precision<Scalar>> {
         self.values.get(stat).map(|p| {
             p.map(|sv| {
-                Scalar::new(
+                Scalar::try_new(
                     stat.dtype(self.dtype)
                         .vortex_expect("Must have valid dtype if value is present"),
-                    sv,
+                    Some(sv),
                 )
+                .vortex_expect("failed to construct a scalar statistic")
             })
         })
     }
@@ -260,11 +265,12 @@ impl StatsProvider for MutTypedStatsSetRef<'_, '_> {
     fn get(&self, stat: Stat) -> Option<Precision<Scalar>> {
         self.values.get(stat).map(|p| {
             p.map(|sv| {
-                Scalar::new(
+                Scalar::try_new(
                     stat.dtype(self.dtype)
                         .vortex_expect("Must have valid dtype if value is present"),
-                    sv,
+                    Some(sv),
                 )
+                .vortex_expect("failed to construct a scalar statistic")
             })
         })
     }
@@ -356,10 +362,22 @@ impl MutTypedStatsSetRef<'_, '_> {
                         vortex_err!("{:?} bounds ({m1:?}, {m2:?}) do not overlap", S::STAT)
                     })?;
                 if meet != m1 {
-                    self.set(S::STAT, meet.into_value().map(Scalar::into_value));
+                    self.set(
+                        S::STAT,
+                        meet.into_value().map(|s| {
+                            s.into_value()
+                                .vortex_expect("stat scalar value cannot be null")
+                        }),
+                    );
                 }
             }
-            (None, Some(m)) => self.set(S::STAT, m.into_value().map(Scalar::into_value)),
+            (None, Some(m)) => self.set(
+                S::STAT,
+                m.into_value().map(|s| {
+                    s.into_value()
+                        .vortex_expect("stat scalar value cannot be null")
+                }),
+            ),
             (Some(_), _) => (),
             (None, None) => self.clear(S::STAT),
         }
@@ -400,7 +418,13 @@ impl MutTypedStatsSetRef<'_, '_> {
             (Some(m1), Some(m2)) => {
                 let meet = m1.union(&m2).vortex_expect("can compare scalar");
                 if meet != m1 {
-                    self.set(Stat::Min, meet.into_value().map(Scalar::into_value));
+                    self.set(
+                        Stat::Min,
+                        meet.into_value().map(|s| {
+                            s.into_value()
+                                .vortex_expect("stat scalar value cannot be null")
+                        }),
+                    );
                 }
             }
             _ => self.clear(Stat::Min),
@@ -415,7 +439,13 @@ impl MutTypedStatsSetRef<'_, '_> {
             (Some(m1), Some(m2)) => {
                 let meet = m1.union(&m2).vortex_expect("can compare scalar");
                 if meet != m1 {
-                    self.set(Stat::Max, meet.into_value().map(Scalar::into_value));
+                    self.set(
+                        Stat::Max,
+                        meet.into_value().map(|s| {
+                            s.into_value()
+                                .vortex_expect("stat scalar value cannot be null")
+                        }),
+                    );
                 }
             }
             _ => self.clear(Stat::Max),
@@ -432,19 +462,7 @@ impl MutTypedStatsSetRef<'_, '_> {
                 if let Some(scalar_value) = m1.zip(m2).as_exact().and_then(|(s1, s2)| {
                     s1.as_primitive()
                         .checked_add(&s2.as_primitive())
-                        .map(|pscalar| {
-                            pscalar
-                                .pvalue()
-                                .map(|pvalue| {
-                                    Scalar::primitive_value(
-                                        pvalue,
-                                        pscalar.ptype(),
-                                        pscalar.dtype().nullability(),
-                                    )
-                                    .into_value()
-                                })
-                                .unwrap_or_else(ScalarValue::null)
-                        })
+                        .and_then(|pscalar| pscalar.pvalue().map(ScalarValue::Primitive))
                 }) {
                     self.set(Stat::Sum, Precision::Exact(scalar_value));
                 }
@@ -565,17 +583,18 @@ mod test {
         let first = iter.next().unwrap().clone();
         assert_eq!(first.0, Stat::Max);
         assert_eq!(
-            first
-                .1
-                .map(|f| i32::try_from(&Scalar::new(PType::I32.into(), f)).unwrap()),
+            first.1.map(
+                |f| i32::try_from(&Scalar::try_new(PType::I32.into(), Some(f)).unwrap()).unwrap()
+            ),
             Precision::exact(100)
         );
         let snd = iter.next().unwrap().clone();
         assert_eq!(snd.0, Stat::Min);
         assert_eq!(
-            snd.1
-                .map(|s| i32::try_from(&Scalar::new(PType::I32.into(), s)).unwrap()),
-            42
+            snd.1.map(
+                |s| i32::try_from(&Scalar::try_new(PType::I32.into(), Some(s)).unwrap()).unwrap()
+            ),
+            Precision::exact(42)
         );
     }
 
@@ -592,14 +611,17 @@ mod test {
         let (stat, first) = set.next().unwrap();
         assert_eq!(stat, Stat::Max);
         assert_eq!(
-            first.map(|f| i32::try_from(&Scalar::new(PType::I32.into(), f)).unwrap()),
+            first.map(
+                |f| i32::try_from(&Scalar::try_new(PType::I32.into(), Some(f)).unwrap()).unwrap()
+            ),
             Precision::exact(100)
         );
         let snd = set.next().unwrap();
         assert_eq!(snd.0, Stat::Min);
         assert_eq!(
-            snd.1
-                .map(|s| i32::try_from(&Scalar::new(PType::I32.into(), s)).unwrap()),
+            snd.1.map(
+                |s| i32::try_from(&Scalar::try_new(PType::I32.into(), Some(s)).unwrap()).unwrap()
+            ),
             Precision::exact(42)
         );
     }
@@ -710,7 +732,9 @@ mod test {
 
     #[test]
     fn merge_into_scalar() {
-        let first = StatsSet::of(Stat::Sum, Precision::exact(42)).merge_ordered(
+        // Sum stats for primitive types are always the 64-bit version (i64 for signed, u64
+        // for unsigned, f64 for floats).
+        let first = StatsSet::of(Stat::Sum, Precision::exact(42i64)).merge_ordered(
             &StatsSet::default(),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
@@ -720,8 +744,10 @@ mod test {
 
     #[test]
     fn merge_from_scalar() {
+        // Sum stats for primitive types are always the 64-bit version (i64 for signed, u64
+        // for unsigned, f64 for floats).
         let first = StatsSet::default().merge_ordered(
-            &StatsSet::of(Stat::Sum, Precision::exact(42)),
+            &StatsSet::of(Stat::Sum, Precision::exact(42i64)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
         let first_ref = first.as_typed_ref(&DType::Primitive(PType::I32, Nullability::NonNullable));
@@ -730,14 +756,16 @@ mod test {
 
     #[test]
     fn merge_scalars() {
-        let first = StatsSet::of(Stat::Sum, Precision::exact(37)).merge_ordered(
-            &StatsSet::of(Stat::Sum, Precision::exact(42)),
+        // Sum stats for primitive types are always the 64-bit version (i64 for signed, u64
+        // for unsigned, f64 for floats).
+        let first = StatsSet::of(Stat::Sum, Precision::exact(37i64)).merge_ordered(
+            &StatsSet::of(Stat::Sum, Precision::exact(42i64)),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
         );
         let first_ref = first.as_typed_ref(&DType::Primitive(PType::I32, Nullability::NonNullable));
         assert_eq!(
-            first_ref.get_as::<usize>(Stat::Sum),
-            Some(Precision::exact(79usize))
+            first_ref.get_as::<i64>(Stat::Sum),
+            Some(Precision::exact(79i64))
         );
     }
 

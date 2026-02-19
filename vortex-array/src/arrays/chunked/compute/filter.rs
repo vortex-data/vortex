@@ -9,14 +9,12 @@ use vortex_mask::MaskIter;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::PrimitiveArray;
-use crate::compute::FilterKernel;
-use crate::compute::FilterKernelAdapter;
-use crate::compute::take;
-use crate::register_kernel;
+use crate::arrays::filter::FilterKernel;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;
 use crate::validity::Validity;
@@ -25,7 +23,11 @@ use crate::validity::Validity;
 pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterKernel for ChunkedVTable {
-    fn filter(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayRef> {
+    fn filter(
+        array: &ChunkedArray,
+        mask: &Mask,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let mask_values = mask
             .values()
             .vortex_expect("AllTrue and AllFalse are handled by filter fn");
@@ -39,11 +41,13 @@ impl FilterKernel for ChunkedVTable {
 
         // SAFETY: Filter operation preserves the dtype of each chunk.
         // All filtered chunks maintain the same dtype as the original array.
-        unsafe { Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array()) }
+        unsafe {
+            Ok(Some(
+                ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array(),
+            ))
+        }
     }
 }
-
-register_kernel!(FilterKernelAdapter(ChunkedVTable).lift());
 
 /// The filter to apply to each chunk.
 ///
@@ -157,11 +161,9 @@ fn filter_indices(
             // Push the chunk we've accumulated.
             if !chunk_indices.is_empty() {
                 let chunk = array.chunk(current_chunk_id);
-                let filtered_chunk = take(
-                    chunk,
-                    PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable)
-                        .as_ref(),
-                )?;
+                let indices =
+                    PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable);
+                let filtered_chunk = chunk.take(indices.to_array())?.to_canonical()?.into_array();
                 result.push(filtered_chunk);
             }
 
@@ -175,10 +177,8 @@ fn filter_indices(
 
     if !chunk_indices.is_empty() {
         let chunk = array.chunk(current_chunk_id);
-        let filtered_chunk = take(
-            chunk,
-            PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable).as_ref(),
-        )?;
+        let indices = PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable);
+        let filtered_chunk = chunk.take(indices.to_array())?.to_canonical()?.into_array();
         result.push(filtered_chunk);
     }
 

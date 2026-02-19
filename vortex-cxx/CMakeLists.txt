@@ -49,8 +49,11 @@ corrosion_import_crate(
 # Enable CXX bridge for the Rust crate
 corrosion_add_cxxbridge(vortex_cxx_bridge CRATE vortex_cxx FILES ${RUST_SOURCE_FILE})
 
-FetchContent_Declare(nanoarrow
-    URL "https://www.apache.org/dyn/closer.lua?action=download&filename=arrow/apache-arrow-nanoarrow-0.7.0/apache-arrow-nanoarrow-0.7.0.tar.gz")
+FetchContent_Declare(
+    nanoarrow
+    GIT_REPOSITORY https://github.com/apache/arrow-nanoarrow.git
+    GIT_TAG a579fbf5d192e85b6249935e117de7d02a6dc4e9 # v0.8.0
+)
 FetchContent_MakeAvailable(nanoarrow)
 
 file(GLOB_RECURSE CPP_SOURCE_FILE CONFIGURE_DEPENDS

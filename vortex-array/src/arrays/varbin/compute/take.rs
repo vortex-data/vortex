@@ -17,15 +17,19 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::TakeExecute;
 use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::register_kernel;
+use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 
-impl TakeKernel for VarBinVTable {
-    fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+impl TakeExecute for VarBinVTable {
+    fn take(
+        array: &VarBinArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // TODO(joe): Be lazy with execute
         let offsets = array.offsets().to_primitive();
         let data = array.bytes();
         let indices = indices.to_primitive();
@@ -33,6 +37,9 @@ impl TakeKernel for VarBinVTable {
             .dtype()
             .clone()
             .union_nullability(indices.dtype().nullability());
+        let array_validity = array.validity_mask()?;
+        let indices_validity = indices.validity_mask()?;
+
         let array = match_each_integer_ptype!(indices.ptype(), |I| {
             // On take, offsets get widened to either 32- or 64-bit based on the original type,
             // to avoid overflow issues.
@@ -42,74 +49,72 @@ impl TakeKernel for VarBinVTable {
                     offsets.as_slice::<u8>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
+                    array_validity,
+                    indices_validity,
                 ),
                 PType::U16 => take::<I, u16, u32>(
                     dtype,
                     offsets.as_slice::<u16>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
+                    array_validity,
+                    indices_validity,
                 ),
                 PType::U32 => take::<I, u32, u32>(
                     dtype,
                     offsets.as_slice::<u32>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
+                    array_validity,
+                    indices_validity,
                 ),
                 PType::U64 => take::<I, u64, u64>(
                     dtype,
                     offsets.as_slice::<u64>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
+                    array_validity,
+                    indices_validity,
                 ),
                 PType::I8 => take::<I, i8, i32>(
                     dtype,
                     offsets.as_slice::<i8>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
+                    array_validity,
+                    indices_validity,
                 ),
                 PType::I16 => take::<I, i16, i32>(
                     dtype,
                     offsets.as_slice::<i16>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
+                    array_validity,
+                    indices_validity,
                 ),
                 PType::I32 => take::<I, i32, i32>(
                     dtype,
                     offsets.as_slice::<i32>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
+                    array_validity,
+                    indices_validity,
                 ),
                 PType::I64 => take::<I, i64, i64>(
                     dtype,
                     offsets.as_slice::<i64>(),
                     data.as_slice(),
                     indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
+                    array_validity,
+                    indices_validity,
                 ),
                 _ => unreachable!("invalid PType for offsets"),
             }
         });
 
-        Ok(array?.into_array())
+        Ok(Some(array?.into_array()))
     }
 }
-
-register_kernel!(TakeKernelAdapter(VarBinVTable).lift());
 
 fn take<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
     dtype: DType,
@@ -253,9 +258,9 @@ mod tests {
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
-    use crate::arrays::VarBinVTable;
+    use crate::arrays::VarBinViewArray;
+    use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
     use crate::validity::Validity;
 
     #[test]
@@ -265,14 +270,14 @@ mod tests {
         let idx1: PrimitiveArray = (0..1).collect();
 
         assert_eq!(
-            take(arr.as_ref(), idx1.as_ref()).unwrap().dtype(),
+            arr.take(idx1.to_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::NonNullable)
         );
 
         let idx2: PrimitiveArray = PrimitiveArray::from_option_iter(vec![Some(0)]);
 
         assert_eq!(
-            take(arr.as_ref(), idx2.as_ref()).unwrap().dtype(),
+            arr.take(idx2.to_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::Nullable)
         );
     }
@@ -308,13 +313,13 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let indices = buffer![0u32, 0u32, 0u32].into_array();
-        let taken = take(array.as_ref(), indices.as_ref()).unwrap();
+        let indices = buffer![0u32; 3].into_array();
+        let taken = array.take(indices.to_array()).unwrap();
 
-        let taken_str = taken.as_::<VarBinVTable>();
-        assert_eq!(taken_str.len(), 3);
-        assert_eq!(taken_str.bytes_at(0).as_bytes(), scream.as_bytes());
-        assert_eq!(taken_str.bytes_at(1).as_bytes(), scream.as_bytes());
-        assert_eq!(taken_str.bytes_at(2).as_bytes(), scream.as_bytes());
+        let expected = VarBinViewArray::from_iter(
+            [Some(scream.clone()), Some(scream.clone()), Some(scream)],
+            DType::Utf8(Nullability::NonNullable),
+        );
+        assert_arrays_eq!(expected, taken);
     }
 }

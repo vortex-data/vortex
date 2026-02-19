@@ -10,21 +10,20 @@ use vortex_mask::Mask;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
-use crate::compute::ZipKernel;
-use crate::compute::ZipKernelAdapter;
 use crate::compute::zip;
-use crate::register_kernel;
+use crate::expr::ZipKernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl ZipKernel for StructVTable {
     fn zip(
-        &self,
         if_true: &StructArray,
         if_false: &dyn Array,
         mask: &Mask,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(if_false) = if_false.as_opt::<StructVTable>() else {
             return Ok(None);
@@ -65,8 +64,6 @@ impl ZipKernel for StructVTable {
         ))
     }
 }
-
-register_kernel!(ZipKernelAdapter(StructVTable).lift());
 
 #[cfg(test)]
 mod tests {

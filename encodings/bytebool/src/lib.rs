@@ -5,3 +5,6 @@ pub use array::*;
 
 mod array;
 mod compute;
+mod kernel;
+mod rules;
+mod slice;

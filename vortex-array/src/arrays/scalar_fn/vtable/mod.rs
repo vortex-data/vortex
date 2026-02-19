@@ -12,7 +12,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::ops::Range;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
@@ -20,10 +19,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
@@ -35,7 +34,6 @@ use crate::expr;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::ScalarFn;
@@ -44,7 +42,6 @@ use crate::matcher::Matcher;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 vtable!(ScalarFn);
@@ -59,7 +56,6 @@ impl VTable for ScalarFnVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(array: &Self::Array) -> ArrayId {
         array.scalar_fn.id()
@@ -78,7 +74,13 @@ impl VTable for ScalarFnVTable {
         Ok(None)
     }
 
-    fn deserialize(_bytes: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         vortex_bail!("Deserialization of ScalarFnVTable metadata is not supported");
     }
 
@@ -126,38 +128,14 @@ impl VTable for ScalarFnVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
         let args = ExecutionArgs {
             inputs: array.children.clone(),
             row_count: array.len,
             ctx,
         };
-
-        let result = array
-            .scalar_fn
-            .execute(args)?
-            .into_array()
-            .execute::<Canonical>(ctx)?;
-
-        debug_assert_eq!(
-            result.dtype(),
-            &array.dtype,
-            "Scalar function {} returned dtype {:?} but expected {:?}",
-            array.scalar_fn,
-            result.dtype(),
-            array.dtype
-        );
-
-        debug_assert_eq!(
-            result.len(),
-            array.len(),
-            "Scalar function {} returned len {:?} but expected {:?}",
-            array.scalar_fn,
-            result.len(),
-            array.len()
-        );
-
-        Ok(result)
+        array.scalar_fn.execute(args)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
@@ -170,25 +148,6 @@ impl VTable for ScalarFnVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let children: Vec<_> = array
-            .children()
-            .iter()
-            .map(|c| c.slice(range.clone()))
-            .collect::<VortexResult<_>>()?;
-
-        Ok(Some(
-            ScalarFnArray {
-                scalar_fn: array.scalar_fn.clone(),
-                dtype: array.dtype.clone(),
-                len: range.len(),
-                children,
-                stats: Default::default(),
-            }
-            .into_array(),
-        ))
     }
 }
 
@@ -337,11 +296,7 @@ impl expr::VTable for ArrayExpr {
         Ok(options.0.dtype().clone())
     }
 
-    fn execute(
-        &self,
-        options: &Self::Options,
-        args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
         crate::Executable::execute(options.0.clone(), args.ctx)
     }
 

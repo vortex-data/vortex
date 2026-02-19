@@ -3,34 +3,36 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::CompareKernel;
 use vortex_array::compute::Operator;
-use vortex_array::validity::Validity;
+use vortex_array::expr::CompareKernel;
+use vortex_array::scalar::PValue;
+use vortex_array::scalar::Scalar;
 use vortex_buffer::BitBuffer;
-use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
 use crate::SequenceArray;
 use crate::array::SequenceVTable;
 
 impl CompareKernel for SequenceVTable {
     fn compare(
-        &self,
         lhs: &SequenceArray,
         rhs: &dyn Array,
         operator: Operator,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // TODO(joe): support other operators (NotEq, Lt, Lte, Gt, Gte) in encoded space.
         if operator != Operator::Eq {
             return Ok(None);
-        };
+        }
 
         let Some(constant) = rhs.as_constant() else {
             return Ok(None);
@@ -44,25 +46,21 @@ impl CompareKernel for SequenceVTable {
             constant
                 .as_primitive()
                 .pvalue()
-                .vortex_expect("non-null constant"),
+                .vortex_expect("null constant handled in adaptor"),
         );
 
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
         let validity = match nullability {
-            Nullability::NonNullable => Validity::NonNullable,
-            Nullability::Nullable => Validity::AllValid,
+            Nullability::NonNullable => vortex_array::validity::Validity::NonNullable,
+            Nullability::Nullable => vortex_array::validity::Validity::AllValid,
         };
 
-        if let Some(set_idx) = set_idx {
+        if let Ok(set_idx) = set_idx {
             let buffer = BitBuffer::from_iter((0..lhs.len()).map(|idx| idx == set_idx));
             Ok(Some(BoolArray::new(buffer, validity).to_array()))
         } else {
             Ok(Some(
-                ConstantArray::new(
-                    Scalar::new(DType::Bool(nullability), false.into()),
-                    lhs.len(),
-                )
-                .to_array(),
+                ConstantArray::new(Scalar::bool(false, nullability), lhs.len()).to_array(),
             ))
         }
     }
@@ -70,8 +68,10 @@ impl CompareKernel for SequenceVTable {
 
 /// Find the index where `base + idx * multiplier == intercept`, if one exists.
 ///
-/// Returns `None` if:
+/// # Errors
+/// Return `VortexError` if:
 /// - `len` is 0
+/// - `intercept` or `multiplier` can't be cast to `base`'s PType
 /// - `intercept` is outside the range of the sequence
 /// - `intercept` doesn't fall exactly on a sequence value
 pub(crate) fn find_intersection_scalar(
@@ -79,11 +79,11 @@ pub(crate) fn find_intersection_scalar(
     multiplier: PValue,
     len: usize,
     intercept: PValue,
-) -> Option<usize> {
+) -> VortexResult<usize> {
     match_each_integer_ptype!(base.ptype(), |P| {
-        let intercept = intercept.cast::<P>();
-        let base = base.cast::<P>();
-        let multiplier = multiplier.cast::<P>();
+        let intercept = intercept.cast::<P>()?;
+        let base = base.cast::<P>()?;
+        let multiplier = multiplier.cast::<P>()?;
         find_intersection(base, multiplier, len, intercept)
     })
 }
@@ -93,9 +93,9 @@ fn find_intersection<P: NativePType>(
     multiplier: P,
     len: usize,
     intercept: P,
-) -> Option<usize> {
+) -> VortexResult<usize> {
     if len == 0 {
-        return None;
+        vortex_bail!("len == 0")
     }
 
     let count = P::from_usize(len - 1).vortex_expect("idx must fit into type");
@@ -110,22 +110,27 @@ fn find_intersection<P: NativePType>(
 
     // Check if intercept is in range
     if !intercept.is_ge(min_val) || !intercept.is_le(max_val) {
-        return None;
+        vortex_bail!("{intercept} is outside of ({min_val}, {max_val}) range")
     }
 
     // Handle zero multiplier (constant sequence)
     if multiplier == P::zero() {
-        return (intercept == base).then_some(0);
+        if intercept == base {
+            return Ok(0);
+        } else {
+            vortex_bail!("{intercept} != {base} with zero multiplier")
+        }
     }
 
     // Check if (intercept - base) is evenly divisible by multiplier
     let diff = intercept - base;
     if diff % multiplier != P::zero() {
-        return None;
+        vortex_bail!("{diff} % {multiplier} != 0")
     }
 
     let idx = diff / multiplier;
     idx.to_usize()
+        .ok_or_else(|| vortex_err!("Cannot represent {idx} as usize"))
 }
 
 #[cfg(test)]

@@ -11,13 +11,13 @@ use vortex::buffer::Buffer;
 use vortex::dtype::BigCast;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
+use vortex::dtype::DecimalType;
 use vortex::dtype::NativeDecimalType;
 use vortex::dtype::match_each_decimal_value_type;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::mask::Mask;
-use vortex::scalar::DecimalType;
 
 use crate::LogicalType;
 use crate::duckdb::Vector;
@@ -47,9 +47,9 @@ pub(crate) fn new_exporter(
         decimal_dtype,
         values_type,
         values,
-        nullability,
     } = array.into_parts();
     let dest_values_type = precision_to_duckdb_storage_size(&decimal_dtype)?;
+    let nullability = validity.nullability();
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
     if validity.all_false() {

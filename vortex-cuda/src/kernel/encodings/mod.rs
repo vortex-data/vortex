@@ -3,20 +3,26 @@
 
 mod alp;
 mod bitpacked;
+mod date_time_parts;
 mod decimal_byte_parts;
 mod for_;
 mod runend;
 mod sequence;
 mod zigzag;
 mod zstd;
+#[cfg(feature = "unstable_encodings")]
+mod zstd_buffers;
 
-pub use alp::ALPExecutor;
-pub use bitpacked::BitPackedExecutor;
-pub use decimal_byte_parts::DecimalBytePartsExecutor;
-pub use for_::FoRExecutor;
-pub use runend::RunEndExecutor;
-pub use sequence::SequenceExecutor;
-pub use zigzag::ZigZagExecutor;
-pub use zstd::ZstdExecutor;
+pub(crate) use alp::ALPExecutor;
+pub(crate) use bitpacked::BitPackedExecutor;
+pub(crate) use date_time_parts::DateTimePartsExecutor;
+pub(crate) use decimal_byte_parts::DecimalBytePartsExecutor;
+pub(crate) use for_::FoRExecutor;
+pub(crate) use runend::RunEndExecutor;
+pub(crate) use sequence::SequenceExecutor;
+pub(crate) use zigzag::ZigZagExecutor;
+pub(crate) use zstd::ZstdExecutor;
 pub use zstd::ZstdKernelPrep;
 pub use zstd::zstd_kernel_prepare;
+#[cfg(feature = "unstable_encodings")]
+pub(crate) use zstd_buffers::ZstdBuffersExecutor;

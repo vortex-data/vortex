@@ -18,6 +18,7 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexExpect;
@@ -30,7 +31,6 @@ use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
 use vortex_runend::RunEndArray;
 use vortex_runend::compress::runend_encode;
-use vortex_scalar::Scalar;
 use vortex_sequence::sequence_encode;
 use vortex_sparse::SparseArray;
 use vortex_sparse::SparseVTable;
@@ -62,6 +62,8 @@ pub const ALL_INT_SCHEMES: &[&dyn IntegerScheme] = &[
     &RunEndScheme,
     &SequenceScheme,
     &RLE_INTEGER_SCHEME,
+    #[cfg(feature = "pco")]
+    &PcoScheme,
 ];
 
 /// [`Compressor`] for signed and unsigned integers.
@@ -158,6 +160,8 @@ pub enum IntCode {
     Sequence,
     /// RLE encoding - generic run-length encoding.
     Rle,
+    /// Pco (pcodec) compression for integers.
+    Pco,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -189,6 +193,11 @@ pub struct RunEndScheme;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct SequenceScheme;
+
+/// Pco (pcodec) compression for integers.
+#[cfg(feature = "pco")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct PcoScheme;
 
 /// Threshold for the average run length in an array before we consider run-end encoding.
 const RUN_END_THRESHOLD: u32 = 4;
@@ -465,7 +474,7 @@ impl Scheme for ZigZagScheme {
             Excludes::int_only(&new_excludes),
         )?;
 
-        tracing::debug!("zigzag output: {}", compressed.display_tree());
+        tracing::debug!("zigzag output: {}", compressed.encoding_id());
 
         Ok(ZigZagArray::try_new(compressed)?.into_array())
     }
@@ -826,6 +835,49 @@ impl Scheme for SequenceScheme {
             vortex_bail!("sequence encoding does not support nulls");
         }
         sequence_encode(&stats.src)?.ok_or_else(|| vortex_err!("cannot sequence encode array"))
+    }
+}
+
+#[cfg(feature = "pco")]
+impl Scheme for PcoScheme {
+    type StatsType = IntegerStats;
+    type CodeType = IntCode;
+
+    fn code(&self) -> IntCode {
+        IntCode::Pco
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        compressor: &BtrBlocksCompressor,
+        stats: &Self::StatsType,
+        ctx: CompressorContext,
+        excludes: &[IntCode],
+    ) -> VortexResult<f64> {
+        // Pco does not support I8 or U8.
+        if matches!(
+            stats.src.ptype(),
+            vortex_dtype::PType::I8 | vortex_dtype::PType::U8
+        ) {
+            return Ok(0.0);
+        }
+
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &BtrBlocksCompressor,
+        stats: &Self::StatsType,
+        _ctx: CompressorContext,
+        _excludes: &[IntCode],
+    ) -> VortexResult<ArrayRef> {
+        Ok(vortex_pco::PcoArray::from_primitive(
+            stats.source(),
+            pco::DEFAULT_COMPRESSION_LEVEL,
+            8192,
+        )?
+        .into_array())
     }
 }
 

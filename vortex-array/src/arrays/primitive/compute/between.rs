@@ -9,24 +9,23 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
-use crate::compute::BetweenKernel;
-use crate::compute::BetweenKernelAdapter;
-use crate::compute::BetweenOptions;
-use crate::compute::StrictComparison;
-use crate::register_kernel;
+use crate::expr::BetweenKernel;
+use crate::expr::BetweenOptions;
+use crate::expr::StrictComparison;
 use crate::vtable::ValidityHelper;
 
 impl BetweenKernel for PrimitiveVTable {
     fn between(
-        &self,
         arr: &PrimitiveArray,
         lower: &dyn Array,
         upper: &dyn Array,
         options: &BetweenOptions,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {
             return Ok(None);
@@ -41,16 +40,14 @@ impl BetweenKernel for PrimitiveVTable {
         Ok(Some(match_each_native_ptype!(arr.ptype(), |P| {
             between_impl::<P>(
                 arr,
-                P::try_from(lower)?,
-                P::try_from(upper)?,
+                P::try_from(&lower)?,
+                P::try_from(&upper)?,
                 nullability,
                 options,
             )
         })))
     }
 }
-
-register_kernel!(BetweenKernelAdapter(PrimitiveVTable).lift());
 
 fn between_impl<T: NativePType + Copy>(
     arr: &PrimitiveArray,

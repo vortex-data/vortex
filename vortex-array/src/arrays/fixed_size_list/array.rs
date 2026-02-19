@@ -186,7 +186,7 @@ impl FixedSizeListArray {
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 len == validity_len,
-                "validity with size {validity_len} does not match fixed-size list array size {len}",
+                InvalidArgument: "validity with size {validity_len} does not match fixed-size list array size {len}",
             );
         }
 
@@ -195,14 +195,14 @@ impl FixedSizeListArray {
         if list_size == 0 {
             vortex_ensure!(
                 elements.is_empty(),
-                "a degenerate (`list_size == 0`) `FixedSizeList` should have no underlying elements"
+                InvalidArgument: "a degenerate (`list_size == 0`) `FixedSizeList` should have no underlying elements"
             );
             return Ok(());
         }
 
         vortex_ensure!(
             len * list_size as usize == elements.len(),
-            "the `elements` array has the incorrect number of elements to construct a \
+            InvalidArgument: "the `elements` array has the incorrect number of elements to construct a \
                 `FixedSizeList[{list_size}] array of length {len}",
         );
 
@@ -227,8 +227,9 @@ impl FixedSizeListArray {
     pub fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         debug_assert!(
             index < self.len,
-            "index out of bounds: the len is {} but the index is {index}",
-            self.len
+            "index {} out of bounds: the len is {}",
+            index,
+            self.len,
         );
         debug_assert!(self.validity.is_valid(index).unwrap_or(false));
 

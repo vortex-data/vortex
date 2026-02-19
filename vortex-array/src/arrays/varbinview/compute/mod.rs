@@ -6,6 +6,8 @@ mod is_constant;
 mod is_sorted;
 mod mask;
 mod min_max;
+pub(crate) mod rules;
+mod slice;
 mod take;
 mod zip;
 
@@ -18,8 +20,6 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::VarBinViewArray;
     use crate::canonical::ToCanonical;
-    use crate::compute::take;
-
     #[test]
     fn take_nullable() {
         let arr = VarBinViewArray::from_iter_nullable_str([
@@ -31,7 +31,7 @@ mod tests {
             Some("six"),
         ]);
 
-        let taken = take(arr.as_ref(), &buffer![0, 3].into_array()).unwrap();
+        let taken = arr.take(buffer![0, 3].into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(

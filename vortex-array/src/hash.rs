@@ -94,7 +94,7 @@ impl ArrayHash for dyn Array + '_ {
 
 impl ArrayEq for dyn Array + '_ {
     fn array_eq(&self, other: &Self, precision: Precision) -> bool {
-        self.dyn_array_eq(other.as_any(), precision)
+        self.dyn_array_eq(Array::as_any(other), precision)
     }
 }
 

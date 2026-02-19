@@ -13,6 +13,7 @@ use sysinfo::System;
 use tokio::fs::File;
 use tokio::fs::OpenOptions;
 use tokio::fs::create_dir_all;
+use tokio::io::AsyncWriteExt;
 use tracing::Instrument;
 use tracing::info;
 use tracing::trace;
@@ -26,8 +27,8 @@ use vortex::array::stream::ArrayStreamAdapter;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::VortexError;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::session::VortexSession;
 
@@ -88,20 +89,18 @@ pub fn parquet_to_vortex_stream(
     reader: ParquetRecordBatchStream<File>,
 ) -> impl futures::Stream<Item = VortexResult<ArrayRef>> {
     reader.map(move |result| {
-        result
-            .map_err(|e| VortexError::generic(e.into()))
-            .and_then(|rb| {
-                let chunk = ArrayRef::from_arrow(rb, false)?;
-                let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
+        result.map_err(|e| vortex_err!(External: e)).and_then(|rb| {
+            let chunk = ArrayRef::from_arrow(rb, false)?;
+            let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
 
-                // Canonicalize the chunk.
-                chunk.append_to_builder(
-                    builder.as_mut(),
-                    &mut VortexSession::default().create_execution_ctx(),
-                )?;
+            // Canonicalize the chunk.
+            chunk.append_to_builder(
+                builder.as_mut(),
+                &mut VortexSession::default().create_execution_ctx(),
+            )?;
 
-                Ok(builder.finish())
-            })
+            Ok(builder.finish())
+        })
     })
 }
 
@@ -200,4 +199,25 @@ pub async fn convert_parquet_directory_to_vortex(
         .await?;
 
     Ok(())
+}
+
+/// Convert a Parquet file to Vortex format with the specified compaction strategy.
+///
+/// Uses `idempotent_async` to skip conversion if the output file already exists.
+pub async fn write_parquet_as_vortex(
+    parquet_path: PathBuf,
+    vortex_path: &str,
+    compaction: CompactionStrategy,
+) -> anyhow::Result<PathBuf> {
+    idempotent_async(vortex_path, |output_fname| async move {
+        let mut output_file = File::create(&output_fname).await?;
+        let data = parquet_to_vortex_chunks(parquet_path).await?;
+        let write_options = compaction.apply_options(SESSION.write_options());
+        write_options
+            .write(&mut output_file, data.to_array_stream())
+            .await?;
+        output_file.flush().await?;
+        Ok(())
+    })
+    .await
 }

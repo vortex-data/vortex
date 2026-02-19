@@ -59,11 +59,11 @@ mod test {
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::stats::StatsProvider;
+    use vortex_array::scalar::Scalar;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::PType;
-    use vortex_scalar::Scalar;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -175,10 +175,7 @@ mod test {
             .iter()
             .enumerate()
             .for_each(|(i, v)| {
-                assert_eq!(
-                    *v,
-                    i8::try_from(compressed.scalar_at(i).unwrap().as_ref()).unwrap()
-                );
+                assert_eq!(*v, i8::try_from(&compressed.scalar_at(i).unwrap()).unwrap());
             });
         assert_arrays_eq!(decompressed, array);
         Ok(())

@@ -6,18 +6,17 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
-use std::ops::Range;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayAdapter;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -35,6 +34,7 @@ pub type ArrayId = ArcRef<str>;
 /// This trait contains the implementation API for Vortex arrays, allowing us to keep the public
 /// [`Array`] trait API to a minimum.
 pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
+    #[allow(clippy::too_many_arguments)]
     fn build(
         &self,
         id: ArrayId,
@@ -43,6 +43,7 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        session: &VortexSession,
     ) -> VortexResult<ArrayRef>;
     fn with_children(&self, array: &dyn Array, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 
@@ -57,8 +58,8 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
 
-    /// See [`VTable::canonicalize`]
-    fn canonicalize(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Canonical>;
+    /// See [`VTable::execute`]
+    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
 
     /// See [`VTable::execute_parent`]
     fn execute_parent(
@@ -68,8 +69,6 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
-
-    fn slice(&self, array: &ArrayRef, range: Range<usize>) -> VortexResult<Option<ArrayRef>>;
 }
 
 /// Adapter struct used to lift the [`VTable`] trait into an object-safe [`DynVTable`]
@@ -85,8 +84,9 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let metadata = V::deserialize(metadata)?;
+        let metadata = V::deserialize(metadata, dtype, len, buffers, session)?;
         let array = V::build(dtype, len, &metadata, buffers, children)?;
         assert_eq!(array.len(), len, "Array length mismatch after building");
         assert_eq!(array.dtype(), dtype, "Array dtype mismatch after building");
@@ -106,14 +106,14 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         vortex_ensure!(
             reduced.len() == array.len(),
             "Reduced array length mismatch from {} to {}",
-            array.display_tree(),
-            reduced.display_tree()
+            array.encoding_id(),
+            reduced.encoding_id()
         );
         vortex_ensure!(
             reduced.dtype() == array.dtype(),
             "Reduced array dtype mismatch from {} to {}",
-            array.display_tree(),
-            reduced.display_tree()
+            array.encoding_id(),
+            reduced.encoding_id()
         );
         Ok(Some(reduced))
     }
@@ -131,21 +131,21 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         vortex_ensure!(
             reduced.len() == parent.len(),
             "Reduced array length mismatch from {} to {}",
-            parent.display_tree(),
-            reduced.display_tree()
+            parent.encoding_id(),
+            reduced.encoding_id()
         );
         vortex_ensure!(
             reduced.dtype() == parent.dtype(),
             "Reduced array dtype mismatch from {} to {}",
-            parent.display_tree(),
-            reduced.display_tree()
+            parent.encoding_id(),
+            reduced.encoding_id()
         );
 
         Ok(Some(reduced))
     }
 
-    fn canonicalize(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        let result = V::canonicalize(downcast::<V>(array), ctx)?;
+    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        let result = V::execute(downcast::<V>(array), ctx)?;
 
         if cfg!(debug_assertions) {
             vortex_ensure!(
@@ -159,6 +159,12 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
                 self
             );
         }
+
+        // TODO(ngates): do we want to do this on every execution? We used to in to_canonical.
+        result
+            .as_ref()
+            .statistics()
+            .inherit_from(array.statistics());
 
         Ok(result)
     }
@@ -186,33 +192,6 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         }
 
         Ok(Some(result))
-    }
-
-    fn slice(&self, array: &ArrayRef, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        vortex_ensure!(
-            range.end <= array.len(),
-            "slice range {}..{} out of bounds for array of length {}",
-            range.start,
-            range.end,
-            array.len()
-        );
-
-        let Some(sliced) = V::slice(downcast::<V>(array), range.clone())? else {
-            return Ok(None);
-        };
-        vortex_ensure!(
-            sliced.len() == range.len(),
-            "Sliced array length mismatch: expected {}, got {}",
-            range.len(),
-            sliced.len()
-        );
-        vortex_ensure!(
-            sliced.dtype() == array.dtype(),
-            "Sliced array dtype mismatch: expected {}, got {}",
-            array.dtype(),
-            sliced.dtype()
-        );
-        Ok(Some(sliced))
     }
 }
 

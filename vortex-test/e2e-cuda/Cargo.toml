@@ -12,13 +12,15 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[lib]
+crate-type = ["cdylib"]
+
 [lints]
 workspace = true
 
 [dependencies]
-cudarc = { workspace = true }
-rstest = { workspace = true }
-tokio = { workspace = true, features = ["rt", "macros"] }
-vortex-array = { workspace = true, features = ["_test-harness"] }
+arrow-array = { workspace = true, features = ["ffi"] }
+arrow-schema = { workspace = true, features = ["ffi"] }
+futures = { workspace = true, features = ["executor"] }
+vortex = { workspace = true }
 vortex-cuda = { workspace = true, features = ["_test-harness"] }
-vortex-error = { workspace = true }

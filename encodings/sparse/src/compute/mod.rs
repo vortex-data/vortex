@@ -1,60 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ArrayRef;
-use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::FilterKernel;
-use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::register_kernel;
-use vortex_error::VortexResult;
-use vortex_mask::Mask;
-
-use crate::SparseArray;
-use crate::SparseVTable;
-
-mod binary_numeric;
 mod cast;
-mod invert;
+mod filter;
 mod take;
-
-impl FilterKernel for SparseVTable {
-    fn filter(&self, array: &SparseArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        let new_length = mask.true_count();
-
-        let Some(new_patches) = array.patches().filter(mask)? else {
-            return Ok(ConstantArray::new(array.fill_scalar().clone(), new_length).into_array());
-        };
-
-        Ok(
-            SparseArray::try_new_from_patches(new_patches, array.fill_scalar().clone())?
-                .into_array(),
-        )
-    }
-}
-
-register_kernel!(FilterKernelAdapter(SparseVTable).lift());
 
 #[cfg(test)]
 mod test {
     use rstest::fixture;
     use rstest::rstest;
-    use vortex_array::Array;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
-    use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
+    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_mask::Mask;
-    use vortex_scalar::Scalar;
 
     use crate::SparseArray;
 
@@ -64,7 +32,7 @@ mod test {
             buffer![2u64, 9, 15].into_array(),
             PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
             20,
-            Scalar::null_typed::<i32>(),
+            Scalar::null_native::<i32>(),
         )
         .unwrap()
         .into_array()
@@ -84,7 +52,7 @@ mod test {
             buffer![0u64].into_array(),
             PrimitiveArray::new(buffer![33_i32], Validity::AllValid).into_array(),
             1,
-            Scalar::null_typed::<i32>(),
+            Scalar::null_native::<i32>(),
         )
         .unwrap();
 
@@ -98,7 +66,7 @@ mod test {
             buffer![0_u64, 3, 6].into_array(),
             PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
             7,
-            Scalar::null_typed::<i32>(),
+            Scalar::null_native::<i32>(),
         )
         .unwrap()
         .into_array();
@@ -113,7 +81,7 @@ mod test {
             buffer![1u64, 3].into_array(),
             PrimitiveArray::new(buffer![44_i32, 55], Validity::AllValid).into_array(),
             4,
-            Scalar::null_typed::<i32>(),
+            Scalar::null_native::<i32>(),
         )
         .unwrap();
 
@@ -131,11 +99,10 @@ mod test {
         test_mask_conformance(
             SparseArray::try_new(
                 buffer![1u64, 2, 4].into_array(),
-                cast(
-                    &buffer![100i32, 200, 300].into_array(),
-                    null_fill_value.dtype(),
-                )
-                .unwrap(),
+                buffer![100i32, 200, 300]
+                    .into_array()
+                    .cast(null_fill_value.dtype().clone())
+                    .unwrap(),
                 5,
                 null_fill_value,
             )
@@ -155,37 +122,6 @@ mod test {
             .as_ref(),
         )
     }
-
-    #[test]
-    fn test_filter_sparse_array() {
-        let null_fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
-        test_filter_conformance(
-            SparseArray::try_new(
-                buffer![1u64, 2, 4].into_array(),
-                cast(
-                    &buffer![100i32, 200, 300].into_array(),
-                    null_fill_value.dtype(),
-                )
-                .unwrap(),
-                5,
-                null_fill_value,
-            )
-            .unwrap()
-            .as_ref(),
-        );
-
-        let ten_fill_value = Scalar::from(10i32);
-        test_filter_conformance(
-            SparseArray::try_new(
-                buffer![1u64, 2, 4].into_array(),
-                buffer![100i32, 200, 300].into_array(),
-                5,
-                ten_fill_value,
-            )
-            .unwrap()
-            .as_ref(),
-        )
-    }
 }
 
 #[cfg(test)]
@@ -193,14 +129,14 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_scalar::Scalar;
 
     use crate::SparseArray;
 
@@ -210,7 +146,7 @@ mod tests {
         buffer![2u64, 5, 8].into_array(),
         PrimitiveArray::from_option_iter([Some(100i32), Some(200), Some(300)]).into_array(),
         10,
-        Scalar::null_typed::<i32>()
+        Scalar::null_native::<i32>()
     ).unwrap())]
     #[case::sparse_i32_value_fill(SparseArray::try_new(
         buffer![1u64, 3, 7].into_array(),
@@ -242,7 +178,7 @@ mod tests {
         buffer![0u64, 1, 2, 3, 4].into_array(),
         PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30), Some(40), Some(50)]).into_array(),
         5,
-        Scalar::null_typed::<i32>()
+        Scalar::null_native::<i32>()
     ).unwrap())]
     // Large sparse arrays
     #[case::sparse_large(SparseArray::try_new(
@@ -256,10 +192,10 @@ mod tests {
         let null_fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
         SparseArray::try_new(
             buffer![1u64, 4, 7].into_array(),
-            cast(
-                &PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
-                null_fill_value.dtype()
-            ).unwrap(),
+            PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)])
+                .into_array()
+                .cast(null_fill_value.dtype().clone())
+                .unwrap(),
             10,
             null_fill_value
         ).unwrap()

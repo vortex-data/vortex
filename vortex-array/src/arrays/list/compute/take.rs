@@ -14,25 +14,27 @@ use crate::ToCanonical;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::TakeExecute;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::compute::take;
-use crate::register_kernel;
+use crate::executor::ExecutionCtx;
 use crate::vtable::ValidityHelper;
 
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
 // the `ListView::take` compute function once `ListView` is more stable.
 
-/// Take implementation for [`ListArray`].
-///
-/// Unlike `ListView`, `ListArray` must rebuild the elements array to maintain its invariant
-/// that lists are stored contiguously and in-order (`offset[i+1] >= offset[i]`). Taking
-/// non-contiguous indices would violate this requirement.
-impl TakeKernel for ListVTable {
+impl TakeExecute for ListVTable {
+    /// Take implementation for [`ListArray`].
+    ///
+    /// Unlike `ListView`, `ListArray` must rebuild the elements array to maintain its invariant
+    /// that lists are stored contiguously and in-order (`offset[i+1] >= offset[i]`). Taking
+    /// non-contiguous indices would violate this requirement.
     #[expect(clippy::cognitive_complexity)]
-    fn take(&self, array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    fn take(
+        array: &ListArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.to_primitive();
         // This is an over-approximation of the total number of elements in the resulting array.
         let total_approx = array.elements().len().saturating_mul(indices.len());
@@ -40,14 +42,12 @@ impl TakeKernel for ListVTable {
         match_each_integer_ptype!(array.offsets().dtype().as_ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 match_smallest_offset_type!(total_approx, |OutputOffsetType| {
-                    _take::<I, O, OutputOffsetType>(array, &indices)
+                    _take::<I, O, OutputOffsetType>(array, &indices).map(Some)
                 })
             })
         })
     }
 }
-
-register_kernel!(TakeKernelAdapter(ListVTable).lift());
 
 fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     array: &ListArray,
@@ -100,7 +100,7 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     let elements_to_take = elements_to_take.finish();
     let new_offsets = new_offsets.finish();
 
-    let new_elements = take(array.elements(), elements_to_take.as_ref())?;
+    let new_elements = array.elements().take(elements_to_take.to_array())?;
 
     Ok(ListArray::try_new(
         new_elements,
@@ -168,7 +168,7 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
 
     let elements_to_take = elements_to_take.finish();
     let new_offsets = new_offsets.finish();
-    let new_elements = take(array.elements(), elements_to_take.as_ref())?;
+    let new_elements = array.elements().take(elements_to_take.to_array())?;
 
     Ok(ListArray::try_new(
         new_elements,
@@ -187,7 +187,6 @@ mod test {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
-    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::IntoArray as _;
@@ -196,7 +195,7 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::list::ListArray;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
+    use crate::scalar::Scalar;
     use crate::validity::Validity;
 
     #[test]
@@ -212,7 +211,7 @@ mod test {
         let idx =
             PrimitiveArray::from_option_iter(vec![Some(0), None, Some(1), Some(3)]).to_array();
 
-        let result = take(&list, &idx).unwrap();
+        let result = list.take(idx.to_array()).unwrap();
 
         assert_eq!(
             result.dtype(),
@@ -270,7 +269,7 @@ mod test {
         let idx = PrimitiveArray::from_option_iter(vec![Some(0), Some(1), None]).to_array();
         // since idx is nullable, the final list will also be nullable
 
-        let result = take(&list, &idx).unwrap();
+        let result = list.take(idx.to_array()).unwrap();
         assert_eq!(
             result.dtype(),
             &DType::List(
@@ -292,7 +291,7 @@ mod test {
 
         let idx = buffer![1, 0, 2].into_array();
 
-        let result = take(&list, &idx).unwrap();
+        let result = list.take(idx.to_array()).unwrap();
 
         assert_eq!(
             result.dtype(),
@@ -347,7 +346,7 @@ mod test {
 
         let idx = PrimitiveArray::empty::<i32>(Nullability::Nullable).to_array();
 
-        let result = take(&list, &idx).unwrap();
+        let result = list.take(idx.to_array()).unwrap();
         assert_eq!(
             result.dtype(),
             &DType::List(
@@ -410,7 +409,7 @@ mod test {
 
         // Take the same large list twice - would overflow u8 but works with u64.
         let idx = buffer![0u8, 0].into_array();
-        let result = take(&list, &idx).unwrap();
+        let result = list.take(idx.to_array()).unwrap();
 
         assert_eq!(result.len(), 2);
 
@@ -431,7 +430,7 @@ mod test {
 
         // Take the same large list twice - would overflow u8 but works with u64.
         let idx = PrimitiveArray::from_option_iter(vec![Some(0u8), None, Some(0u8)]).to_array();
-        let result = take(&list, &idx).unwrap();
+        let result = list.take(idx.to_array()).unwrap();
 
         assert_eq!(result.len(), 3);
 
@@ -461,7 +460,7 @@ mod test {
         let idx = buffer![0u32, 1, 0, 1].into_array();
 
         // This should not panic - result should have length 4.
-        let result = take(&list, &idx).unwrap();
+        let result = list.take(idx.to_array()).unwrap();
         assert_eq!(result.len(), 4);
     }
 }

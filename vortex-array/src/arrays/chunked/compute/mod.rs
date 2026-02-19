@@ -2,14 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod cast;
-mod compare;
 mod fill_null;
 mod filter;
-mod invert;
 mod is_constant;
 mod is_sorted;
+pub(crate) mod kernel;
 mod mask;
 mod min_max;
+pub(crate) mod rules;
+mod slice;
 mod sum;
 mod take;
 mod zip;

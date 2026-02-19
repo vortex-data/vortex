@@ -4,6 +4,9 @@
 //! Compressor traits for type-specific compression.
 
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
 
@@ -138,6 +141,13 @@ where
             return Ok(array.to_array());
         }
 
+        // Avoid compressing all-null arrays.
+        if array.all_invalid()? {
+            return Ok(
+                ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
+            );
+        }
+
         // Generate stats on the array directly.
         let stats = self.gen_stats(array);
         let best_scheme = self.choose_scheme(btr_blocks_compressor, &stats, ctx, excludes)?;
@@ -146,7 +156,7 @@ where
         if output.nbytes() < array.nbytes() {
             Ok(output)
         } else {
-            tracing::debug!("resulting tree too large: {}", output.display_tree());
+            tracing::debug!("resulting tree too large: {}", output.encoding_id());
             Ok(array.to_array())
         }
     }

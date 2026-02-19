@@ -231,38 +231,10 @@ mod test {
 
     use crate::IntoArray;
     use crate::array::Array;
-    use crate::arrays::ChunkedVTable;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::ChunkedArray;
     use crate::assert_arrays_eq;
-    use crate::compute::sub_scalar;
     use crate::validity::Validity;
-
-    fn chunked_array() -> ChunkedArray {
-        ChunkedArray::try_new(
-            vec![
-                buffer![1u64, 2, 3].into_array(),
-                buffer![4u64, 5, 6].into_array(),
-                buffer![7u64, 8, 9].into_array(),
-            ],
-            DType::Primitive(PType::U64, Nullability::NonNullable),
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn test_scalar_subtract() {
-        let chunked = chunked_array().into_array();
-        let to_subtract = 1u64;
-        let array = sub_scalar(&chunked, to_subtract.into()).unwrap();
-
-        let chunked = array.as_::<ChunkedVTable>();
-        let chunks_out = chunked.chunks();
-
-        assert_arrays_eq!(chunks_out[0], PrimitiveArray::from_iter([0u64, 1, 2]));
-        assert_arrays_eq!(chunks_out[1], PrimitiveArray::from_iter([3u64, 4, 5]));
-        assert_arrays_eq!(chunks_out[2], PrimitiveArray::from_iter([6u64, 7, 8]));
-    }
 
     #[test]
     fn test_rechunk_one_chunk() {

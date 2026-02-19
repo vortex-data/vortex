@@ -19,16 +19,16 @@ use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
-use vortex::compute::LikeOptions;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::expr::Binary;
 use vortex::expr::Expression;
 use vortex::expr::Like;
+use vortex::expr::LikeOptions;
 use vortex::expr::Operator;
 use vortex::expr::VTableExt;
-use vortex::expr::and;
+use vortex::expr::and_collect;
 use vortex::expr::cast;
 use vortex::expr::get_item;
 use vortex::expr::is_null;
@@ -57,7 +57,7 @@ pub(crate) fn make_vortex_predicate(
         .map(|e| expr_convertor.convert(e.as_ref()))
         .collect::<DFResult<Vec<_>>>()?;
 
-    Ok(exprs.into_iter().reduce(and))
+    Ok(and_collect(exprs))
 }
 
 /// Trait for converting DataFusion expressions to Vortex ones.
@@ -76,6 +76,32 @@ pub trait ExpressionConvertor: Send + Sync {
         input_schema: &Schema,
         output_schema: &Schema,
     ) -> DFResult<ProcessedProjection>;
+
+    /// Create a projection that reads only the required columns without pushing down
+    /// any expressions. All projection logic is applied after the scan.
+    fn no_pushdown_projection(
+        &self,
+        source_projection: ProjectionExprs,
+        input_schema: &Schema,
+    ) -> DFResult<ProcessedProjection> {
+        // Get all unique column indices referenced by the projection
+        let column_indices = source_projection.column_indices();
+
+        // Create scan projection that reads the required columns
+        let scan_columns: Vec<(String, Expression)> = column_indices
+            .into_iter()
+            .map(|idx| {
+                let field = input_schema.field(idx);
+                let name = field.name().clone();
+                (name.clone(), get_item(name, root()))
+            })
+            .collect();
+
+        Ok(ProcessedProjection {
+            scan_projection: pack(scan_columns, Nullability::NonNullable),
+            leftover_projection: source_projection,
+        })
+    }
 }
 
 /// The default [`ExpressionConvertor`].
@@ -87,26 +113,30 @@ impl DefaultExpressionConvertor {
     fn try_convert_scalar_function(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
         if let Some(get_field_fn) = ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn)
         {
-            let source_expr = get_field_fn
+            // DataFusion's GetFieldFunc flattens nested field access into a single call
+            // with multiple field name arguments. For example, `outer.inner.leaf` becomes
+            // get_field(Column("outer"), "inner", "leaf"). We build a chain of get_item
+            // calls for each field name in the path.
+            let (source_expr, field_names) = get_field_fn
                 .args()
-                .first()
-                .ok_or_else(|| exec_datafusion_err!("get_field missing source expression"))?
-                .as_ref();
-            let field_name_expr = get_field_fn
-                .args()
-                .get(1)
-                .ok_or_else(|| exec_datafusion_err!("get_field missing field name argument"))?;
-            let field_name = field_name_expr
-                .as_any()
-                .downcast_ref::<df_expr::Literal>()
-                .ok_or_else(|| exec_datafusion_err!("get_field field name must be a literal"))?
-                .value()
-                .try_as_str()
-                .flatten()
-                .ok_or_else(|| {
-                    exec_datafusion_err!("get_field field name must be a UTF-8 string")
-                })?;
-            return Ok(get_item(field_name.to_string(), self.convert(source_expr)?));
+                .split_first()
+                .ok_or_else(|| exec_datafusion_err!("get_field missing source expression"))?;
+
+            let mut result = self.convert(source_expr.as_ref())?;
+            for expr in field_names {
+                let field_name = expr
+                    .as_any()
+                    .downcast_ref::<df_expr::Literal>()
+                    .ok_or_else(|| exec_datafusion_err!("get_field field name must be a literal"))?
+                    .value()
+                    .try_as_str()
+                    .flatten()
+                    .ok_or_else(|| {
+                        exec_datafusion_err!("get_field field name must be a UTF-8 string")
+                    })?;
+                result = get_item(field_name.to_string(), result);
+            }
+            return Ok(result);
         }
 
         Err(exec_datafusion_err!(
@@ -444,6 +474,7 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::common_tests::TestSessionContext;
 
     #[rstest::fixture]
     fn test_schema() -> Schema {
@@ -746,5 +777,38 @@ mod tests {
             Arc::new(df_expr::LikeExpr::new(false, false, expr, pattern)) as Arc<dyn PhysicalExpr>;
 
         assert!(!can_be_pushed_down_impl(&like_expr, &test_schema));
+    }
+
+    // https://github.com/vortex-data/vortex/issues/6211
+    #[tokio::test]
+    async fn test_cast_int_to_string() -> anyhow::Result<()> {
+        let ctx = TestSessionContext::default();
+
+        ctx.session
+            .sql(r#"copy (select 1 as id) to 'example.vortex'"#)
+            .await?
+            .show()
+            .await?;
+
+        ctx.session
+            .sql(r#"select cast(id as string) as sid from 'example.vortex' where id > 0"#)
+            .await?
+            .show()
+            .await?;
+
+        ctx.session
+            .sql(r#"select id from 'example.vortex' where cast (id as string) == '1'"#)
+            .await?
+            .show()
+            .await?;
+
+        // This fails as it pushes string cast to the scan
+        ctx.session
+            .sql(r#"select cast(id as string) from 'example.vortex'"#)
+            .await?
+            .collect()
+            .await?;
+
+        Ok(())
     }
 }

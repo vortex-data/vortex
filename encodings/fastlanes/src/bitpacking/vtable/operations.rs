@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
 use crate::BitPackedVTable;
@@ -36,8 +36,8 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
     use vortex_array::buffer::BufferHandle;
-    use vortex_array::compute::take;
     use vortex_array::patches::Patches;
+    use vortex_array::scalar::Scalar;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::VTable;
@@ -48,7 +48,6 @@ mod test {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_scalar::Scalar;
 
     use crate::BitPackedArray;
     use crate::BitPackedVTable;
@@ -175,7 +174,9 @@ mod test {
         // Chunk 2: physical indices 1024-2047, logical indices  102-1125
         // Chunk 3: physical indices 2048-2060, logical indices 1126-1138
 
-        let taken = take(&sliced, buffer![101i64, 1125, 1138].into_array().as_ref()).unwrap();
+        let taken = sliced
+            .take(buffer![101i64, 1125, 1138].into_array())
+            .unwrap();
         assert_eq!(taken.len(), 3);
     }
 

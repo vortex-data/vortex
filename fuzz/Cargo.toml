@@ -21,8 +21,8 @@ cargo-fuzz = true
 default = ["native"]
 native = ["libfuzzer-sys", "zstd", "vortex-file", "vortex/files"]
 wasmfuzz = []
-zstd = ["vortex/zstd"]
-cuda = ["vortex-cuda", "vortex/cuda", "tokio"]
+zstd = ["vortex/zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
+cuda = ["vortex-cuda", "tokio"]
 
 [dependencies]
 # Always needed - arbitrary is used for input generation
@@ -38,10 +38,8 @@ vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true, features = ["arbitrary"] }
 vortex-error = { workspace = true }
 vortex-io = { workspace = true }
-vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-runend = { workspace = true, features = ["arbitrary"] }
-vortex-scalar = { workspace = true, features = ["arbitrary"] }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 

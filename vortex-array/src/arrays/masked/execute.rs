@@ -99,7 +99,7 @@ fn mask_validity_decimal(array: DecimalArray, mask: &Mask) -> DecimalArray {
 /// Mask validity for VarBinViewArray.
 fn mask_validity_varbinview(array: VarBinViewArray, mask: &Mask) -> VarBinViewArray {
     let len = array.len();
-    let dtype = array.dtype().clone();
+    let dtype = array.dtype().as_nullable();
     let new_validity = combine_validity(array.validity(), mask, len);
     // SAFETY: We're only changing validity, not the data structure
     unsafe {
@@ -153,8 +153,11 @@ fn mask_validity_extension(
     // For extension arrays, we need to mask the underlying storage
     let storage = array.storage().clone().execute::<Canonical>(ctx)?;
     let masked_storage = mask_validity_canonical(storage, mask, ctx)?;
+    let masked_storage = masked_storage.into_array();
     Ok(ExtensionArray::new(
-        array.ext_dtype().clone(),
-        masked_storage.into_array(),
+        array
+            .ext_dtype()
+            .with_nullability(masked_storage.dtype().nullability()),
+        masked_storage,
     ))
 }

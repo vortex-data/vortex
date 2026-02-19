@@ -10,7 +10,7 @@ use pyo3::types::PyList;
 use pyo3_object_store::PyObjectStore;
 use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
-use vortex::compute::cast;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
 use vortex::dtype::Nullability::NonNullable;
@@ -66,9 +66,7 @@ pub fn open(
     let vxf = py.detach(|| {
         TOKIO_RUNTIME.block_on(async move {
             let mut options = SESSION.open_options();
-            if without_segment_cache {
-                options = options.without_segment_cache();
-            } else {
+            if !without_segment_cache {
                 // TODO(ngates): use a globally shared segment cache for all files
                 options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
             }
@@ -215,7 +213,8 @@ impl PyVortexFile {
         }
 
         if let Some(indices) = indices {
-            let indices = cast(indices.as_ref(), &DType::Primitive(PType::U64, NonNullable))?
+            let indices = indices
+                .cast(DType::Primitive(PType::U64, NonNullable))?
                 .to_primitive()
                 .into_buffer::<u64>();
             builder = builder.with_row_indices(indices);

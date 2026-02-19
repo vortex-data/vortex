@@ -3,11 +3,9 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
-use vortex_array::compute::cast;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::CastReduce;
 use vortex_array::patches::Patches;
-use vortex_array::register_kernel;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -15,8 +13,8 @@ use vortex_error::VortexResult;
 use crate::bitpacking::BitPackedArray;
 use crate::bitpacking::BitPackedVTable;
 
-impl CastKernel for BitPackedVTable {
-    fn cast(&self, array: &BitPackedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for BitPackedVTable {
+    fn cast(array: &BitPackedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if array.dtype().eq_ignore_nullability(dtype) {
             let new_validity = array
                 .validity()
@@ -30,7 +28,7 @@ impl CastKernel for BitPackedVTable {
                     array
                         .patches()
                         .map(|patches| {
-                            let new_values = cast(patches.values(), dtype)?;
+                            let new_values = patches.values().cast(dtype.clone())?;
                             Patches::new(
                                 patches.array_len(),
                                 patches.offset(),
@@ -52,15 +50,13 @@ impl CastKernel for BitPackedVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(BitPackedVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
@@ -75,11 +71,10 @@ mod tests {
             BitPackedArray::encode(buffer![10u8, 20, 30, 40, 50, 60].into_array().as_ref(), 6)
                 .unwrap();
 
-        let casted = cast(
-            packed.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = packed
+            .to_array()
+            .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
@@ -96,11 +91,10 @@ mod tests {
         let values = PrimitiveArray::from_option_iter([Some(5u16), None, Some(10), Some(15), None]);
         let packed = BitPackedArray::encode(values.as_ref(), 4).unwrap();
 
-        let casted = cast(
-            packed.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::Nullable),
-        )
-        .unwrap();
+        let casted = packed
+            .to_array()
+            .cast(DType::Primitive(PType::U32, Nullability::Nullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::Nullable)

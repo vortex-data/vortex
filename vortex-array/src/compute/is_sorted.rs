@@ -11,7 +11,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::arrays::ConstantVTable;
@@ -25,6 +24,7 @@ use crate::compute::Output;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
+use crate::scalar::Scalar;
 use crate::vtable::VTable;
 
 static IS_SORTED_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -69,14 +69,16 @@ impl ComputeFnVTable for IsSorted {
 
         // We currently don't support sorting struct arrays.
         if array.dtype().is_struct() {
-            return Ok(Scalar::from(Some(false)).into());
+            let scalar: Scalar = Some(false).into();
+            return Ok(scalar.into());
         }
 
         let is_sorted = if strict {
             if let Some(Precision::Exact(value)) =
                 array.statistics().get_as::<bool>(Stat::IsStrictSorted)
             {
-                return Ok(Scalar::from(Some(value)).into());
+                let scalar: Scalar = Some(value).into();
+                return Ok(scalar.into());
             }
 
             let is_strict_sorted = is_sorted_impl(array, kernels, true)?;
@@ -95,7 +97,8 @@ impl ComputeFnVTable for IsSorted {
         } else {
             if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsSorted)
             {
-                return Ok(Scalar::from(Some(value)).into());
+                let scalar: Scalar = Some(value).into();
+                return Ok(scalar.into());
             }
 
             let is_sorted = is_sorted_impl(array, kernels, false)?;
@@ -113,7 +116,8 @@ impl ComputeFnVTable for IsSorted {
             is_sorted
         };
 
-        Ok(Scalar::from(is_sorted).into())
+        let scalar: Scalar = is_sorted.into();
+        Ok(scalar.into())
     }
 
     fn return_dtype(&self, _args: &InvocationArgs) -> VortexResult<DType> {
@@ -198,7 +202,8 @@ impl<V: VTable + IsSortedKernel> Kernel for IsSortedKernelAdapter<V> {
             V::is_sorted(&self.0, array)?
         };
 
-        Ok(Some(Scalar::from(is_sorted).into()))
+        let scalar: Scalar = is_sorted.into();
+        Ok(Some(scalar.into()))
     }
 }
 
@@ -278,9 +283,6 @@ fn is_sorted_impl(
         if let Some(output) = kernel.invoke(&args)? {
             return Ok(output.unwrap_scalar()?.as_bool().value());
         }
-    }
-    if let Some(output) = array.invoke(&IS_SORTED_FN, &args)? {
-        return Ok(output.unwrap_scalar()?.as_bool().value());
     }
 
     if !array.is_canonical() {

@@ -11,8 +11,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::BoolScalar;
-use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -23,6 +21,7 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::scalar::Scalar;
 
 pub struct BoolBuilder {
     dtype: DType,
@@ -105,8 +104,7 @@ impl ArrayBuilder for BoolBuilder {
             scalar.dtype()
         );
 
-        let bool_scalar = BoolScalar::try_from(scalar)?;
-        match bool_scalar.value() {
+        match scalar.as_bool().value() {
             Some(value) => self.append_value(value),
             None => self.append_null(),
         }
@@ -152,7 +150,6 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
-    use vortex_scalar::Scalar;
 
     use crate::ArrayRef;
     use crate::IntoArray;
@@ -166,6 +163,7 @@ mod tests {
     use crate::builders::BoolBuilder;
     use crate::builders::builder_with_capacity;
     use crate::canonical::ToCanonical;
+    use crate::scalar::Scalar;
     use crate::vtable::ValidityHelper;
 
     fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {

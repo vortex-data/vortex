@@ -11,8 +11,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
-use vortex_scalar::Scalar;
 
+use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -20,13 +20,17 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FilterArray;
 use crate::arrays::NullArray;
+use crate::scalar::Scalar;
 use crate::validity::Validity;
 
+mod bitbuffer;
 mod bool;
+mod buffer;
 mod decimal;
 mod fixed_size_list;
 mod listview;
 mod primitive;
+mod slice;
 mod struct_;
 mod varbinview;
 
@@ -45,27 +49,25 @@ fn filter_validity(validity: Validity, mask: &Arc<MaskValues>) -> Validity {
 /// Check for some fast-path execution conditions before calling [`execute_filter`].
 pub(super) fn execute_filter_fast_paths(
     array: &FilterArray,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<Canonical>> {
+    _ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
     let true_count = array.mask.true_count();
 
     // If the mask selects nothing, the output is empty.
     if true_count == 0 {
-        return Ok(Some(Canonical::empty(array.dtype())));
+        return Ok(Some(Canonical::empty(array.dtype()).into_array()));
     }
 
     // If the mask selects everything, then we can just fully decompress the whole thing.
     if true_count == array.mask.len() {
-        return Ok(Some(array.child.clone().execute(ctx)?));
+        return Ok(Some(array.child.clone()));
     }
 
     // Also check if the array itself is completely null, in which case we only care about the total
     // number of nulls, not the values.
     if array.validity_mask()?.true_count() == 0 {
         return Ok(Some(
-            ConstantArray::new(Scalar::null(array.dtype().clone()), true_count)
-                .into_array()
-                .execute(ctx)?,
+            ConstantArray::new(Scalar::null(array.dtype().clone()), true_count).into_array(),
         ));
     }
 

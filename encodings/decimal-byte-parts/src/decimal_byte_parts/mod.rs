@@ -3,9 +3,9 @@
 
 mod compute;
 mod rules;
+mod slice;
 
 use std::hash::Hash;
-use std::ops::Range;
 
 use prost::Message as _;
 use vortex_array::Array;
@@ -14,7 +14,6 @@ use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
@@ -23,13 +22,15 @@ use vortex_array::SerializeMetadata;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::scalar::DecimalValue;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -44,9 +45,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
+use crate::decimal_byte_parts::compute::kernel::PARENT_KERNELS;
 use crate::decimal_byte_parts::rules::PARENT_RULES;
 
 vtable!(DecimalByteParts);
@@ -68,7 +69,6 @@ impl VTable for DecimalBytePartsVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -85,8 +85,14 @@ impl VTable for DecimalBytePartsVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(DecimalBytesPartsMetadata::decode(buffer)?))
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(DecimalBytesPartsMetadata::decode(bytes)?))
     }
 
     fn build(
@@ -130,16 +136,17 @@ impl VTable for DecimalBytePartsVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        // SAFETY: slicing encoded MSP does not change the encoded values
-        Ok(Some(unsafe {
-            DecimalBytePartsArray::new_unchecked(array.msp.slice(range)?, *array.decimal_dtype())
-                .into_array()
-        }))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        to_canonical_decimal(array, ctx)
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        to_canonical_decimal(array, ctx)
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
@@ -251,7 +258,7 @@ impl BaseArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 fn to_canonical_decimal(
     array: &DecimalBytePartsArray,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Canonical> {
+) -> VortexResult<ArrayRef> {
     // TODO(joe): support parts len != 1
     let prim = array.msp.clone().execute::<PrimitiveArray>(ctx)?;
     // Depending on the decimal type and the min/max of the primitive array we can choose
@@ -260,13 +267,14 @@ fn to_canonical_decimal(
     Ok(match_each_signed_integer_ptype!(prim.ptype(), |P| {
         // SAFETY: The primitive array's buffer is already validated with correct type.
         // The decimal dtype matches the array's dtype, and validity is preserved.
-        Canonical::Decimal(unsafe {
+        unsafe {
             DecimalArray::new_unchecked(
                 prim.to_buffer::<P>(),
                 *array.decimal_dtype(),
                 prim.validity().clone(),
             )
-        })
+        }
+        .into_array()
     }))
 }
 
@@ -279,10 +287,10 @@ impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         let primitive_scalar = scalar.as_primitive();
         // TODO(joe): extend this to support multiple parts.
         let value = primitive_scalar.as_::<i64>().vortex_expect("non-null");
-        Ok(Scalar::new(
+        Scalar::try_new(
             array.dtype.clone(),
-            DecimalValue::I64(value).into(),
-        ))
+            Some(ScalarValue::Decimal(DecimalValue::I64(value))),
+        )
     }
 }
 
@@ -296,8 +304,16 @@ impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 impl VisitorVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn visit_buffers(_array: &DecimalBytePartsArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &DecimalBytePartsArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &DecimalBytePartsArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("msp", &array.msp);
+    }
+
+    fn nchildren(_array: &DecimalBytePartsArray) -> usize {
+        1
     }
 }
 
@@ -306,13 +322,14 @@ mod tests {
     use vortex_array::Array;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::scalar::DecimalValue;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::scalar::ScalarValue;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
-    use vortex_scalar::DecimalValue;
-    use vortex_scalar::Scalar;
 
     use crate::DecimalBytePartsArray;
 
@@ -333,11 +350,15 @@ mod tests {
 
         assert_eq!(Scalar::null(dtype.clone()), array.scalar_at(0).unwrap());
         assert_eq!(
-            Scalar::new(dtype.clone(), DecimalValue::I64(200).into()),
+            Scalar::try_new(
+                dtype.clone(),
+                Some(ScalarValue::Decimal(DecimalValue::I64(200)))
+            )
+            .unwrap(),
             array.scalar_at(1).unwrap()
         );
         assert_eq!(
-            Scalar::new(dtype, DecimalValue::I64(400).into()),
+            Scalar::try_new(dtype, Some(ScalarValue::Decimal(DecimalValue::I64(400)))).unwrap(),
             array.scalar_at(2).unwrap()
         );
     }

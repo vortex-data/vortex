@@ -18,6 +18,9 @@ on:
         required: true
         type: number
 
+env:
+  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+
 jobs:
   attempt-fix:
     name: "Attempt to Fix Fuzzer Crash"
@@ -57,7 +60,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
           enable-sccache: "false"
 
       - name: Install llvm
@@ -132,19 +135,9 @@ jobs:
           RUN_ID=$(echo "$ARTIFACT_URL" | grep -oP 'runs/\K[0-9]+')
           ARTIFACT_ID=$(echo "$ARTIFACT_URL" | grep -oP 'artifacts/\K[0-9]+')
 
-          # Map target name to artifact name (hardcoded in fuzz.yml)
+          # Artifact name matches run-fuzzer.yml upload: ${{ inputs.fuzz_target }}-crash-artifacts
           TARGET="${{ steps.extract.outputs.target }}"
-          case "$TARGET" in
-            file_io)
-              ARTIFACT_NAME="io-fuzzing-crash-artifacts"
-              ;;
-            array_ops)
-              ARTIFACT_NAME="operations-fuzzing-crash-artifacts"
-              ;;
-            *)
-              ARTIFACT_NAME="${TARGET}-fuzzing-crash-artifacts"
-              ;;
-          esac
+          ARTIFACT_NAME="${TARGET}-crash-artifacts"
 
           echo "Downloading artifact $ARTIFACT_NAME (ID: $ARTIFACT_ID) from run $RUN_ID"
 
@@ -168,7 +161,7 @@ jobs:
           echo "Building fuzzer target: ${{ steps.extract.outputs.target }} (debug mode for faster build)"
 
           # Build the fuzzer target in debug mode (faster than release)
-          if RUSTFLAGS="--cfg vortex_nightly" cargo +nightly fuzz build --dev --sanitizer=none "${{ steps.extract.outputs.target }}" 2>&1 | tee fuzzer_build.log; then
+          if RUSTFLAGS="--cfg vortex_nightly" cargo +$NIGHTLY_TOOLCHAIN fuzz build --dev --sanitizer=none "${{ steps.extract.outputs.target }}" 2>&1 | tee fuzzer_build.log; then
             echo "✅ Fuzzer target built successfully"
             echo "build_success=true" >> $GITHUB_OUTPUT
           else
@@ -188,7 +181,7 @@ jobs:
           echo "Attempting to reproduce crash with fuzzer (debug mode)..."
 
           # Run fuzzer with crash file (debug mode, no sanitizer, full backtrace)
-          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=full timeout 30s cargo +nightly fuzz run --dev --sanitizer=none "${{ steps.extract.outputs.target }}" "${{ steps.download.outputs.crash_file_path }}" -- -runs=1 -rss_limit_mb=0 2>&1 | tee crash_reproduction.log
+          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=full timeout 30s cargo +$NIGHTLY_TOOLCHAIN fuzz run --dev --sanitizer=none "${{ steps.extract.outputs.target }}" "${{ steps.download.outputs.crash_file_path }}" -- -runs=1 -rss_limit_mb=0 2>&1 | tee crash_reproduction.log
 
           FUZZ_EXIT_CODE=${PIPESTATUS[0]}
 

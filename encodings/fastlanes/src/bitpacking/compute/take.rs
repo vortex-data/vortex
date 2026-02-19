@@ -7,13 +7,11 @@ use std::mem::MaybeUninit;
 use fastlanes::BitPacking;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
-use vortex_array::compute::take;
-use vortex_array::register_kernel;
+use vortex_array::arrays::TakeExecute;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
@@ -37,11 +35,15 @@ use crate::bitpack_decompress;
 /// see https://github.com/vortex-data/vortex/pull/190#issue-2223752833
 pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
 
-impl TakeKernel for BitPackedVTable {
-    fn take(&self, array: &BitPackedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+impl TakeExecute for BitPackedVTable {
+    fn take(
+        array: &BitPackedArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
-            return take(array.to_primitive().as_ref(), indices);
+            return array.to_primitive().take(indices.to_array()).map(Some);
         }
 
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must
@@ -56,11 +58,9 @@ impl TakeKernel for BitPackedVTable {
                 take_primitive::<T, I>(array, &indices, taken_validity)?
             })
         });
-        Ok(taken.reinterpret_cast(ptype).into_array())
+        Ok(Some(taken.reinterpret_cast(ptype).into_array()))
     }
 }
-
-register_kernel!(TakeKernelAdapter(BitPackedVTable).lift());
 
 fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     array: &BitPackedArray,
@@ -155,7 +155,6 @@ mod test {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::take;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -171,7 +170,7 @@ mod test {
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
 
-        let primitive_result = take(bitpacked.as_ref(), &indices).unwrap();
+        let primitive_result = bitpacked.take(indices.to_array()).unwrap();
         assert_arrays_eq!(
             primitive_result,
             PrimitiveArray::from_iter([0u8, 62, 31, 33, 9, 18])
@@ -185,7 +184,7 @@ mod test {
 
         let indices = buffer![0, 2, 4, 6].into_array();
 
-        let primitive_result = take(bitpacked.as_ref(), indices.as_ref()).unwrap();
+        let primitive_result = bitpacked.take(indices.to_array()).unwrap();
         assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([0u32, 2, 4, 6]));
     }
 
@@ -198,7 +197,7 @@ mod test {
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let sliced = bitpacked.slice(128..2050).unwrap();
 
-        let primitive_result = take(&sliced, &indices).unwrap();
+        let primitive_result = sliced.take(indices.to_array()).unwrap();
         assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([31u8, 33]));
     }
 
@@ -215,7 +214,7 @@ mod test {
         let range = Uniform::new(0, values.len()).unwrap();
         let random_indices =
             PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
-        let taken = take(packed.as_ref(), random_indices.as_ref()).unwrap();
+        let taken = packed.take(random_indices.to_array()).unwrap();
 
         // sanity check
         random_indices
@@ -254,11 +253,9 @@ mod test {
         let start =
             BitPackedArray::encode(&buffer![1i32, 2i32, 3i32, 4i32].into_array(), 1).unwrap();
 
-        let taken_primitive = take(
-            start.as_ref(),
-            PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]).as_ref(),
-        )
-        .unwrap();
+        let taken_primitive = start
+            .take(PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]).to_array())
+            .unwrap();
         assert_arrays_eq!(
             taken_primitive,
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(4)])

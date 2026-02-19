@@ -1,6 +1,8 @@
 import doctest
 import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import hawkmoth.docstring
@@ -23,6 +25,7 @@ author = "Vortex contributors"
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
+    "breathe",  # C++ API (Doxygen -> Sphinx bridge)
     "hawkmoth",  # C API
     "myst_parser",  # Markdown support
     "sphinx.ext.autodoc",
@@ -31,12 +34,15 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.napoleon",
     "sphinx_copybutton",
+    "sphinx_design",
     "sphinx_inline_tabs",
     "sphinxcontrib.bibtex",
+    "sphinxcontrib.mermaid",
     "sphinxext.opengraph",
 ]
 
 templates_path = ["_templates"]
+html_show_sourcelink = False
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md"]
 
 intersphinx_mapping = {
@@ -67,25 +73,86 @@ myst_heading_anchors = 3
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = "furo"
+html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
-html_css_files = ["style.css"]  # relative to _static/
+html_css_files = ["style.css"]
+html_favicon = "_static/vortex_logo.svg"  # relative to _static/
 
-# -- Options for Furo Theme ------------------------------------------------
+# -- Options for PyData Sphinx Theme ----------------------------------------
 
 html_theme_options = {
-    "light_logo": "vortex_spiral_logo.svg",
-    "dark_logo": "vortex_spiral_logo_dark_theme.svg",
+    "logo": {
+        "image_light": "_static/vortex_logo.svg",
+        "image_dark": "_static/vortex_logo_dark_theme.svg",
+    },
+    "github_url": "https://github.com/vortex-data/vortex",
+    "icon_links": [
+        {
+            "name": "PyPI",
+            "url": "https://pypi.org/project/vortex-data",
+            "icon": "fa-brands fa-python",
+        },
+        {
+            "name": "Crates.io",
+            "url": "https://crates.io/crates/vortex",
+            "icon": "fa-brands fa-rust",
+        },
+    ],
+    "header_links_before_dropdown": 7,
+    "navbar_align": "left",
+    "show_nav_level": 2,
+    "navigation_depth": 3,
+    "show_toc_level": 2,
 }
 
 # -- Options for OpenGraph ---------------------------------------------------
 
 ogp_site_url = "https://docs.vortex.dev"
-ogp_image = "https://docs.vortex.dev/_static/vortex_spiral_logo.svg"
+ogp_image = "https://docs.vortex.dev/_static/vortex_logo.svg"
 
 # -- Options for Sphinx BibTEX -------------------------------------------
 
 bibtex_bibfiles = ["references.bib"]
+
+# -- Options for Breathe C++ API gen ------------------------------------
+
+_doxygen_xml_dir = str(Path(__file__).parent / "_build" / "doxygen-cpp" / "xml")
+
+os.makedirs(os.path.dirname(_doxygen_xml_dir), exist_ok=True)
+
+if not shutil.which("doxygen"):
+    raise RuntimeError("doxygen is required to build the docs but was not found on PATH")
+subprocess.run(["doxygen", "Doxyfile.cpp"], cwd=Path(__file__).parent, check=True)
+
+breathe_projects = {"vortex-cpp": _doxygen_xml_dir}
+breathe_default_project = "vortex-cpp"
+
+# C++ types from cxx bridge and standard library that Sphinx cannot resolve.
+nitpick_ignore += [
+    ("cpp:identifier", t)
+    for t in [
+        "vortex",
+        "rust",
+        "ffi",
+        "uint8_t",
+        "uint16_t",
+        "uint32_t",
+        "uint64_t",
+        "int8_t",
+        "int16_t",
+        "int32_t",
+        "int64_t",
+        "size_t",
+        "std::size_t",
+    ]
+]
+nitpick_ignore_regex = [
+    # cxx bridge internals that will never be resolvable in Sphinx.
+    (r"cpp:identifier", r"rust::.*"),
+    (r"cpp:identifier", r"ffi::.*"),
+    # Doxygen file-level labels (e.g. "dtype_8hpp") that we don't generate pages for.
+    (r"ref", r".*_8hpp"),
+]
 
 # -- Options for hawkmoth C API gen ----------------------------
 
@@ -248,7 +315,31 @@ def _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks(app, what, name
             in_block = False
 
 
+def _resolve_breathe_cpp_references(app, env, node, contnode):
+    """Resolve relative C++ references emitted by Breathe.
+
+    Breathe emits cross-namespace parameter types with relative qualifiers (e.g. ``scalar::Scalar``
+    instead of ``vortex::scalar::Scalar``). This handler intercepts unresolved references and
+    re-resolves them under the ``vortex::`` namespace.
+    """
+    if node.get("refdomain") != "cpp" or node.get("reftype") != "identifier":
+        return None
+
+    target = node.get("reftarget", "")
+    if not target or target.startswith("vortex::"):
+        return None
+
+    cpp_domain = env.get_domain("cpp")
+    # Try resolving with the vortex:: prefix.
+    node = node.deepcopy()
+    node["reftarget"] = f"vortex::{target}"
+    return cpp_domain.resolve_xref(
+        env, node.get("refdoc", ""), app.builder, "identifier", node["reftarget"], node, contnode
+    )
+
+
 def setup(app):
     app.connect("hawkmoth-process-docstring", _replace_rust_references)
     app.connect("write-started", _post_process)
     app.connect("autodoc-process-docstring", _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks)
+    app.connect("missing-reference", _resolve_breathe_cpp_references)

@@ -41,6 +41,7 @@ allow = [
     "OpenSSL",
     "Unicode-3.0",
     "Unicode-DFS-2016",
+    "Unlicense",
     "Zlib",
 ]
 # The confidence threshold for detecting a license from license text.

@@ -16,13 +16,17 @@ use vortex::layout::segments::SegmentId;
 /// Cached Vortex file metadata for use with DataFusion's [`FileMetadataCache`].
 pub struct CachedVortexMetadata {
     footer: Footer,
+    memory_size: usize,
 }
 
 impl CachedVortexMetadata {
     /// Create a new cached metadata entry from a VortexFile.
     pub fn new(vortex_file: &VortexFile) -> Self {
+        let footer = vortex_file.footer();
+        let memory_size = estimate_footer_size(footer);
         Self {
-            footer: vortex_file.footer().clone(),
+            footer: footer.clone(),
+            memory_size,
         }
     }
 
@@ -38,7 +42,7 @@ impl FileMetadata for CachedVortexMetadata {
     }
 
     fn memory_size(&self) -> usize {
-        estimate_footer_size(&self.footer)
+        self.memory_size
     }
 
     #[allow(clippy::disallowed_types)]
@@ -52,8 +56,9 @@ fn estimate_footer_size(footer: &Footer) -> usize {
     let segments_size = footer.segment_map().len() * size_of::<SegmentSpec>();
     let stats_size = footer
         .statistics()
-        .map(|stats| {
-            stats
+        .map(|file_statistics| {
+            file_statistics
+                .stats_sets()
                 .iter()
                 .map(|s| {
                     s.iter().count() * (size_of::<Stat>() + size_of::<Precision<ScalarValue>>())

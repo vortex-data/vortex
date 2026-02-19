@@ -3,20 +3,19 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Range;
 
 use vortex_array::ArrayBufferVisitor;
 use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::arrays::BoolArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -24,12 +23,12 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
 use vortex_array::vtable::VisitorVTable;
+use vortex_array::vtable::validity_nchildren;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -38,7 +37,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
+
+use crate::kernel::PARENT_KERNELS;
 
 vtable!(ByteBool);
 
@@ -51,7 +52,6 @@ impl VTable for ByteBoolVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -65,7 +65,13 @@ impl VTable for ByteBoolVTable {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -109,20 +115,27 @@ impl VTable for ByteBoolVTable {
         Ok(())
     }
 
-    fn slice(array: &ByteBoolArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            ByteBoolArray::new(
-                array.buffer().slice(range.clone()),
-                array.validity().slice(range)?,
-            )
-            .into_array(),
-        ))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        crate::rules::RULES.evaluate(array, parent, child_idx)
     }
 
-    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let boolean_buffer = BitBuffer::from(array.as_slice());
         let validity = array.validity().clone();
-        Ok(Canonical::Bool(BoolArray::new(boolean_buffer, validity)))
+        Ok(BoolArray::new(boolean_buffer, validity).into_array())
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
@@ -229,8 +242,16 @@ impl VisitorVTable<ByteBoolVTable> for ByteBoolVTable {
         visitor.visit_buffer_handle("values", array.buffer());
     }
 
+    fn nbuffers(_array: &ByteBoolArray) -> usize {
+        1
+    }
+
     fn visit_children(array: &ByteBoolArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(array.validity(), array.len());
+    }
+
+    fn nchildren(array: &ByteBoolArray) -> usize {
+        validity_nchildren(array.validity())
     }
 }
 

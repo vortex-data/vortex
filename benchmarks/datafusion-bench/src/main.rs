@@ -7,7 +7,9 @@ use std::time::Instant;
 
 use clap::Parser;
 use clap::value_parser;
+use custom_labels::asynchronous::Label;
 use datafusion::arrow::array::RecordBatch;
+use datafusion::common::runtime::set_join_set_tracer;
 use datafusion::datasource::listing::ListingOptions;
 use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
@@ -16,6 +18,9 @@ use datafusion::parquet::arrow::ParquetRecordBatchStreamBuilder;
 use datafusion::prelude::SessionContext;
 use datafusion_bench::format_to_df_format;
 use datafusion_bench::metrics::MetricsSetExt;
+use datafusion_bench::tracer::get_labelset_from_global;
+use datafusion_bench::tracer::get_static_tracer;
+use datafusion_bench::tracer::set_labels;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::collect;
 use futures::StreamExt;
@@ -103,6 +108,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let opts = Opts::from(args.options);
 
+    set_join_set_tracer(get_static_tracer())?;
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
     let benchmark = create_benchmark(args.benchmark, &opts)?;
@@ -137,6 +143,8 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    let benchmark_name = benchmark.dataset().to_string();
+
     let mut runner = SqlBenchmarkRunner::new(
         &*benchmark,
         Engine::DataFusion,
@@ -168,26 +176,33 @@ async fn main() -> anyhow::Result<()> {
             |query_idx, (session, format), query| {
                 let plans = Arc::clone(&collected_plans);
 
-                Box::pin(async move {
-                    let timer = Instant::now();
-                    let (batches, plan) = execute_query(session, query).await?;
-                    let time = timer.elapsed();
-                    let row_count = batches.iter().map(|batch| batch.num_rows()).sum::<usize>();
+                let labelset = set_labels(benchmark_name.clone(), query_idx, *format);
 
-                    // Store plan for metrics (only store once per query/format combination)
-                    if show_metrics {
-                        let mut plans_mut = plans.lock();
-                        // Only store if we don't already have this query/format combo
-                        if !plans_mut
-                            .iter()
-                            .any(|(idx, f, _)| *idx == query_idx && *f == *format)
-                        {
-                            plans_mut.push((query_idx, *format, plan.clone()));
+                Box::pin(
+                    async move {
+                        let timer = Instant::now();
+                        let (batches, plan) = execute_query(session, query)
+                            .with_labelset(get_labelset_from_global())
+                            .await?;
+                        let time = timer.elapsed();
+                        let row_count = batches.iter().map(|batch| batch.num_rows()).sum::<usize>();
+
+                        // Store plan for metrics (only store once per query/format combination)
+                        if show_metrics {
+                            let mut plans_mut = plans.lock();
+                            // Only store if we don't already have this query/format combo
+                            if !plans_mut
+                                .iter()
+                                .any(|(idx, f, _)| *idx == query_idx && *f == *format)
+                            {
+                                plans_mut.push((query_idx, *format, plan.clone()));
+                            }
                         }
-                    }
 
-                    anyhow::Ok((row_count, Some(time), plan))
-                })
+                        anyhow::Ok((row_count, Some(time), plan))
+                    }
+                    .with_labelset(labelset),
+                )
             },
         )
         .await?;
@@ -220,10 +235,20 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
                 let pattern = benchmark.pattern(table.name, format);
                 let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern)?;
 
-                let mut config = ListingTableConfig::new(table_url).with_listing_options(
-                    ListingOptions::new(file_format.clone())
-                        .with_session_config_options(session.state().config()),
-                );
+                let mut listing_options = ListingOptions::new(file_format.clone())
+                    .with_session_config_options(session.state().config());
+                if benchmark.dataset_name() == "polarsignals" && format == Format::Parquet {
+                    // Work around a DataFusion bug (fixed in 53.0.0) where the
+                    // constant-column optimization extracts ScalarValues using
+                    // the statistic scalar type, which may not match the table
+                    // column type.
+                    // See: https://github.com/apache/datafusion/pull/20042
+                    // TODO(asubiotto): Remove this after the datafusion 53
+                    // upgrade.
+                    listing_options = listing_options.with_collect_stat(false);
+                }
+                let mut config =
+                    ListingTableConfig::new(table_url).with_listing_options(listing_options);
 
                 config = match table.schema.as_ref() {
                     Some(schema) => config.with_schema(Arc::new(schema.clone())),
@@ -301,11 +326,19 @@ pub async fn execute_query(
     ctx: &SessionContext,
     query: &str,
 ) -> anyhow::Result<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
-    let df = ctx.sql(query).await?;
+    let df = ctx
+        .sql(query)
+        .with_labelset(get_labelset_from_global())
+        .await?;
 
     let task_ctx = Arc::new(df.task_ctx());
-    let plan = df.create_physical_plan().await?;
-    let result = collect(plan.clone(), task_ctx).await?;
+    let plan = df
+        .create_physical_plan()
+        .with_labelset(get_labelset_from_global())
+        .await?;
+    let result = collect(plan.clone(), task_ctx)
+        .with_labelset(get_labelset_from_global())
+        .await?;
 
     Ok((result, plan))
 }
@@ -320,9 +353,9 @@ fn print_metrics(plans: &[(usize, Format, Arc<dyn ExecutionPlan>)]) {
 
         eprintln!("metrics for query={query_idx}, {format}:");
         for (scan_idx, metrics_set) in metric_sets.iter().enumerate() {
-            eprintln!("  scan[{scan_idx}]:");
-            for metric in metrics_set.clone().aggregate().sorted_for_display().iter() {
-                eprintln!("    {metric}");
+            eprintln!("\tscan[{scan_idx}]:");
+            for metric in metrics_set.aggregate().sorted_for_display().iter() {
+                eprintln!("\t\t{metric}");
             }
         }
     }

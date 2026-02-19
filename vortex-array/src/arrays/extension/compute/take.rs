@@ -5,25 +5,27 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::compute::{self};
-use crate::register_kernel;
+use crate::arrays::TakeExecute;
 
-impl TakeKernel for ExtensionVTable {
-    fn take(&self, array: &ExtensionArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let taken_storage = compute::take(array.storage(), indices)?;
-        Ok(ExtensionArray::new(
-            array
-                .ext_dtype()
-                .with_nullability(taken_storage.dtype().nullability()),
-            taken_storage,
-        )
-        .into_array())
+impl TakeExecute for ExtensionVTable {
+    fn take(
+        array: &ExtensionArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let taken_storage = array.storage().take(indices.to_array())?;
+        Ok(Some(
+            ExtensionArray::new(
+                array
+                    .ext_dtype()
+                    .with_nullability(taken_storage.dtype().nullability()),
+                taken_storage,
+            )
+            .into_array(),
+        ))
     }
 }
-
-register_kernel!(TakeKernelAdapter(ExtensionVTable).lift());

@@ -8,7 +8,6 @@ use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -17,6 +16,7 @@ use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::scalar::PValue;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::serde::ArrayChildren;
@@ -26,7 +26,6 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_dtype::DType;
@@ -37,7 +36,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_scalar::PValue;
+use vortex_session::VortexSession;
 
 use crate::compress::runend_decode_bools;
 use crate::compress::runend_decode_primitive;
@@ -66,7 +65,6 @@ impl VTable for RunEndVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -85,8 +83,14 @@ impl VTable for RunEndVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
-        let inner = <ProstMetadata<RunEndMetadata> as DeserializeMetadata>::deserialize(buffer)?;
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        let inner = <ProstMetadata<RunEndMetadata> as DeserializeMetadata>::deserialize(bytes)?;
         Ok(ProstMetadata(inner))
     }
 
@@ -142,7 +146,7 @@ impl VTable for RunEndVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         run_end_canonicalize(array, ctx)
     }
 }
@@ -212,6 +216,21 @@ impl RunEndArray {
             return Ok(());
         }
 
+        debug_assert!({
+            // Run ends must be strictly sorted for binary search to work correctly.
+            let pre_validation = ends.statistics().to_owned();
+
+            let is_sorted = ends
+                .statistics()
+                .compute_is_strict_sorted()
+                .unwrap_or(false);
+
+            // Preserve the original statistics since compute_is_strict_sorted may have mutated them.
+            // We don't want to run with different stats in debug mode and outside.
+            ends.statistics().inherit(pre_validation.iter());
+            is_sorted
+        });
+
         // Skip host-only validation when ends are not host-resident.
         if !ends.is_host() {
             return Ok(());
@@ -219,13 +238,13 @@ impl RunEndArray {
 
         // Validate the offset and length are valid for the given ends and values
         if offset != 0 && length != 0 {
-            let first_run_end: usize = ends.scalar_at(0)?.as_ref().try_into()?;
+            let first_run_end = usize::try_from(&ends.scalar_at(0)?)?;
             if first_run_end <= offset {
                 vortex_bail!("First run end {first_run_end} must be bigger than offset {offset}");
             }
         }
 
-        let last_run_end: usize = ends.scalar_at(ends.len() - 1)?.as_ref().try_into()?;
+        let last_run_end = usize::try_from(&ends.scalar_at(ends.len() - 1)?)?;
         let min_required_end = offset + length;
         if last_run_end < min_required_end {
             vortex_bail!("Last run end {last_run_end} must be >= offset+length {min_required_end}");
@@ -299,7 +318,7 @@ impl RunEndArray {
         let length: usize = if ends.is_empty() {
             0
         } else {
-            ends.scalar_at(ends.len() - 1)?.as_ref().try_into()?
+            usize::try_from(&ends.scalar_at(ends.len() - 1)?)?
         };
 
         Self::try_new_offset_length(ends, values, 0, length)
@@ -463,26 +482,16 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
 pub(super) fn run_end_canonicalize(
     array: &RunEndArray,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Canonical> {
-    let pends = array.ends().clone().execute(ctx)?;
+) -> VortexResult<ArrayRef> {
+    let pends = array.ends().clone().execute_as("ends", ctx)?;
     Ok(match array.dtype() {
         DType::Bool(_) => {
-            let bools = array.values().clone().execute(ctx)?;
-            Canonical::Bool(runend_decode_bools(
-                pends,
-                bools,
-                array.offset(),
-                array.len(),
-            )?)
+            let bools = array.values().clone().execute_as("values", ctx)?;
+            runend_decode_bools(pends, bools, array.offset(), array.len())?.into_array()
         }
         DType::Primitive(..) => {
-            let pvalues = array.values().clone().execute(ctx)?;
-            Canonical::Primitive(runend_decode_primitive(
-                pends,
-                pvalues,
-                array.offset(),
-                array.len(),
-            )?)
+            let pvalues = array.values().clone().execute_as("values", ctx)?;
+            runend_decode_primitive(pends, pvalues, array.offset(), array.len())?.into_array()
         }
         _ => vortex_panic!("Only Primitive and Bool values are supported"),
     })

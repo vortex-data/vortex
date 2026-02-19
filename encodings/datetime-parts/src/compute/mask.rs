@@ -1,41 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
-use vortex_array::compute::MaskKernel;
-use vortex_array::compute::MaskKernelAdapter;
-use vortex_array::compute::mask;
-use vortex_array::register_kernel;
+use vortex_array::IntoArray;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::MaskReduce;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::DateTimePartsArray;
+use crate::DateTimePartsArrayParts;
 use crate::DateTimePartsVTable;
 
-impl MaskKernel for DateTimePartsVTable {
-    fn mask(&self, array: &DateTimePartsArray, mask_array: &Mask) -> VortexResult<ArrayRef> {
-        // DateTimePartsArray has specific constraints:
-        // - days nullability must match the dtype
-        // - seconds and subseconds must always be non-nullable
-        //
-        // When masking, we can't make seconds/subseconds nullable.
-        // Instead, we'll keep the same values but the overall array becomes nullable
-        // through the days component.
-
-        let masked_days = mask(array.days(), mask_array)?;
-        assert!(masked_days.dtype().is_nullable());
-
-        // Keep seconds and subseconds unchanged since they must remain non-nullable
-        let seconds = array.seconds().clone();
-        let subseconds = array.subseconds().clone();
-
-        // Update the dtype to reflect the new nullability of days
-        let new_dtype = array.dtype().as_nullable();
-
-        DateTimePartsArray::try_new(new_dtype, masked_days, seconds, subseconds)
-            .map(|a| a.to_array())
+impl MaskReduce for DateTimePartsVTable {
+    fn mask(array: &DateTimePartsArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let DateTimePartsArrayParts {
+            dtype,
+            days,
+            seconds,
+            subseconds,
+        } = array.clone().into_parts();
+        let masked_days = days.mask(mask.clone())?;
+        Ok(Some(
+            DateTimePartsArray::try_new(dtype.as_nullable(), masked_days, seconds, subseconds)?
+                .into_array(),
+        ))
     }
 }
-
-register_kernel!(MaskKernelAdapter(DateTimePartsVTable).lift());

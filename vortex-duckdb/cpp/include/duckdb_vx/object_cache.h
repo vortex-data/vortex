@@ -11,13 +11,15 @@ extern "C" {
 
 typedef struct duckdb_vx_object_cache_ *duckdb_vx_object_cache;
 
-duckdb_vx_object_cache duckdb_vx_client_context_get_object_cache(duckdb_vx_client_context context);
+duckdb_vx_object_cache duckdb_client_context_get_object_cache(duckdb_client_context context);
 
 // Function pointer type for custom deleter
 typedef void (*duckdb_vx_deleter_fn)(void *ptr);
 
 // Writes the `value` to the object cache with the key `key`, overwriting the current value if it exists.
-void duckdb_vx_object_cache_put(duckdb_vx_object_cache object_cache, const char *key, void *value,
+void duckdb_vx_object_cache_put(duckdb_vx_object_cache object_cache,
+                                const char *key,
+                                void *value,
                                 duckdb_vx_deleter_fn deleter);
 
 // Fetches the key from the object cache, returning nullptr if the key is not present.

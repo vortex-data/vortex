@@ -5,8 +5,10 @@ mod cast;
 mod compare;
 mod filter;
 mod is_constant;
+pub(crate) mod kernel;
 mod mask;
 pub(super) mod rules;
+mod slice;
 mod take;
 
 #[cfg(test)]

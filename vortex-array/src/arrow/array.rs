@@ -12,12 +12,11 @@ use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -25,6 +24,7 @@ use crate::Precision;
 use crate::arrays::BoolArray;
 use crate::arrow::FromArrowArray;
 use crate::buffer::BufferHandle;
+use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
@@ -32,7 +32,6 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::BaseArrayVTable;
-use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
@@ -49,7 +48,6 @@ impl VTable for ArrowVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         ArrowVTable::ID
@@ -63,7 +61,13 @@ impl VTable for ArrowVTable {
         Ok(None)
     }
 
-    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _buffers: &[BufferHandle],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -86,9 +90,8 @@ impl VTable for ArrowVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable())?
-            .execute::<Canonical>(ctx)
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable())
     }
 }
 
@@ -176,4 +179,12 @@ impl VisitorVTable<ArrowVTable> for ArrowVTable {
     fn visit_buffers(_array: &ArrowArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(_array: &ArrowArray, _visitor: &mut dyn ArrayChildVisitor) {}
+
+    fn nchildren(_array: &ArrowArray) -> usize {
+        0
+    }
+
+    fn nth_child(_array: &ArrowArray, _idx: usize) -> Option<ArrayRef> {
+        None
+    }
 }

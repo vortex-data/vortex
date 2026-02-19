@@ -3,16 +3,16 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::CompareKernel;
-use vortex_array::compute::CompareKernelAdapter;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::compute::compare_lengths_to_empty;
-use vortex_array::register_kernel;
+use vortex_array::expr::CompareKernel;
+use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
@@ -21,17 +21,16 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_scalar::Scalar;
 
 use crate::FSSTArray;
 use crate::FSSTVTable;
 
 impl CompareKernel for FSSTVTable {
     fn compare(
-        &self,
         lhs: &FSSTArray,
         rhs: &dyn Array,
         operator: Operator,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         match rhs.as_constant() {
             Some(constant) => compare_fsst_constant(lhs, &constant, operator),
@@ -40,8 +39,6 @@ impl CompareKernel for FSSTVTable {
         }
     }
 }
-
-register_kernel!(CompareKernelAdapter(FSSTVTable).lift());
 
 /// Specialized compare function implementation used when performing against a constant
 fn compare_fsst_constant(
@@ -111,9 +108,9 @@ fn compare_fsst_constant(
         _ => unreachable!("FSSTArray can only have string or binary data type"),
     };
 
-    let encoded_scalar = Scalar::new(
-        DType::Binary(left.dtype().nullability() | right.dtype().nullability()),
-        encoded_buffer.into(),
+    let encoded_scalar = Scalar::binary(
+        encoded_buffer,
+        left.dtype().nullability() | right.dtype().nullability(),
     );
 
     let rhs = ConstantArray::new(encoded_scalar, left.len());
@@ -130,9 +127,9 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
+    use vortex_array::scalar::Scalar;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
-    use vortex_scalar::Scalar;
 
     use crate::fsst_compress;
     use crate::fsst_train_compressor;

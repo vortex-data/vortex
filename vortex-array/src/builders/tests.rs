@@ -13,10 +13,10 @@ use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::Timestamp;
 use vortex_dtype::half::f16;
 use vortex_error::VortexExpect;
-use vortex_scalar::Scalar;
 
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
+use crate::scalar::Scalar;
 
 /// Test that `append_zeros` produces the same result as manually appending `Scalar::default_value`.
 ///
@@ -78,7 +78,7 @@ fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
 
     // Builder 2: Manually append default values.
     let mut builder_manual = builder_with_capacity(&dtype, num_elements);
-    let default_scalar = Scalar::default_value(dtype.clone());
+    let default_scalar = Scalar::zero_value(&dtype);
     for _ in 0..num_elements {
         builder_manual.append_scalar(&default_scalar).unwrap();
     }
@@ -198,7 +198,7 @@ fn test_append_defaults_behavior(#[case] dtype: DType, #[case] should_be_null: b
                 i
             );
             // For non-nullable, it should match the default value.
-            let expected = Scalar::default_value(dtype.clone());
+            let expected = Scalar::default_value(&dtype);
             // Skip list comparison due to known bug.
             if !matches!(dtype, DType::List(..)) {
                 assert_eq!(
@@ -359,7 +359,7 @@ fn test_to_canonical_struct() {
     );
     compare_to_canonical_methods(&dtype, |builder| {
         for _ in 0..3 {
-            let value = Scalar::default_value(dtype.clone());
+            let value = Scalar::default_value(&dtype);
             builder.append_scalar(&value).unwrap();
         }
     });
@@ -395,7 +395,7 @@ fn test_to_canonical_decimal() {
     let dtype = DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable);
     compare_to_canonical_methods(&dtype, |builder| {
         for _ in 0..5 {
-            let value = Scalar::default_value(dtype.clone());
+            let value = Scalar::default_value(&dtype);
             builder.append_scalar(&value).unwrap();
         }
     });
@@ -573,7 +573,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
             DType::Binary(n) => Scalar::binary(format!("bytes_{}", i).into_bytes(), *n),
             DType::Decimal(dec_dtype, n) => {
                 // Create decimal scalars based on the decimal dtype.
-                use vortex_scalar::DecimalValue;
+                use crate::scalar::DecimalValue;
                 let value = DecimalValue::I128((i as i128 + 1) * 100); // Simple decimal values.
                 Scalar::decimal(value, *dec_dtype, *n)
             }
@@ -592,7 +592,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                                 Scalar::primitive((i + j) as f64, *n)
                             }
                             DType::Utf8(n) => Scalar::utf8(format!("field_{}", i + j), *n),
-                            _ => Scalar::default_value(field_dtype),
+                            _ => Scalar::default_value(&field_dtype),
                         }
                     })
                     .collect();
@@ -605,7 +605,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                         DType::Primitive(PType::I32, n) => {
                             Scalar::primitive(j.min(i32::MAX as usize) as i32, *n)
                         }
-                        _ => Scalar::default_value(element_dtype.as_ref().clone()),
+                        _ => Scalar::default_value(element_dtype.as_ref()),
                     })
                     .collect();
                 Scalar::list(element_dtype.clone(), elements, *n)
@@ -617,7 +617,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                         DType::Primitive(PType::I32, n) => {
                             Scalar::primitive((i as i32).saturating_add(j as i32), *n)
                         }
-                        _ => Scalar::default_value(element_dtype.as_ref().clone()),
+                        _ => Scalar::default_value(element_dtype.as_ref()),
                     })
                     .collect();
                 Scalar::fixed_size_list(element_dtype.clone(), elements, *n)
@@ -626,7 +626,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                 // Create extension scalars with storage values.
                 let storage_scalar = match ext_dtype.storage_dtype() {
                     DType::Primitive(PType::I64, n) => Scalar::primitive(i as i64, *n),
-                    _ => Scalar::default_value(ext_dtype.storage_dtype().clone()),
+                    _ => Scalar::default_value(ext_dtype.storage_dtype()),
                 };
                 Scalar::extension_ref(ext_dtype.clone(), storage_scalar)
             }

@@ -21,10 +21,10 @@ pub use init::*;
 pub use virtual_columns::VirtualColumnsResult;
 
 use crate::cpp;
-use crate::cpp::duckdb_vx_client_context;
+use crate::cpp::duckdb_client_context;
+use crate::duckdb::Database;
 use crate::duckdb::LogicalType;
 use crate::duckdb::client_context::ClientContext;
-use crate::duckdb::connection::Connection;
 use crate::duckdb::data_chunk::DataChunk;
 use crate::duckdb::expr::Expression;
 use crate::duckdb::table_function::cardinality::cardinality_callback;
@@ -148,7 +148,7 @@ pub enum Cardinality {
     Maximum(u64),
 }
 
-impl Connection {
+impl Database {
     pub fn register_table_function<T: TableFunction>(&self, name: &CStr) -> VortexResult<()> {
         // Set up the parameters.
         let parameters = T::parameters();
@@ -234,7 +234,7 @@ unsafe extern "C-unwind" fn to_string_callback<T: TableFunction>(
 
 /// The native function callback for a table function.
 unsafe extern "C-unwind" fn function<T: TableFunction>(
-    duckdb_client_context: duckdb_vx_client_context,
+    duckdb_client_context: duckdb_client_context,
     bind_data: *const c_void,
     global_init_data: *mut c_void,
     local_init_data: *mut c_void,

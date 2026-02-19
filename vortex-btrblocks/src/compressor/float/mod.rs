@@ -21,12 +21,12 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::DictArrayParts;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
 use vortex_sparse::SparseVTable;
 
@@ -77,6 +77,8 @@ pub const ALL_FLOAT_SCHEMES: &[&dyn FloatScheme] = &[
     &DictScheme,
     &NullDominated,
     &RLE_FLOAT_SCHEME,
+    #[cfg(feature = "pco")]
+    &PcoScheme,
 ];
 
 /// [`Compressor`] for floating-point numbers.
@@ -142,6 +144,8 @@ pub enum FloatCode {
     Rle,
     /// Sparse encoding for null-dominated arrays.
     Sparse,
+    /// Pco (pcodec) compression for floats.
+    Pco,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -161,6 +165,11 @@ struct DictScheme;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct NullDominated;
+
+/// Pco (pcodec) compression for floats.
+#[cfg(feature = "pco")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct PcoScheme;
 
 /// Configuration for float RLE compression.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -517,6 +526,31 @@ impl Scheme for NullDominated {
         } else {
             Ok(sparse_encoded)
         }
+    }
+}
+
+#[cfg(feature = "pco")]
+impl Scheme for PcoScheme {
+    type StatsType = FloatStats;
+    type CodeType = FloatCode;
+
+    fn code(&self) -> FloatCode {
+        FloatCode::Pco
+    }
+
+    fn compress(
+        &self,
+        _compressor: &BtrBlocksCompressor,
+        stats: &Self::StatsType,
+        _ctx: CompressorContext,
+        _excludes: &[FloatCode],
+    ) -> VortexResult<ArrayRef> {
+        Ok(vortex_pco::PcoArray::from_primitive(
+            stats.source(),
+            pco::DEFAULT_COMPRESSION_LEVEL,
+            8192,
+        )?
+        .into_array())
     }
 }
 
