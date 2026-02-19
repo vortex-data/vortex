@@ -93,6 +93,7 @@ fn take_chunked(
     // unioned with the index nullability.
     let flat = unsafe { ChunkedArray::new_unchecked(chunks, result_dtype) }
         .into_array()
+        // TODO(joe): can we relax this.
         .execute::<Canonical>(ctx)?
         .into_array();
 
