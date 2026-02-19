@@ -146,9 +146,9 @@ mod test {
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::compute::compare;
-    use crate::expr::CompareOperator;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::expr::CompareOperator;
     use crate::scalar::Scalar;
 
     #[test]

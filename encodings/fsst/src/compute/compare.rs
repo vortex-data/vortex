@@ -126,9 +126,9 @@ mod tests {
     use vortex_array::arrays::VarBinArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::compare;
-    use vortex_array::expr::CompareOperator;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+    use vortex_array::expr::CompareOperator;
     use vortex_array::scalar::Scalar;
 
     use crate::fsst_compress;

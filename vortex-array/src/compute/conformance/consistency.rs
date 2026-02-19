@@ -32,10 +32,10 @@ use crate::builtins::ArrayBuiltins;
 use crate::compute::compare;
 use crate::compute::invert;
 use crate::compute::mask;
-use crate::expr::CompareOperator;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::expr::CompareOperator;
 use crate::expr::and_kleene;
 use crate::expr::or_kleene;
 
