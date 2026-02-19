@@ -12,7 +12,7 @@ use crate::arrays::ChunkedVTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::ScalarFnArray;
-use crate::compute::CastReduceAdaptor;
+use crate::expr::CastReduceAdaptor;
 use crate::expr::FillNullReduceAdaptor;
 use crate::expr::ZipReduceAdaptor;
 use crate::optimizer::ArrayOptimizer;

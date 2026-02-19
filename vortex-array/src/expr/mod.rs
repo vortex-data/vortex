@@ -28,7 +28,7 @@ pub mod analysis;
 pub mod arbitrary;
 pub mod display;
 mod expression;
-mod exprs;
+pub(crate) mod exprs;
 mod field;
 pub mod forms;
 mod optimize;

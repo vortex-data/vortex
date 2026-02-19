@@ -9,7 +9,7 @@ use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::CastReduce;
+use crate::expr::CastReduce;
 
 impl CastReduce for ChunkedVTable {
     fn cast(array: &ChunkedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

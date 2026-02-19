@@ -3,7 +3,7 @@
 
 use crate::arrays::StructVTable;
 use crate::arrays::TakeExecuteAdaptor;
-use crate::compute::CastExecuteAdaptor;
+use crate::expr::CastExecuteAdaptor;
 use crate::expr::ZipExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 

@@ -13,7 +13,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::CastKernel;
+use crate::expr::CastKernel;
 use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
 

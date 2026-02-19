@@ -15,7 +15,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
-use crate::compute::CastKernel;
+use crate::expr::CastKernel;
 use crate::vtable::ValidityHelper;
 
 impl CastKernel for DecimalVTable {
