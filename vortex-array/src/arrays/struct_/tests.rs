@@ -2,11 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::buffer;
-use vortex_dtype::DType;
-use vortex_dtype::FieldName;
-use vortex_dtype::FieldNames;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 
 use crate::IntoArray;
@@ -16,6 +11,11 @@ use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::struct_::StructArray;
 use crate::arrays::varbin::VarBinArray;
 use crate::assert_arrays_eq;
+use crate::dtype::DType;
+use crate::dtype::FieldName;
+use crate::dtype::FieldNames;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::validity::Validity;
 
 #[test]

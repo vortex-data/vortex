@@ -6,7 +6,6 @@ mod kernel;
 use std::fmt::Formatter;
 
 pub use kernel::*;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -20,6 +19,7 @@ use crate::IntoArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -229,9 +229,6 @@ mod tests {
     use arrow_array::cast::AsArray;
     use arrow_select::zip::zip as arrow_zip;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_mask::Mask;
 
     use super::zip_expr;
@@ -247,6 +244,9 @@ mod tests {
     use crate::builders::BufferGrowthStrategy;
     use crate::builders::VarBinViewBuilder;
     use crate::builtins::ArrayBuiltins;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;
     use crate::scalar::Scalar;

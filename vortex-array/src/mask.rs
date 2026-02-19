@@ -3,7 +3,6 @@
 
 use std::ops::BitAnd;
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -16,6 +15,7 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantVTable;
 use crate::columnar::Columnar;
+use crate::dtype::DType;
 
 impl Executable for Mask {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {

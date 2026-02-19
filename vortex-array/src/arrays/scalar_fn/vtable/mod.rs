@@ -14,7 +14,6 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -29,6 +28,7 @@ use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::expr;
 use crate::expr::Arity;

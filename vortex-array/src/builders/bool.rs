@@ -5,8 +5,6 @@ use std::any::Any;
 use std::mem;
 
 use vortex_buffer::BitBufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -21,6 +19,8 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::scalar::Scalar;
 
 pub struct BoolBuilder {
@@ -147,8 +147,6 @@ mod tests {
     use rand::Rng;
     use rand::SeedableRng;
     use rand::prelude::StdRng;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
 
     use crate::ArrayRef;
@@ -163,6 +161,8 @@ mod tests {
     use crate::builders::BoolBuilder;
     use crate::builders::builder_with_capacity;
     use crate::canonical::ToCanonical;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
     use crate::scalar::Scalar;
     use crate::vtable::ValidityHelper;
 

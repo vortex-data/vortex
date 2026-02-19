@@ -17,11 +17,11 @@ mod take;
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
     use crate::arrays::VarBinArray;
     use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
 
     #[rstest]
     // UTF-8 strings

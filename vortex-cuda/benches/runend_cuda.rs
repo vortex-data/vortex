@@ -20,13 +20,13 @@ use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::NativePType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
-use vortex_dtype::NativePType;
 use vortex_runend::RunEndArray;
 use vortex_session::VortexSession;
 

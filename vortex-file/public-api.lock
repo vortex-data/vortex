@@ -70,7 +70,7 @@ impl<'rt, B: vortex_io::runtime::blocking::BlockingRuntime> vortex_file::Blockin
 
 pub fn vortex_file::BlockingWrite<'rt, B>::write<W: std::io::Write + core::marker::Unpin>(self, write: W, iter: impl vortex_array::iter::ArrayIterator + core::marker::Send + 'static) -> vortex_error::VortexResult<vortex_file::WriteSummary>
 
-pub fn vortex_file::BlockingWrite<'rt, B>::writer<'w, W: std::io::Write + core::marker::Unpin + 'w>(self, write: W, dtype: vortex_dtype::dtype::DType) -> vortex_file::BlockingWriter<'rt, 'w, B>
+pub fn vortex_file::BlockingWrite<'rt, B>::writer<'w, W: std::io::Write + core::marker::Unpin + 'w>(self, write: W, dtype: vortex_array::dtype::DType) -> vortex_file::BlockingWriter<'rt, 'w, B>
 
 pub struct vortex_file::BlockingWriter<'rt, 'w, B: vortex_io::runtime::blocking::BlockingRuntime>
 
@@ -88,15 +88,15 @@ pub struct vortex_file::FileStatistics
 
 impl vortex_file::FileStatistics
 
-pub fn vortex_file::FileStatistics::dtypes(&self) -> &alloc::sync::Arc<[vortex_dtype::dtype::DType]>
+pub fn vortex_file::FileStatistics::dtypes(&self) -> &alloc::sync::Arc<[vortex_array::dtype::DType]>
 
-pub fn vortex_file::FileStatistics::from_flatbuffer<'a>(fb: &vortex_flatbuffers::footer::FileStatistics<'a>, file_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<Self>
+pub fn vortex_file::FileStatistics::from_flatbuffer<'a>(fb: &vortex_flatbuffers::footer::FileStatistics<'a>, file_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_file::FileStatistics::get(&self, field_idx: usize) -> (&vortex_array::stats::stats_set::StatsSet, &vortex_dtype::dtype::DType)
+pub fn vortex_file::FileStatistics::get(&self, field_idx: usize) -> (&vortex_array::stats::stats_set::StatsSet, &vortex_array::dtype::DType)
 
-pub fn vortex_file::FileStatistics::new(stats: alloc::sync::Arc<[vortex_array::stats::stats_set::StatsSet]>, dtypes: alloc::sync::Arc<[vortex_dtype::dtype::DType]>) -> Self
+pub fn vortex_file::FileStatistics::new(stats: alloc::sync::Arc<[vortex_array::stats::stats_set::StatsSet]>, dtypes: alloc::sync::Arc<[vortex_array::dtype::DType]>) -> Self
 
-pub fn vortex_file::FileStatistics::new_with_dtype(stats: alloc::sync::Arc<[vortex_array::stats::stats_set::StatsSet]>, file_dtype: &vortex_dtype::dtype::DType) -> Self
+pub fn vortex_file::FileStatistics::new_with_dtype(stats: alloc::sync::Arc<[vortex_array::stats::stats_set::StatsSet]>, file_dtype: &vortex_array::dtype::DType) -> Self
 
 pub fn vortex_file::FileStatistics::stats_sets(&self) -> &alloc::sync::Arc<[vortex_array::stats::stats_set::StatsSet]>
 
@@ -122,7 +122,7 @@ impl vortex_file::Footer
 
 pub fn vortex_file::Footer::deserializer(eof_buffer: vortex_buffer::ByteBuffer, session: vortex_session::VortexSession) -> vortex_file::FooterDeserializer
 
-pub fn vortex_file::Footer::dtype(&self) -> &vortex_dtype::dtype::DType
+pub fn vortex_file::Footer::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_file::Footer::into_serializer(self) -> vortex_file::FooterSerializer
 
@@ -152,11 +152,11 @@ pub fn vortex_file::FooterDeserializer::deserialize(&mut self) -> vortex_error::
 
 pub fn vortex_file::FooterDeserializer::prefix_data(&mut self, more_data: vortex_buffer::ByteBuffer)
 
-pub fn vortex_file::FooterDeserializer::with_dtype(self, dtype: vortex_dtype::dtype::DType) -> Self
+pub fn vortex_file::FooterDeserializer::with_dtype(self, dtype: vortex_array::dtype::DType) -> Self
 
 pub fn vortex_file::FooterDeserializer::with_size(self, file_size: u64) -> Self
 
-pub fn vortex_file::FooterDeserializer::with_some_dtype(self, dtype: core::option::Option<vortex_dtype::dtype::DType>) -> Self
+pub fn vortex_file::FooterDeserializer::with_some_dtype(self, dtype: core::option::Option<vortex_array::dtype::DType>) -> Self
 
 pub fn vortex_file::FooterDeserializer::with_some_size(self, file_size: core::option::Option<u64>) -> Self
 
@@ -208,7 +208,7 @@ impl vortex_file::VortexFile
 
 pub fn vortex_file::VortexFile::can_prune(&self, filter: &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<bool>
 
-pub fn vortex_file::VortexFile::dtype(&self) -> &vortex_dtype::dtype::DType
+pub fn vortex_file::VortexFile::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_file::VortexFile::file_stats(&self) -> core::option::Option<&vortex_file::FileStatistics>
 
@@ -240,7 +240,7 @@ pub async fn vortex_file::VortexOpenOptions::open_path(self, path: impl core::co
 
 pub async fn vortex_file::VortexOpenOptions::open_read<R: vortex_io::read_at::VortexReadAt + core::clone::Clone>(self, reader: R) -> vortex_error::VortexResult<vortex_file::VortexFile>
 
-pub fn vortex_file::VortexOpenOptions::with_dtype(self, dtype: vortex_dtype::dtype::DType) -> Self
+pub fn vortex_file::VortexOpenOptions::with_dtype(self, dtype: vortex_array::dtype::DType) -> Self
 
 pub fn vortex_file::VortexOpenOptions::with_file_size(self, file_size: u64) -> Self
 
@@ -268,7 +268,7 @@ pub fn vortex_file::VortexWriteOptions::blocking<B: vortex_io::runtime::blocking
 
 pub async fn vortex_file::VortexWriteOptions::write<W: vortex_io::write::VortexWrite + core::marker::Unpin, S: vortex_array::stream::ArrayStream + core::marker::Send + 'static>(self, write: W, stream: S) -> vortex_error::VortexResult<vortex_file::WriteSummary>
 
-pub fn vortex_file::VortexWriteOptions::writer<'w, W: vortex_io::write::VortexWrite + core::marker::Unpin + 'w>(self, write: W, dtype: vortex_dtype::dtype::DType) -> vortex_file::Writer<'w>
+pub fn vortex_file::VortexWriteOptions::writer<'w, W: vortex_io::write::VortexWrite + core::marker::Unpin + 'w>(self, write: W, dtype: vortex_array::dtype::DType) -> vortex_file::Writer<'w>
 
 impl vortex_file::VortexWriteOptions
 
@@ -294,7 +294,7 @@ pub fn vortex_file::WriteStrategyBuilder::with_compressor<C: vortex_layout::layo
 
 pub fn vortex_file::WriteStrategyBuilder::with_cuda_compatible_encodings(self) -> Self
 
-pub fn vortex_file::WriteStrategyBuilder::with_field_writer(self, field: impl core::convert::Into<vortex_dtype::field::FieldPath>, writer: alloc::sync::Arc<dyn vortex_layout::strategy::LayoutStrategy>) -> Self
+pub fn vortex_file::WriteStrategyBuilder::with_field_writer(self, field: impl core::convert::Into<vortex_array::dtype::field::FieldPath>, writer: alloc::sync::Arc<dyn vortex_layout::strategy::LayoutStrategy>) -> Self
 
 pub fn vortex_file::WriteStrategyBuilder::with_flat_strategy(self, flat: alloc::sync::Arc<dyn vortex_layout::strategy::LayoutStrategy>) -> Self
 

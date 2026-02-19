@@ -16,8 +16,8 @@ use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::ConstantVTable;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::match_each_integer_ptype;
 use vortex::dtype::IntegerPType;
-use vortex::dtype::match_each_integer_ptype;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 

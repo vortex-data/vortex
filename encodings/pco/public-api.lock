@@ -10,7 +10,7 @@ pub fn vortex_pco::PcoArray::from_array(array: vortex_array::array::ArrayRef, le
 
 pub fn vortex_pco::PcoArray::from_primitive(parray: &vortex_array::arrays::primitive::array::PrimitiveArray, level: usize, values_per_page: usize) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_pco::PcoArray::new(chunk_metas: alloc::vec::Vec<vortex_buffer::ByteBuffer>, pages: alloc::vec::Vec<vortex_buffer::ByteBuffer>, dtype: vortex_dtype::dtype::DType, metadata: vortex_pco::PcoMetadata, len: usize, validity: vortex_array::validity::Validity) -> Self
+pub fn vortex_pco::PcoArray::new(chunk_metas: alloc::vec::Vec<vortex_buffer::ByteBuffer>, pages: alloc::vec::Vec<vortex_buffer::ByteBuffer>, dtype: vortex_array::dtype::DType, metadata: vortex_pco::PcoMetadata, len: usize, validity: vortex_array::validity::Validity) -> Self
 
 impl core::clone::Clone for vortex_pco::PcoArray
 
@@ -126,7 +126,7 @@ pub fn vortex_pco::PcoVTable::slice(array: &Self::Array, range: core::ops::range
 
 impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_pco::PcoVTable
 
-pub fn vortex_pco::PcoVTable::cast(array: &vortex_pco::PcoArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_pco::PcoVTable::cast(array: &vortex_pco::PcoArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_pco::PcoVTable
 
@@ -142,9 +142,9 @@ pub type vortex_pco::PcoVTable::ValidityVTable = vortex_array::vtable::validity:
 
 pub type vortex_pco::PcoVTable::VisitorVTable = vortex_pco::PcoVTable
 
-pub fn vortex_pco::PcoVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_pco::PcoArray>
+pub fn vortex_pco::PcoVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_pco::PcoArray>
 
-pub fn vortex_pco::PcoVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_pco::PcoVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_pco::PcoVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
@@ -164,7 +164,7 @@ pub fn vortex_pco::PcoVTable::array_eq(array: &vortex_pco::PcoArray, other: &vor
 
 pub fn vortex_pco::PcoVTable::array_hash<H: core::hash::Hasher>(array: &vortex_pco::PcoArray, state: &mut H, precision: vortex_array::hash::Precision)
 
-pub fn vortex_pco::PcoVTable::dtype(array: &vortex_pco::PcoArray) -> &vortex_dtype::dtype::DType
+pub fn vortex_pco::PcoVTable::dtype(array: &vortex_pco::PcoArray) -> &vortex_array::dtype::DType
 
 pub fn vortex_pco::PcoVTable::len(array: &vortex_pco::PcoArray) -> usize
 

@@ -68,7 +68,6 @@ impl ZipKernel for StructVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::FieldNames;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
@@ -76,6 +75,7 @@ mod tests {
     use crate::arrays::StructArray;
     #[expect(deprecated)]
     use crate::compute::zip;
+    use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
     #[test]

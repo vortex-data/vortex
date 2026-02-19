@@ -7,11 +7,11 @@ use std::cmp::Ordering;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -113,9 +113,8 @@ impl<'a> BoolScalar<'a> {
 
 #[cfg(test)]
 mod test {
-    use vortex_dtype::Nullability::*;
-
     use super::*;
+    use crate::dtype::Nullability::*;
 
     #[test]
     fn into_from() {
@@ -206,7 +205,7 @@ mod test {
 
     #[test]
     fn test_bool_cast_to_non_bool_fails() {
-        use vortex_dtype::PType;
+        use crate::dtype::PType;
 
         let bool_scalar = Scalar::bool(true, NonNullable);
         let bool = bool_scalar.as_bool();

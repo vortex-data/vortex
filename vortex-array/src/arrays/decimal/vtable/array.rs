@@ -3,12 +3,11 @@
 
 use std::hash::Hash;
 
-use vortex_dtype::DType;
-use vortex_dtype::DecimalType;
-
 use crate::Precision;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
+use crate::dtype::DType;
+use crate::dtype::DecimalType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::StatsSetRef;

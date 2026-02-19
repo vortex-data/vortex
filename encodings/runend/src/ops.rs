@@ -49,10 +49,10 @@ mod tests {
     use vortex_array::compute::Cost;
     use vortex_array::compute::IsConstantOpts;
     use vortex_array::compute::is_constant_opts;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::RunEndArray;
 

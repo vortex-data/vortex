@@ -219,16 +219,16 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
     use vortex_array::serde::ArrayParts;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldName;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType;
-    use vortex_dtype::StructFields;
     use vortex_io::runtime::single::block_on;
     use vortex_utils::env::EnvVarGuard;
 

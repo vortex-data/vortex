@@ -13,9 +13,9 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
-use vortex_dtype::DType;
-use vortex_dtype::FieldMask;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -318,11 +318,11 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::dtype::PType;
     use vortex_array::expr::root;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType;
     use vortex_io::runtime::single::block_on;
 
     use crate::LayoutRef;

@@ -16,8 +16,8 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity;
+use vortex_array::dtype::DType;
 use vortex_array::session::ArraySession;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 

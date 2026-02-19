@@ -34,7 +34,6 @@ pub use nan_count::*;
 pub use numeric::*;
 use parking_lot::RwLock;
 pub use sum::*;
-use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -45,6 +44,7 @@ pub use zip::*;
 use crate::Array;
 use crate::ArrayRef;
 use crate::builders::ArrayBuilder;
+use crate::dtype::DType;
 use crate::scalar::Scalar;
 
 #[cfg(feature = "arbitrary")]

@@ -116,7 +116,6 @@ fn compute_mask_for_fsl_elements(selection_mask: &MaskValues, list_size: usize) 
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
@@ -124,6 +123,7 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::dtype::Nullability;
     use crate::validity::Validity;
 
     #[test]

@@ -3,8 +3,6 @@
 
 use std::ops::Range;
 
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -12,6 +10,8 @@ use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::SliceReduce;
+use crate::dtype::NativePType;
+use crate::match_each_native_ptype;
 use crate::vtable::ValidityHelper;
 
 impl SliceReduce for PrimitiveVTable {

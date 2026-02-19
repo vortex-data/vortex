@@ -4,13 +4,12 @@
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use vortex_dtype::DType;
-
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::Precision;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
+use crate::dtype::DType;
 use crate::stats::StatsSetRef;
 use crate::vtable::BaseArrayVTable;
 

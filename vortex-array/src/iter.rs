@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::Array;
@@ -14,6 +13,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
+use crate::dtype::DType;
 use crate::stream::ArrayStream;
 use crate::stream::ArrayStreamAdapter;
 

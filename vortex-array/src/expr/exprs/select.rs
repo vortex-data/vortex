@@ -6,9 +6,6 @@ use std::fmt::Formatter;
 
 use itertools::Itertools;
 use prost::Message;
-use vortex_dtype::DType;
-use vortex_dtype::FieldName;
-use vortex_dtype::FieldNames;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -21,6 +18,9 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::StructArray;
+use crate::dtype::DType;
+use crate::dtype::FieldName;
+use crate::dtype::FieldNames;
 use crate::expr;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -332,19 +332,19 @@ impl Display for FieldSelection {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldName;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::PType::I32;
-    use vortex_dtype::StructFields;
 
     use super::select;
     use super::select_exclude;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::StructArray;
+    use crate::dtype::DType;
+    use crate::dtype::FieldName;
+    use crate::dtype::FieldNames;
+    use crate::dtype::Nullability;
+    use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType::I32;
+    use crate::dtype::StructFields;
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::Select;
     use crate::expr::test_harness;

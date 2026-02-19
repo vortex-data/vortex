@@ -14,7 +14,7 @@ mod take;
 mod tests {
     use rstest::rstest;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_dtype::Nullability;
+    use vortex_array::dtype::Nullability;
 
     use crate::SequenceArray;
 

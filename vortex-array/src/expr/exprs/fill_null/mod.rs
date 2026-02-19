@@ -6,7 +6,6 @@ mod kernel;
 use std::fmt::Formatter;
 
 pub use kernel::*;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -22,6 +21,7 @@ use crate::arrays::BoolVTable;
 use crate::arrays::DecimalVTable;
 use crate::arrays::PrimitiveVTable;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -194,9 +194,6 @@ pub fn fill_null(child: Expression, fill_value: Expression) -> Expression {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexExpect;
 
     use super::fill_null;
@@ -204,6 +201,9 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;

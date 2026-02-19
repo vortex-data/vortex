@@ -7,11 +7,6 @@ use std::hash::Hash;
 
 use itertools::Itertools as _;
 use prost::Message;
-use vortex_dtype::DType;
-use vortex_dtype::FieldName;
-use vortex_dtype::FieldNames;
-use vortex_dtype::Nullability;
-use vortex_dtype::StructFields;
 use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
@@ -19,6 +14,11 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::StructArray;
+use crate::dtype::DType;
+use crate::dtype::FieldName;
+use crate::dtype::FieldNames;
+use crate::dtype::Nullability;
+use crate::dtype::StructFields;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -152,7 +152,7 @@ impl VTable for Pack {
 /// Creates an expression that packs values into a struct with named fields.
 ///
 /// ```rust
-/// # use vortex_dtype::Nullability;
+/// # use vortex_array::dtype::Nullability;
 /// # use vortex_array::expr::{pack, col, lit};
 /// let expr = pack([("id", col("user_id")), ("constant", lit(42))], Nullability::NonNullable);
 /// ```
@@ -176,7 +176,6 @@ pub fn pack(
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
 
@@ -190,6 +189,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::Nullability;
     use crate::expr::VTableExt;
     use crate::expr::exprs::get_item::col;
     use crate::validity::Validity;

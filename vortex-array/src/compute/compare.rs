@@ -8,15 +8,15 @@ use arrow_buffer::NullBuffer;
 use arrow_ord::ord::make_comparator;
 use arrow_schema::SortOptions;
 use vortex_buffer::BitBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ScalarFnArray;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
+use crate::dtype::Nullability;
 use crate::expr::Binary;
 use crate::expr::CompareOperator;
 use crate::expr::Operator;
@@ -109,8 +109,6 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> Scal
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldName;
-    use vortex_dtype::FieldNames;
 
     use super::*;
     use crate::ToCanonical;
@@ -123,6 +121,8 @@ mod tests {
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::FieldName;
+    use crate::dtype::FieldNames;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 
@@ -250,8 +250,8 @@ mod tests {
     fn test_list_array_constant_comparison() {
         use std::sync::Arc;
 
-        use vortex_dtype::DType;
-        use vortex_dtype::PType;
+        use crate::dtype::DType;
+        use crate::dtype::PType;
 
         // Create a list array
         let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);

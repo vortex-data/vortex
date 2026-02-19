@@ -2,11 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::buffer;
-use vortex_dtype::DType;
-use vortex_dtype::FieldNames;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::StructFields;
 
 use crate::Array;
 use crate::IntoArray;
@@ -14,6 +9,11 @@ use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::dtype::DType;
+use crate::dtype::FieldNames;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::dtype::StructFields;
 use crate::validity::Validity;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

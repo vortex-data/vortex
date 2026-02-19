@@ -3,9 +3,6 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::IntegerPType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -23,6 +20,9 @@ use crate::arrays::ListViewRebuildMode;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::builders::PrimitiveBuilder;
+use crate::dtype::IntegerPType;
+use crate::dtype::Nullability;
+use crate::match_each_integer_ptype;
 use crate::vtable::ValidityHelper;
 
 /// Creates a [`ListViewArray`] from a [`ListArray`] by computing `sizes` from `offsets`.
@@ -279,7 +279,6 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldNames;
     use vortex_error::VortexResult;
 
     use super::super::tests::common::create_basic_listview;
@@ -299,6 +298,7 @@ mod tests {
     use crate::arrays::list_from_list_view;
     use crate::arrays::list_view_from_list;
     use crate::assert_arrays_eq;
+    use crate::dtype::FieldNames;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 

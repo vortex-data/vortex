@@ -4,14 +4,6 @@
 use std::any::Any;
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::BigCast;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::Nullability;
-use vortex_dtype::i256;
-use vortex_dtype::match_each_decimal_value;
-use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -28,6 +20,14 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
+use crate::dtype::BigCast;
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::NativeDecimalType;
+use crate::dtype::Nullability;
+use crate::dtype::i256;
+use crate::match_each_decimal_value;
+use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 
@@ -295,12 +295,11 @@ impl Default for DecimalBuffer {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DecimalDType;
-
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::DecimalBuilder;
+    use crate::dtype::DecimalDType;
 
     #[test]
     fn test_mixed_extend() {

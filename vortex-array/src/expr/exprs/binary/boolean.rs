@@ -3,7 +3,6 @@
 
 use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -15,6 +14,7 @@ use crate::arrays::ConstantVTable;
 use crate::arrays::ScalarFnArray;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
+use crate::dtype::DType;
 use crate::expr::Binary;
 use crate::expr::ScalarFn;
 use crate::expr::operators::Operator;

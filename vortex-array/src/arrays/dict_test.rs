@@ -11,7 +11,6 @@ use rand::distr::StandardUniform;
 use rand::prelude::IndexedRandom;
 use rand::prelude::StdRng;
 use vortex_buffer::Buffer;
-use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -20,6 +19,7 @@ use super::DictArray;
 use super::PrimitiveArray;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::dtype::NativePType;
 use crate::validity::Validity;
 
 pub fn gen_primitive_for_dict<T: NativePType>(len: usize, unique_count: usize) -> PrimitiveArray

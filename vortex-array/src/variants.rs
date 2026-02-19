@@ -4,16 +4,16 @@
 //! This module defines extension functionality specific to each Vortex DType.
 use std::cmp::Ordering;
 
-use vortex_dtype::DType;
-use vortex_dtype::FieldNames;
-use vortex_dtype::PType;
-use vortex_dtype::extension::ExtDTypeRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::Array;
 use crate::compute::sum;
+use crate::dtype::DType;
+use crate::dtype::FieldNames;
+use crate::dtype::PType;
+use crate::dtype::extension::ExtDTypeRef;
 use crate::scalar::PValue;
 use crate::search_sorted::IndexOrd;
 

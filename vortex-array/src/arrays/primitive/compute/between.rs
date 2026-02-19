@@ -2,9 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
 use crate::Array;
@@ -14,9 +11,12 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
 use crate::expr::BetweenKernel;
 use crate::expr::BetweenOptions;
 use crate::expr::StrictComparison;
+use crate::match_each_native_ptype;
 use crate::vtable::ValidityHelper;
 
 impl BetweenKernel for PrimitiveVTable {

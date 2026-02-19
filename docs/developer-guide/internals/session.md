@@ -27,7 +27,7 @@ Each Vortex crate defines a session variable that holds a registry for its exten
 
 | Session Variable  | Crate            | Registry Contents                            |
 |-------------------|------------------|----------------------------------------------|
-| `DTypeSession`    | `vortex-dtype`   | Extension dtype vtables (Date, Time, ...)    |
+| `DTypeSession`    | `vortex-array`   | Extension dtype vtables (Date, Time, ...)    |
 | `ArraySession`    | `vortex-array`   | Array encoding vtables (ALP, FSST, ...)      |
 | `ExprSession`     | `vortex-array`   | Scalar expression vtables                    |
 | `LayoutSession`   | `vortex-layout`  | Layout encoding vtables (Flat, Chunked, ...) |

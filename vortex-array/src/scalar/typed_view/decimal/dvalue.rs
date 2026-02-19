@@ -11,13 +11,14 @@ use num_traits::CheckedAdd;
 use num_traits::CheckedDiv;
 use num_traits::CheckedMul;
 use num_traits::CheckedSub;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::DecimalType;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::ToI256;
-use vortex_dtype::i256;
-use vortex_dtype::match_each_decimal_value;
 use vortex_error::VortexExpect;
+
+use crate::dtype::DecimalDType;
+use crate::dtype::DecimalType;
+use crate::dtype::NativeDecimalType;
+use crate::dtype::ToI256;
+use crate::dtype::i256;
+use crate::match_each_decimal_value;
 
 /// A decimal value that can be stored in various integer widths.
 ///

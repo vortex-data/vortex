@@ -8,21 +8,21 @@ pub fn vortex_fastlanes::bitpack_compress::bitpack_encode(array: &vortex_array::
 
 pub unsafe fn vortex_fastlanes::bitpack_compress::bitpack_encode_unchecked(array: vortex_array::arrays::primitive::array::PrimitiveArray, bit_width: u8) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
 
-pub fn vortex_fastlanes::bitpack_compress::bitpack_primitive<T: vortex_dtype::ptype::NativePType + fastlanes::bitpacking::BitPacking>(array: &[T], bit_width: u8) -> vortex_buffer::buffer::Buffer<T>
+pub fn vortex_fastlanes::bitpack_compress::bitpack_primitive<T: vortex_array::dtype::ptype::NativePType + fastlanes::bitpacking::BitPacking>(array: &[T], bit_width: u8) -> vortex_buffer::buffer::Buffer<T>
 
 pub fn vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width(array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
 
 pub unsafe fn vortex_fastlanes::bitpack_compress::bitpack_unchecked(parray: &vortex_array::arrays::primitive::array::PrimitiveArray, bit_width: u8) -> vortex_error::VortexResult<vortex_buffer::ByteBuffer>
 
-pub fn vortex_fastlanes::bitpack_compress::find_best_bit_width(ptype: vortex_dtype::ptype::PType, bit_width_freq: &[usize]) -> vortex_error::VortexResult<u8>
+pub fn vortex_fastlanes::bitpack_compress::find_best_bit_width(ptype: vortex_array::dtype::ptype::PType, bit_width_freq: &[usize]) -> vortex_error::VortexResult<u8>
 
 pub fn vortex_fastlanes::bitpack_compress::gather_patches(parray: &vortex_array::arrays::primitive::array::PrimitiveArray, bit_width: u8, num_exceptions_hint: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::patches::Patches>>
 
 pub mod vortex_fastlanes::bitpack_decompress
 
-pub fn vortex_fastlanes::bitpack_decompress::apply_patches_to_uninit_range<T: vortex_dtype::ptype::NativePType>(dst: &mut vortex_array::builders::primitive::UninitRange<'_, T>, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+pub fn vortex_fastlanes::bitpack_decompress::apply_patches_to_uninit_range<T: vortex_array::dtype::ptype::NativePType>(dst: &mut vortex_array::builders::primitive::UninitRange<'_, T>, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_fastlanes::bitpack_decompress::apply_patches_to_uninit_range_fn<T: vortex_dtype::ptype::NativePType, F: core::ops::function::Fn(T) -> T>(dst: &mut vortex_array::builders::primitive::UninitRange<'_, T>, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::executor::ExecutionCtx, f: F) -> vortex_error::VortexResult<()>
+pub fn vortex_fastlanes::bitpack_decompress::apply_patches_to_uninit_range_fn<T: vortex_array::dtype::ptype::NativePType, F: core::ops::function::Fn(T) -> T>(dst: &mut vortex_array::builders::primitive::UninitRange<'_, T>, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::executor::ExecutionCtx, f: F) -> vortex_error::VortexResult<()>
 
 pub fn vortex_fastlanes::bitpack_decompress::count_exceptions(bit_width: u8, bit_width_freq: &[usize]) -> usize
 
@@ -32,7 +32,7 @@ pub fn vortex_fastlanes::bitpack_decompress::unpack_primitive_array<T: vortex_fa
 
 pub fn vortex_fastlanes::bitpack_decompress::unpack_single(array: &vortex_fastlanes::BitPackedArray, index: usize) -> vortex_array::scalar::Scalar
 
-pub unsafe fn vortex_fastlanes::bitpack_decompress::unpack_single_primitive<T: vortex_dtype::ptype::NativePType + fastlanes::bitpacking::BitPacking>(packed: &[T], bit_width: usize, index_to_decode: usize) -> T
+pub unsafe fn vortex_fastlanes::bitpack_decompress::unpack_single_primitive<T: vortex_array::dtype::ptype::NativePType + fastlanes::bitpacking::BitPacking>(packed: &[T], bit_width: usize, index_to_decode: usize) -> T
 
 pub fn vortex_fastlanes::bitpack_decompress::unpack_to_primitive(array: &vortex_fastlanes::BitPackedArray) -> vortex_array::arrays::primitive::array::PrimitiveArray
 
@@ -42,15 +42,15 @@ pub mod vortex_fastlanes::unpack_iter
 
 pub struct vortex_fastlanes::unpack_iter::BitPackingStrategy
 
-impl<T: vortex_dtype::ptype::PhysicalPType<Physicalfastlanes::bitpacking::BitPacking>> vortex_fastlanes::unpack_iter::UnpackStrategy<T> for vortex_fastlanes::unpack_iter::BitPackingStrategy
+impl<T: vortex_array::dtype::ptype::PhysicalPType<Physicalfastlanes::bitpacking::BitPacking>> vortex_fastlanes::unpack_iter::UnpackStrategy<T> for vortex_fastlanes::unpack_iter::BitPackingStrategy
 
-pub unsafe fn vortex_fastlanes::unpack_iter::BitPackingStrategy::unpack_chunk(&self, bit_width: usize, chunk: &[<T as vortex_dtype::ptype::PhysicalPType>::Physical], dst: &mut [<T as vortex_dtype::ptype::PhysicalPType>::Physical])
+pub unsafe fn vortex_fastlanes::unpack_iter::BitPackingStrategy::unpack_chunk(&self, bit_width: usize, chunk: &[<T as vortex_array::dtype::ptype::PhysicalPType>::Physical], dst: &mut [<T as vortex_array::dtype::ptype::PhysicalPType>::Physical])
 
 pub struct vortex_fastlanes::unpack_iter::BitUnpackIterator<'a, T: vortex_fastlanes::unpack_iter::BitPacked + 'a>
 
 impl<'a, T: vortex_fastlanes::unpack_iter::BitPacked> vortex_fastlanes::unpack_iter::BitUnpackIterator<'a, T>
 
-pub fn vortex_fastlanes::unpack_iter::BitUnpackIterator<'a, T>::new(packed: &'a [<T as vortex_dtype::ptype::PhysicalPType>::Physical], buffer: &'a mut [core::mem::maybe_uninit::MaybeUninit<T>; 1024], bit_width: usize, elems_per_chunk: usize, num_chunks: usize, first_chunk_is_sliced: bool) -> Self
+pub fn vortex_fastlanes::unpack_iter::BitUnpackIterator<'a, T>::new(packed: &'a [<T as vortex_array::dtype::ptype::PhysicalPType>::Physical], buffer: &'a mut [core::mem::maybe_uninit::MaybeUninit<T>; 1024], bit_width: usize, elems_per_chunk: usize, num_chunks: usize, first_chunk_is_sliced: bool) -> Self
 
 impl<'a, T: vortex_fastlanes::unpack_iter::BitPacked + 'a> lending_iterator::lending_iterator::LendingIterator for vortex_fastlanes::unpack_iter::BitUnpackIterator<'a, T>
 
@@ -60,9 +60,9 @@ impl<'next, 'a, T: vortex_fastlanes::unpack_iter::BitPacked + 'a> lending_iterat
 
 pub type vortex_fastlanes::unpack_iter::BitUnpackIterator<'a, T>::T = &'next mut [T; 1024]
 
-pub struct vortex_fastlanes::unpack_iter::UnpackedChunks<T: vortex_dtype::ptype::PhysicalPType, S: vortex_fastlanes::unpack_iter::UnpackStrategy<T>>
+pub struct vortex_fastlanes::unpack_iter::UnpackedChunks<T: vortex_array::dtype::ptype::PhysicalPType, S: vortex_fastlanes::unpack_iter::UnpackStrategy<T>>
 
-impl<T: vortex_dtype::ptype::PhysicalPType, S: vortex_fastlanes::unpack_iter::UnpackStrategy<T>> vortex_fastlanes::unpack_iter::UnpackedChunks<T, S>
+impl<T: vortex_array::dtype::ptype::PhysicalPType, S: vortex_fastlanes::unpack_iter::UnpackStrategy<T>> vortex_fastlanes::unpack_iter::UnpackedChunks<T, S>
 
 pub fn vortex_fastlanes::unpack_iter::UnpackedChunks<T, S>::decode_into(&mut self, output: &mut [core::mem::maybe_uninit::MaybeUninit<T>])
 
@@ -78,7 +78,7 @@ pub fn vortex_fastlanes::unpack_iter::UnpackedChunks<T, vortex_fastlanes::unpack
 
 pub fn vortex_fastlanes::unpack_iter::UnpackedChunks<T, vortex_fastlanes::unpack_iter::BitPackingStrategy>::new(array: &vortex_fastlanes::BitPackedArray) -> Self
 
-pub trait vortex_fastlanes::unpack_iter::BitPacked: vortex_dtype::ptype::PhysicalPType<Physicalfastlanes::bitpacking::BitPacking>
+pub trait vortex_fastlanes::unpack_iter::BitPacked: vortex_array::dtype::ptype::PhysicalPType<Physicalfastlanes::bitpacking::BitPacking>
 
 impl vortex_fastlanes::unpack_iter::BitPacked for i16
 
@@ -96,13 +96,13 @@ impl vortex_fastlanes::unpack_iter::BitPacked for u64
 
 impl vortex_fastlanes::unpack_iter::BitPacked for u8
 
-pub trait vortex_fastlanes::unpack_iter::UnpackStrategy<T: vortex_dtype::ptype::PhysicalPType>
+pub trait vortex_fastlanes::unpack_iter::UnpackStrategy<T: vortex_array::dtype::ptype::PhysicalPType>
 
-pub unsafe fn vortex_fastlanes::unpack_iter::UnpackStrategy::unpack_chunk(&self, bit_width: usize, chunk: &[<T as vortex_dtype::ptype::PhysicalPType>::Physical], dst: &mut [<T as vortex_dtype::ptype::PhysicalPType>::Physical])
+pub unsafe fn vortex_fastlanes::unpack_iter::UnpackStrategy::unpack_chunk(&self, bit_width: usize, chunk: &[<T as vortex_array::dtype::ptype::PhysicalPType>::Physical], dst: &mut [<T as vortex_array::dtype::ptype::PhysicalPType>::Physical])
 
-impl<T: vortex_dtype::ptype::PhysicalPType<Physicalfastlanes::bitpacking::BitPacking>> vortex_fastlanes::unpack_iter::UnpackStrategy<T> for vortex_fastlanes::unpack_iter::BitPackingStrategy
+impl<T: vortex_array::dtype::ptype::PhysicalPType<Physicalfastlanes::bitpacking::BitPacking>> vortex_fastlanes::unpack_iter::UnpackStrategy<T> for vortex_fastlanes::unpack_iter::BitPackingStrategy
 
-pub unsafe fn vortex_fastlanes::unpack_iter::BitPackingStrategy::unpack_chunk(&self, bit_width: usize, chunk: &[<T as vortex_dtype::ptype::PhysicalPType>::Physical], dst: &mut [<T as vortex_dtype::ptype::PhysicalPType>::Physical])
+pub unsafe fn vortex_fastlanes::unpack_iter::BitPackingStrategy::unpack_chunk(&self, bit_width: usize, chunk: &[<T as vortex_array::dtype::ptype::PhysicalPType>::Physical], dst: &mut [<T as vortex_array::dtype::ptype::PhysicalPType>::Physical])
 
 pub type vortex_fastlanes::unpack_iter::BitUnpackedChunks<T> = vortex_fastlanes::unpack_iter::UnpackedChunks<T, vortex_fastlanes::unpack_iter::BitPackingStrategy>
 
@@ -122,15 +122,15 @@ pub fn vortex_fastlanes::BitPackedArray::offset(&self) -> u16
 
 pub fn vortex_fastlanes::BitPackedArray::packed(&self) -> &vortex_array::buffer::BufferHandle
 
-pub fn vortex_fastlanes::BitPackedArray::packed_slice<T: vortex_dtype::ptype::NativePType + fastlanes::bitpacking::BitPacking>(&self) -> &[T]
+pub fn vortex_fastlanes::BitPackedArray::packed_slice<T: vortex_array::dtype::ptype::NativePType + fastlanes::bitpacking::BitPacking>(&self) -> &[T]
 
 pub fn vortex_fastlanes::BitPackedArray::patches(&self) -> core::option::Option<&vortex_array::patches::Patches>
 
-pub fn vortex_fastlanes::BitPackedArray::ptype(&self) -> vortex_dtype::ptype::PType
+pub fn vortex_fastlanes::BitPackedArray::ptype(&self) -> vortex_array::dtype::ptype::PType
 
 pub fn vortex_fastlanes::BitPackedArray::replace_patches(&mut self, patches: core::option::Option<vortex_array::patches::Patches>)
 
-pub fn vortex_fastlanes::BitPackedArray::try_new(packed: vortex_array::buffer::BufferHandle, ptype: vortex_dtype::ptype::PType, validity: vortex_array::validity::Validity, patches: core::option::Option<vortex_array::patches::Patches>, bit_width: u8, length: usize, offset: u16) -> vortex_error::VortexResult<Self>
+pub fn vortex_fastlanes::BitPackedArray::try_new(packed: vortex_array::buffer::BufferHandle, ptype: vortex_array::dtype::ptype::PType, validity: vortex_array::validity::Validity, patches: core::option::Option<vortex_array::patches::Patches>, bit_width: u8, length: usize, offset: u16) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_fastlanes::BitPackedArray::unpacked_chunks<T: vortex_fastlanes::unpack_iter::BitPacked>(&self) -> vortex_fastlanes::unpack_iter::BitUnpackedChunks<T>
 
@@ -206,7 +206,7 @@ pub fn vortex_fastlanes::BitPackedVTable::is_constant(&self, array: &vortex_fast
 
 impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_fastlanes::BitPackedVTable
 
-pub fn vortex_fastlanes::BitPackedVTable::cast(array: &vortex_fastlanes::BitPackedArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::BitPackedVTable::cast(array: &vortex_fastlanes::BitPackedArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_fastlanes::BitPackedVTable
 
@@ -224,9 +224,9 @@ pub type vortex_fastlanes::BitPackedVTable::VisitorVTable = vortex_fastlanes::Bi
 
 pub fn vortex_fastlanes::BitPackedVTable::append_to_builder(array: &vortex_fastlanes::BitPackedArray, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_fastlanes::BitPackedVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
+pub fn vortex_fastlanes::BitPackedVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
 
-pub fn vortex_fastlanes::BitPackedVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_fastlanes::BitPackedVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_fastlanes::BitPackedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
@@ -248,7 +248,7 @@ pub fn vortex_fastlanes::BitPackedVTable::array_eq(array: &vortex_fastlanes::Bit
 
 pub fn vortex_fastlanes::BitPackedVTable::array_hash<H: core::hash::Hasher>(array: &vortex_fastlanes::BitPackedArray, state: &mut H, precision: vortex_array::hash::Precision)
 
-pub fn vortex_fastlanes::BitPackedVTable::dtype(array: &vortex_fastlanes::BitPackedArray) -> &vortex_dtype::dtype::DType
+pub fn vortex_fastlanes::BitPackedVTable::dtype(array: &vortex_fastlanes::BitPackedArray) -> &vortex_array::dtype::DType
 
 pub fn vortex_fastlanes::BitPackedVTable::len(array: &vortex_fastlanes::BitPackedArray) -> usize
 
@@ -276,7 +276,7 @@ pub fn vortex_fastlanes::DeltaArray::bases(&self) -> &vortex_array::array::Array
 
 pub fn vortex_fastlanes::DeltaArray::deltas(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_fastlanes::DeltaArray::dtype(&self) -> &vortex_dtype::dtype::DType
+pub fn vortex_fastlanes::DeltaArray::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_fastlanes::DeltaArray::is_empty(&self) -> bool
 
@@ -288,7 +288,7 @@ pub fn vortex_fastlanes::DeltaArray::try_from_delta_compress_parts(bases: vortex
 
 pub fn vortex_fastlanes::DeltaArray::try_from_primitive_array(array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_fastlanes::DeltaArray::try_from_vec<T: vortex_dtype::ptype::NativePType>(vec: alloc::vec::Vec<T>) -> vortex_error::VortexResult<Self>
+pub fn vortex_fastlanes::DeltaArray::try_from_vec<T: vortex_array::dtype::ptype::NativePType>(vec: alloc::vec::Vec<T>) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_fastlanes::DeltaArray::try_new(bases: vortex_array::array::ArrayRef, deltas: vortex_array::array::ArrayRef, offset: usize, logical_len: usize) -> vortex_error::VortexResult<Self>
 
@@ -338,7 +338,7 @@ pub fn vortex_fastlanes::DeltaVTable::slice(array: &Self::Array, range: core::op
 
 impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_fastlanes::DeltaVTable
 
-pub fn vortex_fastlanes::DeltaVTable::cast(array: &vortex_fastlanes::DeltaArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::DeltaVTable::cast(array: &vortex_fastlanes::DeltaArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_fastlanes::DeltaVTable
 
@@ -354,9 +354,9 @@ pub type vortex_fastlanes::DeltaVTable::ValidityVTable = vortex_array::vtable::v
 
 pub type vortex_fastlanes::DeltaVTable::VisitorVTable = vortex_fastlanes::DeltaVTable
 
-pub fn vortex_fastlanes::DeltaVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fastlanes::DeltaArray>
+pub fn vortex_fastlanes::DeltaVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fastlanes::DeltaArray>
 
-pub fn vortex_fastlanes::DeltaVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_fastlanes::DeltaVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_fastlanes::DeltaVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
@@ -376,7 +376,7 @@ pub fn vortex_fastlanes::DeltaVTable::array_eq(array: &vortex_fastlanes::DeltaAr
 
 pub fn vortex_fastlanes::DeltaVTable::array_hash<H: core::hash::Hasher>(array: &vortex_fastlanes::DeltaArray, state: &mut H, precision: vortex_array::hash::Precision)
 
-pub fn vortex_fastlanes::DeltaVTable::dtype(array: &vortex_fastlanes::DeltaArray) -> &vortex_dtype::dtype::DType
+pub fn vortex_fastlanes::DeltaVTable::dtype(array: &vortex_fastlanes::DeltaArray) -> &vortex_array::dtype::DType
 
 pub fn vortex_fastlanes::DeltaVTable::len(array: &vortex_fastlanes::DeltaArray) -> usize
 
@@ -406,7 +406,7 @@ impl vortex_fastlanes::FoRArray
 
 pub fn vortex_fastlanes::FoRArray::encoded(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_fastlanes::FoRArray::ptype(&self) -> vortex_dtype::ptype::PType
+pub fn vortex_fastlanes::FoRArray::ptype(&self) -> vortex_array::dtype::ptype::PType
 
 pub fn vortex_fastlanes::FoRArray::reference_scalar(&self) -> &vortex_array::scalar::Scalar
 
@@ -476,7 +476,7 @@ pub fn vortex_fastlanes::FoRVTable::compare(lhs: &vortex_fastlanes::FoRArray, rh
 
 impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_fastlanes::FoRVTable
 
-pub fn vortex_fastlanes::FoRVTable::cast(array: &vortex_fastlanes::FoRArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::FoRVTable::cast(array: &vortex_fastlanes::FoRArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_fastlanes::FoRVTable
 
@@ -492,9 +492,9 @@ pub type vortex_fastlanes::FoRVTable::ValidityVTable = vortex_array::vtable::val
 
 pub type vortex_fastlanes::FoRVTable::VisitorVTable = vortex_fastlanes::FoRVTable
 
-pub fn vortex_fastlanes::FoRVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fastlanes::FoRArray>
+pub fn vortex_fastlanes::FoRVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fastlanes::FoRArray>
 
-pub fn vortex_fastlanes::FoRVTable::deserialize(bytes: &[u8], dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_fastlanes::FoRVTable::deserialize(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_fastlanes::FoRVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
@@ -516,7 +516,7 @@ pub fn vortex_fastlanes::FoRVTable::array_eq(array: &vortex_fastlanes::FoRArray,
 
 pub fn vortex_fastlanes::FoRVTable::array_hash<H: core::hash::Hasher>(array: &vortex_fastlanes::FoRArray, state: &mut H, precision: vortex_array::hash::Precision)
 
-pub fn vortex_fastlanes::FoRVTable::dtype(array: &vortex_fastlanes::FoRArray) -> &vortex_dtype::dtype::DType
+pub fn vortex_fastlanes::FoRVTable::dtype(array: &vortex_fastlanes::FoRArray) -> &vortex_array::dtype::DType
 
 pub fn vortex_fastlanes::FoRVTable::len(array: &vortex_fastlanes::FoRArray) -> usize
 
@@ -544,7 +544,7 @@ pub struct vortex_fastlanes::RLEArray
 
 impl vortex_fastlanes::RLEArray
 
-pub fn vortex_fastlanes::RLEArray::dtype(&self) -> &vortex_dtype::dtype::DType
+pub fn vortex_fastlanes::RLEArray::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_fastlanes::RLEArray::indices(&self) -> &vortex_array::array::ArrayRef
 
@@ -552,7 +552,7 @@ pub fn vortex_fastlanes::RLEArray::is_empty(&self) -> bool
 
 pub fn vortex_fastlanes::RLEArray::len(&self) -> usize
 
-pub unsafe fn vortex_fastlanes::RLEArray::new_unchecked(values: vortex_array::array::ArrayRef, indices: vortex_array::array::ArrayRef, values_idx_offsets: vortex_array::array::ArrayRef, dtype: vortex_dtype::dtype::DType, offset: usize, length: usize) -> Self
+pub unsafe fn vortex_fastlanes::RLEArray::new_unchecked(values: vortex_array::array::ArrayRef, indices: vortex_array::array::ArrayRef, values_idx_offsets: vortex_array::array::ArrayRef, dtype: vortex_array::dtype::DType, offset: usize, length: usize) -> Self
 
 pub fn vortex_fastlanes::RLEArray::offset(&self) -> usize
 
@@ -612,7 +612,7 @@ pub fn vortex_fastlanes::RLEVTable::slice(array: &vortex_fastlanes::RLEArray, ra
 
 impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_fastlanes::RLEVTable
 
-pub fn vortex_fastlanes::RLEVTable::cast(array: &vortex_fastlanes::RLEArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::RLEVTable::cast(array: &vortex_fastlanes::RLEArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_fastlanes::RLEVTable
 
@@ -628,9 +628,9 @@ pub type vortex_fastlanes::RLEVTable::ValidityVTable = vortex_array::vtable::val
 
 pub type vortex_fastlanes::RLEVTable::VisitorVTable = vortex_fastlanes::RLEVTable
 
-pub fn vortex_fastlanes::RLEVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fastlanes::RLEArray>
+pub fn vortex_fastlanes::RLEVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fastlanes::RLEArray>
 
-pub fn vortex_fastlanes::RLEVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_fastlanes::RLEVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_fastlanes::RLEVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
@@ -652,7 +652,7 @@ pub fn vortex_fastlanes::RLEVTable::array_eq(array: &vortex_fastlanes::RLEArray,
 
 pub fn vortex_fastlanes::RLEVTable::array_hash<H: core::hash::Hasher>(array: &vortex_fastlanes::RLEArray, state: &mut H, precision: vortex_array::hash::Precision)
 
-pub fn vortex_fastlanes::RLEVTable::dtype(array: &vortex_fastlanes::RLEArray) -> &vortex_dtype::dtype::DType
+pub fn vortex_fastlanes::RLEVTable::dtype(array: &vortex_fastlanes::RLEArray) -> &vortex_array::dtype::DType
 
 pub fn vortex_fastlanes::RLEVTable::len(array: &vortex_fastlanes::RLEArray) -> usize
 

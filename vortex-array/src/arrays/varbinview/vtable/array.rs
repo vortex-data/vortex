@@ -3,12 +3,11 @@
 
 use std::hash::Hash;
 
-use vortex_dtype::DType;
-
 use crate::Precision;
 use crate::arrays::BinaryView;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::arrays::varbinview::VarBinViewVTable;
+use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::StatsSetRef;

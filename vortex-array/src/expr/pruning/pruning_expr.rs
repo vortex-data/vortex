@@ -5,13 +5,13 @@ use std::cell::RefCell;
 use std::iter;
 
 use itertools::Itertools;
-use vortex_dtype::Field;
-use vortex_dtype::FieldName;
-use vortex_dtype::FieldPath;
-use vortex_dtype::FieldPathSet;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use super::relation::Relation;
+use crate::dtype::Field;
+use crate::dtype::FieldName;
+use crate::dtype::FieldPath;
+use crate::dtype::FieldPathSet;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
 use crate::expr::exprs::get_item::get_item;
@@ -112,16 +112,16 @@ pub fn checked_pruning_expr(
 mod tests {
     use rstest::fixture;
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldName;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::FieldPath;
-    use vortex_dtype::FieldPathSet;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::StructFields;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use super::HashMap;
+    use crate::dtype::DType;
+    use crate::dtype::FieldName;
+    use crate::dtype::FieldNames;
+    use crate::dtype::FieldPath;
+    use crate::dtype::FieldPathSet;
+    use crate::dtype::Nullability;
+    use crate::dtype::StructFields;
     use crate::expr::BetweenOptions;
     use crate::expr::StrictComparison;
     use crate::expr::exprs::between::between;

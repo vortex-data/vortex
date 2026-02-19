@@ -4,13 +4,13 @@
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
 use vortex_error::vortex_panic;
 
 use crate::IntoArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::varbin::VarBinArray;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::validity::Validity;
@@ -120,11 +120,11 @@ impl<O: IntegerPType> VarBinBuilder<O> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::Nullable;
     use vortex_error::VortexResult;
 
     use crate::arrays::varbin::builder::VarBinBuilder;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::Nullable;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProviderExt;

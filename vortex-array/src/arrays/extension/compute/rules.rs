@@ -51,14 +51,6 @@ impl ArrayParentReduceRule<ExtensionVTable> for ExtensionFilterPushDownRule {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::ExtDTypeRef;
-    use vortex_dtype::ExtID;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::extension::EmptyMetadata;
-    use vortex_dtype::extension::ExtDTypeVTable;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
@@ -71,6 +63,14 @@ mod tests {
     use crate::arrays::FilterArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFnArrayExt;
+    use crate::dtype::DType;
+    use crate::dtype::ExtDType;
+    use crate::dtype::ExtDTypeRef;
+    use crate::dtype::ExtID;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::extension::EmptyMetadata;
+    use crate::dtype::extension::ExtDTypeVTable;
     use crate::expr::Binary;
     use crate::expr::Operator;
     use crate::optimizer::ArrayOptimizer;

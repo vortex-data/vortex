@@ -13,6 +13,8 @@ use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::datetime::Timestamp;
 use vortex_array::expr::Between;
 use vortex_array::expr::Binary;
 use vortex_array::expr::CastReduceAdaptor;
@@ -20,8 +22,6 @@ use vortex_array::expr::MaskReduceAdaptor;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_dtype::DType;
-use vortex_dtype::datetime::Timestamp;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -183,6 +183,8 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::ScalarFnArrayExt;
     use vortex_array::arrays::TemporalArray;
+    use vortex_array::dtype::datetime::TimeUnit;
+    use vortex_array::dtype::datetime::TimestampOptions;
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::Operator;
     use vortex_array::expr::StrictComparison;
@@ -190,8 +192,6 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_dtype::datetime::TimeUnit;
-    use vortex_dtype::datetime::TimestampOptions;
 
     use super::*;
 

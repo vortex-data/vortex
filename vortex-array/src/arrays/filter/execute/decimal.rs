@@ -3,12 +3,12 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::match_each_decimal_value_type;
 use vortex_mask::MaskValues;
 
 use crate::arrays::DecimalArray;
 use crate::arrays::filter::execute::buffer;
 use crate::arrays::filter::execute::filter_validity;
+use crate::match_each_decimal_value_type;
 use crate::vtable::ValidityHelper;
 
 pub fn filter_decimal(array: &DecimalArray, mask: &Arc<MaskValues>) -> DecimalArray {
@@ -28,10 +28,9 @@ pub fn filter_decimal(array: &DecimalArray, mask: &Arc<MaskValues>) -> DecimalAr
 
 #[cfg(test)]
 mod test {
-    use vortex_dtype::DecimalDType;
-
     use crate::arrays::DecimalArray;
     use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::dtype::DecimalDType;
 
     #[test]
     fn test_filter_decimal128_conformance() {

@@ -6,14 +6,6 @@ use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::BigCast;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::DecimalType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -21,6 +13,14 @@ use vortex_error::vortex_panic;
 
 use crate::ToCanonical;
 use crate::buffer::BufferHandle;
+use crate::dtype::BigCast;
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::DecimalType;
+use crate::dtype::IntegerPType;
+use crate::dtype::NativeDecimalType;
+use crate::match_each_decimal_value_type;
+use crate::match_each_integer_ptype;
 use crate::patches::Patches;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
@@ -70,7 +70,7 @@ use crate::vtable::ValidityHelper;
 ///
 /// ```
 /// use vortex_array::arrays::DecimalArray;
-/// use vortex_dtype::DecimalDType;
+/// use vortex_array::dtype::DecimalDType;
 /// use vortex_buffer::{buffer, Buffer};
 /// use vortex_array::validity::Validity;
 ///

@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
@@ -13,6 +12,7 @@ use crate::arrays::build_views::MAX_BUFFER_LEN;
 use crate::arrays::build_views::build_views;
 use crate::arrays::build_views::offsets_to_lengths;
 use crate::arrays::varbin::VarBinArray;
+use crate::match_each_integer_ptype;
 
 /// Converts a VarBinArray to its canonical form (VarBinViewArray).
 ///
@@ -45,11 +45,11 @@ pub(crate) fn varbin_to_canonical(
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
     use crate::arrays::varbin::builder::VarBinBuilder;
     use crate::canonical::ToCanonical;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
 
     #[rstest]
     #[case(DType::Utf8(Nullability::Nullable))]

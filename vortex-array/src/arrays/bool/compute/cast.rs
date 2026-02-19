@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::array::ArrayRef;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
+use crate::dtype::DType;
 use crate::expr::CastReduce;
 use crate::vtable::ValidityHelper;
 
@@ -30,12 +30,12 @@ impl CastReduce for BoolVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
     use crate::arrays::BoolArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
 
     #[test]
     fn try_cast_bool_success() {

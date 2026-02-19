@@ -12,10 +12,10 @@ use vortex_array::arrays::compute_is_constant;
 use vortex_array::compute::IsConstantKernel;
 use vortex_array::compute::IsConstantKernelAdapter;
 use vortex_array::compute::IsConstantOpts;
+use vortex_array::dtype::IntegerPType;
+use vortex_array::match_each_integer_ptype;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::register_kernel;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::match_each_integer_ptype;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 
 use crate::BitPackedArray;

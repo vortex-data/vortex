@@ -14,10 +14,10 @@ use vortex_alp::alp_encode;
 use vortex_alp::decompress_into_array;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
+use vortex_array::dtype::NativePType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
-use vortex_dtype::NativePType;
 
 fn main() {
     warm_up_vtables();

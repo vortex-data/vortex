@@ -9,10 +9,6 @@ use arrow_buffer::NullBuffer;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use itertools::Itertools;
-use vortex_dtype::DType;
-use vortex_dtype::FieldNames;
-use vortex_dtype::StructFields;
-use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -29,6 +25,10 @@ use crate::arrays::StructVTable;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::FieldNames;
+use crate::dtype::StructFields;
+use crate::dtype::arrow::FromArrowType;
 use crate::expr::Pack;
 
 pub(super) fn to_arrow_struct(
@@ -92,7 +92,7 @@ pub(super) fn to_arrow_struct(
         // We apply a cast to ensure we push down casting where possible into the struct fields.
         array.cast(DType::Struct(
             vx_fields,
-            vortex_dtype::Nullability::Nullable,
+            crate::dtype::Nullability::Nullable,
         ))?
     } else {
         array
@@ -202,7 +202,6 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldNames;
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
@@ -215,6 +214,7 @@ mod tests {
     use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::FromArrowArray;
     use crate::arrow::IntoArrowArray;
+    use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
     #[test]

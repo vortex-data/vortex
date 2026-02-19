@@ -9,8 +9,8 @@ use lending_iterator::gat;
 use lending_iterator::prelude::Item;
 #[gat(Item)]
 use lending_iterator::prelude::LendingIterator;
+use vortex_array::dtype::PhysicalPType;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::PhysicalPType;
 
 use crate::BitPackedArray;
 
