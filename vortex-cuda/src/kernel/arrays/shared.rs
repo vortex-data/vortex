@@ -3,11 +3,11 @@
 
 use async_trait::async_trait;
 use tracing::instrument;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::arrays::SharedVTable;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::arrays::SharedVTable;
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
 
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;

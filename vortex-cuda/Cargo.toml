@@ -20,7 +20,7 @@ workspace = true
 [features]
 default = []
 _test-harness = []
-unstable_encodings = ["vortex-zstd/unstable_encodings"]
+unstable_encodings = ["vortex/unstable_encodings"]
 
 [dependencies]
 arc-swap = { workspace = true }
@@ -36,26 +36,15 @@ paste = { workspace = true }
 prost = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true, features = ["std", "attributes"] }
-vortex-alp = { workspace = true }
+vortex = { workspace = true, features = ["zstd"] }
+# Keep vortex-array and vortex-error as direct deps for macro hygiene: encoding
+# macros (e.g. `match_each_alp_float_ptype!`) expand to bare `vortex_array::`
+# and `vortex_error::` paths that must resolve as crate names at the call site.
 vortex-array = { workspace = true, features = ["cudarc"] }
-vortex-buffer = { workspace = true }
 vortex-cub = { path = "cub" }
 vortex-cuda-macros = { workspace = true }
-vortex-datetime-parts = { workspace = true }
-vortex-decimal-byte-parts = { workspace = true }
 vortex-error = { workspace = true }
-vortex-fastlanes = { workspace = true }
-vortex-flatbuffers = { workspace = true }
-vortex-io = { workspace = true }
-vortex-layout = { workspace = true }
-vortex-mask = { workspace = true }
 vortex-nvcomp = { path = "nvcomp" }
-vortex-runend = { workspace = true }
-vortex-sequence = { workspace = true }
-vortex-session = { workspace = true }
-vortex-utils = { workspace = true }
-vortex-zigzag = { workspace = true }
-vortex-zstd = { workspace = true }
 
 [dev-dependencies]
 criterion = { package = "codspeed-criterion-compat-walltime", version = "4.3.0" }

@@ -15,9 +15,9 @@ use cudarc::driver::result::stream;
 use futures::future::BoxFuture;
 use kanal::Sender;
 use tracing::warn;
-use vortex_array::buffer::BufferHandle;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
+use vortex::array::buffer::BufferHandle;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 
 use crate::CudaDeviceBuffer;
 

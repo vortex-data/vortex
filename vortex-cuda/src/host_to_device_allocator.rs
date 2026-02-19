@@ -5,11 +5,11 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use vortex_array::buffer::BufferHandle;
-use vortex_buffer::Alignment;
-use vortex_error::VortexResult;
-use vortex_io::CoalesceConfig;
-use vortex_io::VortexReadAt;
+use vortex::array::buffer::BufferHandle;
+use vortex::buffer::Alignment;
+use vortex::error::VortexResult;
+use vortex::io::CoalesceConfig;
+use vortex::io::VortexReadAt;
 
 use crate::stream::VortexCudaStream;
 
