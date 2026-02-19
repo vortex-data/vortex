@@ -162,7 +162,7 @@ struct DeferredPinnedBuffer {
 impl PinnedByteBufferPool {
     /// Create a new pool with default limits.
     pub fn new(ctx: Arc<CudaContext>) -> Self {
-        Self::with_limits_pow2(ctx, 4)
+        Self::with_limits_pow2(ctx, 256)
     }
 
     /// Create a new pool with a maximum number of cached buffers per size.
@@ -224,15 +224,18 @@ impl PinnedByteBufferPool {
     pub fn get(&self, len: usize) -> VortexResult<PinnedByteBuffer> {
         self.reclaim_deferred()?;
         let key_len = self.size_class_len(len);
-        let mut buckets = self.buckets.lock();
-        if let Some(bucket) = buckets.get_mut(&key_len)
-            && let Some(buf) = bucket.pop()
         {
-            self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let mut buf = buf;
-            buf.set_logical_len(len);
-            return Ok(buf);
+            let mut buckets = self.buckets.lock();
+            if let Some(bucket) = buckets.get_mut(&key_len)
+                && let Some(buf) = bucket.pop()
+            {
+                self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let mut buf = buf;
+                buf.set_logical_len(len);
+                return Ok(buf);
+            }
         }
+        // Allocate outside the lock — cuMemAllocHost is an expensive syscall.
         self.misses
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.allocs
@@ -244,11 +247,18 @@ impl PinnedByteBufferPool {
     pub fn put(&self, buf: PinnedByteBuffer) -> VortexResult<()> {
         self.reclaim_deferred()?;
         let len = buf.capacity();
-        let mut buckets = self.buckets.lock();
-        let bucket = buckets.entry(len).or_default();
-        if bucket.len() < self.max_keep_per_size {
-            bucket.push(buf);
-        }
+        let overflow = {
+            let mut buckets = self.buckets.lock();
+            let bucket = buckets.entry(len).or_default();
+            if bucket.len() < self.max_keep_per_size {
+                bucket.push(buf);
+                None
+            } else {
+                Some(buf)
+            }
+        };
+        // If the pool is full, the buffer (cuMemFreeHost) is dropped outside the lock.
+        drop(overflow);
         self.puts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
