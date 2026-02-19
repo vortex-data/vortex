@@ -202,4 +202,172 @@ mod tests {
         );
         do_delta_bitpacked_roundtrip_test(PrimitiveArray::new(values, validity))
     }
+
+    // --- scalar_at / validity_mask tests for nullable DeltaArrays ---
+    //
+    // These test that individual element access and the validity mask are correct
+    // despite the internal mismatch between transposed delta data and
+    // original-order validity in the deltas child. If validity ever gets
+    // incorrectly transposed, these will catch it.
+
+    use vortex_array::Array;
+    use vortex_mask::Mask;
+
+    /// Build a nullable DeltaArray (1024 u32 values, one full SIMD chunk).
+    /// Nulls at positions given by `null_positions`. The underlying buffer is
+    /// monotonically increasing so delta values are small.
+    fn make_nullable_delta(null_positions: &[u32]) -> VortexResult<(DeltaArray, Vec<bool>)> {
+        let n = 1024u32;
+        let valid: Vec<bool> = (0..n).map(|i| !null_positions.contains(&i)).collect();
+        let values: Buffer<u32> = (0..n).collect();
+        let validity = Validity::from_iter(valid.iter().copied());
+        let input = PrimitiveArray::new(values, validity);
+        Ok((DeltaArray::try_from_primitive_array(&input)?, valid))
+    }
+
+    /// Same as `make_nullable_delta` but bitpacks the deltas child.
+    fn make_nullable_delta_bitpacked(
+        null_positions: &[u32],
+    ) -> VortexResult<(DeltaArray, Vec<bool>)> {
+        let n = 1024u32;
+        let valid: Vec<bool> = (0..n).map(|i| !null_positions.contains(&i)).collect();
+        let values: Buffer<u32> = (0..n).collect();
+        let validity = Validity::from_iter(valid.iter().copied());
+        let input = PrimitiveArray::new(values, validity);
+
+        let (bases, deltas) = super::delta_compress(&input)?;
+        let bitpacked = bitpack_to_best_bit_width(&deltas)?;
+        let delta =
+            DeltaArray::try_from_delta_compress_parts(bases.into_array(), bitpacked.into_array())?;
+        Ok((delta, valid))
+    }
+
+    #[test]
+    fn test_scalar_at_nullable_delta() -> VortexResult<()> {
+        // Nulls at positions that would map to different transposed positions
+        // for u32 (32 lanes). Position 1 and position 32 are in different
+        // transposed locations; if validity were transposed, checking these
+        // positions would give wrong results.
+        let null_positions = [1, 31, 512, 1023];
+        let (delta, valid) = make_nullable_delta(&null_positions)?;
+        let arr = delta.into_array();
+
+        for &pos in &null_positions {
+            let scalar = arr.scalar_at(pos as usize)?;
+            assert!(scalar.is_null(), "expected null at position {pos}");
+        }
+
+        // Check several non-null positions that are "near" the null positions
+        // in both original and transposed order.
+        for pos in [0u32, 2, 30, 32, 33, 64, 500, 513, 1000, 1022] {
+            assert!(valid[pos as usize], "precondition: position {pos} is valid");
+            let scalar = arr.scalar_at(pos as usize)?;
+            assert!(!scalar.is_null(), "expected non-null at position {pos}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_scalar_at_nullable_delta_bitpacked() -> VortexResult<()> {
+        let null_positions = [1, 31, 512, 1023];
+        let (delta, valid) = make_nullable_delta_bitpacked(&null_positions)?;
+        let arr = delta.into_array();
+
+        for &pos in &null_positions {
+            let scalar = arr.scalar_at(pos as usize)?;
+            assert!(scalar.is_null(), "expected null at position {pos}");
+        }
+
+        for pos in [0u32, 2, 30, 32, 33, 64, 500, 513, 1000, 1022] {
+            assert!(valid[pos as usize]);
+            let scalar = arr.scalar_at(pos as usize)?;
+            assert!(!scalar.is_null(), "expected non-null at position {pos}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_validity_mask_nullable_delta() -> VortexResult<()> {
+        let null_positions = [1, 31, 32, 512, 1023];
+        let (delta, valid) = make_nullable_delta(&null_positions)?;
+        let mask = delta.into_array().validity_mask()?;
+
+        for i in 0..1024usize {
+            let expected = valid[i];
+            let actual = mask.value(i);
+            assert_eq!(actual, expected, "validity mismatch at position {i}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_validity_mask_nullable_delta_bitpacked() -> VortexResult<()> {
+        let null_positions = [1, 31, 32, 512, 1023];
+        let (delta, valid) = make_nullable_delta_bitpacked(&null_positions)?;
+        let mask = delta.into_array().validity_mask()?;
+
+        for i in 0..1024usize {
+            let expected = valid[i];
+            let actual = mask.value(i);
+            assert_eq!(actual, expected, "validity mismatch at position {i}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_scalar_at_sliced_nullable_delta() -> VortexResult<()> {
+        // Create 2048 elements (2 SIMD chunks) with some nulls, then slice
+        // across the chunk boundary and verify scalar_at on the slice.
+        let n = 2048u32;
+        let null_positions = [1, 500, 1023, 1024, 1500, 2047];
+        let valid: Vec<bool> = (0..n).map(|i| !null_positions.contains(&i)).collect();
+        let values: Buffer<u32> = (0..n).collect();
+        let validity = Validity::from_iter(valid.iter().copied());
+        let input = PrimitiveArray::new(values, validity);
+
+        let delta = DeltaArray::try_from_primitive_array(&input)?;
+        // Slice across chunk boundary: positions 500..1500 of original.
+        let sliced = delta.slice(500..1500)?;
+        assert_eq!(sliced.len(), 1000);
+
+        // Original position 500 is null → sliced position 0 is null.
+        assert!(sliced.scalar_at(0)?.is_null());
+        // Original position 1023 is null → sliced position 523 is null.
+        assert!(sliced.scalar_at(523)?.is_null());
+        // Original position 1024 is null → sliced position 524 is null.
+        assert!(sliced.scalar_at(524)?.is_null());
+
+        // Original position 501 is valid → sliced position 1 is valid.
+        assert!(!sliced.scalar_at(1)?.is_null());
+        // Original position 1022 is valid → sliced position 522 is valid.
+        assert!(!sliced.scalar_at(522)?.is_null());
+        // Original position 1499 is valid → sliced position 999 is valid.
+        assert!(!sliced.scalar_at(999)?.is_null());
+        Ok(())
+    }
+
+    #[test]
+    fn test_validity_mask_sliced_nullable_delta() -> VortexResult<()> {
+        let n = 2048u32;
+        let null_positions = [0, 1, 31, 32, 500, 1023, 1024, 1500, 2047];
+        let valid: Vec<bool> = (0..n).map(|i| !null_positions.contains(&i)).collect();
+        let values: Buffer<u32> = (0..n).collect();
+        let validity = Validity::from_iter(valid.iter().copied());
+        let input = PrimitiveArray::new(values, validity);
+
+        let delta = DeltaArray::try_from_primitive_array(&input)?;
+        let sliced = delta.slice(500..1500)?;
+        let mask: Mask = sliced.validity_mask()?;
+
+        for i in 0..1000usize {
+            let orig_pos = 500 + i;
+            let expected = valid[orig_pos];
+            let actual = mask.value(i);
+            assert_eq!(
+                actual, expected,
+                "validity mismatch at slice pos {i} (original pos {orig_pos})"
+            );
+        }
+        Ok(())
+    }
 }
