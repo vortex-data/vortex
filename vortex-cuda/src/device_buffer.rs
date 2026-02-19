@@ -315,7 +315,7 @@ impl DeviceBuffer for CudaDeviceBuffer {
 
     fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>> {
         let effective_ptr = self.device_ptr + self.offset as u64;
-        if effective_ptr % (*alignment as u64) == 0 {
+        if effective_ptr.is_multiple_of(*alignment as u64) {
             Ok(Arc::new(CudaDeviceBuffer {
                 allocation: self.allocation.clone(),
                 offset: self.offset,
