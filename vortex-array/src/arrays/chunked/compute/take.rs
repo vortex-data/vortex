@@ -173,7 +173,7 @@ mod test {
         let result = arr.take(indices.to_array()).unwrap();
         assert_arrays_eq!(
             result,
-            PrimitiveArray::from_option_iter([1i32, 1, 1, 2].map(Some))
+            PrimitiveArray::from_option_iter([Some(1i32), None, None, Some(2)])
         );
     }
 
