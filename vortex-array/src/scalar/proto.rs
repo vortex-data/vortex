@@ -272,13 +272,14 @@ fn int64_from_proto(v: i64, dtype: &DType) -> VortexResult<ScalarValue> {
         PType::I16 => v.to_i16().map(PValue::I16),
         PType::I32 => v.to_i32().map(PValue::I32),
         PType::I64 => Some(PValue::I64(v)),
-        // It was previously possible for unsigned types to get their stats serialised as signed
+        // It was previously possible for unsigned types to get their stats serialised as signed,
+        // so we allow casting back to unsigned for backwards compatibility.
         PType::U8 => v.to_u8().map(PValue::U8),
         PType::U16 => v.to_u16().map(PValue::U16),
         PType::U32 => v.to_u32().map(PValue::U32),
         PType::U64 => v.to_u64().map(PValue::U64),
-        ptype => vortex_bail!(
-            Serde: "expected signed integer ptype for Int64Value, got {ptype}"
+        ftype @ (PType::F16 | PType::F32 | PType::F64) => vortex_bail!(
+            Serde: "expected signed integer ptype for serialized Int64Value, got float {ftype}"
         ),
     }
     .ok_or_else(|| vortex_err!(Serde: "Int64 value {v} out of range for dtype {dtype}"))?;
@@ -302,15 +303,16 @@ fn uint64_from_proto(v: u64, dtype: &DType) -> VortexResult<ScalarValue> {
         PType::U16 => v.to_u16().map(PValue::U16),
         PType::U32 => v.to_u32().map(PValue::U32),
         PType::U64 => Some(PValue::U64(v)),
-        // It was previously possible for signed types to get their stats serialised as unsigned
+        // It was previously possible for signed types to get their stats serialised as unsigned,
+        // so we allow casting back to signed for backwards compatibility.
         PType::I8 => v.to_i8().map(PValue::I8),
         PType::I16 => v.to_i16().map(PValue::I16),
         PType::I32 => v.to_i32().map(PValue::I32),
         PType::I64 => v.to_i64().map(PValue::I64),
-        // Backwards compatibility: f16 values were previously serialized as u64.
+        // f16 values used to be serialized as u64, so we need to be able to read an f16 from a u64.
         PType::F16 => v.to_u16().map(f16::from_bits).map(PValue::F16),
-        ptype => vortex_bail!(
-            Serde: "expected unsigned integer ptype for Uint64Value, got {ptype}"
+        ftype @ (PType::F32 | PType::F64) => vortex_bail!(
+            Serde: "expected unsigned integer ptype for serialized Uint64Value, got {ftype}"
         ),
     }
     .ok_or_else(|| vortex_err!(Serde: "Uint64 value {v} out of range for dtype {dtype}"))?;
@@ -827,8 +829,10 @@ mod tests {
         }
     }
 
+    // Backwards compatibility: signed integer stats could previously be serialized as unsigned.
+    // Therefore, we allow casting between signed and unsigned integers of the same bit width.
     #[test]
-    fn test_buggy_signed_integer_scalar() {
+    fn test_backcompat_signed_integer_deserialized_as_unsigned() {
         let v = ScalarValue::Primitive(PValue::I64(0));
         assert_eq!(
             Scalar::from_proto_value(
@@ -840,8 +844,10 @@ mod tests {
         );
     }
 
+    // Backwards compatibility: unsigned integer stats could previously be serialized as signed.
+    // Therefore, we allow casting between signed and unsigned integers of the same bit width.
     #[test]
-    fn test_buggy_unsigned_integer_scalar() {
+    fn test_backcompat_unsigned_integer_deserialized_as_signed() {
         let v = ScalarValue::Primitive(PValue::U64(0));
         assert_eq!(
             Scalar::from_proto_value(
