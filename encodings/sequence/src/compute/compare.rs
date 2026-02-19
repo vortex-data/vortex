@@ -9,8 +9,8 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::CompareKernel;
-use vortex_array::match_each_integer_ptype;
 use vortex_array::expr::CompareOperator;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_buffer::BitBuffer;
@@ -139,11 +139,9 @@ mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::compare;
-    use vortex_array::expr::CompareOperator;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::Nullability::Nullable;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::Nullability::Nullable;
+    use vortex_array::expr::CompareOperator;
 
     use crate::SequenceArray;
 
