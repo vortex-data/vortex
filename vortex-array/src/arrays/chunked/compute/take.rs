@@ -86,9 +86,7 @@ fn take_chunked(
         cursor = range_end;
     }
 
-    let nullability = indices.dtype().nullability();
-
-    let result_dtype = array.dtype().clone().union_nullability(nullability);
+    let result_dtype = array.dtype().clone();
     // SAFETY: every chunk came from a filter on a chunk with the same base dtype,
     // unioned with the index nullability.
     let flat = unsafe { ChunkedArray::new_unchecked(chunks, result_dtype) }
@@ -99,7 +97,7 @@ fn take_chunked(
 
     // 4. Single take to restore original order and expand duplicates.
     //    Carry the original index validity so null indices produce null outputs.
-    let take_validity = Validity::from_mask(indices_mask, nullability);
+    let take_validity = Validity::from_mask(indices_mask, indices.dtype().nullability());
     flat.take(PrimitiveArray::new(final_take.freeze(), take_validity).into_array())
 }
 
@@ -115,11 +113,15 @@ impl TakeExecute for ChunkedVTable {
 
 #[cfg(test)]
 mod test {
+    use vortex_buffer::bitbuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::RecursiveCanonical;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::array::Array;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
@@ -140,12 +142,65 @@ mod test {
         assert_eq!(arr.len(), 9);
         let indices = buffer![0u64, 0, 6, 4].into_array();
 
-        let result = arr.take(indices.to_array()).unwrap();
+        let result = arr
+            .take(indices.to_array())
+            .unwrap()
+            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .0
+            .into_array();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 1, 1, 2]));
     }
 
     #[test]
-    fn test_take_nullability() {
+    fn test_take_nullable_values() {
+        let a = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::AllValid).into_array();
+        let arr = ChunkedArray::try_new(vec![a.clone(), a.clone(), a.clone()], a.dtype().clone())
+            .unwrap();
+        assert_eq!(arr.nchunks(), 3);
+        assert_eq!(arr.len(), 9);
+        let indices = PrimitiveArray::new(buffer![0u64, 0, 6, 4], Validity::NonNullable);
+
+        let result = arr
+            .take(indices.to_array())
+            .unwrap()
+            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .0
+            .into_array();
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([1i32, 1, 1, 2].map(Some))
+        );
+    }
+
+    #[test]
+    fn test_take_nullable_indices() {
+        let a = buffer![1i32, 2, 3].into_array();
+        let arr = ChunkedArray::try_new(vec![a.clone(), a.clone(), a.clone()], a.dtype().clone())
+            .unwrap();
+        assert_eq!(arr.nchunks(), 3);
+        assert_eq!(arr.len(), 9);
+        let indices = PrimitiveArray::new(
+            buffer![0u64, 0, 6, 4],
+            Validity::Array(bitbuffer![1 0 0 1].into_array()),
+        );
+
+        let result = arr
+            .take(indices.to_array())
+            .unwrap()
+            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .0
+            .into_array();
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([1i32, 1, 1, 2].map(Some))
+        );
+    }
+
+    #[test]
+    fn test_take_nullable_struct() {
         let struct_array =
             StructArray::try_new(FieldNames::default(), vec![], 100, Validity::NonNullable)
                 .unwrap();
