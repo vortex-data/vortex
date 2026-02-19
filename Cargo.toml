@@ -77,7 +77,7 @@ keywords = ["vortex"]
 license = "Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/spiraldb/vortex"
-rust-version = "1.89"
+rust-version = "1.90"
 version = "0.1.0"
 
 [workspace.dependencies]

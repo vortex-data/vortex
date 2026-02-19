@@ -7,6 +7,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::expr::Operator;
 use vortex_array::compute::compare;
 use vortex_array::expr::CompareKernel;
 use vortex_array::expr::CompareOperator;

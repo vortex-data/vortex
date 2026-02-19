@@ -72,7 +72,7 @@ mod primitive {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::compare;
+    use vortex_array::expr::Operator;
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::CompareOperator;
     use vortex_array::expr::StrictComparison::NonStrict;
@@ -255,7 +255,8 @@ mod alp {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::compare;
+    use vortex_array::expr::Operator;
+    use vortex_array::expr::compare;
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::CompareOperator;
     use vortex_array::expr::StrictComparison::NonStrict;

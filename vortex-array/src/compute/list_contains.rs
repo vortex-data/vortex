@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::builtins::ArrayBuiltins;
 
 /// Compute a `Bool`-typed array the same length as `array` where elements is `true` if the list
 /// item contains the `value`, `false` otherwise.

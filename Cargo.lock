@@ -9904,6 +9904,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrow-array",
+ "arrow-ipc",
  "codspeed-divan-compat",
  "fastlanes",
  "itertools 0.14.0",
