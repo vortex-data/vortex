@@ -187,7 +187,6 @@ mod test {
 
     #[test]
     fn test_take_shuffled_indices() -> VortexResult<()> {
-        // Regression test for #6407: random/shuffled indices should not explode memory.
         let c0 = buffer![0i32, 1, 2].into_array();
         let c1 = buffer![3i32, 4, 5].into_array();
         let c2 = buffer![6i32, 7, 8].into_array();
@@ -211,8 +210,6 @@ mod test {
 
     #[test]
     fn test_take_shuffled_large() -> VortexResult<()> {
-        // Stress test for #6407: many chunks + fully shuffled indices must not
-        // produce O(n) intermediate chunks.
         let nchunks: i32 = 100;
         let chunk_len: i32 = 1_000;
         let total = nchunks * chunk_len;
