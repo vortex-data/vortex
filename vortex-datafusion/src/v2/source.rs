@@ -112,9 +112,6 @@ impl VortexDataSourceBuilder {
             }
         };
 
-        let mut column_statistics =
-            vec![ColumnStatistics::new_unknown(); arrow_schema.fields.len()];
-
         // Apply any selection and create a projection expression.
         if let Some(indices) = self.projection {
             let fields = indices.iter().map(|&i| {
@@ -133,9 +130,6 @@ impl VortexDataSourceBuilder {
                     .map(|&i| arrow_schema.field(i).clone())
                     .collect::<Vec<_>>(),
             ));
-
-            // Update the column statistics.
-            column_statistics = column_statistics.into_iter().take(indices.len()).collect();
         }
 
         Ok(VortexDataSource {
@@ -143,7 +137,6 @@ impl VortexDataSourceBuilder {
             session: self.session,
             initial_schema: arrow_schema.clone(),
             initial_projection: projection.clone(),
-            initial_column_stats: column_statistics,
             final_projection: projection,
             final_schema: arrow_schema,
             filter: None,
@@ -182,8 +175,6 @@ pub struct VortexDataSource {
     /// The initial Arrow schema of the scan.
     initial_schema: SchemaRef,
     initial_projection: Expression,
-    initial_column_stats: Vec<ColumnStatistics>,
-
     /// The projection expression pushed down by [`DataSource::try_swapping_with_projection`]
     /// This projection has already been evaluated against the initial_projection.
     final_projection: Expression,
@@ -317,10 +308,10 @@ impl DataSource for VortexDataSource {
         // FIXME(ngates): byte size should be adjusted for the initial projection...
         let total_byte_size = estimate_to_df_precision(&self.data_source.byte_size_estimate());
 
-        // FIXME(ngates): are column statistics after the projection expression? Or before?
-        // let column_statistics =
-        //     vec![ColumnStatistics::new_unknown(); self.final_schema.fields().len()];
-        let column_statistics = self.initial_column_stats.clone();
+        // Column statistics must match the output schema (final_schema), which may differ
+        // from the initial schema after try_swapping_with_projection adds computed columns.
+        let column_statistics =
+            vec![ColumnStatistics::new_unknown(); self.final_schema.fields().len()];
 
         Ok(Statistics {
             num_rows,
