@@ -11,10 +11,11 @@ use indicatif::ProgressBar;
 use sqllogictest::DBOutput;
 use sqllogictest::runner::AsyncDB;
 use vortex::error::VortexError;
-use vortex_duckdb::duckdb::Connection;
-use vortex_duckdb::duckdb::Database;
 use vortex_duckdb::duckdb::LogicalType;
-use vortex_duckdb::duckdb::Value;
+use vortex_duckdb::duckdb::OwnedConnection;
+use vortex_duckdb::duckdb::OwnedDatabase;
+use vortex_duckdb::duckdb::OwnedLogicalType;
+use vortex_duckdb::duckdb::OwnedValue;
 use vortex_duckdb::initialize;
 
 #[derive(Debug, thiserror::Error)]
@@ -33,8 +34,8 @@ impl std::fmt::Display for DuckDBTestError {
 }
 
 struct Inner {
-    conn: Connection,
-    _db: Database,
+    conn: OwnedConnection,
+    _db: OwnedDatabase,
 }
 
 unsafe impl Send for Inner {}
@@ -47,7 +48,7 @@ pub struct DuckDB {
 
 impl DuckDB {
     pub fn try_new(pb: ProgressBar) -> Result<Self, DuckDBTestError> {
-        let db = Database::open_in_memory()?;
+        let db = OwnedDatabase::open_in_memory()?;
         db.register_vortex_scan_replacement()?;
         initialize(&db)?;
 
@@ -62,26 +63,26 @@ impl DuckDB {
     /// Turn the DuckDB logical type into a `DFColumnType`, which
     /// tells the runner what types they are. We use the one from DataFusion
     /// as its richer than the default one.
-    fn normalize_column_type(logical_type: LogicalType) -> DFColumnType {
+    fn normalize_column_type(logical_type: &LogicalType) -> DFColumnType {
         let type_id = logical_type.as_type_id();
 
-        if type_id == LogicalType::int32().as_type_id()
-            || type_id == LogicalType::int64().as_type_id()
-            || type_id == LogicalType::uint64().as_type_id()
-            || type_id == LogicalType::int128().as_type_id()
-            || type_id == LogicalType::uint128().as_type_id()
+        if type_id == OwnedLogicalType::int32().as_type_id()
+            || type_id == OwnedLogicalType::int64().as_type_id()
+            || type_id == OwnedLogicalType::uint64().as_type_id()
+            || type_id == OwnedLogicalType::int128().as_type_id()
+            || type_id == OwnedLogicalType::uint128().as_type_id()
         {
             DFColumnType::Integer
-        } else if type_id == LogicalType::varchar().as_type_id() {
+        } else if type_id == OwnedLogicalType::varchar().as_type_id() {
             DFColumnType::Text
-        } else if type_id == LogicalType::bool().as_type_id() {
+        } else if type_id == OwnedLogicalType::bool().as_type_id() {
             DFColumnType::Boolean
-        } else if type_id == LogicalType::float32().as_type_id()
-            || type_id == LogicalType::float64().as_type_id()
+        } else if type_id == OwnedLogicalType::float32().as_type_id()
+            || type_id == OwnedLogicalType::float64().as_type_id()
         {
             DFColumnType::Float
-        } else if type_id == LogicalType::timestamp().as_type_id()
-            || type_id == LogicalType::timestamp_tz().as_type_id()
+        } else if type_id == OwnedLogicalType::timestamp().as_type_id()
+            || type_id == OwnedLogicalType::timestamp_tz().as_type_id()
         {
             DFColumnType::Timestamp
         } else {
@@ -108,7 +109,7 @@ impl AsyncDB for DuckDB {
                 for col_idx in 0..r.column_count() {
                     let col_idx = usize::try_from(col_idx).map_err(VortexError::from)?;
                     let dtype = r.column_type(col_idx);
-                    types.push(Self::normalize_column_type(dtype));
+                    types.push(Self::normalize_column_type(&dtype));
                 }
 
                 for chunk in r.into_iter() {
@@ -119,7 +120,7 @@ impl AsyncDB for DuckDB {
                             match vector.get_value(row_idx, chunk.len()) {
                                 Some(value) => current_row.push(value.to_string()),
                                 None => current_row
-                                    .push(Value::null(&vector.logical_type()).to_string()),
+                                    .push(OwnedValue::null(&vector.logical_type()).to_string()),
                             }
                         }
 
