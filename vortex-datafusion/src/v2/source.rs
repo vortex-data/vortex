@@ -40,6 +40,7 @@ use futures::TryStreamExt;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::Nullability;
+use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::Expression;
@@ -458,7 +459,7 @@ fn has_decimal_binary(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> bool {
     use datafusion_common::tree_node::TreeNode;
 
     let mut found = false;
-    drop(expr.apply(|node| {
+    expr.apply(|node| {
         if let Some(binary) = node.as_any().downcast_ref::<df_expr::BinaryExpr>()
             && binary.op().is_numerical_operators()
             && let (Ok(l), Ok(r)) = (
@@ -472,7 +473,8 @@ fn has_decimal_binary(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> bool {
             return Ok(TreeNodeRecursion::Stop);
         }
         Ok(TreeNodeRecursion::Continue)
-    }));
+    })
+    .vortex_expect("Expression traversal failed");
     found
 }
 
