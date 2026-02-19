@@ -12,6 +12,7 @@ use crate::ToCanonical;
 use crate::arrays::ListViewArray;
 use crate::builders::builder_with_capacity;
 use crate::compute;
+use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
@@ -103,11 +104,108 @@ impl ListViewArray {
         })
     }
 
-    // TODO(connor)[ListView]: We should benchmark if it is faster to use `take` on the elements
-    // instead of using a builder.
-    /// The inner function for `rebuild_zero_copy_to_list`, which rebuilds a `ListViewArray` piece
-    /// by piece.
+    /// Picks between [`rebuild_with_take`](Self::rebuild_with_take) and
+    /// [`rebuild_list_by_list`](Self::rebuild_list_by_list) based on element dtype and average
+    /// list size.
     fn naive_rebuild<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
+        &self,
+    ) -> VortexResult<ListViewArray> {
+        let element_dtype = self
+            .dtype()
+            .as_list_element_opt()
+            .vortex_expect("somehow had a canonical list that was not a list");
+        let sizes_canonical = self.sizes().to_primitive();
+        let total: u64 = sizes_canonical
+            .as_slice::<S>()
+            .iter()
+            .map(|s| (*s).as_() as u64)
+            .sum();
+        let use_list_by_list = Self::should_use_list_by_list(element_dtype, total, self.len());
+
+        if use_list_by_list {
+            self.rebuild_list_by_list::<O, NewOffset, S>()
+        } else {
+            self.rebuild_with_take::<O, NewOffset, S>()
+        }
+    }
+
+    /// Decides whether [`rebuild_list_by_list`](Self::rebuild_list_by_list) should be used over
+    /// [`rebuild_with_take`](Self::rebuild_with_take).
+    ///
+    /// Take's dominant cost is 8 bytes per element (building a `u64` index buffer). LBL's
+    /// dominant cost is `E` bytes per element (memcpy), plus a fixed per-list overhead (~64
+    /// elements worth of work). The crossover is `avg >= (8 + E) * 64`.
+    ///
+    /// Only flat fixed-width types can use LBL. Struct, FSL, List, and variable-width types
+    /// always use take because their builders have high per-element overhead.
+    fn should_use_list_by_list(
+        element_dtype: &DType,
+        total_output_elements: u64,
+        num_lists: usize,
+    ) -> bool {
+        if num_lists == 0 {
+            return false;
+        }
+        let avg = total_output_elements / num_lists as u64;
+        match element_dtype {
+            DType::Struct(..) | DType::FixedSizeList(..) => false,
+            _ => element_dtype
+                .element_size()
+                .is_some_and(|e| avg >= (8 + e as u64) * 64),
+        }
+    }
+
+    /// Rebuilds elements using a single bulk `take`: collect all element indices into a flat
+    /// `BufferMut<u64>`, perform a single `take`.
+    fn rebuild_with_take<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
+        &self,
+    ) -> VortexResult<ListViewArray> {
+        let offsets_canonical = self.offsets().to_primitive();
+        let offsets_slice = offsets_canonical.as_slice::<O>();
+        let sizes_canonical = self.sizes().to_primitive();
+        let sizes_slice = sizes_canonical.as_slice::<S>();
+
+        let len = offsets_slice.len();
+
+        let mut new_offsets = BufferMut::<NewOffset>::with_capacity(len);
+        let mut new_sizes = BufferMut::<S>::with_capacity(len);
+        let mut take_indices = BufferMut::<u64>::with_capacity(self.elements().len());
+
+        let mut n_elements = NewOffset::zero();
+        for index in 0..len {
+            if !self.is_valid(index)? {
+                new_offsets.push(n_elements);
+                new_sizes.push(S::zero());
+                continue;
+            }
+
+            let offset = offsets_slice[index];
+            let size = sizes_slice[index];
+            let start = offset.as_();
+            let stop = start + size.as_();
+
+            new_offsets.push(n_elements);
+            new_sizes.push(size);
+            take_indices.extend(start as u64..stop as u64);
+            n_elements += num_traits::cast(size).vortex_expect("Cast failed");
+        }
+
+        let elements = self.elements().take(take_indices.into_array())?;
+        let offsets = new_offsets.into_array();
+        let sizes = new_sizes.into_array();
+
+        // SAFETY: same invariants as `rebuild_list_by_list` — offsets are sequential and
+        // non-overlapping, all (offset, size) pairs reference valid elements, and the validity
+        // array is preserved from the original.
+        Ok(unsafe {
+            ListViewArray::new_unchecked(elements, offsets, sizes, self.validity.clone())
+                .with_zero_copy_to_list(true)
+        })
+    }
+
+    /// Rebuilds elements list-by-list: canonicalize elements upfront, then for each list `slice`
+    /// the relevant range and `extend_from_array` into a typed builder.
+    fn rebuild_list_by_list<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
     ) -> VortexResult<ListViewArray> {
         let element_dtype = self
@@ -262,7 +360,9 @@ impl ListViewArray {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
+    use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
 
@@ -272,7 +372,9 @@ mod tests {
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
@@ -447,5 +549,82 @@ mod tests {
             PrimitiveArray::from_iter([3i32, 4])
         );
         Ok(())
+    }
+
+    // ── should_use_list_by_list heuristic tests ───────────────────────────
+
+    #[test]
+    fn heuristic_rejects_zero_lists() {
+        let prim = DType::Primitive(PType::I32, Nullability::NonNullable);
+        assert!(!ListViewArray::should_use_list_by_list(&prim, 0, 0));
+    }
+
+    #[test]
+    fn heuristic_rejects_struct_always() {
+        let struct_dtype = DType::struct_(
+            [
+                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                ("b", DType::Primitive(PType::F64, Nullability::NonNullable)),
+            ],
+            Nullability::NonNullable,
+        );
+        assert!(!ListViewArray::should_use_list_by_list(
+            &struct_dtype,
+            100_000,
+            100
+        ));
+    }
+
+    #[test]
+    fn heuristic_rejects_fsl_always() {
+        use std::sync::Arc;
+        // FixedSizeList always uses take — list-by-list is never faster.
+        let fsl = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            4,
+            Nullability::NonNullable,
+        );
+        assert!(!ListViewArray::should_use_list_by_list(
+            &fsl, 256_000, 1_000
+        ));
+        assert!(!ListViewArray::should_use_list_by_list(
+            &fsl, 999_000, 1_000
+        ));
+    }
+
+    #[test]
+    fn heuristic_rejects_list_always() {
+        let list_i32 = DType::list(
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            Nullability::NonNullable,
+        );
+        // Nested list types always use take.
+        assert!(!ListViewArray::should_use_list_by_list(
+            &list_i32, 512_000, 1_000
+        ));
+        assert!(!ListViewArray::should_use_list_by_list(
+            &list_i32, 2_000_000, 1_000
+        ));
+    }
+
+    #[rstest]
+    #[case(PType::I32, 512, false)] // i32: threshold=(8+4)*64=768, 512<768
+    #[case(PType::I32, 768, true)] // i32: 768>=768
+    #[case(PType::I8, 512, false)] // i8: threshold=(8+1)*64=576, 512<576
+    #[case(PType::I8, 576, true)] // i8: 576>=576
+    #[case(PType::F64, 512, false)] // f64: threshold=(8+8)*64=1024, 512<1024
+    #[case(PType::F64, 1024, true)] // f64: 1024>=1024
+    fn heuristic_threshold(
+        #[case] ptype: PType,
+        #[case] avg: u64,
+        #[case] expect_list_by_list: bool,
+    ) {
+        let dtype = DType::Primitive(ptype, Nullability::NonNullable);
+        let num_lists = 1000_usize;
+        let total = avg * num_lists as u64;
+        assert_eq!(
+            ListViewArray::should_use_list_by_list(&dtype, total, num_lists),
+            expect_list_by_list,
+        );
     }
 }
