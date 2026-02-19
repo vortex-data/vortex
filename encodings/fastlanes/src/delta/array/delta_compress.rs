@@ -131,4 +131,75 @@ mod tests {
         assert_arrays_eq!(decompressed, input);
         Ok(())
     }
+
+    // --- Delta + BitPacking stacked roundtrip tests ---
+    //
+    // These tests delta-compress a PrimitiveArray, then bitpack the deltas child,
+    // reassemble a DeltaArray with the BitPackedArray as its deltas child, and
+    // verify the full decompress roundtrip.
+
+    use vortex_array::IntoArray;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+
+    use crate::bitpack_compress::bitpack_to_best_bit_width;
+
+    /// Roundtrip helper: delta compress → bitpack deltas → reassemble → decompress.
+    /// Uses `crate::test::SESSION` which registers `BitPackedVTable` so the
+    /// execution context can decompress the stacked encoding.
+    fn do_delta_bitpacked_roundtrip_test(input: PrimitiveArray) -> VortexResult<()> {
+        let (bases, deltas) = super::delta_compress(&input)?;
+        let bitpacked_deltas = bitpack_to_best_bit_width(&deltas)?;
+        let delta = DeltaArray::try_from_delta_compress_parts(
+            bases.into_array(),
+            bitpacked_deltas.into_array(),
+        )?;
+        assert_eq!(delta.len(), input.len());
+        let decompressed =
+            delta_decompress(&delta, &mut crate::test::SESSION.create_execution_ctx())?;
+        assert_arrays_eq!(decompressed, input);
+        Ok(())
+    }
+
+    #[test]
+    fn test_delta_bitpacked_non_nullable() -> VortexResult<()> {
+        // 10_000 elements: multiple 1024-element SIMD chunks + scalar remainder.
+        do_delta_bitpacked_roundtrip_test((0u32..10_000).collect())
+    }
+
+    #[test]
+    fn test_delta_bitpacked_nullable_multi_chunk() -> VortexResult<()> {
+        // Monotonic buffer ensures small deltas so bitpacking is effective.
+        // Every 3rd value is null.
+        let values: Buffer<u32> = (0u32..10_000).collect();
+        let validity = Validity::from_iter((0u32..10_000).map(|i| i % 3 != 0));
+        do_delta_bitpacked_roundtrip_test(PrimitiveArray::new(values, validity))
+    }
+
+    #[test]
+    fn test_delta_bitpacked_nullable_small() -> VortexResult<()> {
+        // Fewer than 1024 elements: only the scalar delta path is exercised.
+        let values: Buffer<u32> = (0u32..500).collect();
+        let validity = Validity::from_iter((0u32..500).map(|i| i % 5 != 0));
+        do_delta_bitpacked_roundtrip_test(PrimitiveArray::new(values, validity))
+    }
+
+    #[test]
+    fn test_delta_bitpacked_nullable_exact_chunk() -> VortexResult<()> {
+        // Exactly 1024 elements: one full SIMD chunk, no remainder.
+        let values: Buffer<u32> = (0u32..1024).collect();
+        let validity = Validity::from_iter((0u32..1024).map(|i| i % 4 != 0));
+        do_delta_bitpacked_roundtrip_test(PrimitiveArray::new(values, validity))
+    }
+
+    #[test]
+    fn test_delta_bitpacked_nullable_sparse_nulls() -> VortexResult<()> {
+        // 2048 elements (two full SIMD chunks) with nulls at specific boundary positions.
+        let n = 2048u32;
+        let values: Buffer<u32> = (0..n).collect();
+        let validity = Validity::from_iter(
+            (0..n).map(|i| i != 0 && i != 512 && i != 1023 && i != 1024 && i != 1500),
+        );
+        do_delta_bitpacked_roundtrip_test(PrimitiveArray::new(values, validity))
+    }
 }
