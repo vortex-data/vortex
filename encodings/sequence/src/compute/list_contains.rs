@@ -4,7 +4,7 @@
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::BoolArray;
-use vortex_array::compute::ListContainsElementReduce;
+use vortex_array::expr::ListContainsElementReduce;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 

@@ -32,6 +32,7 @@ use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::compute;
 use crate::compute::Operator;
+use crate::expr;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -249,7 +250,7 @@ fn constant_list_scalar_contains(
         )?
         .fill_null(false_scalar.clone())?;
         if let Some(acc) = result {
-            result = Some(compute::or_kleene(&acc, &res)?)
+            result = Some(expr::or_kleene(&acc, &res)?)
         } else {
             result = Some(res);
         }

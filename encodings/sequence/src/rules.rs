@@ -3,6 +3,7 @@
 
 use vortex_array::arrays::SliceReduceAdaptor;
 use vortex_array::expr::CastReduceAdaptor;
+use vortex_array::expr::ListContainsElementReduceAdaptor;
 use vortex_array::optimizer::rules::ParentRuleSet;
 
 use crate::SequenceVTable;
