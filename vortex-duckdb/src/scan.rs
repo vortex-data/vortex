@@ -432,7 +432,7 @@ impl TableFunction for VortexTableFunction {
                             // the first file was already opened during bind.
                             Ok(first_file)
                         } else {
-                            let cache = FooterCache::new(&object_cache);
+                            let cache = FooterCache::new(object_cache);
                             let entry = cache.entry(&file_listing.path);
                             let file = entry
                                 .apply_to_file(SESSION.open_options())

@@ -34,10 +34,6 @@ macro_rules! duckdb_try {
 ///   Derefs to `&$Name` / `&mut $Name`.
 #[macro_export]
 macro_rules! lifetime_wrapper {
-    // Accept old variant-list syntax for backward compat (variant list is ignored).
-    ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, $destructor:expr, [$($variant:ident),*]) => {
-        $crate::lifetime_wrapper!($(#[$meta])* $Name, $ffi_type, $destructor);
-    };
     // Main form: generates opaque $Name + Owned$Name.
     ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, $destructor:expr) => {
         paste::paste! {

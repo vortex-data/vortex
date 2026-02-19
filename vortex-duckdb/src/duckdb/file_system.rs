@@ -21,8 +21,7 @@ use crate::lifetime_wrapper;
 lifetime_wrapper!(
     FsFileHandle,
     cpp::duckdb_vx_file_handle,
-    cpp::duckdb_vx_fs_close,
-    [owned]
+    cpp::duckdb_vx_fs_close
 );
 unsafe impl Send for OwnedFsFileHandle {}
 unsafe impl Sync for OwnedFsFileHandle {}
