@@ -27,7 +27,6 @@ use crate::arrays::ConstantArray;
 use crate::arrays::DecimalVTable;
 use crate::arrays::PrimitiveVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::BooleanOperator;
 use crate::compute::Options;
 use crate::compute::compare;
 use crate::expr::Arity;
@@ -165,7 +164,7 @@ fn between_canonical(
     execute_boolean(
         &compare(lower, arr, options.lower_strict.to_operator())?,
         &compare(arr, upper, options.upper_strict.to_operator())?,
-        BooleanOperator::AndKleene,
+        Operator::And,
     )
 }
 

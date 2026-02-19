@@ -33,12 +33,11 @@ use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::Operator;
-use crate::compute::and_kleene;
 use crate::compute::compare;
-#[expect(deprecated)]
 use crate::compute::invert;
 use crate::compute::mask;
-use crate::compute::or_kleene;
+use crate::expr::and_kleene;
+use crate::expr::or_kleene;
 
 /// Tests that filter and take operations produce consistent results.
 ///

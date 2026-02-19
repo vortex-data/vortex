@@ -52,6 +52,7 @@ vortex-zstd = { workspace = true, optional = true }
 [dev-dependencies]
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
+arrow-ipc = { workspace = true }
 divan = { workspace = true }
 fastlanes = { workspace = true }
 itertools = { workspace = true }

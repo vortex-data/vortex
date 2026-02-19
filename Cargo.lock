@@ -9906,6 +9906,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrow-array",
+ "arrow-ipc",
  "codspeed-divan-compat",
  "fastlanes",
  "itertools 0.14.0",
@@ -10432,8 +10433,6 @@ dependencies = [
  "vortex-btrblocks",
  "vortex-buffer",
  "vortex-bytebool",
- "vortex-cuda",
- "vortex-cuda-macros",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dtype",
@@ -10862,7 +10861,6 @@ dependencies = [
  "taffy",
  "tokio",
  "vortex",
- "vortex-cuda",
  "vortex-datafusion",
 ]
 

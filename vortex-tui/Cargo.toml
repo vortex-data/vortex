@@ -36,12 +36,6 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 vortex = { workspace = true, features = ["tokio"] }
 vortex-datafusion = { workspace = true }
 
-[target.'cfg(target_os = "linux")'.dependencies]
-vortex-cuda = { workspace = true, optional = true }
-
-[features]
-cuda = ["dep:vortex-cuda"]
-
 [lints]
 workspace = true
 

@@ -4,9 +4,9 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ScalarFnArrayExt;
-use vortex_array::compute::MaskReduce;
 use vortex_array::expr::EmptyOptions;
 use vortex_array::expr::Mask as MaskExpr;
+use vortex_array::expr::MaskReduce;
 use vortex_error::VortexResult;
 
 use crate::DecimalBytePartsArray;

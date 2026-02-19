@@ -4,7 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::compute::CastReduceAdaptor;
+use vortex_array::expr::CastReduceAdaptor;
 use vortex_array::expr::NotReduce;
 use vortex_array::expr::NotReduceAdaptor;
 use vortex_array::optimizer::rules::ParentRuleSet;

@@ -72,12 +72,11 @@ mod primitive {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::BooleanOperator;
     use vortex_array::compute::Operator;
-    use vortex_array::compute::boolean;
     use vortex_array::compute::compare;
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::StrictComparison::NonStrict;
+    use vortex_array::expr::and_kleene;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
@@ -98,24 +97,26 @@ mod primitive {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| &arr).bench_refs(|arr| {
-            boolean(
-                &compare(
-                    arr.as_ref(),
-                    ConstantArray::new(min, arr.len()).as_ref(),
-                    Operator::Gte,
+        bencher
+            .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
+            .bench_refs(|(arr, ctx)| {
+                and_kleene(
+                    &compare(
+                        arr.as_ref(),
+                        ConstantArray::new(min, arr.len()).as_ref(),
+                        Operator::Gte,
+                    )
+                    .vortex_expect(""),
+                    &compare(
+                        arr.as_ref(),
+                        ConstantArray::new(max, arr.len()).as_ref(),
+                        Operator::Lt,
+                    )
+                    .vortex_expect(""),
                 )
-                .vortex_expect(""),
-                &compare(
-                    arr.as_ref(),
-                    ConstantArray::new(max, arr.len()).as_ref(),
-                    Operator::Lt,
-                )
-                .vortex_expect(""),
-                BooleanOperator::And,
-            )
-            .vortex_expect("")
-        })
+                .vortex_expect("")
+                .execute::<RecursiveCanonical>(ctx)
+            })
     }
 
     #[divan::bench(
@@ -162,12 +163,11 @@ mod bitpack {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::BooleanOperator;
     use vortex_array::compute::Operator;
-    use vortex_array::compute::boolean;
     use vortex_array::compute::compare;
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::StrictComparison::NonStrict;
+    use vortex_array::expr::and_kleene;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
@@ -188,23 +188,27 @@ mod bitpack {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| &arr).bench_refs(|arr| {
-            boolean(
-                &compare(
-                    arr.as_ref(),
-                    ConstantArray::new(min, arr.len()).as_ref(),
-                    Operator::Gte,
+        bencher
+            .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
+            .bench_refs(|(arr, ctx)| {
+                and_kleene(
+                    &compare(
+                        arr.as_ref(),
+                        ConstantArray::new(min, arr.len()).as_ref(),
+                        Operator::Gte,
+                    )
+                    .vortex_expect(""),
+                    &compare(
+                        arr.as_ref(),
+                        ConstantArray::new(max, arr.len()).as_ref(),
+                        Operator::Lt,
+                    )
+                    .vortex_expect(""),
                 )
-                .vortex_expect(""),
-                &compare(
-                    arr.as_ref(),
-                    ConstantArray::new(max, arr.len()).as_ref(),
-                    Operator::Lt,
-                )
-                .vortex_expect(""),
-                BooleanOperator::And,
-            )
-        })
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap()
+            })
     }
 
     #[divan::bench(
@@ -251,12 +255,11 @@ mod alp {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::BooleanOperator;
     use vortex_array::compute::Operator;
-    use vortex_array::compute::boolean;
     use vortex_array::compute::compare;
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::StrictComparison::NonStrict;
+    use vortex_array::expr::and_kleene;
     use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
@@ -277,23 +280,27 @@ mod alp {
         let mut rng = StdRng::seed_from_u64(0);
         let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
 
-        bencher.with_inputs(|| &arr).bench_refs(|arr| {
-            boolean(
-                &compare(
-                    arr.as_ref(),
-                    ConstantArray::new(min, arr.len()).as_ref(),
-                    Operator::Gte,
+        bencher
+            .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
+            .bench_refs(|(arr, ctx)| {
+                and_kleene(
+                    &compare(
+                        arr.as_ref(),
+                        ConstantArray::new(min, arr.len()).as_ref(),
+                        Operator::Gte,
+                    )
+                    .vortex_expect(""),
+                    &compare(
+                        arr.as_ref(),
+                        ConstantArray::new(max, arr.len()).as_ref(),
+                        Operator::Lt,
+                    )
+                    .vortex_expect(""),
                 )
-                .vortex_expect(""),
-                &compare(
-                    arr.as_ref(),
-                    ConstantArray::new(max, arr.len()).as_ref(),
-                    Operator::Lt,
-                )
-                .vortex_expect(""),
-                BooleanOperator::And,
-            )
-        })
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap()
+            })
     }
 
     #[divan::bench(

@@ -16,7 +16,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::CastKernel;
+use crate::expr::CastKernel;
 use crate::vtable::ValidityHelper;
 
 impl CastKernel for PrimitiveVTable {
