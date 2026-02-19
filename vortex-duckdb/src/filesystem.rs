@@ -37,7 +37,6 @@ use vortex::io::runtime::BlockingRuntime;
 use crate::RUNTIME;
 use crate::cpp;
 use crate::duckdb::ClientContext;
-use crate::duckdb::OwnedClientContext;
 use crate::duckdb::OwnedFsFileHandle;
 use crate::duckdb::duckdb_fs_list_dir;
 use crate::duckdb::fs_error;
@@ -58,10 +57,11 @@ pub(super) fn resolve_filesystem(
             "Using DuckDB's built-in filesystem for URL scheme '{}'",
             base_url.scheme()
         );
-        Arc::new(DuckDbFileSystem::new(
-            base_url.clone(),
-            ctx.to_owned_handle(),
-        ))
+        // SAFETY: The ClientContext is owned by the Connection and lives for the duration of
+        // query execution. DuckDB keeps the connection alive while the filesystem is in use.
+        Arc::new(DuckDbFileSystem::new(base_url.clone(), unsafe {
+            ctx.erase_lifetime()
+        }))
     } else if fs_config.as_str() == "vortex" {
         tracing::info!(
             "Using Vortex's object store filesystem for URL scheme '{}'",
@@ -102,7 +102,7 @@ fn object_store_fs(base_url: &Url) -> VortexResult<FileSystemRef> {
 
 struct DuckDbFileSystem {
     base_url: Url,
-    ctx: OwnedClientContext,
+    ctx: &'static ClientContext,
 }
 
 impl Debug for DuckDbFileSystem {
@@ -114,7 +114,7 @@ impl Debug for DuckDbFileSystem {
 }
 
 impl DuckDbFileSystem {
-    pub fn new(base_url: Url, ctx: OwnedClientContext) -> Self {
+    pub fn new(base_url: Url, ctx: &'static ClientContext) -> Self {
         Self { base_url, ctx }
     }
 }
@@ -141,13 +141,13 @@ impl FileSystem for DuckDbFileSystem {
             directory
         );
 
-        let ctx = self.ctx.clone();
+        let ctx = self.ctx;
         let base_path = self.base_url.path().to_string();
 
         stream::once(async move {
             RUNTIME
                 .handle()
-                .spawn_blocking(move || list_recursive(&ctx, &directory, &base_path))
+                .spawn_blocking(move || list_recursive(ctx, &directory, &base_path))
                 .await
         })
         .flat_map(|result| match result {

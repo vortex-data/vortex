@@ -69,11 +69,13 @@ impl OwnedDatabase {
         let mut ptr: duckdb_database = ptr::null_mut();
         let mut error: *mut c_char = ptr::null_mut();
 
+        // duckdb_open_ext borrows the config (copies it internally), so we pass as_ptr()
+        // and let the OwnedConfig drop naturally at the end of this function.
         let result = unsafe {
             cpp::duckdb_open_ext(
                 path_cstr.as_ptr(),
                 &raw mut ptr,
-                config.into_ptr(),
+                config.as_ptr(),
                 &raw mut error,
             )
         };
@@ -104,8 +106,10 @@ impl OwnedDatabase {
         let mut ptr: duckdb_database = ptr::null_mut();
         let mut error: *mut c_char = ptr::null_mut();
 
+        // duckdb_open_ext borrows the config (copies it internally), so we pass as_ptr()
+        // and let the OwnedConfig drop naturally at the end of this function.
         let result = unsafe {
-            cpp::duckdb_open_ext(ptr::null(), &raw mut ptr, config.into_ptr(), &raw mut error)
+            cpp::duckdb_open_ext(ptr::null(), &raw mut ptr, config.as_ptr(), &raw mut error)
         };
 
         if result != cpp::duckdb_state::DuckDBSuccess {

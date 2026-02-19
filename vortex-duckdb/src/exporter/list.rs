@@ -71,8 +71,8 @@ pub(crate) fn new_exporter(
         Some(elements) => elements,
         None => {
             // We have no cached the vector yet, so create a new DuckDB vector for the elements.
-            let mut duckdb_elements =
-                OwnedVector::with_capacity(elements.dtype().try_into()?, num_elements);
+            let elements_type: OwnedLogicalType = elements.dtype().try_into()?;
+            let mut duckdb_elements = OwnedVector::with_capacity(&elements_type, num_elements);
             let elements_exporter =
                 new_array_exporter_with_flatten(elements.clone(), cache, ctx, true)?;
 

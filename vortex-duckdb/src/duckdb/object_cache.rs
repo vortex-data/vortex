@@ -6,6 +6,7 @@ use std::os::raw::c_void;
 
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
+use vortex::error::vortex_panic;
 
 use crate::cpp;
 use crate::lifetime_wrapper;
@@ -19,14 +20,20 @@ unsafe extern "C-unwind" fn rust_box_deleter<T>(ptr: *mut c_void) {
     }
 }
 
-lifetime_wrapper!(ObjectCache, cpp::duckdb_vx_object_cache, |_| {});
+lifetime_wrapper!(ObjectCache, cpp::duckdb_vx_object_cache, |_| {
+    vortex_panic!("ObjectCache is owned by the DatabaseInstance, not by Rust")
+});
 
 impl ObjectCache {
-    /// Creates an owned handle from a borrowed reference.
+    /// Erases the lifetime of this reference, returning a `&'static ObjectCache`.
     ///
-    /// This is safe because ObjectCache has a no-op destructor.
-    pub fn to_owned_handle(&self) -> OwnedObjectCache {
-        unsafe { OwnedObjectCache::own(self.as_ptr()) }
+    /// # Safety
+    ///
+    /// The caller must ensure that the underlying `ObjectCache` outlives all uses of the
+    /// returned reference. In practice, the `ObjectCache` is owned by the `DatabaseInstance`
+    /// and lives as long as the database, so this is safe as long as the database is kept alive.
+    pub unsafe fn erase_lifetime(&self) -> &'static Self {
+        unsafe { &*(self as *const Self) }
     }
 
     /// Store an entry in the object cache with the given key.
@@ -65,20 +72,6 @@ impl ObjectCache {
     }
 }
 
-// This is Send + Sync since the cache has a mutex wrapper.
+// SAFETY: Send + Sync since the cache has a mutex wrapper on the C++ side.
 unsafe impl Send for ObjectCache {}
 unsafe impl Sync for ObjectCache {}
-
-// SAFETY: OwnedObjectCache wraps the same pointer as ObjectCache. Since ObjectCache
-// is Send + Sync (due to the mutex wrapper), OwnedObjectCache is also safe to send/share.
-unsafe impl Send for OwnedObjectCache {}
-unsafe impl Sync for OwnedObjectCache {}
-
-impl Clone for OwnedObjectCache {
-    fn clone(&self) -> Self {
-        // ObjectCache is a lightweight wrapper around an opaque pointer.
-        // Cloning just creates another wrapper around the same pointer.
-        // Since the destructor is a no-op, this is safe.
-        unsafe { Self::own(self.as_ptr()) }
-    }
-}

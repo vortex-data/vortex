@@ -75,7 +75,8 @@ unique_ptr<GlobalFunctionData>
 c_init_global(ClientContext &context, FunctionData &bind_data, const string &file_path) {
     auto &bind = bind_data.Cast<CCopyBindData>();
     duckdb_vx_error error_out = nullptr;
-    auto global_data = bind.vtab.init_global(reinterpret_cast<duckdb_client_context>(&context),
+    auto global_data = bind.vtab.init_global(
+        reinterpret_cast<duckdb_client_context>(new CClientContextWrapper(context)),
                                              bind.ffi_data->DataPtr(),
                                              file_path.c_str(),
                                              &error_out);

@@ -392,7 +392,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = OwnedVector::with_capacity(logical_type, len);
+        let mut vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -413,7 +413,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
-        let mut vector = OwnedVector::with_capacity(logical_type, len);
+        let mut vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -436,7 +436,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S);
-        let mut vector = OwnedVector::with_capacity(logical_type, len);
+        let mut vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -459,7 +459,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS);
-        let mut vector = OwnedVector::with_capacity(logical_type, len);
+        let mut vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -482,7 +482,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
-        let mut vector = OwnedVector::with_capacity(logical_type, len);
+        let mut vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -521,7 +521,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
-        let mut vector = OwnedVector::with_capacity(logical_type, len);
+        let mut vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -544,7 +544,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
-        let mut vector = OwnedVector::with_capacity(logical_type, len);
+        let mut vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -567,7 +567,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN);
-        let mut vector = OwnedVector::with_capacity(logical_type, len);
+        let mut vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -588,7 +588,7 @@ mod tests {
         let len = values.len();
 
         let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = OwnedVector::with_capacity(logical_type, len);
+        let mut vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -621,7 +621,7 @@ mod tests {
         let logical_type =
             OwnedLogicalType::list_type(OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
                 .vortex_expect("LogicalType creation should succeed for test data");
-        let mut vector = OwnedVector::with_capacity(logical_type, len);
+        let mut vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -656,7 +656,7 @@ mod tests {
             4,
         )
         .vortex_expect("LogicalType creation should succeed for test data");
-        let mut vector = OwnedVector::with_capacity(logical_type, len);
+        let mut vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -681,7 +681,7 @@ mod tests {
         let len = 4;
         let logical_type = OwnedLogicalType::struct_type([], [])
             .vortex_expect("LogicalType creation should succeed for test data");
-        let vector = OwnedVector::with_capacity(logical_type, len);
+        let vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
@@ -705,7 +705,7 @@ mod tests {
             [CString::new("a").unwrap(), CString::new("b").unwrap()],
         )
         .vortex_expect("LogicalType creation should succeed for test data");
-        let mut vector = OwnedVector::with_capacity(logical_type, len);
+        let mut vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Populate with data
         for (i, values) in
@@ -744,7 +744,7 @@ mod tests {
         let logical_type =
             OwnedLogicalType::list_type(OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
                 .unwrap();
-        let mut vector = OwnedVector::with_capacity(logical_type, len);
+        let mut vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Entry 0: offset=0, length=4 -> all elements (end=4)
         // Entry 1: null, offset=0, length=0 (end=0)
@@ -793,7 +793,7 @@ mod tests {
         let logical_type =
             OwnedLogicalType::list_type(OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
                 .unwrap();
-        let mut vector = OwnedVector::with_capacity(logical_type, len);
+        let mut vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Populate with out-of-order list entries:
         // - Entry 0: offset=2, length=2 -> elements [3, 4] (end=4)
@@ -840,7 +840,7 @@ mod tests {
         let logical_type =
             OwnedLogicalType::list_type(OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
                 .unwrap();
-        let mut vector = OwnedVector::with_capacity(logical_type, len);
+        let mut vector = OwnedVector::with_capacity(&logical_type, len);
 
         // Entry 0: valid, offset=0, length=2 -> elements [1, 2]
         // Entry 1: null with garbage values (offset=9999, length=9999)

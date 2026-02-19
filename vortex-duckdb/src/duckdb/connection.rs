@@ -9,8 +9,8 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
 use crate::cpp;
+use crate::duckdb::ClientContext;
 use crate::duckdb::Database;
-use crate::duckdb::OwnedClientContext;
 use crate::duckdb::OwnedQueryResult;
 use crate::duckdb_try;
 use crate::lifetime_wrapper;
@@ -61,7 +61,7 @@ impl Connection {
     }
 
     /// Get the client context for this connection.
-    pub fn client_context(&self) -> VortexResult<OwnedClientContext> {
+    pub fn client_context(&self) -> VortexResult<&ClientContext> {
         unsafe {
             let client_context = cpp::duckdb_vx_connection_get_client_context(self.as_ptr());
             if client_context.is_null() {
@@ -70,7 +70,7 @@ impl Connection {
                     self.as_ptr()
                 )
             }
-            Ok(OwnedClientContext::own(client_context))
+            Ok(ClientContext::borrow(client_context))
         }
     }
 }

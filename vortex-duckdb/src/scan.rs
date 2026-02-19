@@ -404,7 +404,9 @@ impl TableFunction for VortexTableFunction {
         );
 
         let client_context = init_input.client_context()?;
-        let object_cache = client_context.object_cache().to_owned_handle();
+        // SAFETY: The ObjectCache is owned by the DatabaseInstance and lives as long as the
+        // database. DuckDB keeps the database alive for the duration of any query execution.
+        let object_cache = unsafe { client_context.object_cache().erase_lifetime() };
 
         let num_workers = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -421,7 +423,7 @@ impl TableFunction for VortexTableFunction {
                 let filter_expr = filter_expr.clone();
                 let projection_expr = projection_expr.clone();
                 let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
-                let object_cache = object_cache.clone();
+                let object_cache = object_cache;
 
                 handle
                     .spawn(async move {

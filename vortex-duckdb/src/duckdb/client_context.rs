@@ -14,33 +14,25 @@ lifetime_wrapper!(
     /// A DuckDB client context wrapper.
     ClientContext,
     cpp::duckdb_client_context,
-    |_| {
-        // No cleanup is necessary since the client context is owned by the connection and will
-        // be valid for the connection's lifetime.
-    }
+    cpp::duckdb_destroy_client_context
 );
 
 // SAFETY: ClientContext carries an opaque pointer. It is safe to send/share across threads
 // under the same guarantees: the underlying DuckDB context is valid for the connection
 // lifetime and DuckDB synchronizes internal state.
-unsafe impl Send for OwnedClientContext {}
-unsafe impl Sync for OwnedClientContext {}
-
-impl Clone for OwnedClientContext {
-    fn clone(&self) -> Self {
-        // ClientContext is a lightweight wrapper around an opaque pointer owned by the connection.
-        // Cloning just creates another wrapper around the same pointer.
-        // Since the destructor is a no-op, this is safe.
-        unsafe { Self::own(self.as_ptr()) }
-    }
-}
+unsafe impl Send for ClientContext {}
+unsafe impl Sync for ClientContext {}
 
 impl ClientContext {
-    /// Creates an owned handle from a borrowed reference.
+    /// Erases the lifetime of this reference, returning a `&'static ClientContext`.
     ///
-    /// This is safe because ClientContext has a no-op destructor.
-    pub fn to_owned_handle(&self) -> OwnedClientContext {
-        unsafe { OwnedClientContext::own(self.as_ptr()) }
+    /// # Safety
+    ///
+    /// The caller must ensure that the underlying `ClientContext` outlives all uses of the
+    /// returned reference. In practice, the `ClientContext` is owned by the `Connection`
+    /// and lives as long as the connection, so this is safe as long as the connection is kept alive.
+    pub unsafe fn erase_lifetime(&self) -> &'static Self {
+        unsafe { &*(self as *const Self) }
     }
 
     /// Get the object cache for this client context.

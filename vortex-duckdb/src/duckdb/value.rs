@@ -25,7 +25,6 @@ use crate::lifetime_wrapper;
 lifetime_wrapper!(Value, cpp::duckdb_value, cpp::duckdb_destroy_value);
 
 impl Value {
-    /// Note the lifetime of logical type is tied to &self
     pub fn logical_type(&self) -> &LogicalType {
         unsafe { LogicalType::borrow(cpp::duckdb_get_value_type(self.as_ptr())) }
     }

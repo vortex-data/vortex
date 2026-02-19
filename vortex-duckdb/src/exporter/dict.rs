@@ -109,8 +109,8 @@ pub(crate) fn new_exporter_with_flatten(
             Some(vector) => vector,
             None => {
                 // Create a new DuckDB vector for the values.
-                let mut vector =
-                    OwnedVector::with_capacity(values.dtype().try_into()?, values.len());
+                let values_type: OwnedLogicalType = values.dtype().try_into()?;
+                let mut vector = OwnedVector::with_capacity(&values_type, values.len());
                 new_array_exporter(values.clone(), cache, ctx)?.export(
                     0,
                     values.len(),
@@ -157,7 +157,7 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
         // dictionary.
         let new_values_vector = {
             let values_vector = self.values_vector.lock();
-            let mut new_values_vector = OwnedVector::new(values_vector.logical_type());
+            let mut new_values_vector = OwnedVector::new(&values_vector.logical_type());
             // Shares the underlying data which determines the vectors length.
             new_values_vector.reference(&values_vector);
             new_values_vector
