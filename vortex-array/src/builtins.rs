@@ -9,8 +9,6 @@
 //! This set of functions should cover the basics, and in general leans towards the semantics of
 //! the equivalent Arrow compute function.
 
-use vortex_dtype::DType;
-use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -20,6 +18,8 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArrayExt;
+use crate::dtype::DType;
+use crate::dtype::FieldName;
 use crate::expr::Between;
 use crate::expr::BetweenOptions;
 use crate::expr::Cast;

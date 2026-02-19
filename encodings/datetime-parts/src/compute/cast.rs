@@ -5,8 +5,8 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
 use vortex_array::expr::CastReduce;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::DateTimePartsArray;
@@ -41,11 +41,11 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::datetime::TimeUnit;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::datetime::TimeUnit;
 
     use crate::DateTimePartsArray;
 

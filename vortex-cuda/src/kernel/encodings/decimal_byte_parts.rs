@@ -58,10 +58,10 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DecimalDType;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_decimal_byte_parts::DecimalBytePartsArray;
-    use vortex_dtype::DecimalDType;
     use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
@@ -74,7 +74,7 @@ mod tests {
     #[case::i32_p18_s4(Buffer::from(vec![100i32, 200, 300, 400, 500]), 18, 4)]
     #[case::i64_p38_s6(Buffer::from(vec![100i64, 200, 300, 400, 500]), 38, 6)]
     #[tokio::test]
-    async fn test_decimal_byte_parts_gpu_decode<T: vortex_dtype::NativePType>(
+    async fn test_decimal_byte_parts_gpu_decode<T: vortex_array::dtype::NativePType>(
         #[case] encoded: Buffer<T>,
         #[case] precision: u8,
         #[case] scale: i8,

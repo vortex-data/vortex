@@ -13,8 +13,6 @@ use flatbuffers::root;
 use itertools::Itertools;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::TryFromBytes;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -33,6 +31,8 @@ use crate::ArrayRef;
 use crate::ArrayVisitor;
 use crate::ArrayVisitorExt;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
+use crate::dtype::TryFromBytes;
 use crate::session::ArraySessionExt;
 use crate::stats::StatsSet;
 

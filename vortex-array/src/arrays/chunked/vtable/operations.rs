@@ -23,14 +23,14 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::IntoArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(

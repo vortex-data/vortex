@@ -16,11 +16,11 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_dtype::DType;
-use vortex_dtype::Field;
-use vortex_dtype::FieldName;
-use vortex_dtype::FieldPath;
-use vortex_dtype::Nullability;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Field;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldPath;
+use vortex_array::dtype::Nullability;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -84,7 +84,7 @@ impl TableStrategy {
     ///
     /// ```ignore
     /// # use std::sync::Arc;
-    /// # use vortex_dtype::{field_path, Field, FieldPath};
+    /// # use vortex_array::dtype::{field_path, Field, FieldPath};
     /// # use vortex_layout::layouts::compressed::CompressingStrategy;
     /// # use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     /// # use vortex_layout::layouts::table::TableStrategy;
@@ -358,8 +358,8 @@ impl LayoutStrategy for TableStrategy {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::FieldPath;
-    use vortex_dtype::field_path;
+    use vortex_array::dtype::FieldPath;
+    use vortex_array::field_path;
 
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::table::TableStrategy;

@@ -3,8 +3,6 @@
 
 use std::fmt::Formatter;
 
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -13,6 +11,8 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -124,11 +124,6 @@ pub fn is_null(child: Expression) -> Expression {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Field;
-    use vortex_dtype::FieldPath;
-    use vortex_dtype::FieldPathSet;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexExpect as _;
     use vortex_utils::aliases::hash_map::HashMap;
     use vortex_utils::aliases::hash_set::HashSet;
@@ -137,6 +132,11 @@ mod tests {
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::dtype::DType;
+    use crate::dtype::Field;
+    use crate::dtype::FieldPath;
+    use crate::dtype::FieldPathSet;
+    use crate::dtype::Nullability;
     use crate::expr::exprs::binary::eq;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::get_item::get_item;

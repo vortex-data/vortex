@@ -13,11 +13,11 @@ use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::DecimalType;
 use vortex::dtype::NativeDecimalType;
-use vortex::dtype::match_each_decimal_value_type;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::mask::Mask;
+use vortex::match_each_decimal_value_type;
 
 use crate::LogicalType;
 use crate::duckdb::Vector;

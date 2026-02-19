@@ -20,9 +20,6 @@
 //! - **Edge Cases**: Tests empty arrays, single elements, and boundary conditions.
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
@@ -36,6 +33,9 @@ use crate::compute::Operator;
 use crate::compute::compare;
 use crate::compute::invert;
 use crate::compute::mask;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::expr::and_kleene;
 use crate::expr::or_kleene;
 
@@ -970,11 +970,10 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
 /// Aggregate operations on sliced arrays must produce correct results
 /// regardless of the underlying encoding's offset handling.
 fn test_slice_aggregate_consistency(array: &dyn Array) {
-    use vortex_dtype::DType;
-
     use crate::compute::min_max;
     use crate::compute::nan_count;
     use crate::compute::sum;
+    use crate::dtype::DType;
 
     let len = array.len();
     if len < 5 {

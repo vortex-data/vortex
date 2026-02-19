@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use futures::executor::block_on;
 use parking_lot::RwLock;
+use vortex_array::dtype::DType;
 use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -318,11 +318,11 @@ mod tests {
     use futures::future::BoxFuture;
     use vortex_array::IntoArray;
     use vortex_array::buffer::BufferHandle;
+    use vortex_array::dtype::session::DTypeSession;
     use vortex_array::expr::session::ExprSession;
     use vortex_array::session::ArraySession;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
-    use vortex_dtype::session::DTypeSession;
     use vortex_io::session::RuntimeSession;
     use vortex_layout::session::LayoutSession;
 

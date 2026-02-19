@@ -3,10 +3,10 @@
 
 //! Conversions for [`DecimalScalar`]s.
 
-use vortex_dtype::i256;
 use vortex_error::VortexError;
 use vortex_error::vortex_err;
 
+use crate::dtype::i256;
 use crate::scalar::DecimalScalar;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;

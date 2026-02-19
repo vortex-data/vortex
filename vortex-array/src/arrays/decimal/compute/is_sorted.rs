@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -12,6 +10,8 @@ use crate::arrays::DecimalVTable;
 use crate::compute::IsSortedIteratorExt;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;
+use crate::dtype::NativeDecimalType;
+use crate::match_each_decimal_value_type;
 use crate::register_kernel;
 
 impl IsSortedKernel for DecimalVTable {
@@ -70,11 +70,11 @@ mod tests {
     use arrow_array::types::Decimal128Type;
     use arrow_cast::parse::parse_decimal;
     use vortex_buffer::buffer;
-    use vortex_dtype::DecimalDType;
 
     use crate::arrays::DecimalArray;
     use crate::compute::is_sorted;
     use crate::compute::is_strict_sorted;
+    use crate::dtype::DecimalDType;
     use crate::validity::Validity;
 
     #[test]

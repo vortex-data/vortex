@@ -30,8 +30,8 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_array::dtype::datetime::TimeUnit;
     use vortex_buffer::buffer;
-    use vortex_dtype::datetime::TimeUnit;
 
     use crate::DateTimePartsArray;
 

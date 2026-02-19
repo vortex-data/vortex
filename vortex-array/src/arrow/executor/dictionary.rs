@@ -144,8 +144,6 @@ mod tests {
     use arrow_schema::DataType;
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::Nullable;
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
@@ -155,6 +153,8 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrow::ArrowArrayExecutor;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::Nullable;
     use crate::executor::VortexSessionExecute;
     use crate::scalar::Scalar;
 

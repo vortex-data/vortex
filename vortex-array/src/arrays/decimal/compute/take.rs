@@ -2,10 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::Buffer;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
 use crate::Array;
@@ -14,7 +10,11 @@ use crate::ToCanonical;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
 use crate::arrays::TakeExecute;
+use crate::dtype::IntegerPType;
+use crate::dtype::NativeDecimalType;
 use crate::executor::ExecutionCtx;
+use crate::match_each_decimal_value_type;
+use crate::match_each_integer_ptype;
 use crate::vtable::ValidityHelper;
 
 impl TakeExecute for DecimalVTable {
@@ -52,13 +52,13 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DecimalDType;
 
     use crate::IntoArray;
     use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::dtype::DecimalDType;
     use crate::validity::Validity;
 
     #[test]

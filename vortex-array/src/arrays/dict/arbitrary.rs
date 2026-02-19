@@ -6,10 +6,6 @@ use arbitrary::Result;
 use arbitrary::Unstructured;
 use num_traits::NumCast;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_error::VortexExpect;
 
 use super::DictArray;
@@ -18,6 +14,10 @@ use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::arbitrary::ArbitraryArray;
 use crate::arrays::arbitrary::random_validity;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
 
 /// A wrapper type to implement `Arbitrary` for `DictArray`.
 #[derive(Clone, Debug)]

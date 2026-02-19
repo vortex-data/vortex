@@ -9,12 +9,12 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Deref;
 
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 
 use crate::ArrayRef;
+use crate::dtype::DType;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;

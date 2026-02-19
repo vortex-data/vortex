@@ -8,13 +8,13 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::NativeDType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
 use vortex_array::expr::BetweenOptions;
 use vortex_array::expr::BetweenReduce;
 use vortex_array::expr::StrictComparison;
 use vortex_array::scalar::Scalar;
-use vortex_dtype::NativeDType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
@@ -97,9 +97,9 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::Nullability;
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::StrictComparison;
-    use vortex_dtype::Nullability;
 
     use crate::ALPArray;
     use crate::alp::compute::between::between_impl;

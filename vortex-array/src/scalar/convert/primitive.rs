@@ -3,16 +3,16 @@
 
 //! Conversions for [`PrimitiveScalar`]s.
 
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::half::f16;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::dtype::DType;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::dtype::half::f16;
 use crate::scalar::PValue;
 use crate::scalar::PrimitiveScalar;
 use crate::scalar::Scalar;

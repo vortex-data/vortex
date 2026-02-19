@@ -7,9 +7,9 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::NativePType;
 
 pub use crate::arrays::BinaryView;
+use crate::dtype::NativePType;
 
 /// Convert an offsets buffer to a buffer of element lengths.
 #[inline]

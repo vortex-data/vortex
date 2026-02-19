@@ -42,14 +42,14 @@ impl MaskKernel for ChunkedVTable {
 mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::IntoArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::mask::test_mask_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
 
     #[rstest]
     #[case(ChunkedArray::try_new(

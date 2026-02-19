@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -13,6 +11,8 @@ use crate::arrays::VarBinVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
+use crate::dtype::DType;
+use crate::dtype::Nullability::NonNullable;
 use crate::register_kernel;
 use crate::scalar::Scalar;
 
@@ -62,13 +62,13 @@ fn make_scalar(dtype: &DType, value: &[u8]) -> Scalar {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::BufferString;
-    use vortex_dtype::DType::Utf8;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::Nullability::Nullable;
 
     use crate::arrays::VarBinArray;
     use crate::compute::MinMaxResult;
     use crate::compute::min_max;
+    use crate::dtype::DType::Utf8;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::Nullability::Nullable;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
     use crate::scalar::Scalar;

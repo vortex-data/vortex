@@ -56,8 +56,8 @@ pub fn initialize(session: &mut VortexSession) {
 #[cfg(test)]
 mod tests {
     use vortex_array::ProstMetadata;
+    use vortex_array::dtype::PType;
     use vortex_array::test_harness::check_metadata;
-    use vortex_dtype::PType;
 
     use crate::RunEndMetadata;
 

@@ -7,18 +7,18 @@
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::DType;
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::ExtID;
-    use vortex_dtype::FieldDType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::StructFields;
-    use vortex_dtype::extension::ExtDTypeVTable;
-    use vortex_dtype::half::f16;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
+    use crate::dtype::DType;
+    use crate::dtype::ExtDType;
+    use crate::dtype::ExtID;
+    use crate::dtype::FieldDType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
+    use crate::dtype::extension::ExtDTypeVTable;
+    use crate::dtype::half::f16;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;

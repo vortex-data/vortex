@@ -10,13 +10,13 @@ pub fn vortex_alp::ALPArray::encoded(&self) -> &vortex_array::array::ArrayRef
 
 pub fn vortex_alp::ALPArray::exponents(&self) -> vortex_alp::Exponents
 
-pub fn vortex_alp::ALPArray::into_parts(self) -> (vortex_array::array::ArrayRef, vortex_alp::Exponents, core::option::Option<vortex_array::patches::Patches>, vortex_dtype::dtype::DType)
+pub fn vortex_alp::ALPArray::into_parts(self) -> (vortex_array::array::ArrayRef, vortex_alp::Exponents, core::option::Option<vortex_array::patches::Patches>, vortex_array::dtype::DType)
 
 pub fn vortex_alp::ALPArray::new(encoded: vortex_array::array::ArrayRef, exponents: vortex_alp::Exponents, patches: core::option::Option<vortex_array::patches::Patches>) -> Self
 
 pub fn vortex_alp::ALPArray::patches(&self) -> core::option::Option<&vortex_array::patches::Patches>
 
-pub fn vortex_alp::ALPArray::ptype(&self) -> vortex_dtype::ptype::PType
+pub fn vortex_alp::ALPArray::ptype(&self) -> vortex_array::dtype::ptype::PType
 
 pub fn vortex_alp::ALPArray::try_new(encoded: vortex_array::array::ArrayRef, exponents: vortex_alp::Exponents, patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_error::VortexResult<Self>
 
@@ -84,7 +84,7 @@ pub fn vortex_alp::ALPRDArray::right_bit_width(&self) -> u8
 
 pub fn vortex_alp::ALPRDArray::right_parts(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_alp::ALPRDArray::try_new(dtype: vortex_dtype::dtype::DType, left_parts: vortex_array::array::ArrayRef, left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>, right_parts: vortex_array::array::ArrayRef, right_bit_width: u8, left_parts_patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_error::VortexResult<Self>
+pub fn vortex_alp::ALPRDArray::try_new(dtype: vortex_array::dtype::DType, left_parts: vortex_array::array::ArrayRef, left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>, right_parts: vortex_array::array::ArrayRef, right_bit_width: u8, left_parts_patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_alp::ALPRDArray
 
@@ -116,9 +116,9 @@ pub struct vortex_alp::ALPRDMetadata
 
 impl vortex_alp::ALPRDMetadata
 
-pub fn vortex_alp::ALPRDMetadata::left_parts_ptype(&self) -> vortex_dtype::ptype::PType
+pub fn vortex_alp::ALPRDMetadata::left_parts_ptype(&self) -> vortex_array::dtype::ptype::PType
 
-pub fn vortex_alp::ALPRDMetadata::set_left_parts_ptype(&mut self, value: vortex_dtype::ptype::PType)
+pub fn vortex_alp::ALPRDMetadata::set_left_parts_ptype(&mut self, value: vortex_array::dtype::ptype::PType)
 
 impl core::clone::Clone for vortex_alp::ALPRDMetadata
 
@@ -162,7 +162,7 @@ pub fn vortex_alp::ALPRDVTable::slice(array: &Self::Array, range: core::ops::ran
 
 impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_alp::ALPRDVTable
 
-pub fn vortex_alp::ALPRDVTable::cast(array: &vortex_alp::ALPRDArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_alp::ALPRDVTable::cast(array: &vortex_alp::ALPRDArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::expr::exprs::mask::kernel::MaskReduce for vortex_alp::ALPRDVTable
 
@@ -182,9 +182,9 @@ pub type vortex_alp::ALPRDVTable::ValidityVTable = vortex_array::vtable::validit
 
 pub type vortex_alp::ALPRDVTable::VisitorVTable = vortex_alp::ALPRDVTable
 
-pub fn vortex_alp::ALPRDVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_alp::ALPRDArray>
+pub fn vortex_alp::ALPRDVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_alp::ALPRDArray>
 
-pub fn vortex_alp::ALPRDVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_alp::ALPRDVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_alp::ALPRDVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
@@ -206,7 +206,7 @@ pub fn vortex_alp::ALPRDVTable::array_eq(array: &vortex_alp::ALPRDArray, other: 
 
 pub fn vortex_alp::ALPRDVTable::array_hash<H: core::hash::Hasher>(array: &vortex_alp::ALPRDArray, state: &mut H, precision: vortex_array::hash::Precision)
 
-pub fn vortex_alp::ALPRDVTable::dtype(array: &vortex_alp::ALPRDArray) -> &vortex_dtype::dtype::DType
+pub fn vortex_alp::ALPRDVTable::dtype(array: &vortex_alp::ALPRDArray) -> &vortex_array::dtype::DType
 
 pub fn vortex_alp::ALPRDVTable::len(array: &vortex_alp::ALPRDArray) -> usize
 
@@ -266,7 +266,7 @@ pub fn vortex_alp::ALPVTable::compare(lhs: &vortex_alp::ALPArray, rhs: &dyn vort
 
 impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_alp::ALPVTable
 
-pub fn vortex_alp::ALPVTable::cast(array: &vortex_alp::ALPArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_alp::ALPVTable::cast(array: &vortex_alp::ALPArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::expr::exprs::mask::kernel::MaskKernel for vortex_alp::ALPVTable
 
@@ -290,9 +290,9 @@ pub type vortex_alp::ALPVTable::ValidityVTable = vortex_array::vtable::validity:
 
 pub type vortex_alp::ALPVTable::VisitorVTable = vortex_alp::ALPVTable
 
-pub fn vortex_alp::ALPVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_alp::ALPArray>
+pub fn vortex_alp::ALPVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_alp::ALPArray>
 
-pub fn vortex_alp::ALPVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_alp::ALPVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_alp::ALPVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
@@ -314,7 +314,7 @@ pub fn vortex_alp::ALPVTable::array_eq(array: &vortex_alp::ALPArray, other: &vor
 
 pub fn vortex_alp::ALPVTable::array_hash<H: core::hash::Hasher>(array: &vortex_alp::ALPArray, state: &mut H, precision: vortex_array::hash::Precision)
 
-pub fn vortex_alp::ALPVTable::dtype(array: &vortex_alp::ALPArray) -> &vortex_dtype::dtype::DType
+pub fn vortex_alp::ALPVTable::dtype(array: &vortex_alp::ALPArray) -> &vortex_array::dtype::DType
 
 pub fn vortex_alp::ALPVTable::len(array: &vortex_alp::ALPArray) -> usize
 
@@ -378,11 +378,11 @@ pub fn vortex_alp::RDEncoder::encode(&self, array: &vortex_array::arrays::primit
 
 pub fn vortex_alp::RDEncoder::from_parts(right_bit_width: u8, codes: alloc::vec::Vec<u16>) -> Self
 
-pub fn vortex_alp::RDEncoder::new<T>(sample: &[T]) -> Self where T: vortex_alp::ALPRDFloat + vortex_dtype::ptype::NativePType, <T as vortex_alp::ALPRDFloat>::UINT: vortex_dtype::ptype::NativePType
+pub fn vortex_alp::RDEncoder::new<T>(sample: &[T]) -> Self where T: vortex_alp::ALPRDFloat + vortex_array::dtype::ptype::NativePType, <T as vortex_alp::ALPRDFloat>::UINT: vortex_array::dtype::ptype::NativePType
 
-pub trait vortex_alp::ALPFloat: vortex_alp::alp::private::Sealed + num_traits::float::Float + core::fmt::Display + vortex_dtype::ptype::NativePType
+pub trait vortex_alp::ALPFloat: vortex_alp::alp::private::Sealed + num_traits::float::Float + core::fmt::Display + vortex_array::dtype::ptype::NativePType
 
-pub type vortex_alp::ALPFloat::ALPInt: num_traits::int::PrimInt + core::fmt::Display + num_traits::cast::ToPrimitive + core::marker::Copy + vortex_dtype::ptype::NativePType + core::convert::Into<vortex_array::scalar::typed_view::primitive::pvalue::PValue>
+pub type vortex_alp::ALPFloat::ALPInt: num_traits::int::PrimInt + core::fmt::Display + num_traits::cast::ToPrimitive + core::marker::Copy + vortex_array::dtype::ptype::NativePType + core::convert::Into<vortex_array::scalar::typed_view::primitive::pvalue::PValue>
 
 pub const vortex_alp::ALPFloat::F10: &'static [Self]
 
@@ -460,9 +460,9 @@ pub fn f64::as_int(self) -> Self::ALPInt
 
 pub fn f64::from_int(n: Self::ALPInt) -> Self
 
-pub trait vortex_alp::ALPRDFloat: vortex_alp::alp_rd::private::Sealed + num_traits::float::Float + core::marker::Copy + vortex_dtype::ptype::NativePType
+pub trait vortex_alp::ALPRDFloat: vortex_alp::alp_rd::private::Sealed + num_traits::float::Float + core::marker::Copy + vortex_array::dtype::ptype::NativePType
 
-pub type vortex_alp::ALPRDFloat::UINT: vortex_dtype::ptype::NativePType + num_traits::int::PrimInt + num_traits::identities::One + core::marker::Copy
+pub type vortex_alp::ALPRDFloat::UINT: vortex_array::dtype::ptype::NativePType + num_traits::int::PrimInt + num_traits::identities::One + core::marker::Copy
 
 pub const vortex_alp::ALPRDFloat::BITS: usize
 

@@ -2,10 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalType;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -15,7 +11,11 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
+use crate::dtype::DType;
+use crate::dtype::DecimalType;
+use crate::dtype::NativeDecimalType;
 use crate::expr::CastKernel;
+use crate::match_each_decimal_value_type;
 use crate::vtable::ValidityHelper;
 
 impl CastKernel for DecimalVTable {
@@ -143,10 +143,6 @@ fn upcast_decimal_buffer<F: NativeDecimalType, T: NativeDecimalType>(from: Buffe
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::DecimalType;
-    use vortex_dtype::Nullability;
 
     use super::upcast_decimal_values;
     use crate::IntoArray;
@@ -154,6 +150,10 @@ mod tests {
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::DecimalType;
+    use crate::dtype::Nullability;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 

@@ -6,10 +6,10 @@ use std::task::Poll;
 
 use futures::Stream;
 use pin_project_lite::pin_project;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::dtype::DType;
 use crate::stream::ArrayStream;
 
 pin_project! {

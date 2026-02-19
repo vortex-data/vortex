@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::ExactScalarFn;
 use crate::arrays::ScalarFnArrayView;
+use crate::dtype::DType;
 use crate::expr::Cast;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;

@@ -8,10 +8,6 @@ use num_traits::ToPrimitive;
 use prost::Message;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::PType;
-use vortex_dtype::half::f16;
-use vortex_dtype::i256;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -22,6 +18,10 @@ use vortex_proto::scalar::ListValue;
 use vortex_proto::scalar::scalar_value::Kind;
 use vortex_session::VortexSession;
 
+use crate::dtype::DType;
+use crate::dtype::PType;
+use crate::dtype::half::f16;
+use crate::dtype::i256;
 use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
@@ -421,16 +421,16 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::BufferString;
-    use vortex_dtype::DType;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::half::f16;
     use vortex_error::vortex_panic;
     use vortex_proto::scalar as pb;
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::half::f16;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;

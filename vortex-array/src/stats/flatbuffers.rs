@@ -3,14 +3,14 @@
 
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::WIPOffset;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::array as fba;
 
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::scalar::ScalarValue;

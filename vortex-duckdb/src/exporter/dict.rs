@@ -17,9 +17,9 @@ use vortex::array::arrays::ConstantVTable;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::dtype::IntegerPType;
-use vortex::dtype::match_each_integer_ptype;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
+use vortex::match_each_integer_ptype;
 
 use crate::duckdb::LogicalType;
 use crate::duckdb::SelectionVector;

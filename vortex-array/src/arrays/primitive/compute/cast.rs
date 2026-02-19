@@ -3,9 +3,6 @@
 
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
@@ -16,7 +13,10 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
 use crate::expr::CastKernel;
+use crate::match_each_native_ptype;
 use crate::vtable::ValidityHelper;
 
 impl CastKernel for PrimitiveVTable {
@@ -100,9 +100,6 @@ mod test {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexError;
     use vortex_mask::Mask;
 
@@ -112,6 +109,9 @@ mod test {
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 

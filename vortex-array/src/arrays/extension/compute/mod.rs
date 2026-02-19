@@ -17,16 +17,16 @@ mod take;
 mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::datetime::Date;
-    use vortex_dtype::datetime::TimeUnit;
-    use vortex_dtype::datetime::Timestamp;
 
     use crate::IntoArray;
     use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::dtype::Nullability;
+    use crate::dtype::datetime::Date;
+    use crate::dtype::datetime::TimeUnit;
+    use crate::dtype::datetime::Timestamp;
 
     #[test]
     fn test_filter_extension_array() {
@@ -89,14 +89,14 @@ mod test {
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::datetime::TimeUnit;
-    use vortex_dtype::datetime::Timestamp;
 
     use crate::IntoArray;
     use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::dtype::Nullability;
+    use crate::dtype::datetime::TimeUnit;
+    use crate::dtype::datetime::Timestamp;
 
     #[rstest]
     // Note: The original test_all_consistency cases for extension arrays caused errors

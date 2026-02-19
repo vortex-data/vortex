@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -9,6 +8,7 @@ use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
 use crate::expr::CastReduce;
 
 impl CastReduce for ChunkedVTable {
@@ -31,9 +31,6 @@ impl CastReduce for ChunkedVTable {
 mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
@@ -41,6 +38,9 @@ mod test {
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
 
     #[test]
     fn test_cast_chunked() {

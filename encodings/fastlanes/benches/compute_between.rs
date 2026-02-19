@@ -12,7 +12,7 @@ use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
-use vortex_dtype::NativePType;
+use vortex_array::dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 
@@ -74,10 +74,10 @@ mod primitive {
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
+    use vortex_array::dtype::NativePType;
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::StrictComparison::NonStrict;
     use vortex_array::expr::and_kleene;
-    use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
@@ -165,10 +165,10 @@ mod bitpack {
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
+    use vortex_array::dtype::NativePType;
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::StrictComparison::NonStrict;
     use vortex_array::expr::and_kleene;
-    use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
@@ -257,10 +257,10 @@ mod alp {
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
+    use vortex_array::dtype::NativePType;
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::StrictComparison::NonStrict;
     use vortex_array::expr::and_kleene;
-    use vortex_dtype::NativePType;
     use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;

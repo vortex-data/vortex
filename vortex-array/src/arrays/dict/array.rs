@@ -2,9 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::PType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -13,6 +10,9 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::PType;
+use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 
 #[derive(Clone, prost::Message)]
@@ -236,11 +236,6 @@ mod test {
     use rand::prelude::StdRng;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::NativePType;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType;
-    use vortex_dtype::UnsignedPType;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_panic;
@@ -257,6 +252,11 @@ mod test {
     use crate::arrays::dict::DictArray;
     use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity;
+    use crate::dtype::DType;
+    use crate::dtype::NativePType;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::PType;
+    use crate::dtype::UnsignedPType;
     use crate::validity::Validity;
 
     #[test]

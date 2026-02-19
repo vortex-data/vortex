@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::dtype::DType;
 
 /// Cast an array to the given data type.
 ///

@@ -10,9 +10,9 @@ use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builders::VarBinViewBuilder;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 
 fn main() {

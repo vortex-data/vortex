@@ -5,11 +5,11 @@
 
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
+use crate::dtype::Nullability;
 use crate::scalar::Scalar;
 use crate::scalar::StringLike;
 
@@ -156,8 +156,8 @@ mod tests {
     use vortex_buffer::BufferString;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
 
+    use crate::dtype::Nullability;
     use crate::scalar::truncation::ScalarTruncation;
     use crate::scalar::truncation::lower_bound;
     use crate::scalar::truncation::upper_bound;

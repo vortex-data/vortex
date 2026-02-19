@@ -52,12 +52,12 @@ mod tests {
     use vortex_array::Array;
     use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType::I32;
     use vortex_array::expr::list_contains;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType::I32;
 
     use crate::SequenceArray;
 

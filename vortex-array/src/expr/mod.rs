@@ -15,10 +15,10 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use arcref::ArcRef;
-use vortex_dtype::FieldName;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::dtype::FieldName;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::ReferenceCollector;
 
@@ -105,10 +105,10 @@ impl Hash for ExactExpr {
 
 #[cfg(feature = "_test-harness")]
 pub mod test_harness {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::StructFields;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
 
     pub fn struct_dtype() -> DType {
         DType::Struct(
@@ -129,13 +129,12 @@ pub mod test_harness {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::StructFields;
-
     use super::*;
+    use crate::dtype::DType;
+    use crate::dtype::FieldNames;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::expr::exprs::binary::and;
     use crate::expr::exprs::binary::eq;
     use crate::expr::exprs::binary::gt;

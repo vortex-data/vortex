@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::Nullability;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 
+use crate::dtype::Nullability;
+use crate::dtype::StructFields;
 use crate::expr::Expression;
 use crate::expr::exprs::get_item::col;
 use crate::expr::exprs::pack::pack;
@@ -48,9 +48,8 @@ pub fn replace_root_fields(expr: Expression, fields: &StructFields) -> Expressio
 
 #[cfg(test)]
 mod test {
-    use vortex_dtype::Nullability::NonNullable;
-
     use super::replace;
+    use crate::dtype::Nullability::NonNullable;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::pack::pack;

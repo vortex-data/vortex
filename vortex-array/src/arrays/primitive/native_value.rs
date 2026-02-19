@@ -3,8 +3,8 @@
 
 use std::cmp::Ordering;
 
-use vortex_dtype::NativePType;
-use vortex_dtype::half;
+use crate::dtype::NativePType;
+use crate::dtype::half;
 
 /// NativeValue serves as a wrapper type to allow us to implement Hash, Eq and other traits on all primitive types.
 ///

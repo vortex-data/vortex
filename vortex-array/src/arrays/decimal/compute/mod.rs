@@ -16,10 +16,10 @@ mod take;
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DecimalDType;
 
     use crate::arrays::DecimalArray;
     use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::dtype::DecimalDType;
     use crate::validity::Validity;
 
     #[rstest]

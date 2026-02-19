@@ -12,8 +12,9 @@ mod round_trip;
 
 use std::sync::LazyLock;
 
-use vortex_dtype::session::DTypeSession;
 use vortex_session::VortexSession;
+
+use crate::dtype::session::DTypeSession;
 
 pub(crate) static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<DTypeSession>());

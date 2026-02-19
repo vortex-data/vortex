@@ -3,15 +3,15 @@
 
 use std::ops::Range;
 
-use vortex_dtype::IntegerPType;
-use vortex_dtype::NativePType;
-use vortex_dtype::UnsignedPType;
-use vortex_dtype::match_each_integer_ptype;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::arrays::PrimitiveArray;
+use crate::dtype::IntegerPType;
+use crate::dtype::NativePType;
+use crate::dtype::UnsignedPType;
+use crate::match_each_integer_ptype;
+use crate::match_each_native_ptype;
 use crate::patches::PATCH_CHUNK_SIZE;
 use crate::patches::Patches;
 use crate::validity::Validity;

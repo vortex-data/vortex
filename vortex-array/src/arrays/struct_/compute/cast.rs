@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -13,6 +12,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
 use crate::expr::CastKernel;
 use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
@@ -93,11 +93,6 @@ impl CastKernel for StructVTable {
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::Array;
     use crate::IntoArray;
@@ -107,6 +102,11 @@ mod tests {
     use crate::arrays::VarBinArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::FieldNames;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
 
     #[rstest]

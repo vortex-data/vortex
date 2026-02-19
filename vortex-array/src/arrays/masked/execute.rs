@@ -5,8 +5,6 @@
 
 use std::ops::BitAnd;
 
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -21,7 +19,9 @@ use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
+use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
+use crate::match_each_decimal_value_type;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -12,6 +11,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::SliceReduceAdaptor;
 use crate::expr::MaskReduceAdaptor;
+use crate::match_each_native_ptype;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;

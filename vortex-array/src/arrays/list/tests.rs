@@ -5,9 +5,6 @@ use std::sync::Arc;
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType::I32;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -23,6 +20,9 @@ use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType::I32;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 

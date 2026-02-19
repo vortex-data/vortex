@@ -4,8 +4,8 @@
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
 use vortex_array::expr::CastReduce;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::rle::RLEArray;
@@ -48,11 +48,11 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::rle::RLEArray;
 

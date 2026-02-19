@@ -19,10 +19,10 @@ use vortex_array::arrays::list_from_list_view;
 use vortex_array::compute::Cost;
 use vortex_array::compute::IsConstantOpts;
 use vortex_array::compute::is_constant_opts;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::datetime::TemporalMetadata;
 use vortex_array::vtable::ValidityHelper;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::datetime::TemporalMetadata;
 use vortex_error::VortexResult;
 
 use crate::BtrBlocksCompressorBuilder;

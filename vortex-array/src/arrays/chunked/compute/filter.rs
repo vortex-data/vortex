@@ -203,10 +203,6 @@ pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> VortexResult<(us
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::half::f16;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
@@ -214,6 +210,10 @@ mod test {
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::half::f16;
 
     #[test]
     fn filter_chunked_floats() {

@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -12,6 +10,8 @@ use crate::arrays::PrimitiveVTable;
 use crate::compute::IsSortedIteratorExt;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;
+use crate::dtype::NativePType;
+use crate::match_each_native_ptype;
 use crate::register_kernel;
 
 impl IsSortedKernel for PrimitiveVTable {

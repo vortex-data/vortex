@@ -30,11 +30,10 @@ impl MaskReduce for VarBinVTable {
 
 #[cfg(test)]
 mod test {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-
     use crate::arrays::VarBinArray;
     use crate::compute::conformance::mask::test_mask_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
 
     #[test]
     fn test_mask_var_bin_array() {

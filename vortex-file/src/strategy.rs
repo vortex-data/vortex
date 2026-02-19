@@ -25,6 +25,7 @@ use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::arrays::StructVTable;
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::arrays::VarBinViewVTable;
+use vortex_array::dtype::FieldPath;
 use vortex_array::session::ArrayRegistry;
 #[cfg(feature = "zstd")]
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
@@ -37,7 +38,6 @@ use vortex_btrblocks::StringCode;
 use vortex_bytebool::ByteBoolVTable;
 use vortex_datetime_parts::DateTimePartsVTable;
 use vortex_decimal_byte_parts::DecimalBytePartsVTable;
-use vortex_dtype::FieldPath;
 use vortex_fastlanes::BitPackedVTable;
 use vortex_fastlanes::DeltaVTable;
 use vortex_fastlanes::FoRVTable;
