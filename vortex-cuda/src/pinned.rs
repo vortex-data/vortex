@@ -235,9 +235,39 @@ impl PinnedByteBufferPool {
                 return Ok(buf);
             }
         }
-        // Allocate outside the lock — cuMemAllocHost is an expensive syscall.
+
+        // Miss — allocate a batch outside the lock to warm the pool for other callers.
+        // cuMemAllocHost is an expensive syscall so we amortize it here: one call site
+        // pays the cost of N allocations, while N-1 concurrent callers get instant hits.
         self.misses
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        let headroom = {
+            let buckets = self.buckets.lock();
+            let cached = buckets.get(&key_len).map_or(0, |b| b.len());
+            self.max_keep_per_size.saturating_sub(cached)
+        };
+
+        let mut extras = Vec::new();
+        for _ in 0..headroom {
+            match unsafe { PinnedByteBuffer::uninit_with_capacity(&self.ctx, key_len, len) } {
+                Ok(buf) => extras.push(buf),
+                Err(_) => break,
+            }
+        }
+
+        if !extras.is_empty() {
+            self.allocs
+                .fetch_add(extras.len() as u64, std::sync::atomic::Ordering::Relaxed);
+            let mut buckets = self.buckets.lock();
+            let bucket = buckets.entry(key_len).or_default();
+            for buf in extras {
+                if bucket.len() < self.max_keep_per_size {
+                    bucket.push(buf);
+                }
+            }
+        }
+
         self.allocs
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         unsafe { PinnedByteBuffer::uninit_with_capacity(&self.ctx, key_len, len) }
