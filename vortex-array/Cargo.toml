@@ -166,5 +166,9 @@ harness = false
 name = "take_fsl"
 harness = false
 
+[[bench]]
+name = "listview_rebuild"
+harness = false
+
 [package.metadata.cargo-machete]
 ignored = ["getrandom_v03"]
