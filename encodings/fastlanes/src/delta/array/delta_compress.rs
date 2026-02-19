@@ -446,4 +446,122 @@ mod tests {
         );
         Ok(())
     }
+
+    /// Demonstrates the concrete validity/transpose mismatch by showing that
+    /// specific positions in the deltas child have null flags that belong to
+    /// different original elements than the data stored there.
+    ///
+    /// For u32 (32 lanes), transpose maps original positions to buffer positions
+    /// via the FastLanes formula. E.g. `output[1] = input[transpose(1)]` where
+    /// `transpose(1) = 64`. So buffer position 1 holds data from original
+    /// position 64, but the validity bit at position 1 corresponds to original
+    /// position 1.
+    ///
+    /// If original position 1 is null but position 64 is not, the deltas child
+    /// at buffer position 1 has non-null data (from position 64) with a null
+    /// validity flag (from position 1). Filtering non-null values from the
+    /// child would incorrectly discard the data for original position 64.
+    #[test]
+    fn test_delta_nullable_transpose_validity_position_mismatch() -> VortexResult<()> {
+        // Use the fastlanes transpose function to compute exact position mappings.
+        // For u32: transpose(idx) gives the original-order position whose value
+        // ends up at buffer position `idx` in the transposed output.
+        //
+        // transpose(1) = 64 for u32.
+        // So buffer position 1 holds data from original position 64.
+        // Make original position 1 null, original position 64 non-null.
+        let n = 1024u32;
+        let values: Buffer<u32> = (0..n).collect();
+        let validity = Validity::from_iter((0..n).map(|i| {
+            // null only at position 1
+            i != 1
+        }));
+        let input = PrimitiveArray::new(values, validity);
+        let delta = DeltaArray::try_from_primitive_array(&input)?;
+
+        // The deltas child: data in transposed order, validity in original order.
+        let deltas_child = delta.deltas().to_primitive();
+
+        // Buffer position 1:
+        //   - DATA comes from original position transpose(1) = 64 (non-null)
+        //   - VALIDITY comes from original position 1 (null)
+        // So the child reports position 1 as null, but the data there belongs
+        // to a non-null original element (position 64).
+        let child_scalar_1 = deltas_child.scalar_at(1)?;
+        assert!(
+            child_scalar_1.is_null(),
+            "deltas child position 1 should report null (from original pos 1's validity), \
+             even though the data there is from original position 64 (which is non-null)"
+        );
+
+        // The DeltaArray itself correctly reports position 1 as null.
+        let delta_arr = delta.into_array();
+        let delta_scalar_1 = delta_arr.scalar_at(1)?;
+        assert!(
+            delta_scalar_1.is_null(),
+            "DeltaArray position 1 should be null (original position 1 was null)"
+        );
+
+        // Position 64 in the DeltaArray is non-null.
+        let delta_scalar_64 = delta_arr.scalar_at(64)?;
+        assert!(
+            !delta_scalar_64.is_null(),
+            "DeltaArray position 64 should be non-null"
+        );
+        let val_64: u32 = delta_scalar_64.as_primitive().typed_value().unwrap();
+        assert_eq!(val_64, 64, "DeltaArray position 64 should have value 64");
+
+        // Now demonstrate the harm: if we naively filter the deltas child to
+        // keep only non-null positions, we'd drop buffer position 1 (which
+        // holds the delta for original position 64). This is wrong—original
+        // position 64 is valid and should be kept.
+        //
+        // Count how many positions have mismatched null status between the
+        // transposed data's "true" source and the validity flag at that position.
+        let child_validity_mask = deltas_child.validity_mask()?;
+        let mut false_nulls = 0usize; // non-null data flagged as null
+        let mut false_valids = 0usize; // null data flagged as valid
+
+        // FL_ORDER is the 3-bit reversal permutation used by FastLanes.
+        const FL_ORDER: [usize; 8] = [0, 4, 2, 6, 1, 5, 3, 7];
+
+        for buf_pos in 0..1024usize {
+            // The FastLanes transpose formula: for output[i] = input[transpose(i)],
+            // the data at buffer position buf_pos came from this original position.
+            let lane = buf_pos % 16;
+            let order = (buf_pos / 16) % 8;
+            let row = buf_pos / 128;
+            let source_original_pos = (lane * 64) + (FL_ORDER[order] * 8) + row;
+
+            let source_is_null = source_original_pos == 1; // only position 1 is null
+            let validity_says_null = !child_validity_mask.value(buf_pos);
+
+            if source_is_null && !validity_says_null {
+                false_valids += 1;
+            }
+            if !source_is_null && validity_says_null {
+                false_nulls += 1;
+            }
+        }
+
+        // Exactly 1 position has null data that the validity says is valid:
+        // the buffer position where transpose(buf_pos) == 1, i.e., the position
+        // that holds original position 1's data.
+        assert_eq!(
+            false_valids, 1,
+            "expected exactly 1 null-data-flagged-as-valid (original pos 1's data \
+             landed at some buffer position whose validity says 'valid')"
+        );
+
+        // Exactly 1 position has non-null data that the validity says is null:
+        // buffer position 1, which holds data from original position 64 but
+        // has original position 1's null flag.
+        assert_eq!(
+            false_nulls, 1,
+            "expected exactly 1 non-null-data-flagged-as-null (buffer pos 1 holds \
+             data from original pos 64 but validity from original pos 1)"
+        );
+
+        Ok(())
+    }
 }
