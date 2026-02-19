@@ -11,11 +11,11 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::build_views::BinaryView;
 use vortex_array::arrays::build_views::MAX_BUFFER_LEN;
 use vortex_array::arrays::build_views::build_views;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;
@@ -100,9 +100,9 @@ mod tests {
     use vortex_array::arrays::VarBinArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::session::ArraySession;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 

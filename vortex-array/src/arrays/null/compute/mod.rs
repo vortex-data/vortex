@@ -13,7 +13,6 @@ mod take;
 mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
@@ -23,6 +22,7 @@ mod test {
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::dtype::DType;
 
     #[test]
     fn test_slice_nulls() {

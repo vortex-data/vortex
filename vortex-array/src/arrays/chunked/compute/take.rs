@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -17,6 +15,8 @@ use crate::arrays::TakeExecute;
 use crate::arrays::chunked::ChunkedArray;
 use crate::builtins::ArrayBuiltins;
 use crate::canonical::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 
@@ -116,8 +116,6 @@ impl TakeExecute for ChunkedVTable {
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
@@ -129,6 +127,8 @@ mod test {
     use crate::arrays::chunked::ChunkedArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::dtype::FieldNames;
+    use crate::dtype::Nullability;
     use crate::validity::Validity;
 
     #[test]

@@ -4,11 +4,11 @@
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use vortex_array::arrays::PrimitiveArrayParts;
+use vortex_array::dtype::NativePType;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_cuda_macros::cuda_tests;
-use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -100,12 +100,12 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::buffer::BufferHandle;
     use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::NativePType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::patches::Patches;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::NativePType;
-    use vortex_dtype::Nullability;
     use vortex_session::VortexSession;
 
     use crate::CanonicalCudaExt;

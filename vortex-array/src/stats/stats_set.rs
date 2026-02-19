@@ -6,13 +6,13 @@ use std::fmt::Debug;
 use enum_iterator::Sequence;
 use enum_iterator::all;
 use num_traits::CheckedAdd;
-use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::dtype::DType;
 use crate::expr::stats::IsConstant;
 use crate::expr::stats::IsSorted;
 use crate::expr::stats::IsStrictSorted;
@@ -557,11 +557,11 @@ impl MutTypedStatsSetRef<'_, '_> {
 mod test {
     use enum_iterator::all;
     use itertools::Itertools;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::arrays::PrimitiveArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::expr::stats::IsConstant;
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;

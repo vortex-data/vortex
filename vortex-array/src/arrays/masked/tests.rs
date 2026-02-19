@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 
 use super::*;
@@ -12,6 +10,8 @@ use crate::IntoArray;
 use crate::ToCanonical as _;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::validity::Validity;
 
 #[rstest]
@@ -23,7 +23,7 @@ fn test_dtype_nullability(#[case] validity: Validity, #[case] expected: Nullabil
 
     assert_eq!(
         array.dtype(),
-        &DType::Primitive(vortex_dtype::PType::I32, expected)
+        &DType::Primitive(crate::dtype::PType::I32, expected)
     );
 }
 

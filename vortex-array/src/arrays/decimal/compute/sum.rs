@@ -6,11 +6,6 @@ use num_traits::AsPrimitive;
 use num_traits::CheckedAdd;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::DecimalType;
-use vortex_dtype::Nullability::Nullable;
-use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -20,7 +15,12 @@ use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::DecimalType;
+use crate::dtype::Nullability::Nullable;
 use crate::expr::stats::Stat;
+use crate::match_each_decimal_value_type;
 use crate::register_kernel;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
@@ -129,14 +129,14 @@ register_kernel!(SumKernelAdapter(DecimalVTable).lift());
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::i256;
     use vortex_error::VortexExpect;
 
     use crate::arrays::DecimalArray;
     use crate::compute::sum;
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::Nullability;
+    use crate::dtype::i256;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn test_sum_overflow_detection() {
-        use vortex_dtype::i256;
+        use crate::dtype::i256;
 
         // Create values that will overflow when summed
         // Use maximum i128 values that will overflow when added

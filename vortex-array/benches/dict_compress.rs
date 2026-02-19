@@ -12,7 +12,7 @@ use vortex_array::arrays::dict_test::gen_primitive_for_dict;
 use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::compute::warm_up_vtables;
-use vortex_dtype::NativePType;
+use vortex_array::dtype::NativePType;
 
 fn main() {
     warm_up_vtables();

@@ -10,9 +10,9 @@ use std::fmt::Formatter;
 use itertools::Itertools;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 
+use crate::dtype::DType;
 use crate::scalar::DecimalValue;
 // use crate::scalar::ExtScalarValueRef;
 use crate::scalar::PValue;

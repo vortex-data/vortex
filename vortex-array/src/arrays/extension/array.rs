@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
-use vortex_dtype::ExtID;
-use vortex_dtype::extension::ExtDTypeRef;
-
 use crate::ArrayRef;
+use crate::dtype::DType;
+use crate::dtype::ExtID;
+use crate::dtype::extension::ExtDTypeRef;
 use crate::stats::ArrayStats;
 
 /// An extension array that wraps another array with additional type information.

@@ -5,9 +5,6 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_mask::Mask;
 
 use super::common::create_basic_listview;
@@ -27,6 +24,9 @@ use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::is_constant;
 #[expect(deprecated)]
 use crate::compute::mask;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::validity::Validity;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

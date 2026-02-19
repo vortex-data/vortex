@@ -86,7 +86,7 @@ where
         // Empty array → empty bool result
         if len == 0 {
             return Ok(Some(
-                Canonical::empty(&vortex_dtype::DType::Bool(nullable.into())).into_array(),
+                Canonical::empty(&crate::dtype::DType::Bool(nullable.into())).into_array(),
             ));
         }
 
@@ -94,7 +94,7 @@ where
         if other.as_constant().is_some_and(|s| s.is_null()) {
             return Ok(Some(
                 ConstantArray::new(
-                    Scalar::null(vortex_dtype::DType::Bool(nullable.into())),
+                    Scalar::null(crate::dtype::DType::Bool(nullable.into())),
                     len,
                 )
                 .into_array(),
@@ -117,14 +117,14 @@ pub(crate) fn execute_compare(
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
 
     if lhs.is_empty() {
-        return Ok(Canonical::empty(&vortex_dtype::DType::Bool(nullable.into())).into_array());
+        return Ok(Canonical::empty(&crate::dtype::DType::Bool(nullable.into())).into_array());
     }
 
     let left_constant_null = lhs.as_constant().map(|l| l.is_null()).unwrap_or(false);
     let right_constant_null = rhs.as_constant().map(|r| r.is_null()).unwrap_or(false);
     if left_constant_null || right_constant_null {
         return Ok(ConstantArray::new(
-            Scalar::null(vortex_dtype::DType::Bool(nullable.into())),
+            Scalar::null(crate::dtype::DType::Bool(nullable.into())),
             lhs.len(),
         )
         .into_array());

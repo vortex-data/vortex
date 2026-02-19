@@ -7,8 +7,8 @@ use divan::Bencher;
 use vortex_array::IntoArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_mask::Mask;
 
 fn main() {

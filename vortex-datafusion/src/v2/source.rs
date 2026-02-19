@@ -43,6 +43,7 @@ use vortex::dtype::Nullability;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and as vx_and;
 use vortex::expr::get_item;
@@ -474,7 +475,8 @@ fn has_decimal_binary(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> bool {
         }
         Ok(TreeNodeRecursion::Continue)
     })
-    .vortex_expect("Expression traversal failed");
+    .map_err(|_| vortex_err!("Impossible traversal error"))
+    .vortex_expect("Impossible traversal error");
     found
 }
 

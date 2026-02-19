@@ -7,8 +7,6 @@ use num_traits::Zero;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskIter;
@@ -22,6 +20,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::FilterKernel;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
+use crate::dtype::IntegerPType;
+use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

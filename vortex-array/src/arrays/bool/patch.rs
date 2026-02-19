@@ -2,11 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
+use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 use crate::vtable::ValidityHelper;
 

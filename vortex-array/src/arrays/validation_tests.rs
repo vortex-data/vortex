@@ -13,14 +13,14 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexError;
 
     use crate::IntoArray;
     use crate::arrays::BinaryView;
     use crate::arrays::*;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
 
     #[test]
@@ -47,7 +47,7 @@ mod tests {
     fn test_decimal_array_validation_success() {
         // Valid case: buffer and validity have matching lengths.
         let buffer = Buffer::from_iter([100i128, 200, 300]);
-        let decimal_dtype = vortex_dtype::DecimalDType::new(10, 2);
+        let decimal_dtype = crate::dtype::DecimalDType::new(10, 2);
         let result = DecimalArray::try_new(buffer, decimal_dtype, Validity::NonNullable);
         assert!(result.is_ok());
     }
@@ -57,7 +57,7 @@ mod tests {
         // Invalid case: validity length doesn't match buffer length.
         let buffer = Buffer::from_iter([100i128, 200, 300]);
         let validity = Validity::from_iter([true, false]); // Length 2, buffer is length 3.
-        let decimal_dtype = vortex_dtype::DecimalDType::new(10, 2);
+        let decimal_dtype = crate::dtype::DecimalDType::new(10, 2);
         let result = DecimalArray::try_new(buffer, decimal_dtype, validity);
 
         assert!(matches!(result, Err(VortexError::InvalidArgument(_, _))));

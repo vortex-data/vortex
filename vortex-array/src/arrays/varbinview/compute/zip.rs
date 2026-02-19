@@ -205,8 +205,6 @@ fn push_view(
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
     use vortex_mask::Mask;
 
     use crate::accessor::ArrayAccessor;
@@ -214,6 +212,8 @@ mod tests {
     use crate::canonical::ToCanonical;
     #[expect(deprecated)]
     use crate::compute::zip;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
 
     #[test]
     fn zip_varbinview_kernel_zips() {

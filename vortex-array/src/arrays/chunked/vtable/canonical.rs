@@ -2,10 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -21,6 +17,10 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::dtype::StructFields;
 use crate::validity::Validity;
 
 pub(super) fn _canonicalize(
@@ -189,10 +189,6 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::buffer;
-    use vortex_dtype::DType::List;
-    use vortex_dtype::DType::Primitive;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType::I32;
 
     use crate::IntoArray;
     use crate::ToCanonical;
@@ -201,6 +197,10 @@ mod tests {
     use crate::arrays::ListArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
+    use crate::dtype::DType::List;
+    use crate::dtype::DType::Primitive;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::PType::I32;
     use crate::validity::Validity;
 
     #[test]

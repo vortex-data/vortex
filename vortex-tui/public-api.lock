@@ -90,7 +90,7 @@ impl vortex_tui::browse::app::LayoutCursor
 
 pub fn vortex_tui::browse::app::LayoutCursor::child(&self, n: usize) -> Self
 
-pub fn vortex_tui::browse::app::LayoutCursor::dtype(&self) -> &vortex_dtype::dtype::DType
+pub fn vortex_tui::browse::app::LayoutCursor::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_tui::browse::app::LayoutCursor::flat_layout_metadata_info(&self) -> alloc::string::String
 
@@ -576,7 +576,7 @@ pub mod vortex_tui::segment_tree
 
 pub struct vortex_tui::segment_tree::SegmentDisplay
 
-pub vortex_tui::segment_tree::SegmentDisplay::name: vortex_dtype::field_names::FieldName
+pub vortex_tui::segment_tree::SegmentDisplay::name: vortex_array::dtype::field_names::FieldName
 
 pub vortex_tui::segment_tree::SegmentDisplay::row_count: u64
 
@@ -586,9 +586,9 @@ pub vortex_tui::segment_tree::SegmentDisplay::spec: vortex_file::footer::segment
 
 pub struct vortex_tui::segment_tree::SegmentTree
 
-pub vortex_tui::segment_tree::SegmentTree::segment_ordering: alloc::vec::Vec<vortex_dtype::field_names::FieldName>
+pub vortex_tui::segment_tree::SegmentTree::segment_ordering: alloc::vec::Vec<vortex_array::dtype::field_names::FieldName>
 
-pub vortex_tui::segment_tree::SegmentTree::segments: vortex_utils::aliases::hash_map::HashMap<vortex_dtype::field_names::FieldName, alloc::vec::Vec<vortex_tui::segment_tree::SegmentDisplay>>
+pub vortex_tui::segment_tree::SegmentTree::segments: vortex_utils::aliases::hash_map::HashMap<vortex_array::dtype::field_names::FieldName, alloc::vec::Vec<vortex_tui::segment_tree::SegmentDisplay>>
 
 pub fn vortex_tui::segment_tree::collect_segment_tree(root_layout: &dyn vortex_layout::layout::Layout, segments: &alloc::sync::Arc<[vortex_file::footer::segment::SegmentSpec]>) -> vortex_tui::segment_tree::SegmentTree
 

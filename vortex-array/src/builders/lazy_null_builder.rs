@@ -3,13 +3,13 @@
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
-use vortex_dtype::Nullability;
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::Nullability::Nullable;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
+use crate::dtype::Nullability;
+use crate::dtype::Nullability::NonNullable;
+use crate::dtype::Nullability::Nullable;
 use crate::validity::Validity;
 
 /// This is borrowed from arrow's null buffer builder, however we expose a `append_buffer`

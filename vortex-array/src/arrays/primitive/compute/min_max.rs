@@ -2,9 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -13,6 +10,9 @@ use crate::arrays::PrimitiveVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability::NonNullable;
+use crate::match_each_native_ptype;
 use crate::register_kernel;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;

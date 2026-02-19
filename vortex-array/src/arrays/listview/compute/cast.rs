@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -9,6 +8,7 @@ use crate::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
 use crate::expr::CastReduce;
 use crate::vtable::ValidityHelper;
 

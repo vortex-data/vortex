@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -38,20 +37,19 @@ impl ArrayParentReduceRule<PrimitiveVTable> for PrimitiveMaskedValidityRule {
         parent: &MaskedArray,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Merge the parent's validity mask into the child's validity
         // TODO(joe): make this lazy
-        let masked_array = match_each_native_ptype!(array.ptype(), |T| {
-            // SAFETY: masking validity does not change PrimitiveArray invariants
-            unsafe {
-                PrimitiveArray::new_unchecked_from_handle(
-                    array.buffer_handle().clone(),
-                    array.ptype(),
-                    array.validity().clone().and(parent.validity().clone())?,
-                )
-            }
-            .into_array()
-        });
+        // Merge the parent's validity mask into the child's validity
+        let new_validity = array.validity().clone().and(parent.validity().clone())?;
 
-        Ok(Some(masked_array))
+        // SAFETY: masking validity does not change PrimitiveArray invariants
+        let masked_array = unsafe {
+            PrimitiveArray::new_unchecked_from_handle(
+                array.buffer_handle().clone(),
+                array.ptype(),
+                new_validity,
+            )
+        };
+
+        Ok(Some(masked_array.into_array()))
     }
 }

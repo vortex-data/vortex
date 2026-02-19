@@ -47,10 +47,9 @@ impl Display for DisplayTreeExpr<'_> {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::expr::BetweenOptions;
     use crate::expr::StrictComparison;
     use crate::expr::exprs::between::between;

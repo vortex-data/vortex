@@ -42,9 +42,6 @@ pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray
 
 #[cfg(test)]
 mod test {
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability::Nullable;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
@@ -54,6 +51,9 @@ mod test {
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::FieldNames;
+    use crate::dtype::Nullability::Nullable;
     use crate::validity::Validity;
 
     #[test]

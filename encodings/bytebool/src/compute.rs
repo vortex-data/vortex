@@ -8,12 +8,12 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::TakeExecute;
+use vortex_array::dtype::DType;
 use vortex_array::expr::CastReduce;
 use vortex_array::expr::MaskReduce;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_dtype::DType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
 use super::ByteBoolArray;
@@ -98,8 +98,8 @@ mod tests {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
 
     use super::*;
 

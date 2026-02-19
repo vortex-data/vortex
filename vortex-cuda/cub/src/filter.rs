@@ -220,5 +220,5 @@ impl_filter! {
     f32 => f32,
     f64 => f64,
     i128 => i128,
-    i256 => vortex_dtype::i256,
+    i256 => vortex_array::dtype::i256,
 }

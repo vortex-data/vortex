@@ -4,9 +4,6 @@
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -20,7 +17,10 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::TakeExecute;
 use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
+use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 
 impl TakeExecute for VarBinVTable {
@@ -251,8 +251,6 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
     use crate::Array;
     use crate::IntoArray;
@@ -261,6 +259,8 @@ mod tests {
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
     use crate::validity::Validity;
 
     #[test]

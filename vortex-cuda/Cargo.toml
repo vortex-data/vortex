@@ -37,13 +37,12 @@ prost = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true, features = ["std", "attributes"] }
 vortex-alp = { workspace = true }
-vortex-array = { workspace = true }
+vortex-array = { workspace = true, features = ["cudarc"] }
 vortex-buffer = { workspace = true }
 vortex-cub = { path = "cub" }
 vortex-cuda-macros = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
-vortex-dtype = { workspace = true, features = ["cudarc"] }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-flatbuffers = { workspace = true }
@@ -65,7 +64,6 @@ rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-cuda = { path = ".", features = ["_test-harness"] }
-vortex-dtype = { workspace = true, features = ["cudarc"] }
 
 [build-dependencies]
 bindgen = { workspace = true }

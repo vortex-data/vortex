@@ -5,9 +5,9 @@ use cudarc::driver::DeviceRepr;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
+use vortex_array::dtype::NativePType;
 use vortex_cub::filter::CubFilterable;
 use vortex_cuda_macros::cuda_tests;
-use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 

@@ -73,9 +73,6 @@ impl ZipReduce for ChunkedVTable {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
@@ -84,6 +81,9 @@ mod tests {
     use crate::arrays::ChunkedVTable;
     #[expect(deprecated)]
     use crate::compute::zip;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
 
     #[test]
     fn test_chunked_zip_aligns_across_boundaries() {

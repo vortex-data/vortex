@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
-
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
 use crate::expr::CastReduce;
 
 impl CastReduce for ExtensionVTable {
@@ -44,15 +43,15 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::datetime::TimeUnit;
-    use vortex_dtype::datetime::Timestamp;
 
     use super::*;
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::Nullability;
+    use crate::dtype::datetime::TimeUnit;
+    use crate::dtype::datetime::Timestamp;
 
     #[test]
     fn cast_same_ext_dtype() {

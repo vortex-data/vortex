@@ -5,12 +5,12 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -22,7 +22,7 @@ use crate::alp::ALPFloat;
 #[macro_export]
 macro_rules! match_each_alp_float_ptype {
     ($self:expr, | $enc:ident | $body:block) => {{
-        use vortex_dtype::PType;
+        use vortex_array::dtype::PType;
         use vortex_error::vortex_panic;
         let ptype = $self;
         match ptype {
@@ -133,10 +133,10 @@ mod tests {
     use f64::consts::PI;
     use vortex_array::ToCanonical;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::NativePType;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::NativePType;
 
     use super::*;
     use crate::decompress_into_array;

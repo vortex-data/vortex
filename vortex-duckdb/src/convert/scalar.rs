@@ -19,6 +19,7 @@
 //! | `Binary` | `BLOB` |
 //! | `ExtScalar` (temporal) | `DATE`/`TIME`/`TIMESTAMP` |
 
+use vortex::array::match_each_native_simd_ptype;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::Nullability::Nullable;
@@ -33,7 +34,6 @@ use vortex::dtype::datetime::TimeUnit;
 use vortex::dtype::datetime::Timestamp;
 use vortex::dtype::datetime::TimestampOptions;
 use vortex::dtype::half::f16;
-use vortex::dtype::match_each_native_simd_ptype;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;

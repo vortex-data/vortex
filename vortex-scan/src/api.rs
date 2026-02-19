@@ -25,10 +25,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
+use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::stats::Precision;
 use vortex_array::stream::SendableArrayStream;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 

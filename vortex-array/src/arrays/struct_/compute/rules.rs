@@ -134,11 +134,6 @@ impl ArrayParentReduceRule<StructVTable> for StructGetItemRule {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::StructFields;
-
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::StructArray;
@@ -146,6 +141,10 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
+    use crate::dtype::DType;
+    use crate::dtype::FieldNames;
+    use crate::dtype::Nullability;
+    use crate::dtype::StructFields;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 

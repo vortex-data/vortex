@@ -7,14 +7,14 @@ use std::cmp::Ordering;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use vortex_dtype::DType;
-use vortex_dtype::NativeDType;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 
+use crate::dtype::DType;
+use crate::dtype::NativeDType;
+use crate::dtype::PType;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -307,8 +307,8 @@ impl Scalar {
     /// Note that the protobuf serialization of scalars will likely have a different (but roughly
     /// similar) length.
     pub fn nbytes(&self) -> usize {
-        use vortex_dtype::NativeDecimalType;
-        use vortex_dtype::i256;
+        use crate::dtype::NativeDecimalType;
+        use crate::dtype::i256;
 
         match self.dtype() {
             DType::Null => 0,

@@ -11,10 +11,10 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
+use vortex_array::match_each_native_ptype;
 use vortex_cuda_macros::cuda_tests;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_sequence::SequenceArrayParts;
@@ -88,9 +88,9 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::NativePType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::scalar::PValue;
-    use vortex_dtype::NativePType;
-    use vortex_dtype::Nullability;
     use vortex_sequence::SequenceArray;
     use vortex_session::VortexSession;
 

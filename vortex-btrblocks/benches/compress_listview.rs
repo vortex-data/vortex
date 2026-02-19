@@ -18,10 +18,10 @@ mod benchmarks {
     use vortex_array::arrays::ListViewArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::dtype::FieldNames;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressor;
     use vortex_buffer::buffer_mut;
-    use vortex_dtype::FieldNames;
 
     const NUM_ROWS: usize = 8192;
     const SEED: u64 = 42;

@@ -27,7 +27,6 @@ vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
-vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-file = { workspace = true, optional = true, default-features = true }
@@ -73,12 +72,7 @@ object_store = ["vortex-file/object_store", "vortex-io/object_store"]
 tokio = ["vortex-file/tokio"]
 zstd = ["dep:vortex-zstd", "vortex-file/zstd"]
 pretty = ["vortex-array/table-display"]
-serde = [
-    "vortex-array/serde",
-    "vortex-dtype/serde",
-    "vortex-buffer/serde",
-    "vortex-mask/serde",
-]
+serde = ["vortex-array/serde", "vortex-buffer/serde", "vortex-mask/serde"]
 # This feature enabled unstable encodings for which we don't guarantee stability.
 unstable_encodings = [
     "vortex-btrblocks/unstable_encodings",

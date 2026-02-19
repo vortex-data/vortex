@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -10,6 +9,7 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::NullArray;
 use crate::arrays::NullVTable;
+use crate::dtype::DType;
 use crate::expr::CastReduce;
 use crate::scalar::Scalar;
 
@@ -30,13 +30,13 @@ impl CastReduce for NullVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::arrays::NullArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
 
     #[test]
     fn test_cast_null_to_null() {
