@@ -26,9 +26,9 @@ mod tests {
     use vortex_array::arrays::FilterArray;
     use vortex_array::arrays::builder::VarBinBuilder;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::session::ArraySession;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_session::VortexSession;

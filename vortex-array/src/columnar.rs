@@ -4,7 +4,6 @@
 use std::env::VarError;
 use std::sync::LazyLock;
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
@@ -19,6 +18,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
+use crate::dtype::DType;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
 

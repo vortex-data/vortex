@@ -6,8 +6,6 @@ use std::sync::Arc;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -19,6 +17,8 @@ use crate::arrays::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
@@ -63,7 +63,7 @@ use crate::validity::Validity;
 ///
 /// ```
 /// use vortex_array::arrays::VarBinViewArray;
-/// use vortex_dtype::{DType, Nullability};
+/// use vortex_array::dtype::{DType, Nullability};
 /// use vortex_array::IntoArray;
 ///
 /// // Create from an Iterator<Item = &str>

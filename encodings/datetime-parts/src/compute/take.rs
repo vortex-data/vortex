@@ -8,10 +8,10 @@ use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::Nullability;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
 use vortex_array::scalar::Scalar;
-use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -102,8 +102,8 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
+    use vortex_array::dtype::datetime::TimeUnit;
     use vortex_buffer::buffer;
-    use vortex_dtype::datetime::TimeUnit;
 
     use crate::DateTimePartsArray;
 

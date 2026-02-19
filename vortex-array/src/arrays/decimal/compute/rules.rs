@@ -3,7 +3,6 @@
 
 use std::ops::Range;
 
-use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -15,6 +14,7 @@ use crate::arrays::MaskedVTable;
 use crate::arrays::SliceReduce;
 use crate::arrays::SliceReduceAdaptor;
 use crate::expr::MaskReduceAdaptor;
+use crate::match_each_decimal_value_type;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;

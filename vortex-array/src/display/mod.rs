@@ -507,9 +507,8 @@ impl dyn Array + '_ {
             }
             #[cfg(feature = "table-display")]
             DisplayOptions::TableDisplay => {
-                use vortex_dtype::DType;
-
                 use crate::canonical::ToCanonical;
+                use crate::dtype::DType;
 
                 let mut builder = tabled::builder::Builder::default();
 
@@ -576,12 +575,12 @@ impl dyn Array + '_ {
 mod test {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldNames;
 
     use crate::IntoArray as _;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::StructArray;
+    use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
     #[test]

@@ -7,7 +7,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
-use crate::compute::MaskReduce;
+use crate::expr::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

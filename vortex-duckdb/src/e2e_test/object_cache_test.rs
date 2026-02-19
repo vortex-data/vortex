@@ -115,7 +115,7 @@ fn test_table_function_with_object_cache() -> VortexResult<()> {
 
     // Register our test table function
     let name = CString::new("test_cache_func").map_err(|e| vortex_err!("CString error: {}", e))?;
-    conn.register_table_function::<TestTableFunction>(&name)?;
+    db.register_table_function::<TestTableFunction>(&name)?;
 
     // Call the table function - this should store data in the cache during init_global
     let _result = conn.query("SELECT * FROM test_cache_func()")?;

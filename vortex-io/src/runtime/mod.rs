@@ -36,7 +36,7 @@ pub mod wasm;
 mod tests;
 
 /// Trait used to abstract over different async runtimes.
-pub(crate) trait Executor: Send + Sync {
+pub trait Executor: Send + Sync {
     /// Spawns a future to be executed on the runtime.
     ///
     /// The future should continue to be polled in the background by the runtime.
@@ -60,8 +60,8 @@ pub(crate) trait Executor: Send + Sync {
 ///
 /// If dropped, the task should continue to completion.
 /// If explicitly aborted, the task should be cancelled if it has not yet started executing.
-pub(crate) trait AbortHandle: Send + Sync {
+pub trait AbortHandle: Send + Sync {
     fn abort(self: Box<Self>);
 }
 
-pub(crate) type AbortHandleRef = Box<dyn AbortHandle>;
+pub type AbortHandleRef = Box<dyn AbortHandle>;

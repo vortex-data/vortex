@@ -10,7 +10,6 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -29,6 +28,7 @@ use crate::builders::ArrayBuilder;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::dtype::DType;
 use crate::scalar::Scalar;
 
 /// The builder for building a [`VarBinViewArray`].
@@ -813,8 +813,6 @@ impl RewritingViewAdjustment {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
@@ -824,6 +822,8 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::VarBinViewBuilder;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
 
     #[test]
     fn test_utf8_builder() {

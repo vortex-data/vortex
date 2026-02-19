@@ -6,9 +6,6 @@ use arrow_array::StringArray;
 use arrow_ord::cmp;
 use itertools::Itertools;
 use vortex_buffer::BitBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -28,7 +25,10 @@ use crate::arrow::from_arrow_array_with_len;
 use crate::compute::Operator;
 use crate::compute::compare;
 use crate::compute::compare_lengths_to_empty;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
 use crate::expr::CompareKernel;
+use crate::match_each_integer_ptype;
 use crate::vtable::ValidityHelper;
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
@@ -137,8 +137,6 @@ fn compare_offsets_to_empty<P: IntegerPType>(
 mod test {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::ByteBuffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
     use crate::ToCanonical;
     use crate::arrays::ConstantArray;
@@ -146,6 +144,8 @@ mod test {
     use crate::arrays::VarBinViewArray;
     use crate::compute::Operator;
     use crate::compute::compare;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
     use crate::scalar::Scalar;
 
     #[test]
@@ -203,14 +203,13 @@ mod test {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-
     use crate::Array;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::compute::Operator;
     use crate::compute::compare;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
     use crate::scalar::Scalar;
 
     #[test]

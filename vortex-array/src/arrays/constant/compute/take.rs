@@ -61,7 +61,6 @@ impl ConstantVTable {
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
     use vortex_mask::AllOr;
 
     use crate::Array;
@@ -71,6 +70,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::dtype::Nullability;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 

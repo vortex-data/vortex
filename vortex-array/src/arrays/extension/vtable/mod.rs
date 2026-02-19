@@ -9,7 +9,6 @@ mod validity;
 mod visitor;
 
 use kernel::PARENT_KERNELS;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -22,6 +21,7 @@ use crate::ExecutionCtx;
 use crate::arrays::extension::ExtensionArray;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;

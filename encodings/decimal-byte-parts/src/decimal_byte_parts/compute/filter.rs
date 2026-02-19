@@ -21,8 +21,8 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
+    use vortex_array::dtype::DecimalDType;
     use vortex_buffer::buffer;
-    use vortex_dtype::DecimalDType;
 
     use crate::DecimalBytePartsArray;
 

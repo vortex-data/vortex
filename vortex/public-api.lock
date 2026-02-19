@@ -26,7 +26,7 @@ pub use vortex::compressor::StringCode
 
 pub mod vortex::dtype
 
-pub use vortex::dtype::<<vortex_dtype::*>>
+pub use vortex::dtype::<<vortex_array::dtype::*>>
 
 pub mod vortex::encodings
 

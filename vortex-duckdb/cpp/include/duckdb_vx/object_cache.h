@@ -11,7 +11,7 @@ extern "C" {
 
 typedef struct duckdb_vx_object_cache_ *duckdb_vx_object_cache;
 
-duckdb_vx_object_cache duckdb_vx_client_context_get_object_cache(duckdb_vx_client_context context);
+duckdb_vx_object_cache duckdb_client_context_get_object_cache(duckdb_client_context context);
 
 // Function pointer type for custom deleter
 typedef void (*duckdb_vx_deleter_fn)(void *ptr);

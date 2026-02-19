@@ -7,10 +7,10 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::PType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
@@ -79,10 +79,10 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
+    use vortex_array::dtype::datetime::TimeUnit;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_buffer::buffer;
-    use vortex_dtype::datetime::TimeUnit;
 
     use crate::TemporalParts;
     use crate::split_temporal;

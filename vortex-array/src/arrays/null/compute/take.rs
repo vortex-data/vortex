@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -13,6 +12,7 @@ use crate::arrays::NullArray;
 use crate::arrays::NullVTable;
 use crate::arrays::TakeReduce;
 use crate::arrays::TakeReduceAdaptor;
+use crate::match_each_integer_ptype;
 use crate::optimizer::rules::ParentRuleSet;
 
 impl TakeReduce for NullVTable {

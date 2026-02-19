@@ -25,10 +25,10 @@ use vortex_array::arrays::DictVTable;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
 use vortex_array::builders::dict::dict_encoder;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -571,9 +571,9 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::builders::dict::DictConstraints;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::dtype::PType;
 
     use super::DictionaryTransformer;
     use super::dict_encode_stream;

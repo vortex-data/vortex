@@ -3,22 +3,22 @@
 
 use async_trait::async_trait;
 use futures::future::BoxFuture;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::ToCanonical;
-use vortex_array::arrays::BoolArrayParts;
-use vortex_array::arrays::DecimalArrayParts;
-use vortex_array::arrays::PrimitiveArrayParts;
-use vortex_array::arrays::StructArray;
-use vortex_array::arrays::StructArrayParts;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::vtable::ValidityHelper;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::ToCanonical;
+use vortex::array::arrays::BoolArrayParts;
+use vortex::array::arrays::DecimalArrayParts;
+use vortex::array::arrays::PrimitiveArrayParts;
+use vortex::array::arrays::StructArray;
+use vortex::array::arrays::StructArrayParts;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::dtype::DecimalType;
+use vortex::array::dtype::datetime::AnyTemporal;
+use vortex::array::vtable::ValidityHelper;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
 use vortex_cuda_macros::cuda_tests;
-use vortex_dtype::DecimalType;
-use vortex_dtype::datetime::AnyTemporal;
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 
 use crate::CudaExecutionCtx;
 use crate::arrow::ArrowArray;
@@ -279,20 +279,20 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::DecimalArray;
-    use vortex_array::arrays::NullArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::StructArray;
-    use vortex_array::arrays::TemporalArray;
-    use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::validity::Validity;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::datetime::TimeUnit;
-    use vortex_error::VortexExpect;
-    use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::DecimalArray;
+    use vortex::array::arrays::NullArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::TemporalArray;
+    use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::dtype::DecimalDType;
+    use vortex::array::dtype::FieldNames;
+    use vortex::array::dtype::datetime::TimeUnit;
+    use vortex::array::validity::Validity;
+    use vortex::error::VortexExpect;
+    use vortex::error::VortexResult;
+    use vortex::session::VortexSession;
 
     use super::release_array;
     use crate::arrow::DeviceArrayExt;
@@ -310,7 +310,7 @@ mod tests {
     #[case::f64(PrimitiveArray::from_iter([1.0f64, 2.0, 3.0]).into_array(), 3)]
     #[tokio::test]
     async fn test_export_primitive(
-        #[case] array: vortex_array::ArrayRef,
+        #[case] array: vortex::array::ArrayRef,
         #[case] expected_len: i64,
     ) -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())

@@ -5,8 +5,6 @@ use std::any::Any;
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -21,6 +19,8 @@ use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Options;
 use crate::compute::Output;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;

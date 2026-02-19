@@ -4,13 +4,13 @@
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
+    use crate::dtype::Nullability;
     use crate::validity::Validity;
 
     #[rstest]

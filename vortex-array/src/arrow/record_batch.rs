@@ -60,13 +60,13 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::FieldRef;
     use arrow_schema::Schema;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::arrays::StructArray;
     use crate::builders::ArrayBuilder;
     use crate::builders::ListBuilder;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::scalar::Scalar;
 
     #[test]

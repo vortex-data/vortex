@@ -5,9 +5,9 @@ use std::cmp::max;
 
 use arbitrary::Result as AResult;
 use arbitrary::Unstructured;
-use vortex_dtype::DType;
-use vortex_dtype::FieldName;
 
+use crate::dtype::DType;
+use crate::dtype::FieldName;
 use crate::expr::Binary;
 use crate::expr::Expression;
 use crate::expr::Operator;

@@ -5,8 +5,6 @@ use std::cmp::max;
 use std::ops::Not;
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -17,7 +15,9 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::DecimalVTable;
 use crate::arrays::decimal::DecimalArray;
+use crate::dtype::NativeDecimalType;
 use crate::expr::FillNullKernel;
+use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
@@ -86,13 +86,13 @@ fn fill_buffer<T: NativeDecimalType>(
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::Nullability;
 
     use crate::arrays::decimal::DecimalArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::Nullability;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::validity::Validity;

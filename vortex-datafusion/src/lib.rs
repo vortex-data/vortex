@@ -70,8 +70,8 @@ mod common_tests {
     use vortex::array::ArrayRef;
     use vortex::array::arrow::FromArrowArray;
     use vortex::file::WriteOptionsSessionExt;
-    use vortex::io::ObjectStoreWriter;
     use vortex::io::VortexWrite;
+    use vortex::io::object_store::ObjectStoreWrite;
     use vortex::session::VortexSession;
 
     use crate::VortexFormatFactory;
@@ -123,7 +123,7 @@ mod common_tests {
             P: Into<object_store::path::Path>,
         {
             let array = ArrayRef::from_arrow(batch, false)?;
-            let mut write = ObjectStoreWriter::new(self.store.clone(), &path.into()).await?;
+            let mut write = ObjectStoreWrite::new(self.store.clone(), &path.into()).await?;
             VX_SESSION
                 .write_options()
                 .write(&mut write, array.to_array_stream())

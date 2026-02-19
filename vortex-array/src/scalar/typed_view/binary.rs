@@ -8,11 +8,11 @@ use std::fmt::Formatter;
 
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -124,8 +124,8 @@ mod tests {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
 
+    use crate::dtype::Nullability;
     use crate::scalar::BinaryScalar;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn test_binary_null_value() {
-        let null_binary = Scalar::null(vortex_dtype::DType::Binary(Nullability::Nullable));
+        let null_binary = Scalar::null(crate::dtype::DType::Binary(Nullability::Nullable));
         let scalar = null_binary.as_binary();
 
         assert!(scalar.value().is_none());
@@ -216,8 +216,8 @@ mod tests {
 
     #[test]
     fn test_binary_cast_to_binary() {
-        use vortex_dtype::DType;
-        use vortex_dtype::Nullability;
+        use crate::dtype::DType;
+        use crate::dtype::Nullability;
 
         let binary = Scalar::binary(buffer![1u8, 2, 3], Nullability::NonNullable);
         let scalar = binary.as_binary();
@@ -232,9 +232,9 @@ mod tests {
 
     #[test]
     fn test_binary_cast_to_non_binary_fails() {
-        use vortex_dtype::DType;
-        use vortex_dtype::Nullability;
-        use vortex_dtype::PType;
+        use crate::dtype::DType;
+        use crate::dtype::Nullability;
+        use crate::dtype::PType;
 
         let binary = Scalar::binary(buffer![1u8, 2, 3], Nullability::NonNullable);
         let scalar = binary.as_binary();
@@ -245,9 +245,9 @@ mod tests {
 
     #[test]
     fn test_from_scalar_value_non_binary_dtype() {
-        use vortex_dtype::DType;
-        use vortex_dtype::Nullability;
-        use vortex_dtype::PType;
+        use crate::dtype::DType;
+        use crate::dtype::Nullability;
+        use crate::dtype::PType;
 
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let value = ScalarValue::Primitive(PValue::I32(42));
@@ -258,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_try_from_non_binary_scalar() {
-        use vortex_dtype::Nullability;
+        use crate::dtype::Nullability;
 
         let scalar = Scalar::primitive(42i32, Nullability::NonNullable);
         assert!(scalar.as_binary_opt().is_none());
@@ -271,7 +271,7 @@ mod tests {
 
         assert_eq!(
             scalar.dtype(),
-            &vortex_dtype::DType::Binary(Nullability::NonNullable)
+            &crate::dtype::DType::Binary(Nullability::NonNullable)
         );
         let binary = scalar.as_binary();
         assert_eq!(binary.value().unwrap().as_slice(), data);
@@ -306,7 +306,7 @@ mod tests {
         assert_eq!(buffer.unwrap().as_slice(), &data);
 
         // Null case
-        let null_scalar = Scalar::null(vortex_dtype::DType::Binary(Nullability::Nullable));
+        let null_scalar = Scalar::null(crate::dtype::DType::Binary(Nullability::Nullable));
         let null_buffer: Option<ByteBuffer> = (&null_scalar).try_into().unwrap();
         assert!(null_buffer.is_none());
     }
@@ -314,7 +314,8 @@ mod tests {
     #[test]
     fn test_try_from_non_binary_to_bytebuffer() {
         use vortex_buffer::ByteBuffer;
-        use vortex_dtype::Nullability;
+
+        use crate::dtype::Nullability;
 
         let scalar = Scalar::primitive(42i32, Nullability::NonNullable);
 
@@ -335,7 +336,7 @@ mod tests {
 
         assert_eq!(
             scalar.dtype(),
-            &vortex_dtype::DType::Binary(Nullability::NonNullable)
+            &crate::dtype::DType::Binary(Nullability::NonNullable)
         );
         let binary = scalar.as_binary();
         assert_eq!(binary.value().unwrap().as_slice(), &data);
@@ -347,7 +348,7 @@ mod tests {
         let value: ScalarValue = data.into();
 
         let scalar = Scalar::new(
-            vortex_dtype::DType::Binary(Nullability::NonNullable),
+            crate::dtype::DType::Binary(Nullability::NonNullable),
             Some(value),
         );
         let binary = scalar.as_binary();
@@ -363,7 +364,7 @@ mod tests {
         let value: ScalarValue = buffer.into();
 
         let scalar = Scalar::new(
-            vortex_dtype::DType::Binary(Nullability::NonNullable),
+            crate::dtype::DType::Binary(Nullability::NonNullable),
             Some(value),
         );
         let binary = scalar.as_binary();

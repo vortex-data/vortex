@@ -12,58 +12,58 @@ use async_trait::async_trait;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
-use vortex_array::Array;
-use vortex_array::ArrayContext;
-use vortex_array::ArrayRef;
-use vortex_array::ArrayVisitor;
-use vortex_array::ArrayVisitorExt;
-use vortex_array::DeserializeMetadata;
-use vortex_array::MaskFuture;
-use vortex_array::ProstMetadata;
-use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::ConstantVTable;
-use vortex_array::expr::Expression;
-use vortex_array::expr::stats::Precision;
-use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
-use vortex_array::normalize::NormalizeOptions;
-use vortex_array::normalize::Operation;
-use vortex_array::scalar::Scalar;
-use vortex_array::scalar::ScalarTruncation;
-use vortex_array::scalar::lower_bound;
-use vortex_array::scalar::upper_bound;
-use vortex_array::serde::ArrayParts;
-use vortex_array::serde::SerializeOptions;
-use vortex_array::session::ArrayRegistry;
-use vortex_array::stats::StatsSetRef;
-use vortex_buffer::BufferString;
-use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::FieldMask;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_panic;
-use vortex_layout::IntoLayout;
-use vortex_layout::LayoutChildType;
-use vortex_layout::LayoutChildren;
-use vortex_layout::LayoutEncodingRef;
-use vortex_layout::LayoutId;
-use vortex_layout::LayoutReader;
-use vortex_layout::LayoutReaderRef;
-use vortex_layout::LayoutRef;
-use vortex_layout::LayoutStrategy;
-use vortex_layout::VTable;
-use vortex_layout::layouts::SharedArrayFuture;
-use vortex_layout::segments::SegmentId;
-use vortex_layout::segments::SegmentSinkRef;
-use vortex_layout::segments::SegmentSource;
-use vortex_layout::sequence::SendableSequentialStream;
-use vortex_layout::sequence::SequencePointer;
-use vortex_layout::vtable;
-use vortex_mask::Mask;
-use vortex_session::VortexSession;
-use vortex_utils::aliases::hash_map::HashMap;
+use vortex::array::Array;
+use vortex::array::ArrayContext;
+use vortex::array::ArrayRef;
+use vortex::array::ArrayVisitor;
+use vortex::array::ArrayVisitorExt;
+use vortex::array::DeserializeMetadata;
+use vortex::array::MaskFuture;
+use vortex::array::ProstMetadata;
+use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::ConstantVTable;
+use vortex::array::dtype::DType;
+use vortex::array::dtype::FieldMask;
+use vortex::array::expr::Expression;
+use vortex::array::expr::stats::Precision;
+use vortex::array::expr::stats::Stat;
+use vortex::array::expr::stats::StatsProvider;
+use vortex::array::normalize::NormalizeOptions;
+use vortex::array::normalize::Operation;
+use vortex::array::scalar::Scalar;
+use vortex::array::scalar::ScalarTruncation;
+use vortex::array::scalar::lower_bound;
+use vortex::array::scalar::upper_bound;
+use vortex::array::serde::ArrayParts;
+use vortex::array::serde::SerializeOptions;
+use vortex::array::session::ArrayRegistry;
+use vortex::array::stats::StatsSetRef;
+use vortex::buffer::BufferString;
+use vortex::buffer::ByteBuffer;
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_panic;
+use vortex::layout::IntoLayout;
+use vortex::layout::LayoutChildType;
+use vortex::layout::LayoutChildren;
+use vortex::layout::LayoutEncodingRef;
+use vortex::layout::LayoutId;
+use vortex::layout::LayoutReader;
+use vortex::layout::LayoutReaderRef;
+use vortex::layout::LayoutRef;
+use vortex::layout::LayoutStrategy;
+use vortex::layout::VTable;
+use vortex::layout::layouts::SharedArrayFuture;
+use vortex::layout::segments::SegmentId;
+use vortex::layout::segments::SegmentSinkRef;
+use vortex::layout::segments::SegmentSource;
+use vortex::layout::sequence::SendableSequentialStream;
+use vortex::layout::sequence::SequencePointer;
+use vortex::layout::vtable;
+use vortex::mask::Mask;
+use vortex::session::VortexSession;
+use vortex::utils::aliases::hash_map::HashMap;
 
 /// A buffer inlined into layout metadata for host-side access.
 #[derive(Clone, prost::Message)]
@@ -439,7 +439,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
         segment_sink: SegmentSinkRef,
         mut stream: SendableSequentialStream,
         _eof: SequencePointer,
-        _handle: vortex_io::runtime::Handle,
+        _handle: vortex::io::runtime::Handle,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let options = self.clone();
@@ -563,7 +563,7 @@ fn extract_constant_buffers(chunk: &dyn Array) -> Vec<InlinedBuffer> {
 ///
 /// Call this alongside [`crate::initialize_cuda`] when setting up a CUDA-enabled session.
 pub fn register_cuda_layout(session: &VortexSession) {
-    use vortex_layout::session::LayoutSessionExt;
+    use vortex::layout::session::LayoutSessionExt;
     session
         .layouts()
         .register(LayoutEncodingRef::new_ref(CudaFlatLayoutEncoding.as_ref()));

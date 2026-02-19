@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_array::stats::ArrayStats;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 

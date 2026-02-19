@@ -3,9 +3,9 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
 use vortex_array::stats::ArrayStats;
-use vortex_dtype::DType;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -221,14 +221,14 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::serde::ArrayParts;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::RLEArray;
     use crate::test::SESSION;

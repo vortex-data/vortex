@@ -7,13 +7,13 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 
-use vortex_dtype::DType;
-use vortex_dtype::datetime::AnyTemporal;
-use vortex_dtype::extension::ExtDTypeRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::dtype::DType;
+use crate::dtype::datetime::AnyTemporal;
+use crate::dtype::extension::ExtDTypeRef;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 

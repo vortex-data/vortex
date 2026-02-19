@@ -17,7 +17,6 @@ pub use dyn_::*;
 pub use operations::*;
 pub use validity::*;
 pub use visitor::*;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -26,6 +25,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
+use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 

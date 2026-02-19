@@ -41,6 +41,7 @@ mod columnar;
 pub mod compute;
 mod context;
 pub mod display;
+pub mod dtype;
 mod executor;
 pub mod expr;
 mod expression;

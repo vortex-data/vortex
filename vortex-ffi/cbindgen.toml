@@ -19,7 +19,7 @@ header = """
 
 [parse]
 parse_deps = true
-include = ["vortex", "vortex-dtype"]
+include = ["vortex", "vortex-array"]
 
 [parse.expand]
 crates = ["vortex-ffi"]

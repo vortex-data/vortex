@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::VarBinViewVTable;
-use crate::compute::CastReduceAdaptor;
+use crate::expr::CastReduceAdaptor;
 use crate::expr::MaskReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
 

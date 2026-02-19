@@ -19,18 +19,18 @@ use num_traits::AsPrimitive;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::NativePType;
-use vortex_dtype::PType;
-use vortex_dtype::UnsignedPType;
-use vortex_dtype::half::f16;
-use vortex_dtype::match_each_native_simd_ptype;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::compute::take::TakeImpl;
+use crate::dtype::NativePType;
+use crate::dtype::PType;
+use crate::dtype::UnsignedPType;
+use crate::dtype::half::f16;
+use crate::match_each_native_simd_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
 
 pub(super) struct TakeKernelPortableSimd;

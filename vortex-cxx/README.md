@@ -9,22 +9,22 @@ This directory contains C++ bindings for Vortex using the [cxx](https://cxx.rs/)
 - CMake 3.22 or higher
 - C++17 compatible compiler
 - Rust toolchain (for building the Rust components)
+- (optional) Ninja (`ninja-build`)
 
 ### Build Steps
 
 ```bash
 mkdir build
-cd build
-cmake ..
-make -j$(nproc)
+cmake -Bbuild -GNinja
+cmake --build build -j
 ```
 
 ### Running Tests
 
 ```bash
 # Enable tests in CMake
-cmake -DVORTEX_ENABLE_TESTING=ON ..
-make -j$(nproc)
+cmake -Bbuild -DVORTEX_ENABLE_TESTING=ON -GNinja
+cmake --build build -j
 ./vortex_cxx_test
 ```
 

@@ -20,7 +20,7 @@ mod display;
 mod downcast;
 mod proto;
 
-use vortex_dtype::DType;
+use crate::dtype::DType;
 
 /// A typed scalar value.
 ///

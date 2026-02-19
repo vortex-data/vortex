@@ -3,9 +3,6 @@
 
 use num_traits::FromPrimitive;
 use vortex_buffer::BufferMut;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -15,6 +12,9 @@ use crate::ToCanonical;
 use crate::arrays::ListViewArray;
 use crate::builders::builder_with_capacity;
 use crate::compute;
+use crate::dtype::IntegerPType;
+use crate::dtype::Nullability;
+use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
 
@@ -264,7 +264,6 @@ impl ListViewArray {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::BitBuffer;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
 
     use super::ListViewRebuildMode;
@@ -273,6 +272,7 @@ mod tests {
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::Nullability;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 

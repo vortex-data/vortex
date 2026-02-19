@@ -5,10 +5,6 @@ use std::fmt::Debug;
 use std::iter::once;
 use std::sync::Arc;
 
-use vortex_dtype::DType;
-use vortex_dtype::FieldName;
-use vortex_dtype::FieldNames;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -17,6 +13,10 @@ use vortex_error::vortex_err;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::dtype::DType;
+use crate::dtype::FieldName;
+use crate::dtype::FieldNames;
+use crate::dtype::StructFields;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -43,8 +43,8 @@ use crate::vtable::ValidityHelper;
 /// ```
 /// use vortex_array::arrays::{StructArray, BoolArray};
 /// use vortex_array::validity::Validity;
+/// use vortex_array::dtype::FieldNames;
 /// use vortex_array::IntoArray;
-/// use vortex_dtype::FieldNames;
 /// use vortex_buffer::buffer;
 ///
 /// // Create struct with all non-null fields but struct-level nulls
@@ -76,8 +76,8 @@ use crate::vtable::ValidityHelper;
 /// ```
 /// use vortex_array::arrays::StructArray;
 /// use vortex_array::validity::Validity;
+/// use vortex_array::dtype::FieldNames;
 /// use vortex_array::IntoArray;
-/// use vortex_dtype::FieldNames;
 /// use vortex_buffer::buffer;
 ///
 /// // Create struct with duplicate "data" field names
@@ -116,8 +116,8 @@ use crate::vtable::ValidityHelper;
 /// ```
 /// use vortex_array::arrays::{StructArray, PrimitiveArray};
 /// use vortex_array::validity::Validity;
+/// use vortex_array::dtype::FieldNames;
 /// use vortex_array::IntoArray;
-/// use vortex_dtype::FieldNames;
 /// use vortex_buffer::buffer;
 ///
 /// // Create arrays for each field

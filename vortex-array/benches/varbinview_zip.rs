@@ -6,9 +6,9 @@
 use divan::Bencher;
 use vortex_array::IntoArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::compute::zip;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_mask::Mask;
 
 fn main() {
@@ -26,7 +26,7 @@ fn varbinview_zip_fragmented_mask(bencher: Bencher) {
     bencher
         .with_inputs(|| (&if_true, &if_false, &mask))
         .bench_refs(|(t, f, m)| {
-            zip(t.as_ref(), f.as_ref(), m).unwrap();
+            t.zip(f.clone(), m.clone().into_array()).unwrap();
         });
 }
 
@@ -41,7 +41,7 @@ fn varbinview_zip_block_mask(bencher: Bencher) {
     bencher
         .with_inputs(|| (&if_true, &if_false, &mask))
         .bench_refs(|(t, f, m)| {
-            zip(t.as_ref(), f.as_ref(), m).unwrap();
+            t.zip(f.clone(), m.clone().into_array()).unwrap();
         });
 }
 

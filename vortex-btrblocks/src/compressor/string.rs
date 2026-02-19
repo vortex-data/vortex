@@ -570,8 +570,8 @@ mod tests {
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::display::DisplayOptions;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
     use vortex_error::VortexResult;
 
     use crate::BtrBlocksCompressor;
@@ -627,8 +627,8 @@ mod scheme_selection_tests {
     use vortex_array::arrays::ConstantVTable;
     use vortex_array::arrays::DictVTable;
     use vortex_array::arrays::VarBinViewArray;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
     use vortex_error::VortexResult;
     use vortex_fsst::FSSTVTable;
 

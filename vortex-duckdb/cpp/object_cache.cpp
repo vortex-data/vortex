@@ -11,18 +11,11 @@ namespace vortex {
 // Wrapper class to hold opaque pointers in DuckDB's object cache
 class OpaqueWrapper : public duckdb::ObjectCacheEntry {
 public:
-    void *ptr;
-    duckdb_vx_deleter_fn deleter;
+    duckdb::unique_ptr<void, duckdb_vx_deleter_fn> ptr;
 
-    explicit OpaqueWrapper(void *p, duckdb_vx_deleter_fn del) : ptr(p), deleter(del) {
+    explicit OpaqueWrapper(void *p, duckdb_vx_deleter_fn del) : ptr(p, del) {
     }
-
-    ~OpaqueWrapper() override {
-        if (ptr) {
-            // Call the custom deleter function
-            deleter(ptr);
-        }
-    }
+    ~OpaqueWrapper() override = default;
 
     duckdb::string GetObjectType() override {
         return "vortex_opaque_wrapper";
@@ -51,5 +44,5 @@ extern "C" void *duckdb_vx_object_cache_get(duckdb_vx_object_cache cache, const 
     if (!entry) {
         return nullptr;
     }
-    return entry->ptr;
+    return entry->ptr.get();
 }

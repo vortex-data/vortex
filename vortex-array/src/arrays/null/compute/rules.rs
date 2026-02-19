@@ -5,7 +5,7 @@ use crate::arrays::FilterReduceAdaptor;
 use crate::arrays::NullVTable;
 use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::TakeReduceAdaptor;
-use crate::compute::CastReduceAdaptor;
+use crate::expr::CastReduceAdaptor;
 use crate::expr::MaskReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
 

@@ -10,7 +10,6 @@ use std::fmt::Debug;
 use futures::stream;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -19,6 +18,7 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
+use crate::dtype::DType;
 use crate::iter::ArrayIterator;
 use crate::iter::ArrayIteratorAdapter;
 use crate::search_sorted::SearchSorted;
@@ -224,9 +224,6 @@ impl FromIterator<ArrayRef> for ChunkedArray {
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
@@ -234,6 +231,9 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::ChunkedArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::validity::Validity;
 
     #[test]

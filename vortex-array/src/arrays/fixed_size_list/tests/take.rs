@@ -3,9 +3,6 @@
 
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 
 use super::common::create_basic_fsl;
 use super::common::create_empty_fsl;
@@ -20,6 +17,9 @@ use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::FixedSizeListBuilder;
 use crate::compute::conformance::take::test_take_conformance;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 

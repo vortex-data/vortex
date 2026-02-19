@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::arrays::NullArray;
 use crate::arrays::NullVTable;
-use crate::compute::MaskReduce;
+use crate::expr::MaskReduce;
 
 impl MaskReduce for NullVTable {
     fn mask(array: &NullArray, _mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

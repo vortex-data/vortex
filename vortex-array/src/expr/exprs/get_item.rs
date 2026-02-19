@@ -4,10 +4,6 @@
 use std::fmt::Formatter;
 
 use prost::Message;
-use vortex_dtype::DType;
-use vortex_dtype::FieldName;
-use vortex_dtype::FieldPath;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -18,6 +14,10 @@ use crate::ArrayRef;
 use crate::arrays::StructArray;
 use crate::builtins::ArrayBuiltins;
 use crate::builtins::ExprBuiltins;
+use crate::dtype::DType;
+use crate::dtype::FieldName;
+use crate::dtype::FieldPath;
+use crate::dtype::Nullability;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -241,16 +241,16 @@ pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType;
-    use vortex_dtype::StructFields;
 
     use crate::Array;
     use crate::IntoArray;
     use crate::arrays::StructArray;
+    use crate::dtype::DType;
+    use crate::dtype::FieldNames;
+    use crate::dtype::Nullability;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::expr::exprs::binary::checked_add;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;

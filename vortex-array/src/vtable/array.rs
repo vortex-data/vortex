@@ -3,9 +3,8 @@
 
 use std::hash::Hasher;
 
-use vortex_dtype::DType;
-
 use crate::Precision;
+use crate::dtype::DType;
 use crate::stats::StatsSetRef;
 use crate::vtable::VTable;
 

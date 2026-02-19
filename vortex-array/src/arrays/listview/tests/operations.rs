@@ -5,9 +5,6 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_mask::Mask;
 
 use super::common::create_basic_listview;
@@ -25,7 +22,11 @@ use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::is_constant;
+#[expect(deprecated)]
 use crate::compute::mask;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::validity::Validity;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -510,6 +511,7 @@ fn test_mask_preserves_structure() {
 
     // Mask sets elements to null where true.
     let selection = Mask::from_iter([true, false, true, true]);
+    #[expect(deprecated)]
     let result = mask(&listview, &selection).unwrap();
 
     assert_eq!(result.len(), 4); // Length is preserved.
@@ -549,6 +551,7 @@ fn test_mask_with_existing_nulls() {
 
     // Mask additional elements.
     let selection = Mask::from_iter([false, true, true]);
+    #[expect(deprecated)]
     let result = mask(&listview, &selection).unwrap();
     let result_list = result.to_listview();
 
@@ -569,6 +572,7 @@ fn test_mask_with_gaps() {
     let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
 
     let selection = Mask::from_iter([true, false, false]);
+    #[expect(deprecated)]
     let result = mask(&listview, &selection).unwrap();
     let result_list = result.to_listview();
 
@@ -601,6 +605,7 @@ fn test_mask_constant_arrays() {
     .to_array();
 
     let selection = Mask::from_iter([false, true, false]);
+    #[expect(deprecated)]
     let result = mask(&const_list, &selection).unwrap();
     let result_list = result.to_listview();
 

@@ -846,7 +846,7 @@ impl Scheme for PcoScheme {
         // Pco does not support I8 or U8.
         if matches!(
             stats.src.ptype(),
-            vortex_dtype::PType::I8 | vortex_dtype::PType::U8
+            vortex_array::dtype::PType::I8 | vortex_array::dtype::PType::U8
         ) {
             return Ok(0.0);
         }
