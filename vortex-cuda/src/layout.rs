@@ -324,6 +324,7 @@ impl LayoutReader for CudaFlatReader {
         Ok(MaskFuture::new(mask.len(), async move {
             let mut array = array.clone().await?;
             let mask = mask.await?;
+            tokio::task::yield_now().await;
 
             if row_range.start > 0 || row_range.end < array.len() {
                 array = array.slice(row_range.clone())?;
@@ -331,12 +332,14 @@ impl LayoutReader for CudaFlatReader {
 
             let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
                 let array = array.apply(&expr)?;
+                tokio::task::yield_now().await;
                 let array = array.filter(mask.clone())?;
                 let mut ctx = session.create_execution_ctx();
                 let array_mask = array.execute::<Mask>(&mut ctx)?;
                 mask.intersect_by_rank(&array_mask)
             } else {
                 let array = array.apply(&expr)?;
+                tokio::task::yield_now().await;
                 let mut ctx = session.create_execution_ctx();
                 let array_mask = array.execute::<Mask>(&mut ctx)?;
                 mask.bitand(&array_mask)
@@ -378,6 +381,7 @@ impl LayoutReader for CudaFlatReader {
 
             let mut array = array.clone().await?;
             let mask = mask.await?;
+            tokio::task::yield_now().await;
 
             if row_range.start > 0 || row_range.end < array.len() {
                 array = array.slice(row_range.clone())?;
@@ -385,6 +389,7 @@ impl LayoutReader for CudaFlatReader {
 
             if !mask.all_true() {
                 array = array.filter(mask)?;
+                tokio::task::yield_now().await;
             }
 
             if let Some(expr) = &expr {
