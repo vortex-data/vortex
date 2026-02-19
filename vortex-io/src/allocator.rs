@@ -21,6 +21,21 @@ use crate::WriteTarget;
 pub trait BufferAllocator: Send + Sync + 'static {
     /// Allocate a buffer for the requested length and alignment.
     fn allocate(&self, len: usize, alignment: Alignment) -> VortexResult<Box<dyn WriteTarget>>;
+
+    /// Try to allocate without potentially blocking on expensive operations.
+    ///
+    /// Returns `Ok(None)` if the allocation would require a blocking operation
+    /// (e.g., CUDA pinned memory allocation via `cuMemAllocHost`). In that case,
+    /// the caller may choose to pipeline the allocation with I/O.
+    ///
+    /// The default implementation always succeeds by delegating to [`allocate`][Self::allocate].
+    fn try_allocate(
+        &self,
+        len: usize,
+        alignment: Alignment,
+    ) -> VortexResult<Option<Box<dyn WriteTarget>>> {
+        self.allocate(len, alignment).map(Some)
+    }
 }
 
 /// The default allocator that uses `ByteBufferMut`.

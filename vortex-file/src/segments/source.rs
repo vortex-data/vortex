@@ -183,23 +183,32 @@ impl FileSegmentSource {
                         }
 
                         let result = if let Some(allocator) = allocator {
-                            // Pipeline: start the I/O read and allocate the target
-                            // buffer concurrently. try_join! polls read_fut first
-                            // (initiating the HTTP request for object store sources),
-                            // then polls alloc_fut (which may block on cuMemAllocHost
-                            // for pool misses). This overlaps I/O first-byte latency
-                            // with buffer allocation.
-                            let read_fut = reader.read_at(req.offset(), req.len(), req.alignment());
-                            let len = req.len();
-                            let alignment = req.alignment();
-                            let alloc_fut = async move { allocator.allocate(len, alignment) };
+                            match allocator.try_allocate(req.len(), req.alignment()) {
+                                Ok(Some(target)) => {
+                                    // Fast path: buffer available from pool.
+                                    reader.read_at_into(req.offset(), target).await
+                                }
+                                Ok(None) => {
+                                    // Pool miss: pipeline I/O with allocation so
+                                    // that cuMemAllocHost overlaps S3 first-byte
+                                    // latency instead of blocking before the
+                                    // request starts.
+                                    let read_fut =
+                                        reader.read_at(req.offset(), req.len(), req.alignment());
+                                    let len = req.len();
+                                    let alignment = req.alignment();
+                                    let alloc_fut =
+                                        async move { allocator.allocate(len, alignment) };
 
-                            match futures::try_join!(read_fut, alloc_fut) {
-                                Ok((data, mut target)) => {
-                                    target
-                                        .as_mut_slice()
-                                        .copy_from_slice(data.as_host().as_ref());
-                                    target.into_handle()
+                                    match futures::try_join!(read_fut, alloc_fut) {
+                                        Ok((data, mut target)) => {
+                                            target
+                                                .as_mut_slice()
+                                                .copy_from_slice(data.as_host().as_ref());
+                                            target.into_handle()
+                                        }
+                                        Err(e) => Err(e),
+                                    }
                                 }
                                 Err(e) => Err(e),
                             }

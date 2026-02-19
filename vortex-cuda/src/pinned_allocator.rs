@@ -33,6 +33,17 @@ impl BufferAllocator for PinnedBufferAllocator {
         let buffer = self.pool.get_pooled(len)?;
         Ok(Box::new(buffer))
     }
+
+    fn try_allocate(
+        &self,
+        len: usize,
+        _alignment: Alignment,
+    ) -> VortexResult<Option<Box<dyn WriteTarget>>> {
+        match self.pool.try_get_pooled(len)? {
+            Some(buffer) => Ok(Some(Box::new(buffer))),
+            None => Ok(None),
+        }
+    }
 }
 
 impl WriteTarget for PooledPinnedBuffer {
@@ -83,6 +94,20 @@ impl BufferAllocator for PinnedDeviceAllocator {
             buffer,
             stream: self.stream.clone(),
         }))
+    }
+
+    fn try_allocate(
+        &self,
+        len: usize,
+        _alignment: Alignment,
+    ) -> VortexResult<Option<Box<dyn WriteTarget>>> {
+        match self.pool.try_get_pooled(len)? {
+            Some(buffer) => Ok(Some(Box::new(PinnedDeviceWriteTarget {
+                buffer,
+                stream: self.stream.clone(),
+            }))),
+            None => Ok(None),
+        }
     }
 }
 

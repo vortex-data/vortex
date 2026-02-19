@@ -263,6 +263,41 @@ impl PinnedByteBufferPool {
         Ok(())
     }
 
+    /// Try to get a buffer from the pool without performing expensive allocation.
+    ///
+    /// Returns `Ok(None)` if no buffer is available in the pool for the requested size class.
+    /// Unlike [`get`][Self::get], this will never call `cuMemAllocHost`.
+    pub fn try_get(&self, len: usize) -> VortexResult<Option<PinnedByteBuffer>> {
+        self.reclaim_deferred()?;
+        let key_len = self.size_class_len(len);
+        let mut buckets = self.buckets.lock();
+        if let Some(bucket) = buckets.get_mut(&key_len)
+            && let Some(mut buf) = bucket.pop()
+        {
+            self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            buf.set_logical_len(len);
+            Ok(Some(buf))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Try to get a pooled pinned buffer without performing expensive allocation.
+    ///
+    /// Returns `Ok(None)` if no buffer is available in the pool.
+    pub fn try_get_pooled(
+        self: &Arc<Self>,
+        len: usize,
+    ) -> VortexResult<Option<PooledPinnedBuffer>> {
+        match self.try_get(len)? {
+            Some(inner) => Ok(Some(PooledPinnedBuffer {
+                inner: Some(inner),
+                pool: self.clone(),
+            })),
+            None => Ok(None),
+        }
+    }
+
     /// Get a pooled pinned buffer that will be returned to the pool on drop.
     pub fn get_pooled(self: &Arc<Self>, len: usize) -> VortexResult<PooledPinnedBuffer> {
         let inner = self.get(len)?;
