@@ -32,9 +32,9 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::PrimitiveArray as VortexPrimitiveArray;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::dtype::NativePType;
-use crate::dtype::datetime::AnyTemporal;
-use crate::dtype::datetime::TemporalMetadata;
-use crate::dtype::datetime::TimeUnit;
+use crate::extension::datetime::AnyTemporal;
+use crate::extension::datetime::TemporalMetadata;
+use crate::extension::datetime::TimeUnit;
 
 pub(super) fn to_arrow_temporal(
     array: ArrayRef,

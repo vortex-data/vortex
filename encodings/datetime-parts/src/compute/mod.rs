@@ -18,7 +18,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_array::dtype::datetime::TimeUnit;
+    use vortex_array::extension::datetime::TimeUnit;
     use vortex_buffer::buffer;
 
     use crate::DateTimePartsArray;

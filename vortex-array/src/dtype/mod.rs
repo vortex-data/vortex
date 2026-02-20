@@ -10,7 +10,6 @@
 mod arbitrary;
 pub mod arrow;
 mod bigint;
-pub mod datetime;
 mod decimal;
 mod dtype_impl;
 pub mod extension;
@@ -106,9 +105,6 @@ pub enum DType {
 pub use bigint::*;
 pub use decimal::*;
 pub use dtype_impl::NativeDType;
-pub use extension::ExtDType;
-pub use extension::ExtDTypeRef;
-pub use extension::ExtID;
 pub use f16::*;
 pub use field::*;
 pub use field_mask::*;
@@ -117,6 +113,8 @@ pub use half;
 pub use nullability::*;
 pub use ptype::*;
 pub use struct_::*;
+
+use crate::dtype::extension::ExtDTypeRef;
 
 pub mod proto {
     //! Protocol buffer representations for DTypes

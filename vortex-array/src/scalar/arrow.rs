@@ -13,9 +13,9 @@ use vortex_error::vortex_err;
 
 use crate::dtype::DType;
 use crate::dtype::PType;
-use crate::dtype::datetime::AnyTemporal;
-use crate::dtype::datetime::TemporalMetadata;
-use crate::dtype::datetime::TimeUnit;
+use crate::extension::datetime::AnyTemporal;
+use crate::extension::datetime::TemporalMetadata;
+use crate::extension::datetime::TimeUnit;
 use crate::scalar::BinaryScalar;
 use crate::scalar::BoolScalar;
 use crate::scalar::DecimalScalar;
@@ -197,15 +197,19 @@ mod tests {
 
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
+    use crate::dtype::FieldDType;
     use crate::dtype::NativeDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::dtype::datetime::Date;
-    use crate::dtype::datetime::Time;
-    use crate::dtype::datetime::TimeUnit;
-    use crate::dtype::datetime::Timestamp;
-    use crate::dtype::datetime::TimestampOptions;
-    use crate::dtype::extension::ExtDTypeVTable;
+    use crate::dtype::StructFields;
+    use crate::dtype::extension::ExtId;
+    use crate::dtype::extension::ExtVTable;
+    use crate::dtype::i256;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::Time;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
+    use crate::extension::datetime::TimestampOptions;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
 
@@ -386,7 +390,7 @@ mod tests {
         assert!(Arc::<dyn Datum>::try_from(&scalar_i128).is_ok());
 
         // Test i256
-        use crate::dtype::i256;
+
         let value_i256 = i256::from_i128(99999);
         let scalar_i256 = Scalar::decimal(
             DecimalValue::I256(value_i256),
@@ -398,8 +402,6 @@ mod tests {
 
     #[test]
     fn test_null_decimal_to_arrow() {
-        use crate::dtype::DecimalDType;
-
         let decimal_dtype = DecimalDType::new(10, 2);
         let scalar = Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable));
         let result = Arc::<dyn Datum>::try_from(&scalar);
@@ -409,9 +411,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "struct scalar conversion")]
     fn test_struct_scalar_to_arrow_todo() {
-        use crate::dtype::FieldDType;
-        use crate::dtype::StructFields;
-
         let struct_dtype = DType::Struct(
             StructFields::from_iter([(
                 "field1",
@@ -446,15 +445,13 @@ mod tests {
     #[test]
     #[should_panic(expected = "Cannot convert extension scalar")]
     fn test_non_temporal_extension_to_arrow_todo() {
-        use crate::dtype::ExtID;
-
         #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct SomeExt;
-        impl ExtDTypeVTable for SomeExt {
+        impl ExtVTable for SomeExt {
             type Metadata = String;
 
-            fn id(&self) -> ExtID {
-                ExtID::new_ref("some_ext")
+            fn id(&self) -> ExtId {
+                ExtId::new_ref("some_ext")
             }
 
             fn serialize(&self, _options: &Self::Metadata) -> VortexResult<Vec<u8>> {

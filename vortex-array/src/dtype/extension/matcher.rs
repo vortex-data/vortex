@@ -3,7 +3,7 @@
 
 use crate::dtype::extension::ExtDTypeAdapter;
 use crate::dtype::extension::ExtDTypeRef;
-use crate::dtype::extension::ExtDTypeVTable;
+use crate::dtype::extension::ExtVTable;
 
 /// A trait for matching extension dtypes.
 pub trait Matcher {
@@ -19,7 +19,7 @@ pub trait Matcher {
     fn try_match<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>>;
 }
 
-impl<V: ExtDTypeVTable> Matcher for V {
+impl<V: ExtVTable> Matcher for V {
     type Match<'a> = &'a V::Metadata;
 
     fn matches(item: &ExtDTypeRef) -> bool {

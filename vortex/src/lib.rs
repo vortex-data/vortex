@@ -20,6 +20,10 @@ use vortex_session::VortexSession;
 
 pub mod array {
     pub use vortex_array::*;
+
+    // TODO(connor): We should probably manually pull up everything we need besides these 3 modules.
+    // Note that there `vortex::dtype`, `vortex::extension`, and `vortex::scalar` are all exported
+    // twice.
 }
 
 pub mod buffer {
@@ -40,6 +44,10 @@ pub mod dtype {
 
 pub mod error {
     pub use vortex_error::*;
+}
+
+pub mod extension {
+    pub use vortex_array::extension::*;
 }
 
 #[cfg(feature = "files")]

@@ -13,9 +13,9 @@ use crate::dtype::DecimalDType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
-use crate::dtype::datetime::TimeUnit;
-use crate::dtype::datetime::Timestamp;
 use crate::dtype::half::f16;
+use crate::extension::datetime::TimeUnit;
+use crate::extension::datetime::Timestamp;
 use crate::scalar::Scalar;
 
 /// Test that `append_zeros` produces the same result as manually appending `Scalar::default_value`.

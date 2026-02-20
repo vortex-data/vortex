@@ -43,7 +43,7 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::TemporalArray;
     use vortex::buffer::buffer;
-    use vortex::dtype::datetime::TimeUnit;
+    use vortex::extension::datetime::TimeUnit;
     use vortex_array::VortexSessionExecute;
 
     use crate::SESSION;

@@ -16,13 +16,13 @@ use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
 use crate::dtype::DType;
-use crate::dtype::datetime::AnyTemporal;
-use crate::dtype::datetime::Date;
-use crate::dtype::datetime::TemporalMetadata;
-use crate::dtype::datetime::Time;
-use crate::dtype::datetime::TimeUnit;
-use crate::dtype::datetime::Timestamp;
 use crate::dtype::extension::ExtDTypeRef;
+use crate::extension::datetime::AnyTemporal;
+use crate::extension::datetime::Date;
+use crate::extension::datetime::TemporalMetadata;
+use crate::extension::datetime::Time;
+use crate::extension::datetime::TimeUnit;
+use crate::extension::datetime::Timestamp;
 
 /// An array wrapper for primitive values that have an associated temporal meaning.
 ///

@@ -11,13 +11,13 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::dtype::DType;
-    use crate::dtype::ExtDType;
-    use crate::dtype::ExtID;
     use crate::dtype::FieldDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::dtype::extension::ExtDTypeVTable;
+    use crate::dtype::extension::ExtDType;
+    use crate::dtype::extension::ExtId;
+    use crate::dtype::extension::ExtVTable;
     use crate::dtype::half::f16;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
@@ -26,11 +26,11 @@ mod tests {
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct Apples;
 
-    impl ExtDTypeVTable for Apples {
+    impl ExtVTable for Apples {
         type Metadata = usize;
 
-        fn id(&self) -> ExtID {
-            ExtID::new_ref("apples")
+        fn id(&self) -> ExtId {
+            ExtId::new_ref("apples")
         }
 
         fn validate_dtype(
@@ -229,11 +229,11 @@ mod tests {
         // Create an extension type with f16 storage
         #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct F16Ext;
-        impl ExtDTypeVTable for F16Ext {
+        impl ExtVTable for F16Ext {
             type Metadata = usize;
 
-            fn id(&self) -> ExtID {
-                ExtID::new_ref("f16_ext")
+            fn id(&self) -> ExtId {
+                ExtId::new_ref("f16_ext")
             }
 
             fn validate_dtype(
@@ -274,11 +274,11 @@ mod tests {
         // Create an extension type with struct storage that contains f16 field
         #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct StructExt;
-        impl ExtDTypeVTable for StructExt {
+        impl ExtVTable for StructExt {
             type Metadata = usize;
 
-            fn id(&self) -> ExtID {
-                ExtID::new_ref("struct_ext")
+            fn id(&self) -> ExtId {
+                ExtId::new_ref("struct_ext")
             }
 
             fn validate_dtype(
