@@ -166,7 +166,7 @@ fn fsl_rebuild(bencher: Bencher) {
 // ── List<i32>: nested list elements ───────────────────────────────────────────
 #[divan::bench]
 fn list_i32_nested(bencher: Bencher) {
-    let num_lists = 100;
+    let num_lists = 10;
     let list_size = 512;
     let elem_count = num_lists * list_size + list_size;
     let inner_list_size = 8;
