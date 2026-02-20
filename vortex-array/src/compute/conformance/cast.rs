@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -14,6 +11,9 @@ use crate::IntoArray;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::MinMaxResult;
 use crate::compute::min_max;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::scalar::Scalar;
 
 /// Cast and force execution via `to_canonical`, returning the canonical array.
@@ -313,9 +313,6 @@ fn test_cast_to_primitive(array: &dyn Array, target_ptype: PType, test_round_tri
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability;
 
     use super::*;
     use crate::IntoArray;
@@ -325,6 +322,9 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
+    use crate::dtype::DType;
+    use crate::dtype::FieldNames;
+    use crate::dtype::Nullability;
 
     #[test]
     fn test_cast_conformance_u32() {

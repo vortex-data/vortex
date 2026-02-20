@@ -3,8 +3,6 @@
 
 use std::any::Any;
 
-use vortex_dtype::DType;
-use vortex_dtype::extension::ExtDTypeRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
@@ -18,6 +16,8 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::extension::ExtDTypeRef;
 use crate::scalar::ExtScalar;
 use crate::scalar::Scalar;
 
@@ -122,14 +122,13 @@ impl ArrayBuilder for ExtensionBuilder {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::Nullability;
-    use vortex_dtype::datetime::Date;
-    use vortex_dtype::datetime::TimeUnit;
-
     use super::*;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::dtype::Nullability;
+    use crate::dtype::datetime::Date;
+    use crate::dtype::datetime::TimeUnit;
     use crate::scalar::Scalar;
 
     #[test]
@@ -150,7 +149,7 @@ mod tests {
 
         // Test appending null value.
         let null_storage = Scalar::null(DType::Primitive(
-            vortex_dtype::PType::I32,
+            crate::dtype::PType::I32,
             Nullability::Nullable,
         ));
         let null_scalar = Scalar::extension::<Date>(TimeUnit::Days, null_storage);

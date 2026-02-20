@@ -78,13 +78,13 @@ mod tests {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldNames;
 
     use crate::IntoArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::compute::is_constant;
+    use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
     #[test]

@@ -12,8 +12,8 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::dict_test::gen_dict_primitive_chunks;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::compute::warm_up_vtables;
+use vortex_array::dtype::NativePType;
 use vortex_array::session::ArraySession;
-use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 

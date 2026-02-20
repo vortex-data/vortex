@@ -9,8 +9,6 @@ use std::fmt::Formatter;
 
 pub use kernel::*;
 use prost::Message;
-use vortex_dtype::DType;
-use vortex_dtype::DType::Bool;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -27,9 +25,10 @@ use crate::arrays::ConstantArray;
 use crate::arrays::DecimalVTable;
 use crate::arrays::PrimitiveVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::BooleanOperator;
 use crate::compute::Options;
 use crate::compute::compare;
+use crate::dtype::DType;
+use crate::dtype::DType::Bool;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -165,7 +164,7 @@ fn between_canonical(
     execute_boolean(
         &compare(lower, arr, options.lower_strict.to_operator())?,
         &compare(arr, upper, options.upper_strict.to_operator())?,
-        BooleanOperator::AndKleene,
+        Operator::And,
     )
 }
 
@@ -368,10 +367,6 @@ pub fn between(
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use super::*;
     use crate::IntoArray;
@@ -381,6 +376,10 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;

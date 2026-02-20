@@ -23,8 +23,8 @@ workspace = true
 [dependencies]
 libloading = { workspace = true }
 paste = { workspace = true }
+vortex-array = { workspace = true }
 vortex-cuda-macros = { workspace = true }
-vortex-dtype = { workspace = true }
 
 [build-dependencies]
 bindgen = { workspace = true }

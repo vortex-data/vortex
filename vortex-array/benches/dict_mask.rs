@@ -12,7 +12,7 @@ use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::mask;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::warm_up_vtables;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -67,7 +67,9 @@ fn bench_dict_mask(bencher: Bencher, (fraction_valid, fraction_masked): (f64, f6
         .with_inputs(|| (&array, &filter_mask))
         .bench_refs(|(array, filter_mask)| {
             let mut ctx = session.create_execution_ctx();
-            mask(*array, filter_mask)
+            array
+                .clone()
+                .mask(filter_mask.clone().into_array())
                 .unwrap()
                 .execute::<RecursiveCanonical>(&mut ctx)
                 .unwrap()

@@ -16,7 +16,7 @@ use crate::wrapper;
 
 /// The native bind callback for a table function.
 pub(crate) unsafe extern "C-unwind" fn bind_callback<T: TableFunction>(
-    ctx: cpp::duckdb_vx_client_context,
+    ctx: cpp::duckdb_client_context,
     bind_input: cpp::duckdb_vx_tfunc_bind_input,
     bind_result: cpp::duckdb_vx_tfunc_bind_result,
     error_out: *mut cpp::duckdb_vx_error,

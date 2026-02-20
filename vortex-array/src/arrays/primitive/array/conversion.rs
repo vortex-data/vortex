@@ -6,12 +6,12 @@
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::NativePType;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
+use crate::dtype::NativePType;
 use crate::validity::Validity;
 
 impl PrimitiveArray {

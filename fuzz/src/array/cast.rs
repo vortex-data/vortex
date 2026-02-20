@@ -5,12 +5,12 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability::Nullable;
+use vortex_array::dtype::PType;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability::Nullable;
-use vortex_dtype::PType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
 pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -48,7 +48,7 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
         )))
     } else {
         // Float to float casting (F32 <-> F64 only, skip F16 for now)
-        use vortex_dtype::PType;
+        use vortex_array::dtype::PType;
         let from_ptype = array.dtype().as_ptype();
         let to_ptype = target.as_ptype();
 

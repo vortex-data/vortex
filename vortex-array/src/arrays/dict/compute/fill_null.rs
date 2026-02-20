@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
 use super::DictArray;
@@ -16,6 +15,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::compute::Operator;
 use crate::compute::compare;
 use crate::expr::FillNullKernel;
+use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -84,7 +84,6 @@ impl FillNullKernel for DictVTable {
 mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexExpect;
 
     use crate::IntoArray;
@@ -93,6 +92,7 @@ mod tests {
     use crate::arrays::dict::DictArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
+    use crate::dtype::Nullability;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 

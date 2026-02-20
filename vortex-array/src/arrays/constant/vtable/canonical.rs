@@ -6,12 +6,6 @@ use std::sync::Arc;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_decimal_value;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -29,6 +23,12 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::builders::builder_with_capacity;
+use crate::dtype::DType;
+use crate::dtype::DecimalType;
+use crate::dtype::Nullability;
+use crate::match_each_decimal_value;
+use crate::match_each_decimal_value_type;
+use crate::match_each_native_ptype;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
@@ -312,10 +312,6 @@ mod tests {
 
     use enum_iterator::all;
     use itertools::Itertools;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::half::f16;
     use vortex_error::VortexResult;
 
     use crate::Array;
@@ -326,6 +322,10 @@ mod tests {
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::half::f16;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
     use crate::scalar::Scalar;

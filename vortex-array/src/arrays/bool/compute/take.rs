@@ -5,7 +5,6 @@ use itertools::Itertools as _;
 use num_traits::AsPrimitive;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::get_bit;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -19,6 +18,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::TakeExecute;
 use crate::builtins::ArrayBuiltins;
 use crate::executor::ExecutionCtx;
+use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
 

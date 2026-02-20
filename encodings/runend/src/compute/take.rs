@@ -9,13 +9,13 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TakeExecute;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 

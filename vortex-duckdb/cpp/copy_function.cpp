@@ -3,9 +3,8 @@
 
 #include "duckdb_vx.h"
 #include "duckdb_vx/data.hpp"
-
 #include "duckdb/function/copy_function.hpp"
-
+#include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/connection.hpp"
 #include "duckdb/parser/parsed_data/create_copy_function_info.hpp"
@@ -46,16 +45,20 @@ unique_ptr<FunctionData> c_bind_one(ClientContext &context,
                                     const vector<LogicalType> &column_types) {
 
     auto c_column_names = vector<char *>();
+    c_column_names.reserve(column_names.size());
     for (const auto &col_id : column_names) {
         c_column_names.push_back(const_cast<char *>(col_id.c_str()));
     }
 
     auto c_column_types = vector<duckdb_logical_type>();
+    c_column_types.reserve(c_column_types.size());
     for (auto &col_type : column_types) {
         c_column_types.push_back(reinterpret_cast<duckdb_logical_type>(const_cast<LogicalType *>(&col_type)));
     }
 
     duckdb_vx_error error_out = nullptr;
+    // TODO(myrrc): do we pass ownership of c_column_names in bind?
+    // If yes, it's a UB as we'd double delete on function return
     auto ffi_bind_data = copy_vtab_one.bind(reinterpret_cast<duckdb_vx_copy_func_bind_input>(&info),
                                             c_column_names.data(),
                                             c_column_names.size(),
@@ -76,7 +79,7 @@ unique_ptr<GlobalFunctionData>
 c_init_global(ClientContext &context, FunctionData &bind_data, const string &file_path) {
     auto &bind = bind_data.Cast<CCopyBindData>();
     duckdb_vx_error error_out = nullptr;
-    auto global_data = bind.vtab.init_global(reinterpret_cast<duckdb_vx_client_context>(&context),
+    auto global_data = bind.vtab.init_global(reinterpret_cast<duckdb_client_context>(&context),
                                              bind.ffi_data->DataPtr(),
                                              file_path.c_str(),
                                              &error_out);
@@ -131,12 +134,13 @@ extern "C" duckdb_vx_copy_func_vtab_t *get_vtab_one() {
     return &copy_vtab_one;
 }
 
-extern "C" duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_connection ffi_conn) {
-    if (!ffi_conn) {
+extern "C" duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_database ffi_db) {
+    if (!ffi_db) {
         return DuckDBError;
     }
 
-    auto conn = reinterpret_cast<Connection *>(ffi_conn);
+    auto wrapper = reinterpret_cast<duckdb::DatabaseWrapper *>(ffi_db);
+    auto db = wrapper->database->instance;
     auto copy_function = CopyFunction(copy_vtab_one.name);
 
     copy_function.copy_to_bind = c_bind_one;
@@ -154,11 +158,10 @@ extern "C" duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_connection 
     // TODO(joe): handle parameters as in table_function
 
     try {
-        CreateCopyFunctionInfo info(std::move(copy_function));
-        auto &system_catalog = Catalog::GetSystemCatalog(*conn->context->db);
-        auto data = CatalogTransaction::GetSystemTransaction(*conn->context->db);
-        system_catalog.CreateCopyFunction(data, info);
-
+        auto &system_catalog = Catalog::GetSystemCatalog(*db);
+        auto data = CatalogTransaction::GetSystemTransaction(*db);
+        CreateCopyFunctionInfo copy_info(std::move(copy_function));
+        system_catalog.CreateCopyFunction(data, copy_info);
     } catch (...) {
         return DuckDBError;
     }

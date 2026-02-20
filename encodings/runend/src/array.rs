@@ -16,6 +16,9 @@ use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::scalar::PValue;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
@@ -28,9 +31,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -501,10 +501,10 @@ pub(super) fn run_end_canonicalize(
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::RunEndArray;
 

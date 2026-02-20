@@ -4,14 +4,14 @@
 #![allow(clippy::unwrap_used)]
 
 use divan::Bencher;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::StructFields;
 use vortex_array::expr::get_item;
 use vortex_array::expr::pack;
 use vortex_array::expr::root;
-use vortex_dtype::DType;
-use vortex_dtype::FieldName;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::StructFields;
 
 fn main() {
     divan::main();

@@ -12,19 +12,19 @@ use criterion::Throughput;
 use cudarc::driver::DevicePtrMut;
 use cudarc::driver::sys::CUevent_flags;
 use futures::executor::block_on;
-use vortex_array::arrays::VarBinViewArray;
+use vortex::array::arrays::VarBinViewArray;
+use vortex::encodings::zstd::ZstdArray;
+use vortex::encodings::zstd::ZstdArrayParts;
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
+use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::ZstdKernelPrep;
 use vortex_cuda::nvcomp::zstd as nvcomp_zstd;
 use vortex_cuda::zstd_kernel_prepare;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
-use vortex_session::VortexSession;
-use vortex_zstd::ZstdArray;
-use vortex_zstd::ZstdArrayParts;
 
 const BENCH_ARGS: &[(usize, &str)] = &[
     (1_000_000, "1M"),

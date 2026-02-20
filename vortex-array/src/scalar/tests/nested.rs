@@ -7,10 +7,9 @@
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;

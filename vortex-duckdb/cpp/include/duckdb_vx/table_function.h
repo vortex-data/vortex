@@ -69,7 +69,7 @@ typedef struct {
     const idx_t *projection_ids;
     size_t projection_ids_count;
     duckdb_vx_table_filter_set filters;
-    duckdb_vx_client_context client_context;
+    duckdb_client_context client_context;
     // void *sample_options;
 } duckdb_vx_tfunc_init_input;
 
@@ -96,7 +96,7 @@ typedef struct {
     const char *const *named_parameter_names;
     size_t named_parameter_count;
 
-    duckdb_vx_data (*bind)(duckdb_vx_client_context ctx,
+    duckdb_vx_data (*bind)(duckdb_client_context ctx,
                            duckdb_vx_tfunc_bind_input input,
                            duckdb_vx_tfunc_bind_result result,
                            duckdb_vx_error *error_out);
@@ -112,7 +112,7 @@ typedef struct {
                                  void *init_global_data,
                                  duckdb_vx_error *error_out);
 
-    void (*function)(duckdb_vx_client_context ctx,
+    void (*function)(duckdb_client_context ctx,
                      const void *bind_data,
                      void *init_global_data,
                      void *init_local_data,
@@ -133,7 +133,9 @@ typedef struct {
     void *pushdown_expression;
     duckdb_vx_string_map (*to_string)(void *bind_data);
     // void *dynamic_to_string;
-    void *table_scan_progress;
+
+    double (*table_scan_progress)(duckdb_client_context ctx, void *bind_data, void *global_state);
+
     idx_t (*get_partition_data)(const void *bind_data,
                                 void *init_global_data,
                                 void *init_local_data,
@@ -156,7 +158,7 @@ typedef struct {
 } duckdb_vx_tfunc_vtab_t;
 
 // A single function for configuring the DuckDB table function vtable.
-duckdb_state duckdb_vx_tfunc_register(duckdb_connection ffi_conn, const duckdb_vx_tfunc_vtab_t *vtab);
+duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const duckdb_vx_tfunc_vtab_t *vtab);
 
 #ifdef __cplusplus /* End C ABI */
 }

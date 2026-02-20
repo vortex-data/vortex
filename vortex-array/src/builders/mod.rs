@@ -10,7 +10,7 @@
 //!
 //! ```
 //! use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
-//! use vortex_dtype::{DType, Nullability};
+//! use vortex_array::dtype::{DType, Nullability};
 //!
 //! // Create a new builder for string data.
 //! let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);
@@ -30,9 +30,6 @@
 
 use std::any::Any;
 
-use vortex_dtype::DType;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -41,6 +38,9 @@ use vortex_mask::Mask;
 use crate::Array;
 use crate::ArrayRef;
 use crate::canonical::Canonical;
+use crate::dtype::DType;
+use crate::match_each_decimal_value_type;
+use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 
 mod lazy_null_builder;
@@ -226,7 +226,7 @@ pub trait ArrayBuilder: Send {
 ///
 /// ```
 /// use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
-/// use vortex_dtype::{DType, Nullability};
+/// use vortex_array::dtype::{DType, Nullability};
 ///
 /// // Create a new builder for string data.
 /// let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);

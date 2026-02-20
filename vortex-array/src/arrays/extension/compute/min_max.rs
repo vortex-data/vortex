@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 
 use crate::arrays::ExtensionArray;
@@ -10,6 +9,7 @@ use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
 use crate::compute::{self};
+use crate::dtype::Nullability;
 use crate::register_kernel;
 use crate::scalar::Scalar;
 

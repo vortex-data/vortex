@@ -6,8 +6,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use vortex_dtype::DType;
-
+use crate::dtype::DType;
 use crate::scalar::Scalar;
 
 impl Display for Scalar {
@@ -32,17 +31,17 @@ impl Display for Scalar {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::ByteBuffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldName;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::PType;
-    use vortex_dtype::StructFields;
-    use vortex_dtype::datetime::Date;
-    use vortex_dtype::datetime::Time;
-    use vortex_dtype::datetime::TimeUnit;
-    use vortex_dtype::datetime::Timestamp;
 
+    use crate::dtype::DType;
+    use crate::dtype::FieldName;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
+    use crate::dtype::datetime::Date;
+    use crate::dtype::datetime::Time;
+    use crate::dtype::datetime::TimeUnit;
+    use crate::dtype::datetime::Timestamp;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;

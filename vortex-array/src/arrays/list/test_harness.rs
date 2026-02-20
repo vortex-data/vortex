@@ -4,14 +4,14 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::arrays::ListArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
 use crate::scalar::Scalar;
 
 impl ListArray {
@@ -29,7 +29,7 @@ impl ListArray {
         let iter = iter.into_iter();
         let mut builder = ListBuilder::<O>::with_capacity(
             dtype.clone(),
-            vortex_dtype::Nullability::NonNullable,
+            crate::dtype::Nullability::NonNullable,
             2 * iter.size_hint().0,
             iter.size_hint().0,
         );
@@ -56,7 +56,7 @@ impl ListArray {
         let iter = iter.into_iter();
         let mut builder = ListBuilder::<O>::with_capacity(
             dtype.clone(),
-            vortex_dtype::Nullability::Nullable,
+            crate::dtype::Nullability::Nullable,
             2 * iter.size_hint().0,
             iter.size_hint().0,
         );

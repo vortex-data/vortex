@@ -114,7 +114,7 @@ fn generate_rust_bindings(kernels_dir: &Path, out_dir: &Path) {
         .raw_line("// Functions are loaded at runtime via libloading.")
         .raw_line("")
         .raw_line("pub type cudaStream_t = *mut std::ffi::c_void;")
-        .raw_line("pub type __int256_t = vortex_dtype::i256;")
+        .raw_line("pub type __int256_t = vortex_array::dtype::i256;")
         .generate()
         .expect("Failed to generate CUB bindings");
 

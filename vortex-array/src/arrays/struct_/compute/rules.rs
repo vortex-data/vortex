@@ -15,11 +15,11 @@ use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::MaskReduceAdaptor;
 use crate::expr::Cast;
 use crate::expr::EmptyOptions;
 use crate::expr::GetItem;
 use crate::expr::Mask;
+use crate::expr::MaskReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::validity::Validity;
@@ -134,11 +134,6 @@ impl ArrayParentReduceRule<StructVTable> for StructGetItemRule {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::StructFields;
-
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::StructArray;
@@ -146,6 +141,10 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
+    use crate::dtype::DType;
+    use crate::dtype::FieldNames;
+    use crate::dtype::Nullability;
+    use crate::dtype::StructFields;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 

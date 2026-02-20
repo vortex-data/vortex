@@ -23,15 +23,17 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: "false"
+      - name: Install cargo-edit
+        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        with:
+          tool: cargo-edit
 
       - name: Cargo Set Version
         run: |
-          cargo install cargo-edit
           cargo set-version --workspace ${{ github.event.release.tag_name }}
 
       - name: Release

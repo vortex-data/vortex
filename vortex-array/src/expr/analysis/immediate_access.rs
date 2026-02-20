@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::FieldName;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::dtype::FieldName;
+use crate::dtype::StructFields;
 use crate::expr::Expression;
 use crate::expr::analysis::AnnotationFn;
 use crate::expr::analysis::Annotations;

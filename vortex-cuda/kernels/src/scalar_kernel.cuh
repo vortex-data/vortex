@@ -48,5 +48,28 @@ scalar_kernel(const InputT *__restrict in, OutputT *__restrict out, uint64_t arr
 // In-place variant (same input/output buffer, same type).
 template <typename T, typename Op>
 __device__ void scalar_kernel_inplace(T *__restrict values, uint64_t array_len, Op op) {
-    scalar_kernel<T, T>(values, values, array_len, op);
+    const uint32_t elements_per_block = 2048;
+    const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * elements_per_block;
+    const uint64_t block_end =
+        (block_start + elements_per_block < array_len) ? (block_start + elements_per_block) : array_len;
+
+    constexpr auto VALUES_PER_LOOP = 16 / sizeof(T);
+    const auto block_start_vec = block_start / VALUES_PER_LOOP;
+    const auto block_end_vec = block_end / VALUES_PER_LOOP;
+
+    for (uint64_t idx = block_start_vec + threadIdx.x; idx < block_end_vec; idx += blockDim.x) {
+        uint64_t base_idx = idx * VALUES_PER_LOOP;
+
+        // clang-format off
+        #pragma unroll
+        // clang-format on
+        for (uint64_t i = 0; i < VALUES_PER_LOOP; ++i) {
+            values[base_idx + i] = op(values[base_idx + i]);
+        }
+    }
+
+    uint64_t remaining_start = block_end_vec * VALUES_PER_LOOP;
+    for (uint64_t idx = remaining_start + threadIdx.x; idx < block_end; idx += blockDim.x) {
+        values[idx] = op(values[idx]);
+    }
 }

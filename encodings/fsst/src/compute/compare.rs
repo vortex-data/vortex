@@ -11,13 +11,13 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::compute::compare_lengths_to_empty;
+use vortex_array::dtype::DType;
 use vortex_array::expr::CompareKernel;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -127,9 +127,9 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
     use crate::fsst_compress;
     use crate::fsst_train_compressor;

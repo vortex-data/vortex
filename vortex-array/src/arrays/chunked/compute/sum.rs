@@ -27,10 +27,6 @@ register_kernel!(SumKernelAdapter(ChunkedVTable).lift());
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::i256;
 
     use crate::array::IntoArray;
     use crate::arrays::ChunkedArray;
@@ -38,6 +34,10 @@ mod tests {
     use crate::arrays::DecimalArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::sum;
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::Nullability;
+    use crate::dtype::i256;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::validity::Validity;

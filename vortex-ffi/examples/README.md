@@ -11,7 +11,7 @@ some information about them.
 Here's an example from the TPC-H `partsupp` dataset:
 
 ```
-❯ ./hello_vortex file:///tmp/partsupp.vortex
+$ make run file:///tmp/partsupp.vortex
 Scanning file: file:///tmp/partsupp.vortex
 Chunk 0: 65536
 Chunk 1: 65536

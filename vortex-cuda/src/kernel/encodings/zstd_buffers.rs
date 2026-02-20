@@ -10,22 +10,20 @@ use async_trait::async_trait;
 use cudarc::driver::CudaSlice;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
-use futures::future::BoxFuture;
-use futures::future::try_join_all;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::buffer::DeviceBuffer;
-use vortex_buffer::Alignment;
-use vortex_buffer::Buffer;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::buffer::DeviceBuffer;
+use vortex::buffer::Alignment;
+use vortex::buffer::Buffer;
+use vortex::encodings::zstd::ZstdBuffersArray;
+use vortex::encodings::zstd::ZstdBuffersVTable;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex_cuda_macros::cuda_tests;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_nvcomp::sys;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
-use vortex_zstd::ZstdBuffersArray;
-use vortex_zstd::ZstdBuffersVTable;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -139,26 +137,16 @@ async fn move_frames_to_device(
     compressed_buffers: &[BufferHandle],
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Vec<BufferHandle>> {
-    let move_futures = compressed_buffers
-        .iter()
-        .map(
-            |frame| -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>> {
-                if frame.is_on_device() {
-                    let frame = frame.clone();
-                    Ok(Box::pin(async move { Ok(frame) }))
-                } else {
-                    ctx.move_to_device(frame.clone())
-                }
-            },
-        )
-        .collect::<VortexResult<Vec<_>>>()?;
-
-    try_join_all(move_futures).await
+    let mut results = Vec::with_capacity(compressed_buffers.len());
+    for frame in compressed_buffers {
+        results.push(ctx.ensure_on_device(frame.clone()).await?);
+    }
+    Ok(results)
 }
 
 // This performs D2H to retrieve the lengths and status arrays.
 async fn validate_decompress_results(
-    plan: &vortex_zstd::ZstdBuffersDecodePlan,
+    plan: &vortex::encodings::zstd::ZstdBuffersDecodePlan,
     device_actual_sizes: CudaSlice<usize>,
     device_statuses: CudaSlice<nvcompStatus_t>,
 ) -> VortexResult<()> {
@@ -202,14 +190,14 @@ async fn validate_decompress_results(
 
 #[cuda_tests]
 mod tests {
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_error::VortexExpect;
-    use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
-    use vortex_zstd::ZstdBuffersArray;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::encodings::zstd::ZstdBuffersArray;
+    use vortex::error::VortexExpect;
+    use vortex::error::VortexResult;
+    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;

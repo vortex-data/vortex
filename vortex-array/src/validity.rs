@@ -7,8 +7,6 @@ use std::fmt::Debug;
 use std::ops::Range;
 
 use vortex_buffer::BitBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -29,6 +27,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::sum;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::expr::Binary;
 use crate::expr::Operator;
 use crate::optimizer::ArrayOptimizer;
@@ -527,13 +527,13 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
     use vortex_mask::Mask;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
+    use crate::dtype::Nullability;
     use crate::validity::Validity;
 
     #[rstest]

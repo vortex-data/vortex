@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexResult;
 
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
+use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
@@ -25,12 +25,12 @@ impl OperationsVTable<DecimalVTable> for DecimalVTable {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::Nullability;
 
     use crate::Array;
     use crate::arrays::DecimalArray;
     use crate::arrays::DecimalVTable;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::Nullability;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::validity::Validity;

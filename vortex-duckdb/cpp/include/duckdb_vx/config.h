@@ -9,6 +9,12 @@
 extern "C" {
 #endif
 
+/// Get the DuckDB configuration object for a given database instance.
+///
+/// @param database The DuckDB database instance
+/// @return A DuckDB configuration object that can be used to query or modify settings for the database
+duckdb_config duckdb_vx_database_get_config(duckdb_database database);
+
 /// Get a configuration value from a DuckDB config object by key name.
 /// Returns a DuckDB value containing the config value, or INVALID if the key doesn't exist.
 /// The returned value must be freed with duckdb_destroy_value.

@@ -6,9 +6,10 @@ use vortex_mask::Mask;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
-use crate::compute::zip;
+use crate::builtins::ArrayBuiltins;
 use crate::expr::ZipReduce;
 
 // Push down the zip call to the chunks. Without this rule
@@ -47,7 +48,7 @@ impl ZipReduce for ChunkedVTable {
             let lhs_slice = lhs_chunk.slice(lhs_offset..lhs_offset + take_until)?;
             let rhs_slice = rhs_chunk.slice(rhs_offset..rhs_offset + take_until)?;
 
-            out_chunks.push(zip(lhs_slice.as_ref(), rhs_slice.as_ref(), &mask_slice)?);
+            out_chunks.push(lhs_slice.zip(rhs_slice, mask_slice.into_array())?);
 
             pos += take_until;
             lhs_offset += take_until;
@@ -72,16 +73,17 @@ impl ZipReduce for ChunkedVTable {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ChunkedVTable;
+    #[expect(deprecated)]
     use crate::compute::zip;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
 
     #[test]
     fn test_chunked_zip_aligns_across_boundaries() {
@@ -107,6 +109,7 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, true]);
 
+        #[expect(deprecated)]
         let zipped = zip(if_true.as_ref(), if_false.as_ref(), &mask).unwrap();
         let zipped = zipped
             .as_opt::<ChunkedVTable>()

@@ -7,9 +7,9 @@ use std::sync::atomic::Ordering;
 
 use cudarc::driver::sys::CUevent_flags;
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_BLOCKING_SYNC;
+use vortex::error::VortexResult;
 use vortex_cuda::CudaKernelEvents;
 use vortex_cuda::LaunchStrategy;
-use vortex_error::VortexResult;
 
 #[derive(Debug, Default)]
 pub struct TimedLaunchStrategy {

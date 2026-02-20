@@ -11,9 +11,9 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
 use vortex_error::VortexExpect;
 
 use crate::fsst_compress;

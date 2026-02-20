@@ -16,8 +16,8 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -222,11 +222,11 @@ mod tests {
     use vortex_array::IntoArray as _;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_io::runtime::single::block_on;
 
     use crate::LayoutStrategy;

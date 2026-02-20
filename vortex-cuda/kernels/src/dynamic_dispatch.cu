@@ -59,7 +59,7 @@ __device__ inline void dynamic_source_op(const T *__restrict input,
             T *smem_lane = smem + chunk_idx * FL_CHUNK_SIZE;
             // Distribute unpacking across threads via lane-wise decomposition.
             for (uint32_t lane = threadIdx.x; lane < LANES_PER_FL_BLOCK; lane += blockDim.x) {
-                bit_unpack_lane<T>(packed_chunk, smem_lane, lane, bit_width);
+                bit_unpack_lane<T>(packed_chunk, smem_lane, 0, lane, bit_width);
             }
         }
         break;

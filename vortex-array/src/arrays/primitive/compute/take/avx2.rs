@@ -35,11 +35,6 @@ use std::convert::identity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::NativePType;
-use vortex_dtype::PType;
-use vortex_dtype::UnsignedPType;
-use vortex_dtype::match_each_native_ptype;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -47,6 +42,11 @@ use crate::IntoArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::primitive::compute::take::TakeImpl;
 use crate::arrays::primitive::compute::take::take_primitive_scalar;
+use crate::dtype::NativePType;
+use crate::dtype::PType;
+use crate::dtype::UnsignedPType;
+use crate::match_each_native_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
 
 #[allow(unused)]

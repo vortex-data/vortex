@@ -39,7 +39,7 @@ parquet = { workspace = true, features = ["async"] }
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true, features = ["stream"] }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sysinfo = { workspace = true }
 tabled = { workspace = true, features = ["std"] }

@@ -9,7 +9,6 @@
 #include <duckdb/common/helper.hpp>
 #include <duckdb/main/client_context.hpp>
 
-#include <cstring>
 #include <memory>
 #include <string>
 #include <utility>
@@ -27,7 +26,7 @@ using vortex::HandleException;
 using vortex::SetError;
 
 extern "C" duckdb_vx_file_handle
-duckdb_vx_fs_open(duckdb_vx_client_context ctx, const char *path, duckdb_vx_error *error_out) {
+duckdb_vx_fs_open(duckdb_client_context ctx, const char *path, duckdb_vx_error *error_out) {
     if (!ctx || !path) {
         SetError(error_out, "Invalid filesystem open arguments");
         return nullptr;
@@ -45,7 +44,7 @@ duckdb_vx_fs_open(duckdb_vx_client_context ctx, const char *path, duckdb_vx_erro
 }
 
 extern "C" duckdb_vx_file_handle
-duckdb_vx_fs_create(duckdb_vx_client_context ctx, const char *path, duckdb_vx_error *error_out) {
+duckdb_vx_fs_create(duckdb_client_context ctx, const char *path, duckdb_vx_error *error_out) {
     if (!ctx || !path) {
         SetError(error_out, "Invalid filesystem create arguments");
         return nullptr;
@@ -132,51 +131,27 @@ extern "C" duckdb_state duckdb_vx_fs_write(duckdb_vx_file_handle handle,
     }
 }
 
-extern "C" duckdb_vx_uri_list
-duckdb_vx_fs_glob(duckdb_vx_client_context ctx, const char *pattern, duckdb_vx_error *error_out) {
-    duckdb_vx_uri_list result {nullptr, 0};
-
-    if (!ctx || !pattern) {
-        SetError(error_out, "Invalid arguments to fs_glob");
-        return result;
+extern "C" duckdb_state duckdb_vx_fs_list_files(duckdb_client_context ctx,
+                                                const char *directory,
+                                                duckdb_vx_list_files_callback callback,
+                                                void *user_data,
+                                                duckdb_vx_error *error_out) {
+    if (!ctx || !directory || !callback) {
+        SetError(error_out, "Invalid arguments to fs_list_files");
+        return DuckDBError;
     }
 
     try {
         auto *client_context = reinterpret_cast<ClientContext *>(ctx);
         auto &fs = FileSystem::GetFileSystem(*client_context);
-        auto matches = fs.Glob(pattern);
 
-        if (matches.empty()) {
-            return result;
-        }
+        fs.ListFiles(directory,
+                     [&](const string &name, bool is_dir) { callback(name.c_str(), is_dir, user_data); });
 
-        result.count = matches.size();
-        result.entries = static_cast<const char **>(duckdb_malloc(sizeof(char *) * matches.size()));
-        for (size_t i = 0; i < matches.size(); i++) {
-            const auto &entry = matches[i].path;
-            auto *owned = static_cast<char *>(duckdb_malloc(entry.size() + 1));
-            std::memcpy(owned, entry.data(), entry.size());
-            owned[entry.size()] = '\0';
-            result.entries[i] = owned;
-        }
-
-        return result;
+        return DuckDBSuccess;
     } catch (...) {
-        HandleException(std::current_exception(), error_out);
-        return result;
+        return HandleException(std::current_exception(), error_out);
     }
-}
-
-extern "C" void duckdb_vx_uri_list_free(duckdb_vx_uri_list *list) {
-    if (!list || !list->entries) {
-        return;
-    }
-    for (size_t i = 0; i < list->count; i++) {
-        duckdb_free(const_cast<char *>(list->entries[i]));
-    }
-    duckdb_free(list->entries);
-    list->entries = nullptr;
-    list->count = 0;
 }
 
 extern "C" duckdb_state duckdb_vx_fs_sync(duckdb_vx_file_handle handle, duckdb_vx_error *error_out) {

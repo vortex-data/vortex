@@ -7,7 +7,6 @@ mod operations;
 mod validity;
 
 use kernel::PARENT_KERNELS;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -25,6 +24,7 @@ use crate::arrays::masked::MaskedArray;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -194,7 +194,6 @@ impl VTable for MaskedVTable {
 mod tests {
     use rstest::rstest;
     use vortex_buffer::ByteBufferMut;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexError;
 
     use crate::ArrayContext;
@@ -205,6 +204,7 @@ mod tests {
     use crate::arrays::MaskedArray;
     use crate::arrays::MaskedVTable;
     use crate::arrays::PrimitiveArray;
+    use crate::dtype::Nullability;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
     use crate::validity::Validity;

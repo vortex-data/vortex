@@ -4,11 +4,6 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::Nullability;
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -26,6 +21,11 @@ use crate::builders::LazyBitBufferBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
+use crate::dtype::Nullability;
+use crate::dtype::Nullability::NonNullable;
+use crate::match_each_integer_ptype;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
 
@@ -307,10 +307,6 @@ mod tests {
     use Nullability::NonNullable;
     use Nullability::Nullable;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::IntegerPType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType::I32;
 
     use crate::IntoArray;
     use crate::ToCanonical;
@@ -321,6 +317,10 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::list::ListBuilder;
+    use crate::dtype::DType;
+    use crate::dtype::IntegerPType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType::I32;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;

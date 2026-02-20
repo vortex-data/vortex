@@ -8,9 +8,6 @@ use arrow_array::GenericByteArray;
 use arrow_array::types::BinaryViewType;
 use arrow_array::types::ByteArrayType;
 use arrow_array::types::StringViewType;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
@@ -23,6 +20,9 @@ use crate::arrays::VarBinViewArray;
 use crate::arrow::byte_view::execute_varbinview_to_arrow;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
 use crate::vtable::ValidityHelper;
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
@@ -80,14 +80,14 @@ mod tests {
     use arrow_array::cast::AsArray;
     use arrow_schema::DataType;
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::VarBinViewArray;
     use crate::arrow::ArrowArrayExecutor;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
 
     fn make_utf8_array() -> VarBinViewArray {
         VarBinViewArray::from_iter_str(["hello", "world", "this is a longer string for testing"])

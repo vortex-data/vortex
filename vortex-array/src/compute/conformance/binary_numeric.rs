@@ -25,9 +25,6 @@
 
 use itertools::Itertools;
 use num_traits::Num;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -38,6 +35,9 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ConstantArray;
 use crate::compute::numeric::numeric;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
+use crate::dtype::PType;
 use crate::scalar::NumericOperator;
 use crate::scalar::PrimitiveScalar;
 use crate::scalar::Scalar;

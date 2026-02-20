@@ -13,27 +13,27 @@ use cudarc::driver::DevicePtrMut;
 use futures::future::try_join_all;
 use tracing::debug;
 use tracing::instrument;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::arrays::BinaryView;
-use vortex_array::arrays::VarBinViewArray;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::buffer::DeviceBuffer;
-use vortex_buffer::Alignment;
-use vortex_buffer::Buffer;
-use vortex_buffer::ByteBuffer;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::arrays::BinaryView;
+use vortex::array::arrays::VarBinViewArray;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::buffer::DeviceBuffer;
+use vortex::array::dtype::DType;
+use vortex::buffer::Alignment;
+use vortex::buffer::Buffer;
+use vortex::buffer::ByteBuffer;
+use vortex::encodings::zstd::ZstdArray;
+use vortex::encodings::zstd::ZstdArrayParts;
+use vortex::encodings::zstd::ZstdMetadata;
+use vortex::encodings::zstd::ZstdVTable;
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
+use vortex::mask::AllOr;
 use vortex_cuda_macros::cuda_tests;
-use vortex_dtype::DType;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
-use vortex_mask::AllOr;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
-use vortex_zstd::ZstdArray;
-use vortex_zstd::ZstdArrayParts;
-use vortex_zstd::ZstdMetadata;
-use vortex_zstd::ZstdVTable;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -290,7 +290,7 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
 
     match sliced_validity.to_mask(slice_stop - slice_start).indices() {
         AllOr::All => {
-            let all_views = vortex_zstd::reconstruct_views(&host_buffer);
+            let all_views = vortex::encodings::zstd::reconstruct_views(&host_buffer);
             let sliced_views = all_views.slice(slice_value_idx_start..slice_value_idx_stop);
 
             Ok(Canonical::VarBinView(unsafe {
@@ -310,12 +310,12 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
 
 #[cuda_tests]
 mod tests {
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
-    use vortex_zstd::ZstdArray;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::encodings::zstd::ZstdArray;
+    use vortex::error::VortexResult;
+    use vortex::session::VortexSession;
 
     use super::*;
     use crate::session::CudaSession;

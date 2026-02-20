@@ -14,6 +14,7 @@ mod cardinality;
 mod init;
 mod partition;
 mod pushdown_complex_filter;
+mod table_scan_progress;
 mod virtual_columns;
 
 pub use bind::*;
@@ -21,15 +22,16 @@ pub use init::*;
 pub use virtual_columns::VirtualColumnsResult;
 
 use crate::cpp;
-use crate::cpp::duckdb_vx_client_context;
+use crate::cpp::duckdb_client_context;
+use crate::duckdb::Database;
 use crate::duckdb::LogicalType;
 use crate::duckdb::client_context::ClientContext;
-use crate::duckdb::connection::Connection;
 use crate::duckdb::data_chunk::DataChunk;
 use crate::duckdb::expr::Expression;
 use crate::duckdb::table_function::cardinality::cardinality_callback;
 use crate::duckdb::table_function::partition::get_partition_data_callback;
 use crate::duckdb::table_function::pushdown_complex_filter::pushdown_complex_filter_callback;
+use crate::duckdb::table_function::table_scan_progress::table_scan_progress_callback;
 use crate::duckdb::table_function::virtual_columns::get_virtual_columns_callback;
 use crate::duckdb_try;
 
@@ -103,6 +105,13 @@ pub trait TableFunction: Sized + Debug {
         global: &mut Self::GlobalState,
     ) -> VortexResult<Self::LocalState>;
 
+    /// Return table scanning progress from 0. to 100.
+    fn table_scan_progress(
+        client_context: &ClientContext,
+        bind_data: &mut Self::BindData,
+        global_state: &mut Self::GlobalState,
+    ) -> f64;
+
     /// Pushes down a filter expression to the table function.
     ///
     /// Returns `true` if the filter was successfully pushed down (and stored on the bind data),
@@ -148,7 +157,7 @@ pub enum Cardinality {
     Maximum(u64),
 }
 
-impl Connection {
+impl Database {
     pub fn register_table_function<T: TableFunction>(&self, name: &CStr) -> VortexResult<()> {
         // Set up the parameters.
         let parameters = T::parameters();
@@ -181,7 +190,7 @@ impl Connection {
             pushdown_expression: ptr::null_mut::<c_void>(),
             get_virtual_columns: Some(get_virtual_columns_callback::<T>),
             to_string: Some(to_string_callback::<T>),
-            table_scan_progress: ptr::null_mut::<c_void>(),
+            table_scan_progress: Some(table_scan_progress_callback::<T>),
             get_partition_data: Some(get_partition_data_callback::<T>),
             projection_pushdown: T::PROJECTION_PUSHDOWN,
             filter_pushdown: T::FILTER_PUSHDOWN,
@@ -234,7 +243,7 @@ unsafe extern "C-unwind" fn to_string_callback<T: TableFunction>(
 
 /// The native function callback for a table function.
 unsafe extern "C-unwind" fn function<T: TableFunction>(
-    duckdb_client_context: duckdb_vx_client_context,
+    duckdb_client_context: duckdb_client_context,
     bind_data: *const c_void,
     global_init_data: *mut c_void,
     local_init_data: *mut c_void,

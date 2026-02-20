@@ -6,8 +6,7 @@
 #[cfg(test)]
 mod tests {
 
-    use vortex_dtype::Nullability;
-
+    use crate::dtype::Nullability;
     use crate::scalar::Scalar;
 
     // Demonstrates inconsistent null comparison behavior

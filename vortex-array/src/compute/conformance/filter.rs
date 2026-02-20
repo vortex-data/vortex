@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
 use crate::Array;
 use crate::IntoArray;
 use crate::assert_arrays_eq;
+use crate::dtype::DType;
 
 // Standard test array sizes
 pub const SMALL_SIZE: usize = 5;

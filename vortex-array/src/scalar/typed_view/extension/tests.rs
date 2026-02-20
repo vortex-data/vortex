@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
-use vortex_dtype::ExtDType;
-use vortex_dtype::ExtID;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::extension::EmptyMetadata;
-use vortex_dtype::extension::ExtDTypeVTable;
 use vortex_error::VortexResult;
 
+use crate::dtype::DType;
+use crate::dtype::ExtDType;
+use crate::dtype::ExtID;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::dtype::extension::EmptyMetadata;
+use crate::dtype::extension::ExtDTypeVTable;
 use crate::scalar::ExtScalar;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;

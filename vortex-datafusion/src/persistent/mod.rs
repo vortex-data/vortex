@@ -33,8 +33,8 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
     use vortex::file::WriteOptionsSessionExt;
-    use vortex::io::ObjectStoreWriter;
     use vortex::io::VortexWrite;
+    use vortex::io::object_store::ObjectStoreWrite;
     use vortex::session::VortexSession;
 
     use crate::common_tests::TestSessionContext;
@@ -65,7 +65,7 @@ mod tests {
             Validity::NonNullable,
         )?;
 
-        let mut writer = ObjectStoreWriter::new(ctx.store.clone(), &"test.vortex".into()).await?;
+        let mut writer = ObjectStoreWrite::new(ctx.store.clone(), &"test.vortex".into()).await?;
 
         let summary = session
             .write_options()
