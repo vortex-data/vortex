@@ -226,8 +226,8 @@ mod tests {
 
         let bitpacked = make_bitpacked_array_u32(bit_width, len);
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let _device_input = block_on(cuda_ctx.ensure_on_device(bitpacked.packed().clone()))?;
-        let input_ptr = _device_input
+        let device_input = block_on(cuda_ctx.ensure_on_device(bitpacked.packed().clone()))?;
+        let input_ptr = device_input
             .cuda_view::<u32>()?
             .device_ptr(cuda_ctx.stream())
             .0;
@@ -253,8 +253,8 @@ mod tests {
 
         let bitpacked = make_bitpacked_array_u32(bit_width, len);
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let _device_input = block_on(cuda_ctx.ensure_on_device(bitpacked.packed().clone()))?;
-        let input_ptr = _device_input
+        let device_input = block_on(cuda_ctx.ensure_on_device(bitpacked.packed().clone()))?;
+        let input_ptr = device_input
             .cuda_view::<u32>()?
             .device_ptr(cuda_ctx.stream())
             .0;
@@ -296,8 +296,8 @@ mod tests {
         let alp_e = <f32 as ALPFloat>::IF10[alp_array.exponents().e as usize];
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let _device_input = block_on(cuda_ctx.ensure_on_device(bitpacked.packed().clone()))?;
-        let input_ptr = _device_input
+        let device_input = block_on(cuda_ctx.ensure_on_device(bitpacked.packed().clone()))?;
+        let input_ptr = device_input
             .cuda_view::<u32>()?
             .device_ptr(cuda_ctx.stream())
             .0;
@@ -330,8 +330,8 @@ mod tests {
 
         let bitpacked = make_bitpacked_array_u32(bit_width, len);
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let _device_input = block_on(cuda_ctx.ensure_on_device(bitpacked.packed().clone()))?;
-        let input_ptr = _device_input
+        let device_input = block_on(cuda_ctx.ensure_on_device(bitpacked.packed().clone()))?;
+        let input_ptr = device_input
             .cuda_view::<u32>()?
             .device_ptr(cuda_ctx.stream())
             .0;
