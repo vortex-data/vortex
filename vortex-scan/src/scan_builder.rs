@@ -33,7 +33,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::Handle;
-use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReader;
 use vortex_layout::LayoutReaderRef;
@@ -323,7 +322,7 @@ struct PreparingScan<A: 'static + Send> {
     ordered: bool,
     concurrency: usize,
     handle: Handle,
-    task: Task<VortexResult<PreparedScanTasks<A>>>,
+    task: oneshot::Receiver<VortexResult<PreparedScanTasks<A>>>,
 }
 
 struct LazyScanStream<A: 'static + Send> {
@@ -354,18 +353,22 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                         .unwrap_or(1);
                     let concurrency = builder.concurrency * num_workers;
                     let handle = builder.session.handle();
-                    let task = handle.spawn_blocking(move || {
-                        builder.prepare().and_then(|scan| scan.execute(None))
+                    let (tx, rx) = oneshot::channel();
+                    rayon::spawn(move || {
+                        drop(tx.send(builder.prepare().and_then(|scan| scan.execute(None))));
                     });
                     self.state = LazyScanState::Preparing(PreparingScan {
                         ordered,
                         concurrency,
                         handle,
-                        task,
+                        task: rx,
                     });
                 }
                 LazyScanState::Preparing(preparing) => {
-                    match ready!(Pin::new(&mut preparing.task).poll(cx)) {
+                    let Ok(result) = ready!(Pin::new(&mut preparing.task).poll(cx)) else {
+                        vortex_error::vortex_panic!("scan preparation task panicked")
+                    };
+                    match result {
                         Ok(tasks) => {
                             let ordered = preparing.ordered;
                             let concurrency = preparing.concurrency;

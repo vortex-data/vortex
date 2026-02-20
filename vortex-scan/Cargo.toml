@@ -32,6 +32,8 @@ vortex-session = { workspace = true }
 async-trait = { workspace = true }
 bit-vec = { workspace = true }
 futures = { workspace = true }
+oneshot = { workspace = true }
+rayon = { workspace = true }
 itertools = { workspace = true }
 parking_lot = { workspace = true }
 roaring = { workspace = true, optional = true }
