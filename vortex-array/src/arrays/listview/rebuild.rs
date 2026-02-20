@@ -12,7 +12,6 @@ use crate::ToCanonical;
 use crate::arrays::ListViewArray;
 use crate::builders::builder_with_capacity;
 use crate::compute;
-use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
@@ -110,49 +109,32 @@ impl ListViewArray {
     fn naive_rebuild<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
     ) -> VortexResult<ListViewArray> {
-        let element_dtype = self
-            .dtype()
-            .as_list_element_opt()
-            .vortex_expect("somehow had a canonical list that was not a list");
         let sizes_canonical = self.sizes().to_primitive();
         let total: u64 = sizes_canonical
             .as_slice::<S>()
             .iter()
             .map(|s| (*s).as_() as u64)
             .sum();
-        let use_list_by_list = Self::should_use_list_by_list(element_dtype, total, self.len());
-
-        if use_list_by_list {
-            self.rebuild_list_by_list::<O, NewOffset, S>()
-        } else {
+        if Self::should_use_take(total, self.len()) {
             self.rebuild_with_take::<O, NewOffset, S>()
+        } else {
+            self.rebuild_list_by_list::<O, NewOffset, S>()
         }
     }
 
-    /// Decides whether [`rebuild_list_by_list`](Self::rebuild_list_by_list) should be used over
-    /// [`rebuild_with_take`](Self::rebuild_with_take).
+    /// Returns `true` when we are confident that `rebuild_with_take` will
+    /// outperform `rebuild_list_by_list`.
     ///
-    /// Take's dominant cost is 8 bytes per element (building a `u64` index buffer). LBL's
-    /// dominant cost is `E` bytes per element (memcpy), plus a fixed per-list overhead (~64
-    /// elements worth of work). The crossover is `avg >= (8 + E) * 64`.
-    ///
-    /// Only flat fixed-width types can use LBL. Struct, FSL, List, and variable-width types
-    /// always use take because their builders have high per-element overhead.
-    fn should_use_list_by_list(
-        element_dtype: &DType,
-        total_output_elements: u64,
-        num_lists: usize,
-    ) -> bool {
+    /// Take is dramatically faster for small lists (often 10-100×) because it
+    /// avoids per-list builder overhead. LBL is the safer default for larger
+    /// lists since its sequential memcpy scales well. We only choose take when
+    /// the average list size is small enough that take clearly dominates.
+    fn should_use_take(total_output_elements: u64, num_lists: usize) -> bool {
         if num_lists == 0 {
-            return false;
+            return true;
         }
         let avg = total_output_elements / num_lists as u64;
-        match element_dtype {
-            DType::Struct(..) | DType::FixedSizeList(..) => false,
-            _ => element_dtype
-                .element_size()
-                .is_some_and(|e| avg >= (8 + e as u64) * 64),
-        }
+        avg < 128
     }
 
     /// Rebuilds elements using a single bulk `take`: collect all element indices into a flat
@@ -362,7 +344,6 @@ impl ListViewArray {
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod tests {
-    use rstest::rstest;
     use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
 
@@ -372,9 +353,7 @@ mod tests {
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
-    use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::dtype::PType;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
@@ -551,80 +530,18 @@ mod tests {
         Ok(())
     }
 
-    // ── should_use_list_by_list heuristic tests ───────────────────────────
+    // ── should_use_take heuristic tests ────────────────────────────────────
 
     #[test]
-    fn heuristic_rejects_zero_lists() {
-        let prim = DType::Primitive(PType::I32, Nullability::NonNullable);
-        assert!(!ListViewArray::should_use_list_by_list(&prim, 0, 0));
+    fn heuristic_zero_lists_uses_take() {
+        assert!(ListViewArray::should_use_take(0, 0));
     }
 
     #[test]
-    fn heuristic_rejects_struct_always() {
-        let struct_dtype = DType::struct_(
-            [
-                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
-                ("b", DType::Primitive(PType::F64, Nullability::NonNullable)),
-            ],
-            Nullability::NonNullable,
-        );
-        assert!(!ListViewArray::should_use_list_by_list(
-            &struct_dtype,
-            100_000,
-            100
-        ));
-    }
-
-    #[test]
-    fn heuristic_rejects_fsl_always() {
-        use std::sync::Arc;
-        // FixedSizeList always uses take — list-by-list is never faster.
-        let fsl = DType::FixedSizeList(
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            4,
-            Nullability::NonNullable,
-        );
-        assert!(!ListViewArray::should_use_list_by_list(
-            &fsl, 256_000, 1_000
-        ));
-        assert!(!ListViewArray::should_use_list_by_list(
-            &fsl, 999_000, 1_000
-        ));
-    }
-
-    #[test]
-    fn heuristic_rejects_list_always() {
-        let list_i32 = DType::list(
-            DType::Primitive(PType::I32, Nullability::NonNullable),
-            Nullability::NonNullable,
-        );
-        // Nested list types always use take.
-        assert!(!ListViewArray::should_use_list_by_list(
-            &list_i32, 512_000, 1_000
-        ));
-        assert!(!ListViewArray::should_use_list_by_list(
-            &list_i32, 2_000_000, 1_000
-        ));
-    }
-
-    #[rstest]
-    #[case(PType::I32, 512, false)] // i32: threshold=(8+4)*64=768, 512<768
-    #[case(PType::I32, 768, true)] // i32: 768>=768
-    #[case(PType::I8, 512, false)] // i8: threshold=(8+1)*64=576, 512<576
-    #[case(PType::I8, 576, true)] // i8: 576>=576
-    #[case(PType::F64, 512, false)] // f64: threshold=(8+8)*64=1024, 512<1024
-    #[case(PType::F64, 1024, true)] // f64: 1024>=1024
-    fn heuristic_threshold(
-        #[case] ptype: PType,
-        #[case] avg: u64,
-        #[case] expect_list_by_list: bool,
-    ) {
-        let dtype = DType::Primitive(ptype, Nullability::NonNullable);
-        let num_lists = 1000_usize;
-        let total = avg * num_lists as u64;
-        assert_eq!(
-            ListViewArray::should_use_list_by_list(&dtype, total, num_lists),
-            expect_list_by_list,
-        );
+    fn heuristic_small_lists_use_take() {
+        // avg = 127 → take
+        assert!(ListViewArray::should_use_take(127_000, 1_000));
+        // avg = 128 → LBL
+        assert!(!ListViewArray::should_use_take(128_000, 1_000));
     }
 }
