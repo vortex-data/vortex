@@ -23,9 +23,15 @@ use vortex_array::DeserializeMetadata;
 use vortex_array::MaskFuture;
 use vortex_array::ProstMetadata;
 use vortex_array::VortexSessionExecute;
+use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ConstantVTable;
+use vortex_array::arrays::FilterArray;
+use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::SliceArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::expr::Expression;
+use vortex_array::expr::Literal;
 use vortex_array::expr::Root;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
@@ -229,6 +235,37 @@ impl VTable for CudaFlatVTable {
 // Threshold to order filter and apply expression, copied from FlatLayout.
 const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
+/// Build the expression array tree without calling `optimize()` at each level.
+///
+/// This is equivalent to `Array::apply` but skips the per-node optimization pass.
+fn apply_unoptimized(array: &dyn Array, expr: &Expression) -> VortexResult<ArrayRef> {
+    if expr.is::<Root>() {
+        return Ok(array.to_array());
+    }
+    if let Some(scalar) = expr.as_opt::<Literal>() {
+        return Ok(ConstantArray::new(scalar.clone(), array.len()).into_array());
+    }
+    let children: Vec<_> = expr
+        .children()
+        .iter()
+        .map(|e| apply_unoptimized(array, e))
+        .collect::<VortexResult<_>>()?;
+    Ok(ScalarFnArray::try_new(expr.scalar_fn().clone(), children, array.len())?.into_array())
+}
+
+/// Wrap an array in a [`FilterArray`] without calling `optimize()`.
+fn filter_unoptimized(array: ArrayRef, mask: Mask) -> VortexResult<ArrayRef> {
+    Ok(FilterArray::try_new(array, mask)?.into_array())
+}
+
+/// Wrap an array in a [`SliceArray`] without calling `optimize()`.
+fn slice_unoptimized(array: ArrayRef, range: Range<usize>) -> VortexResult<ArrayRef> {
+    if range.start == 0 && range.end == array.len() {
+        return Ok(array);
+    }
+    Ok(SliceArray::try_new(array, range)?.into_array())
+}
+
 pub struct CudaFlatReader {
     layout: CudaFlatLayout,
     name: Arc<str>,
@@ -326,17 +363,17 @@ impl LayoutReader for CudaFlatReader {
             let mask = mask.await?;
 
             if row_range.start > 0 || row_range.end < array.len() {
-                array = array.slice(row_range.clone())?;
+                array = slice_unoptimized(array, row_range.clone())?;
             }
 
             let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
-                let array = array.apply(&expr)?;
-                let array = array.filter(mask.clone())?;
+                let array = apply_unoptimized(&*array, &expr)?;
+                let array = filter_unoptimized(array, mask.clone())?;
                 let mut ctx = session.create_execution_ctx();
                 let array_mask = array.execute::<Mask>(&mut ctx)?;
                 mask.intersect_by_rank(&array_mask)
             } else {
-                let array = array.apply(&expr)?;
+                let array = apply_unoptimized(&*array, &expr)?;
                 let mut ctx = session.create_execution_ctx();
                 let array_mask = array.execute::<Mask>(&mut ctx)?;
                 mask.bitand(&array_mask)
@@ -380,15 +417,15 @@ impl LayoutReader for CudaFlatReader {
             let mask = mask.await?;
 
             if row_range.start > 0 || row_range.end < array.len() {
-                array = array.slice(row_range.clone())?;
+                array = slice_unoptimized(array, row_range.clone())?;
             }
 
             if !mask.all_true() {
-                array = array.filter(mask)?;
+                array = filter_unoptimized(array, mask)?;
             }
 
             if let Some(expr) = &expr {
-                array = array.apply(expr)?;
+                array = apply_unoptimized(&*array, expr)?;
             }
 
             Ok(array)
