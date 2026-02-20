@@ -19,11 +19,13 @@ pub trait ArrayOptimizer {
 
 impl ArrayOptimizer for ArrayRef {
     fn optimize(&self) -> VortexResult<ArrayRef> {
-        Ok(try_optimize(self)?.unwrap_or_else(|| self.clone()))
+        // TODO(perf): bypassed for benchmarking — restore after measuring impact
+        Ok(self.clone())
     }
 
     fn optimize_recursive(&self) -> VortexResult<ArrayRef> {
-        Ok(try_optimize_recursive(self)?.unwrap_or_else(|| self.clone()))
+        // TODO(perf): bypassed for benchmarking — restore after measuring impact
+        Ok(self.clone())
     }
 }
 
