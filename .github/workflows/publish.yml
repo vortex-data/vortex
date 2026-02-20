@@ -38,7 +38,7 @@ jobs:
 
       - name: Release
         run: |
-          cargo publish --no-verify --allow-dirty --workspace
+          cargo +$NIGHTLY_TOOLCHAIN publish -Zpublish-timeout --no-verify --allow-dirty --workspace
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
