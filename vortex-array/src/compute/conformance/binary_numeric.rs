@@ -102,13 +102,11 @@ where
         .cast(array.dtype())
         .vortex_expect("operation should succeed in conformance test");
 
-    let operators: [NumericOperator; 6] = [
+    let operators: [NumericOperator; 4] = [
         NumericOperator::Add,
         NumericOperator::Sub,
-        NumericOperator::RSub,
         NumericOperator::Mul,
         NumericOperator::Div,
-        NumericOperator::RDiv,
     ];
 
     for operator in operators {
@@ -116,11 +114,7 @@ where
         let rhs_const = ConstantArray::new(scalar_one.clone(), array.len()).into_array();
 
         // Test array operator scalar (e.g., array + 1)
-        let result = if operator.is_swapped() {
-            rhs_const.binary(array.clone(), op)
-        } else {
-            array.binary(rhs_const.clone(), op)
-        };
+        let result = array.binary(rhs_const.clone(), op);
 
         // Skip this operator if the entire operation fails
         // This can happen for some edge cases in specific encodings
@@ -156,11 +150,7 @@ where
         }
 
         // Test scalar operator array (e.g., 1 + array)
-        let result = if operator.is_swapped() {
-            array.binary(rhs_const, op)
-        } else {
-            rhs_const.binary(array.clone(), op)
-        };
+        let result = rhs_const.binary(array.clone(), op);
 
         // Skip this operator if the entire operation fails
         let Ok(result) = result else {
@@ -344,17 +334,14 @@ where
         vec![
             NumericOperator::Add,
             NumericOperator::Sub,
-            NumericOperator::RSub,
             NumericOperator::Mul,
         ]
     } else {
         vec![
             NumericOperator::Add,
             NumericOperator::Sub,
-            NumericOperator::RSub,
             NumericOperator::Mul,
             NumericOperator::Div,
-            NumericOperator::RDiv,
         ]
     };
 
@@ -363,11 +350,7 @@ where
         let rhs_const = ConstantArray::new(scalar.clone(), array.len()).into_array();
 
         // Test array operator scalar
-        let result = if operator.is_swapped() {
-            rhs_const.binary(array.clone(), op)
-        } else {
-            array.binary(rhs_const, op)
-        };
+        let result = array.binary(rhs_const, op);
 
         // Skip if the entire operation fails
         if result.is_err() {

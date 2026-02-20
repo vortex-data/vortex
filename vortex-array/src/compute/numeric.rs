@@ -99,10 +99,8 @@ pub(crate) fn arrow_numeric(
     let array = match operator {
         NumericOperator::Add => arrow_arith::numeric::add(&left, &right)?,
         NumericOperator::Sub => arrow_arith::numeric::sub(&left, &right)?,
-        NumericOperator::RSub => arrow_arith::numeric::sub(&right, &left)?,
         NumericOperator::Mul => arrow_arith::numeric::mul(&left, &right)?,
         NumericOperator::Div => arrow_arith::numeric::div(&left, &right)?,
-        NumericOperator::RDiv => arrow_arith::numeric::div(&right, &left)?,
     };
 
     from_arrow_array_with_len(array.as_ref(), len, nullable)
