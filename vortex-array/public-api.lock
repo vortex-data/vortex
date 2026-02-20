@@ -10286,6 +10286,10 @@ impl core::convert::From<vortex_array::expr::Operator> for vortex_proto::expr::b
 
 pub fn vortex_proto::expr::binary_opts::BinaryOp::from(value: vortex_array::expr::Operator) -> Self
 
+impl core::convert::From<vortex_array::scalar::NumericOperator> for vortex_array::expr::Operator
+
+pub fn vortex_array::expr::Operator::from(op: vortex_array::scalar::NumericOperator) -> Self
+
 impl core::convert::From<vortex_proto::expr::binary_opts::BinaryOp> for vortex_array::expr::Operator
 
 pub fn vortex_array::expr::Operator::from(value: vortex_proto::expr::binary_opts::BinaryOp) -> Self
@@ -13232,15 +13236,7 @@ pub vortex_array::scalar::NumericOperator::Div
 
 pub vortex_array::scalar::NumericOperator::Mul
 
-pub vortex_array::scalar::NumericOperator::RDiv
-
-pub vortex_array::scalar::NumericOperator::RSub
-
 pub vortex_array::scalar::NumericOperator::Sub
-
-impl vortex_array::scalar::NumericOperator
-
-pub fn vortex_array::scalar::NumericOperator::swap(self) -> Self
 
 impl core::clone::Clone for vortex_array::scalar::NumericOperator
 
@@ -13251,6 +13247,10 @@ impl core::cmp::Eq for vortex_array::scalar::NumericOperator
 impl core::cmp::PartialEq for vortex_array::scalar::NumericOperator
 
 pub fn vortex_array::scalar::NumericOperator::eq(&self, other: &vortex_array::scalar::NumericOperator) -> bool
+
+impl core::convert::From<vortex_array::scalar::NumericOperator> for vortex_array::expr::Operator
+
+pub fn vortex_array::expr::Operator::from(op: vortex_array::scalar::NumericOperator) -> Self
 
 impl core::fmt::Debug for vortex_array::scalar::NumericOperator
 
