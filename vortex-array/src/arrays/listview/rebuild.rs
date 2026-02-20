@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use crate::Array;
 use crate::IntoArray;
 use crate::ToCanonical;
+use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
@@ -234,7 +235,12 @@ impl ListViewArray {
                 .vortex_expect("unable to convert the min offset `start` into a `usize`");
             let scalar = Scalar::primitive(offset, Nullability::NonNullable);
 
-            compute::sub_scalar(self.offsets(), scalar)
+            self.offsets()
+                .to_array()
+                .binary(
+                    ConstantArray::new(scalar, self.offsets().len()).into_array(),
+                    Operator::Sub,
+                )
                 .vortex_expect("was somehow unable to adjust offsets down by their minimum")
         });
 

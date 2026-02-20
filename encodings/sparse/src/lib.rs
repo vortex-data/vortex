@@ -21,7 +21,6 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::filter;
-use vortex_array::compute::sub_scalar;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::Operator;
@@ -271,7 +270,10 @@ impl SparseArray {
     pub fn resolved_patches(&self) -> VortexResult<Patches> {
         let patches = self.patches();
         let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
-        let indices = sub_scalar(patches.indices(), indices_offset)?;
+        let indices = patches.indices().to_array().binary(
+            ConstantArray::new(indices_offset, patches.indices().len()).into_array(),
+            Operator::Sub,
+        )?;
 
         Patches::new(
             patches.array_len(),

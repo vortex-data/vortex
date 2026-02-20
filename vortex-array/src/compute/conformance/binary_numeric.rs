@@ -34,7 +34,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ConstantArray;
-use crate::compute::numeric::numeric;
+use crate::compute::numeric::arrow_numeric;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
@@ -113,7 +113,7 @@ where
 
     for operator in operators {
         // Test array operator scalar (e.g., array + 1)
-        let result = numeric(
+        let result = arrow_numeric(
             &array,
             &ConstantArray::new(scalar_one.clone(), array.len()).into_array(),
             operator,
@@ -153,7 +153,7 @@ where
         }
 
         // Test scalar operator array (e.g., 1 + array)
-        let result = numeric(
+        let result = arrow_numeric(
             &ConstantArray::new(scalar_one.clone(), array.len()).into_array(),
             &array,
             operator,
@@ -357,7 +357,7 @@ where
 
     for operator in operators {
         // Test array operator scalar
-        let result = numeric(
+        let result = arrow_numeric(
             &array,
             &ConstantArray::new(scalar.clone(), array.len()).into_array(),
             operator,
