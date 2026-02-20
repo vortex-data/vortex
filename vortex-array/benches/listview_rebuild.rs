@@ -172,7 +172,7 @@ fn struct_large(bencher: Bencher) {
 
 #[divan::bench]
 fn fsl_large(bencher: Bencher) {
-    let num_lists = 1_000;
+    let num_lists = 500;
     let list_size = 256;
     let fsl_count = num_lists * list_size + list_size;
     let inner = PrimitiveArray::from_iter((0..fsl_count * 64).map(|i| i as i32)).into_array();
