@@ -41,9 +41,13 @@ jobs:
           targets: ${{ matrix.target.target }}
           enable-sccache: "false"
 
+      - name: Install cargo-edit
+        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        with:
+          tool: cargo-edit
+
       - name: Cargo Set Version
         run: |
-          cargo install cargo-edit
           cargo set-version --workspace ${{ inputs.version }}
 
       - name: Set up Python
