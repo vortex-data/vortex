@@ -872,3 +872,31 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: "false"
       - run: cargo build --package vortex-jni
+
+  rust-publish-dry-run:
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+      - tag=rust-publish-dry-run
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cargo Set Version
+        run: |
+          # Match publish toolchain
+          cargo install --locked cargo-edit
+          # This is mostly a dummy version, we don't actually publish anything but it cannot exist in crates.io
+          cargo set-version --workspace 0.100000.0
+      - name: Test Release
+        run: |
+          cargo publish --dry-run --no-verify --allow-dirty --workspace
