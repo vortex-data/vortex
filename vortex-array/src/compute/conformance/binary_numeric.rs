@@ -34,7 +34,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ConstantArray;
-use crate::compute::numeric::arrow_numeric;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
@@ -112,12 +112,15 @@ where
     ];
 
     for operator in operators {
+        let op = operator.into();
+        let rhs_const = ConstantArray::new(scalar_one.clone(), array.len()).into_array();
+
         // Test array operator scalar (e.g., array + 1)
-        let result = arrow_numeric(
-            &array,
-            &ConstantArray::new(scalar_one.clone(), array.len()).into_array(),
-            operator,
-        );
+        let result = if operator.is_swapped() {
+            rhs_const.binary(array.clone(), op)
+        } else {
+            array.binary(rhs_const.clone(), op)
+        };
 
         // Skip this operator if the entire operation fails
         // This can happen for some edge cases in specific encodings
@@ -153,11 +156,11 @@ where
         }
 
         // Test scalar operator array (e.g., 1 + array)
-        let result = arrow_numeric(
-            &ConstantArray::new(scalar_one.clone(), array.len()).into_array(),
-            &array,
-            operator,
-        );
+        let result = if operator.is_swapped() {
+            array.binary(rhs_const, op)
+        } else {
+            rhs_const.binary(array.clone(), op)
+        };
 
         // Skip this operator if the entire operation fails
         let Ok(result) = result else {
@@ -356,12 +359,15 @@ where
     };
 
     for operator in operators {
+        let op = operator.into();
+        let rhs_const = ConstantArray::new(scalar.clone(), array.len()).into_array();
+
         // Test array operator scalar
-        let result = arrow_numeric(
-            &array,
-            &ConstantArray::new(scalar.clone(), array.len()).into_array(),
-            operator,
-        );
+        let result = if operator.is_swapped() {
+            rhs_const.binary(array.clone(), op)
+        } else {
+            array.binary(rhs_const, op)
+        };
 
         // Skip if the entire operation fails
         if result.is_err() {

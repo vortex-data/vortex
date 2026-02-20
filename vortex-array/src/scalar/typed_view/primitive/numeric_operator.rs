@@ -35,6 +35,11 @@ impl fmt::Display for NumericOperator {
 }
 
 impl NumericOperator {
+    /// Returns `true` if this is a reverse operator (`RSub` or `RDiv`).
+    pub fn is_swapped(self) -> bool {
+        matches!(self, NumericOperator::RSub | NumericOperator::RDiv)
+    }
+
     /// Returns the operator with swapped operands (e.g., Sub becomes RSub).
     pub fn swap(self) -> Self {
         match self {
@@ -44,6 +49,21 @@ impl NumericOperator {
             NumericOperator::Mul => NumericOperator::Mul,
             NumericOperator::Div => NumericOperator::RDiv,
             NumericOperator::RDiv => NumericOperator::Div,
+        }
+    }
+}
+
+impl From<NumericOperator> for crate::expr::Operator {
+    /// Convert to an [`Operator`](crate::expr::Operator), normalizing reverse ops.
+    ///
+    /// `RSub` maps to `Sub` and `RDiv` maps to `Div`. Use
+    /// [`NumericOperator::is_swapped`] to check if operands need swapping.
+    fn from(op: NumericOperator) -> Self {
+        match op {
+            NumericOperator::Add => crate::expr::Operator::Add,
+            NumericOperator::Sub | NumericOperator::RSub => crate::expr::Operator::Sub,
+            NumericOperator::Mul => crate::expr::Operator::Mul,
+            NumericOperator::Div | NumericOperator::RDiv => crate::expr::Operator::Div,
         }
     }
 }

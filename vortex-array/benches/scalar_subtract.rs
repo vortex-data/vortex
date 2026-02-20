@@ -9,6 +9,9 @@ use rand::SeedableRng;
 use rand::distr::Uniform;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::RecursiveCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
@@ -37,17 +40,20 @@ fn scalar_subtract(bencher: Bencher) {
 
     let chunked = ChunkedArray::from_iter([data1, data2]).into_array();
 
-    bencher.with_inputs(|| &chunked).bench_refs(|chunked| {
-        chunked
-            .to_array()
-            .binary(
-                ConstantArray::new(
-                    vortex_array::scalar::Scalar::from(to_subtract),
-                    chunked.len(),
+    bencher
+        .with_inputs(|| (&chunked, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(chunked, ctx)| {
+            chunked
+                .to_array()
+                .binary(
+                    ConstantArray::new(
+                        vortex_array::scalar::Scalar::from(to_subtract),
+                        chunked.len(),
+                    )
+                    .into_array(),
+                    Operator::Sub,
                 )
-                .into_array(),
-                Operator::Sub,
-            )
-            .unwrap()
-    });
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
