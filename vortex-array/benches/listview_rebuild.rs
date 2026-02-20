@@ -108,7 +108,7 @@ fn i32_varied_list_sizes(bencher: Bencher, list_size: usize) {
 // ── i8 with 65K-element lists ─────────────────────────────────────────────────
 #[divan::bench]
 fn i8_large_lists(bencher: Bencher) {
-    let lv = make_i8_lv(1_000, 65_536, 65_536);
+    let lv = make_i8_lv(100, 65_536, 65_536);
     bencher
         .with_inputs(|| &lv)
         .bench_refs(|lv| lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap());
@@ -144,7 +144,7 @@ fn struct_rebuild(bencher: Bencher) {
 // ── FixedSizeList<i32, 64>: FSL elements ─────────────────────────────────────
 #[divan::bench]
 fn fsl_rebuild(bencher: Bencher) {
-    let num_lists = 1_000;
+    let num_lists = 100;
     let list_size = 256;
     let fsl_count = num_lists * list_size + list_size;
     let inner = PrimitiveArray::from_iter((0..fsl_count * 64).map(|i| i as i32)).into_array();
@@ -166,7 +166,7 @@ fn fsl_rebuild(bencher: Bencher) {
 // ── List<i32>: nested list elements ───────────────────────────────────────────
 #[divan::bench]
 fn list_i32_nested(bencher: Bencher) {
-    let num_lists = 1_000;
+    let num_lists = 100;
     let list_size = 512;
     let elem_count = num_lists * list_size + list_size;
     let inner_list_size = 8;
