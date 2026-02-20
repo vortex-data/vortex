@@ -120,6 +120,8 @@ pub struct vortex_file::Footer
 
 impl vortex_file::Footer
 
+pub fn vortex_file::Footer::approx_byte_size(&self) -> core::option::Option<usize>
+
 pub fn vortex_file::Footer::deserializer(eof_buffer: vortex_buffer::ByteBuffer, session: vortex_session::VortexSession) -> vortex_file::FooterDeserializer
 
 pub fn vortex_file::Footer::dtype(&self) -> &vortex_array::dtype::DType

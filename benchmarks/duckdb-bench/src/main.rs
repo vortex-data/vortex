@@ -84,6 +84,10 @@ fn main() -> anyhow::Result<()> {
         args.exclude_queries.as_ref(),
     );
 
+    if args.formats.is_empty() {
+        anyhow::bail!("provide a format with --formats");
+    }
+
     // Generate Vortex files from Parquet for any Vortex formats requested
     if benchmark.data_url().scheme() == "file" {
         // This is ugly, but otherwise some complicated async interaction might result in a deadlock

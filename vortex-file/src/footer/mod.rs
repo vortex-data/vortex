@@ -48,6 +48,8 @@ pub struct Footer {
     statistics: Option<FileStatistics>,
     // The specific arrays used within the file, in the order they were registered.
     array_ctx: ArrayContext,
+    // The approximate size of the footer in bytes, used for caching and memory management.
+    approx_byte_size: Option<usize>,
 }
 
 impl Footer {
@@ -62,6 +64,7 @@ impl Footer {
             segments,
             statistics,
             array_ctx,
+            approx_byte_size: None,
         }
     }
 
@@ -73,6 +76,7 @@ impl Footer {
         statistics: Option<FileStatistics>,
         session: &VortexSession,
     ) -> VortexResult<Self> {
+        let approx_byte_size = footer_bytes.len() + layout_bytes.len();
         let fb_footer = root::<fb::Footer>(&footer_bytes)?;
 
         // Create a LayoutContext from the registry.
@@ -118,6 +122,7 @@ impl Footer {
             segments,
             statistics,
             array_ctx,
+            approx_byte_size: Some(approx_byte_size),
         })
     }
 
@@ -139,6 +144,11 @@ impl Footer {
     /// Returns the [`DType`] of the file.
     pub fn dtype(&self) -> &DType {
         self.root_layout.dtype()
+    }
+
+    /// Returns the approximate size of the footer in bytes, used for caching and memory management.
+    pub fn approx_byte_size(&self) -> Option<usize> {
+        self.approx_byte_size
     }
 
     /// Returns the number of rows in the file.
