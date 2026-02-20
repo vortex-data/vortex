@@ -50,8 +50,10 @@ jobs:
           fi
           echo "Found llvm-profdata at $LLVM_PROFDATA"
 
-      - name: Install cargo fuzz
-        run: cargo install --locked cargo-fuzz
+      - name: Install cargo-fuzz
+        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        with:
+          tool: cargo-fuzz
 
       - name: Download corpus from R2
         shell: bash

@@ -20,23 +20,22 @@ fn generate_lane_decoder<T: FastLanes, W: Write>(
 
     writeln!(
         output,
-        "__device__ void _{func_name}(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, unsigned int lane) {{"
+        "__device__ void _{func_name}(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, unsigned int lane) {{"
     )?;
 
     output.indent(|output| {
         writeln!(output, "unsigned int LANE_COUNT = {lanes};")?;
         if bit_width == 0 {
-            writeln!(output, "uint{bits}_t zero = 0ULL;")?;
             writeln!(output)?;
             for row in 0..bits {
-                writeln!(output, "out[INDEX({row}, lane)] = zero;")?;
+                writeln!(output, "out[INDEX({row}, lane)] = reference;")?;
             }
         } else if bit_width == bits {
             writeln!(output)?;
             for row in 0..bits {
                 writeln!(
                     output,
-                    "out[INDEX({row}, lane)] = in[LANE_COUNT * {row} + lane];",
+                    "out[INDEX({row}, lane)] = in[LANE_COUNT * {row} + lane] + reference;",
                 )?;
             }
         } else {
@@ -72,7 +71,7 @@ fn generate_lane_decoder<T: FastLanes, W: Write>(
                     )?;
                 }
 
-                writeln!(output, "out[INDEX({row}, lane)] = tmp;")?;
+                writeln!(output, "out[INDEX({row}, lane)] = tmp + reference;")?;
             }
         }
         Ok(())
@@ -95,6 +94,7 @@ fn generate_lane_dispatch<T: FastLanes, W: Write>(
     writeln!(output, "__device__ inline void bit_unpack_{bits}_lane(")?;
     writeln!(output, "    const uint{bits}_t *__restrict in,")?;
     writeln!(output, "    uint{bits}_t *__restrict out,")?;
+    writeln!(output, "    uint{bits}_t reference,")?;
     writeln!(output, "    unsigned int lane,")?;
     writeln!(output, "    uint32_t bit_width")?;
     writeln!(output, ") {{")?;
@@ -105,7 +105,7 @@ fn generate_lane_dispatch<T: FastLanes, W: Write>(
             for bw in 0..=bits {
                 writeln!(
                     output,
-                    "case {bw}: _bit_unpack_{bits}_{bw}bw_lane(in, out, lane); break;"
+                    "case {bw}: _bit_unpack_{bits}_{bw}bw_lane(in, out, reference, lane); break;"
                 )?;
             }
             Ok(())
@@ -129,7 +129,7 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
     let func_name = format!("bit_unpack_{bits}_{bit_width}bw_{thread_count}t");
 
     let local_func_params = format!(
-        "(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, int thread_idx)"
+        "(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, int thread_idx)"
     );
 
     writeln!(output, "__device__ void _{func_name}{local_func_params} {{")?;
@@ -138,7 +138,7 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
         writeln!(output, "__shared__ uint{bits}_t shared_out[1024];")?;
 
         for thread_lane in 0..per_thread_loop_count {
-            writeln!(output, "_bit_unpack_{bits}_{bit_width}bw_lane(in, shared_out, thread_idx * {per_thread_loop_count} + {thread_lane});")?;
+            writeln!(output, "_bit_unpack_{bits}_{bit_width}bw_lane(in, shared_out, reference, thread_idx * {per_thread_loop_count} + {thread_lane});")?;
         }
 
         writeln!(output, "for (int i = 0; i < {shared_copy_ncount}; i++) {{")?;
@@ -160,8 +160,9 @@ fn generate_global_kernel_for_width<T: FastLanes, W: Write>(
     let bits = <T>::T;
 
     let func_name = format!("bit_unpack_{bits}_{bit_width}bw_{thread_count}t");
-    let func_params =
-        format!("(const uint{bits}_t *__restrict full_in, uint{bits}_t *__restrict full_out)");
+    let func_params = format!(
+        "(const uint{bits}_t *__restrict full_in, uint{bits}_t *__restrict full_out, uint{bits}_t reference)"
+    );
 
     writeln!(
         output,
@@ -176,7 +177,7 @@ fn generate_global_kernel_for_width<T: FastLanes, W: Write>(
         )?;
         writeln!(output, "auto out = full_out + (blockIdx.x * 1024);")?;
 
-        writeln!(output, "_{func_name}(in, out, thread_idx);")
+        writeln!(output, "_{func_name}(in, out, reference, thread_idx);")
     })?;
 
     writeln!(output, "}}")

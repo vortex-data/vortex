@@ -74,6 +74,16 @@ struct CTableBindResult {
     vector<string> &names;
 };
 
+double c_table_scan_progress(ClientContext &context,
+                             const FunctionData *bind_data,
+                             const GlobalTableFunctionState *global_state) {
+    auto &bind = bind_data->Cast<CTableBindData>();
+    duckdb_client_context c_ctx = reinterpret_cast<duckdb_client_context>(&context);
+    void *const c_bind_data = bind.ffi_data->DataPtr();
+    void *const c_global_state = global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
+    return bind.info->vtab.table_scan_progress(c_ctx, c_bind_data, c_global_state);
+}
+
 unique_ptr<FunctionData> c_bind(ClientContext &context,
                                 TableFunctionBindInput &input,
                                 vector<LogicalType> &return_types,
@@ -351,6 +361,7 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const d
     tf.get_partition_data = c_get_partition_data;
     tf.get_virtual_columns = c_get_virtual_columns;
     tf.to_string = c_to_string;
+    tf.table_scan_progress = c_table_scan_progress;
 
     // Set up the parameters
     tf.arguments.reserve(vtab->parameter_count);

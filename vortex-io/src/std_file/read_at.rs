@@ -58,9 +58,8 @@ pub(crate) fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::
 }
 
 const COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
-    // TODO(ngates): these numbers don't make sense if we're using spawn_blocking..
-    distance: 8 * 1024, // KB
-    max_size: 8 * 1024, // KB
+    distance: 1024 * 1024,     // 1MB
+    max_size: 4 * 1024 * 1024, // 4MB
 };
 /// Default number of concurrent requests to allow for local file I/O.
 pub const DEFAULT_CONCURRENCY: usize = 32;

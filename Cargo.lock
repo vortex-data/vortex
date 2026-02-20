@@ -4112,6 +4112,7 @@ dependencies = [
  "futures",
  "tokio",
  "tracing",
+ "tracing-perfetto",
  "tracing-subscriber",
  "vortex",
  "vortex-cuda",

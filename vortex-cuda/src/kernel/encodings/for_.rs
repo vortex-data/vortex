@@ -12,8 +12,11 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::PrimitiveArrayParts;
+use vortex::array::arrays::SliceVTable;
 use vortex::array::dtype::NativePType;
+use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_native_simd_ptype;
+use vortex::encodings::fastlanes::BitPackedVTable;
 use vortex::encodings::fastlanes::FoRArray;
 use vortex::encodings::fastlanes::FoRVTable;
 use vortex::error::VortexExpect;
@@ -26,6 +29,7 @@ use crate::CudaBufferExt;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
+use crate::kernel::encodings::bitpacked::decode_bitpacked;
 
 /// CUDA decoder for frame-of-reference.
 #[derive(Debug)]
@@ -47,10 +51,32 @@ impl CudaExecute for FoRExecutor {
     ) -> VortexResult<Canonical> {
         let array = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected FoRArray"))?;
 
+        // Fuse FOR + BP => FFOR
+        if let Some(bitpacked) = array.encoded().as_opt::<BitPackedVTable>() {
+            match_each_integer_ptype!(bitpacked.ptype(), |P| {
+                let reference: P = array.reference_scalar().try_into()?;
+                return decode_bitpacked(bitpacked.clone(), reference, ctx).await;
+            })
+        }
+
+        // Fuse FOR + SLICE + BP => SLICE + FFOR
+        if let Some(slice_array) = array.encoded().as_opt::<SliceVTable>()
+            && let Some(bitpacked) = slice_array.child().as_opt::<BitPackedVTable>()
+        {
+            let slice_range = slice_array.slice_range().clone();
+            let unpacked = match_each_integer_ptype!(bitpacked.ptype(), |P| {
+                let reference: P = array.reference_scalar().try_into()?;
+                decode_bitpacked(bitpacked.clone(), reference, ctx).await?
+            });
+
+            return unpacked.into_primitive().slice(slice_range)?.to_canonical();
+        }
+
         match_each_native_simd_ptype!(array.ptype(), |P| { decode_for::<P>(array, ctx).await })
     }
 }
 
+#[instrument(skip_all)]
 async fn decode_for<P>(array: FoRArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical>
 where
     P: NativePType + DeviceRepr + Send + Sync + 'static,
@@ -99,10 +125,11 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
-    use vortex::array::dtype::NativePType;
     use vortex::array::scalar::Scalar;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
+    use vortex::dtype::NativePType;
+    use vortex::encodings::fastlanes::BitPackedArray;
     use vortex::encodings::fastlanes::FoRArray;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
@@ -142,5 +169,32 @@ mod tests {
         assert_arrays_eq!(cpu_result.into_array(), gpu_result);
 
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_signed_ffor() {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let values = (0i8..8i8)
+            .cycle()
+            .take(1024)
+            .collect::<Buffer<_>>()
+            .into_array();
+        let packed = BitPackedArray::encode(&values, 3).unwrap().into_array();
+        let for_array = FoRArray::try_new(packed, (-8i8).into()).unwrap();
+
+        let cpu_result = for_array.to_canonical().unwrap();
+
+        let gpu_result = FoRExecutor
+            .execute(for_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_host()
+            .await
+            .vortex_expect("copying to host failed")
+            .into_array();
+
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
     }
 }
