@@ -159,12 +159,12 @@ impl VTable for Binary {
             value_predicate: Expression,
             catalog: &dyn StatsCatalog,
         ) -> Expression {
-            let nan_predicate = lhs
-                .stat_expression(Stat::NaNCount, catalog)
-                .into_iter()
-                .chain(rhs.stat_expression(Stat::NaNCount, catalog))
-                .map(|nans| eq(nans, lit(0u64)))
-                .reduce(and);
+            let nan_predicate = and_collect(
+                lhs.stat_expression(Stat::NaNCount, catalog)
+                    .into_iter()
+                    .chain(rhs.stat_expression(Stat::NaNCount, catalog))
+                    .map(|nans| eq(nans, lit(0u64))),
+            );
 
             if let Some(nan_check) = nan_predicate {
                 and(nan_check, value_predicate)
@@ -186,7 +186,7 @@ impl VTable for Binary {
                 let left = min_lhs.zip(max_rhs).map(|(a, b)| gt(a, b));
                 let right = min_rhs.zip(max_lhs).map(|(a, b)| gt(a, b));
 
-                let min_max_check = left.into_iter().chain(right).reduce(or)?;
+                let min_max_check = or_collect(left.into_iter().chain(right))?;
 
                 // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
                 Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
@@ -225,11 +225,11 @@ impl VTable for Binary {
 
                 Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
             }
-            Operator::And => lhs
-                .stat_falsification(catalog)
-                .into_iter()
-                .chain(rhs.stat_falsification(catalog))
-                .reduce(or),
+            Operator::And => or_collect(
+                lhs.stat_falsification(catalog)
+                    .into_iter()
+                    .chain(rhs.stat_falsification(catalog)),
+            ),
             Operator::Or => Some(and(
                 lhs.stat_falsification(catalog)?,
                 rhs.stat_falsification(catalog)?,
