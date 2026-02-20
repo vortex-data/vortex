@@ -359,7 +359,7 @@ fn convert_u64_vec_to_ptype(values: Vec<u64>, ptype: PType, validity: Validity) 
                 PType::F16 => {
                     let v: Vec<u16> = v
                         .into_iter()
-                        .map(|x| vortex_dtype::half::f16::from_f64(x).to_bits())
+                        .map(|x| half::f16::from_f64(x).to_bits())
                         .collect();
                     PrimitiveArray::new(Buffer::copy_from(v), validity)
                         .reinterpret_cast(PType::F16)
@@ -866,6 +866,7 @@ fn arbitrary_vec_of_len<'a, T: Arbitrary<'a>>(
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation, clippy::use_debug, clippy::len_zero)]
 mod tests {
     use super::*;
     use crate::Array;
@@ -907,7 +908,14 @@ mod tests {
             );
 
             if depth > 1 {
-                println!("  Tree:\n{}", array.display_as(DisplayOptions::TreeDisplay));
+                println!(
+                    "  Tree:\n{}",
+                    array.display_as(DisplayOptions::TreeDisplay {
+                        buffers: false,
+                        metadata: false,
+                        stats: false
+                    })
+                );
             }
         }
     }
@@ -928,7 +936,14 @@ mod tests {
 
         let depth = count_depth(array.as_ref(), 1);
         println!("Generated array with depth: {}", depth);
-        println!("Tree:\n{}", array.display_as(DisplayOptions::TreeDisplay));
+        println!(
+            "Tree:\n{}",
+            array.display_as(DisplayOptions::TreeDisplay {
+                buffers: false,
+                metadata: false,
+                stats: false
+            })
+        );
 
         // Should sometimes produce nested structures
         // (depends on random choices, so we just verify it runs)

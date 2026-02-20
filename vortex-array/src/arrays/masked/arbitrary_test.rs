@@ -2,15 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation, clippy::use_debug, clippy::len_zero)]
 mod tests {
     use arbitrary::Arbitrary;
     use arbitrary::Unstructured;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use crate::Array;
     use crate::arrays::ArbitraryMaskedArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
 
     #[test]
     fn test_arbitrary_masked_basic() {

@@ -2,12 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation, clippy::use_debug, clippy::len_zero)]
 mod tests {
     use arbitrary::Arbitrary;
     use arbitrary::Unstructured;
     use vortex_array::ToCanonical;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
 
     use crate::ArbitraryZigZagArray;
 

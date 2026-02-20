@@ -17,7 +17,7 @@ version = { workspace = true }
 workspace = true
 
 [features]
-arbitrary = ["dep:arbitrary", "vortex-array/arbitrary", "vortex-dtype/arbitrary", "vortex-scalar/arbitrary"]
+arbitrary = ["dep:arbitrary", "vortex-array/arbitrary"]
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }

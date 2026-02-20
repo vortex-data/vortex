@@ -4,7 +4,6 @@
 use arbitrary::Arbitrary;
 use arbitrary::Result;
 use arbitrary::Unstructured;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 
 use super::MaskedArray;
@@ -14,6 +13,7 @@ use crate::arrays::arbitrary::ArbitraryArray;
 use crate::arrays::arbitrary::ArbitraryConstrained;
 use crate::arrays::arbitrary::ArrayConstraints;
 use crate::arrays::arbitrary::ConstraintKind;
+use crate::dtype::DType;
 use crate::validity::Validity;
 
 /// MaskedArray cannot generate non-nullable arrays (it always adds nullability).

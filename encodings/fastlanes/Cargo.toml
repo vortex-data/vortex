@@ -42,7 +42,7 @@ vortex-fastlanes = { path = ".", features = ["_test-harness"] }
 
 [features]
 _test-harness = ["dep:rand"]
-arbitrary = ["dep:arbitrary", "vortex-array/arbitrary", "vortex-dtype/arbitrary"]
+arbitrary = ["dep:arbitrary", "vortex-array/arbitrary"]
 
 [[bench]]
 name = "bitpacking_take"

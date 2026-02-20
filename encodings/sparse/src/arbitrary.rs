@@ -12,11 +12,11 @@ use vortex_array::arrays::arbitrary::BoundConstraint;
 use vortex_array::arrays::arbitrary::ConstraintKind;
 use vortex_array::arrays::arbitrary::OrderingConstraint;
 use vortex_array::arrays::arbitrary::arbitrary_constrained_array;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::scalar::arbitrary::random_scalar;
 use vortex_error::VortexExpect;
-use vortex_scalar::arbitrary::random_scalar;
 
 use crate::SparseArray;
 

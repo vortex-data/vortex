@@ -4,18 +4,19 @@
 //! Test showing extremely deep nesting (8+ levels) with constrained array generation.
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation, clippy::use_debug, clippy::len_zero)]
 mod tests {
     use vortex_array::Array;
     use vortex_array::IntoArray;
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::display::DisplayOptions;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::scalar::PValue;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexExpect;
-    use vortex_scalar::PValue;
     use vortex_sequence::SequenceArray;
 
     use crate::RunEndArray;
@@ -161,7 +162,11 @@ mod tests {
         println!("\n=== 8-Level Deep Nested Array ===");
         println!(
             "Tree:\n{}",
-            level1_runend.display_as(DisplayOptions::TreeDisplay)
+            level1_runend.display_as(DisplayOptions::TreeDisplay {
+                buffers: false,
+                metadata: false,
+                stats: false
+            })
         );
 
         // Count the nesting depth
@@ -285,7 +290,14 @@ mod tests {
         println!("Level 1 (Dict): len={}", level1.len());
 
         println!("\n=== 8-Level Alternating Pattern ===");
-        println!("Tree:\n{}", level1.display_as(DisplayOptions::TreeDisplay));
+        println!(
+            "Tree:\n{}",
+            level1.display_as(DisplayOptions::TreeDisplay {
+                buffers: false,
+                metadata: false,
+                stats: false
+            })
+        );
 
         // Count depth
         fn count_depth(array: &dyn Array, current: usize) -> usize {

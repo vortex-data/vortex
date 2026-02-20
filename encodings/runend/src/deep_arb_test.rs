@@ -4,6 +4,7 @@
 //! Test showing deeply nested constrained array generation.
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation, clippy::use_debug, clippy::len_zero)]
 mod tests {
     use arbitrary::Unstructured;
     use vortex_array::IntoArray;
@@ -13,11 +14,11 @@ mod tests {
     use vortex_array::arrays::arbitrary::ArrayConstraints;
     use vortex_array::arrays::arbitrary::BoundConstraint;
     use vortex_array::display::DisplayOptions;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::scalar::PValue;
     use vortex_buffer::Buffer;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexExpect;
-    use vortex_scalar::PValue;
     use vortex_sequence::SequenceArray;
 
     use crate::RunEndArray;
@@ -47,7 +48,8 @@ mod tests {
         .vortex_expect("SequenceArray creation should succeed");
 
         // Generate arbitrary values for each run
-        let values_dtype = vortex_dtype::DType::Primitive(PType::I32, Nullability::NonNullable);
+        let values_dtype =
+            vortex_array::dtype::DType::Primitive(PType::I32, Nullability::NonNullable);
         let values = ArbitraryArray::arbitrary_with(&mut u, Some(num_runs), &values_dtype)
             .unwrap()
             .0;
@@ -57,7 +59,14 @@ mod tests {
             .vortex_expect("RunEndArray creation should succeed");
 
         println!("\n=== Deeply Nested: RunEndArray with SequenceArray ends ===");
-        println!("Tree:\n{}", runend.display_as(DisplayOptions::TreeDisplay));
+        println!(
+            "Tree:\n{}",
+            runend.display_as(DisplayOptions::TreeDisplay {
+                buffers: false,
+                metadata: false,
+                stats: false
+            })
+        );
         println!(
             "\nEnds encoding: vortex.sequence (base={}, multiplier={})",
             base, multiplier
@@ -108,7 +117,8 @@ mod tests {
             non_nullable: true,
             ..Default::default()
         };
-        let codes_dtype = vortex_dtype::DType::Primitive(PType::U8, Nullability::NonNullable);
+        let codes_dtype =
+            vortex_array::dtype::DType::Primitive(PType::U8, Nullability::NonNullable);
         let codes = vortex_array::arrays::arbitrary::arbitrary_constrained_array(
             &mut u,
             Some(num_elements),
@@ -143,7 +153,11 @@ mod tests {
         println!("           RunEndArray -> ends:SequenceArray");
         println!(
             "\nTree:\n{}",
-            runend.display_as(DisplayOptions::TreeDisplay)
+            runend.display_as(DisplayOptions::TreeDisplay {
+                buffers: false,
+                metadata: false,
+                stats: false
+            })
         );
         println!(
             "\nEnds (SequenceArray base=4, mult=4): {:?}",

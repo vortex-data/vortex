@@ -10,10 +10,10 @@ use vortex_array::arrays::arbitrary::ArbitraryConstrained;
 use vortex_array::arrays::arbitrary::ArrayConstraints;
 use vortex_array::arrays::arbitrary::ConstraintKind;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 
 use crate::ByteBoolArray;
 

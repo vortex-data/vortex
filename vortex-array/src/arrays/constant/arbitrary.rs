@@ -140,7 +140,7 @@ fn scalar_from_u64(value: u64, ptype: PType, nullability: Nullability) -> Scalar
         PType::I32 => Scalar::primitive(value as i32, nullability),
         PType::I64 => Scalar::primitive(value as i64, nullability),
         PType::F16 => {
-            let f = crate::dtype::half::f16::from_f64(value as f64);
+            let f = half::f16::from_f64(value as f64);
             Scalar::primitive(f, nullability)
         }
         PType::F32 => Scalar::primitive(value as f32, nullability),

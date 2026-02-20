@@ -14,7 +14,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [features]
-arbitrary = ["dep:arbitrary", "vortex-array/arbitrary", "vortex-dtype/arbitrary"]
+arbitrary = ["dep:arbitrary", "vortex-array/arbitrary"]
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }

@@ -2,11 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation, clippy::use_debug, clippy::len_zero)]
 mod tests {
     use arbitrary::Arbitrary;
     use arbitrary::Unstructured;
     use vortex_array::Array;
-    use vortex_dtype::Nullability;
+    use vortex_array::dtype::Nullability;
 
     use crate::ArbitraryByteBoolArray;
 
