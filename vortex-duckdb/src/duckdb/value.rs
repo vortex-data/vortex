@@ -26,7 +26,7 @@ lifetime_wrapper!(Value, cpp::duckdb_value, cpp::duckdb_destroy_value);
 
 impl ValueRef {
     pub fn logical_type(&self) -> &LogicalTypeRef {
-        unsafe { LogicalTypeRef::borrow(cpp::duckdb_get_value_type(self.as_ptr())) }
+        unsafe { LogicalType::borrow(cpp::duckdb_get_value_type(self.as_ptr())) }
     }
 
     pub fn as_string(&self) -> BufferString {

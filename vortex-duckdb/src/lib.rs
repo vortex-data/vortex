@@ -16,6 +16,7 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
 use crate::copy::VortexCopyFunction;
+use crate::duckdb::Database;
 use crate::duckdb::DatabaseRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::Value;
@@ -68,7 +69,7 @@ pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
 /// The DuckDB extension ABI initialization function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
-    let database = unsafe { DatabaseRef::borrow(db) };
+    let database = unsafe { Database::borrow(db) };
 
     database
         .register_vortex_scan_replacement()

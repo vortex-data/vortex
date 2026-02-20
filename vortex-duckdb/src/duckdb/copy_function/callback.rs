@@ -15,11 +15,11 @@ use crate::cpp::duckdb_data_chunk;
 use crate::cpp::duckdb_logical_type;
 use crate::cpp::duckdb_vx_copy_func_bind_input;
 use crate::cpp::duckdb_vx_error;
-use crate::duckdb::ClientContextRef;
+use crate::duckdb::ClientContext;
 use crate::duckdb::CopyFunction;
 use crate::duckdb::Data;
-use crate::duckdb::DataChunkRef;
-use crate::duckdb::LogicalTypeRef;
+use crate::duckdb::DataChunk;
+use crate::duckdb::LogicalType;
 use crate::duckdb::try_or;
 use crate::duckdb::try_or_null;
 
@@ -43,7 +43,7 @@ pub(crate) unsafe extern "C-unwind" fn bind_callback<T: CopyFunction>(
 
     let column_types = unsafe { std::slice::from_raw_parts(column_types, column_type_count.as_()) }
         .iter()
-        .map(|c| unsafe { LogicalTypeRef::borrow(*c) })
+        .map(|c| unsafe { LogicalType::borrow(*c) })
         .collect_vec();
 
     try_or_null(error_out, || {
@@ -64,7 +64,7 @@ pub(crate) unsafe extern "C-unwind" fn global_callback<T: CopyFunction>(
     let bind_data = unsafe { bind_data.cast::<T::BindData>().as_ref() }
         .vortex_expect("global_init_data null pointer");
     try_or_null(error_out, || {
-        let ctx = unsafe { ClientContextRef::borrow(client_context) };
+        let ctx = unsafe { ClientContext::borrow(client_context) };
         let bind_data = T::init_global(ctx, bind_data, file_path)?;
         Ok(Data::from(Box::new(bind_data)).as_ptr())
     })
@@ -98,7 +98,7 @@ pub(crate) unsafe extern "C-unwind" fn copy_to_sink_callback<T: CopyFunction>(
 
     try_or(error_out, || {
         T::copy_to_sink(bind_data, global_data, local_data, unsafe {
-            DataChunkRef::borrow_mut(data_chunk)
+            DataChunk::borrow_mut(data_chunk)
         })?;
         Ok(())
     })

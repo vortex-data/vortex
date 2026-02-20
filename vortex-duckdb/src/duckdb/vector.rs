@@ -260,19 +260,19 @@ impl VectorRef {
     }
 
     pub fn list_vector_get_child(&self) -> &Self {
-        unsafe { Self::borrow(cpp::duckdb_list_vector_get_child(self.as_ptr())) }
+        unsafe { Vector::borrow(cpp::duckdb_list_vector_get_child(self.as_ptr())) }
     }
 
     pub fn list_vector_get_child_mut(&mut self) -> &mut Self {
-        unsafe { Self::borrow_mut(cpp::duckdb_list_vector_get_child(self.as_ptr())) }
+        unsafe { Vector::borrow_mut(cpp::duckdb_list_vector_get_child(self.as_ptr())) }
     }
 
     pub fn array_vector_get_child(&self) -> &Self {
-        unsafe { Self::borrow(cpp::duckdb_array_vector_get_child(self.as_ptr())) }
+        unsafe { Vector::borrow(cpp::duckdb_array_vector_get_child(self.as_ptr())) }
     }
 
     pub fn array_vector_get_child_mut(&mut self) -> &mut Self {
-        unsafe { Self::borrow_mut(cpp::duckdb_array_vector_get_child(self.as_ptr())) }
+        unsafe { Vector::borrow_mut(cpp::duckdb_array_vector_get_child(self.as_ptr())) }
     }
 
     pub fn list_vector_set_size(&self, size: u64) -> VortexResult<()> {
@@ -285,7 +285,7 @@ impl VectorRef {
 
     pub fn struct_vector_get_child(&self, idx: usize) -> &Self {
         unsafe {
-            Self::borrow(cpp::duckdb_struct_vector_get_child(
+            Vector::borrow(cpp::duckdb_struct_vector_get_child(
                 self.as_ptr(),
                 idx as idx_t,
             ))
@@ -294,7 +294,7 @@ impl VectorRef {
 
     pub fn struct_vector_get_child_mut(&mut self, idx: usize) -> &mut Self {
         unsafe {
-            Self::borrow_mut(cpp::duckdb_struct_vector_get_child(
+            Vector::borrow_mut(cpp::duckdb_struct_vector_get_child(
                 self.as_ptr(),
                 idx as idx_t,
             ))

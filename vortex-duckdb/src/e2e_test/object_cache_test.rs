@@ -65,7 +65,7 @@ impl TableFunction for TestTableFunction {
     }
 
     fn table_scan_progress(
-        _client_context: &ClientContext,
+        _client_context: &ClientContextRef,
         _bind_data: &mut Self::BindData,
         _global_state: &mut Self::GlobalState,
     ) -> f64 {

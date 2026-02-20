@@ -9,6 +9,7 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
 use crate::cpp;
+use crate::duckdb::ClientContext;
 use crate::duckdb::ClientContextRef;
 use crate::duckdb::DatabaseRef;
 use crate::duckdb::QueryResult;
@@ -70,7 +71,7 @@ impl ConnectionRef {
                     self.as_ptr()
                 )
             }
-            Ok(ClientContextRef::borrow(client_context))
+            Ok(ClientContext::borrow(client_context))
         }
     }
 }

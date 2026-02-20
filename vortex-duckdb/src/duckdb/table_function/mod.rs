@@ -24,6 +24,8 @@ pub use virtual_columns::VirtualColumnsResultRef;
 
 use crate::cpp;
 use crate::cpp::duckdb_client_context;
+use crate::duckdb::ClientContext;
+use crate::duckdb::DataChunk;
 use crate::duckdb::DatabaseRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::client_context::ClientContextRef;
@@ -108,7 +110,7 @@ pub trait TableFunction: Sized + Debug {
 
     /// Return table scanning progress from 0. to 100.
     fn table_scan_progress(
-        client_context: &ClientContext,
+        client_context: &ClientContextRef,
         bind_data: &mut Self::BindData,
         global_state: &mut Self::GlobalState,
     ) -> f64;
@@ -251,13 +253,13 @@ unsafe extern "C-unwind" fn function<T: TableFunction>(
     output: cpp::duckdb_data_chunk,
     error_out: *mut cpp::duckdb_vx_error,
 ) {
-    let client_context = unsafe { ClientContextRef::borrow(duckdb_client_context) };
+    let client_context = unsafe { ClientContext::borrow(duckdb_client_context) };
     let bind_data = unsafe { &*(bind_data as *const T::BindData) };
     let global_init_data = unsafe { global_init_data.cast::<T::GlobalState>().as_mut() }
         .vortex_expect("global_init_data null pointer");
     let local_init_data = unsafe { local_init_data.cast::<T::LocalState>().as_mut() }
         .vortex_expect("local_init_data null pointer");
-    let data_chunk = unsafe { DataChunkRef::borrow_mut(output) };
+    let data_chunk = unsafe { DataChunk::borrow_mut(output) };
 
     match T::scan(
         client_context,

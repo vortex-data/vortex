@@ -11,6 +11,7 @@ use vortex::error::vortex_bail;
 use crate::cpp;
 use crate::cpp::duckdb_logical_type;
 use crate::cpp::duckdb_vx_error;
+use crate::duckdb::Vector;
 use crate::duckdb::VectorRef;
 use crate::lifetime_wrapper;
 
@@ -50,12 +51,12 @@ impl DataChunkRef {
 
     /// Returns the vector at the specified column index.
     pub fn get_vector(&self, idx: usize) -> &VectorRef {
-        unsafe { VectorRef::borrow(cpp::duckdb_data_chunk_get_vector(self.as_ptr(), idx as _)) }
+        unsafe { Vector::borrow(cpp::duckdb_data_chunk_get_vector(self.as_ptr(), idx as _)) }
     }
 
     /// Returns a mutable reference to the vector at the specified column index.
     pub fn get_vector_mut(&mut self, idx: usize) -> &mut VectorRef {
-        unsafe { VectorRef::borrow_mut(cpp::duckdb_data_chunk_get_vector(self.as_ptr(), idx as _)) }
+        unsafe { Vector::borrow_mut(cpp::duckdb_data_chunk_get_vector(self.as_ptr(), idx as _)) }
     }
 
     pub fn len(&self) -> u64 {

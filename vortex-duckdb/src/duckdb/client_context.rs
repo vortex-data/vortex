@@ -6,6 +6,7 @@ use std::ffi::CStr;
 use vortex::error::vortex_panic;
 
 use crate::cpp;
+use crate::duckdb::ObjectCache;
 use crate::duckdb::ObjectCacheRef;
 use crate::duckdb::Value;
 use crate::lifetime_wrapper;
@@ -42,7 +43,7 @@ impl ClientContextRef {
             if cache.is_null() {
                 vortex_panic!("Failed to get object cache from client context");
             }
-            ObjectCacheRef::borrow(cache)
+            ObjectCache::borrow(cache)
         }
     }
 

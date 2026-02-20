@@ -6,7 +6,7 @@ use std::ffi::CStr;
 use vortex::error::vortex_err;
 
 use crate::cpp;
-use crate::duckdb::ClientContextRef;
+use crate::duckdb::ClientContext;
 use crate::duckdb::Data;
 use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableFunction;
@@ -21,7 +21,7 @@ pub(crate) unsafe extern "C-unwind" fn bind_callback<T: TableFunction>(
     bind_result: cpp::duckdb_vx_tfunc_bind_result,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
-    let client_context = unsafe { ClientContextRef::borrow(ctx) };
+    let client_context = unsafe { ClientContext::borrow(ctx) };
     let bind_input = unsafe { BindInput::own(bind_input) };
     let mut bind_result = unsafe { BindResult::own(bind_result) };
 

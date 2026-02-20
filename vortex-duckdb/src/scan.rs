@@ -527,7 +527,7 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn table_scan_progress(
-        _client_context: &ClientContext,
+        _client_context: &ClientContextRef,
         _bind_data: &mut Self::BindData,
         global_state: &mut Self::GlobalState,
     ) -> f64 {

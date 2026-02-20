@@ -11,8 +11,10 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 
 use crate::cpp;
+use crate::duckdb::ClientContext;
 use crate::duckdb::ClientContextRef;
 use crate::duckdb::Data;
+use crate::duckdb::TableFilterSet;
 use crate::duckdb::TableFilterSetRef;
 use crate::duckdb::TableFunction;
 
@@ -112,7 +114,7 @@ impl<'a, T: TableFunction> TableInitInput<'a, T> {
         if ptr.is_null() {
             None
         } else {
-            Some(unsafe { TableFilterSetRef::borrow(ptr) })
+            Some(unsafe { TableFilterSet::borrow(ptr) })
         }
     }
 
@@ -122,7 +124,7 @@ impl<'a, T: TableFunction> TableInitInput<'a, T> {
             if self.input.client_context.is_null() {
                 vortex_bail!("Client context is null");
             }
-            Ok(ClientContextRef::borrow(self.input.client_context))
+            Ok(ClientContext::borrow(self.input.client_context))
         }
     }
 }

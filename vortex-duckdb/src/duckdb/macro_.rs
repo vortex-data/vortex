@@ -45,35 +45,6 @@ macro_rules! lifetime_wrapper {
 
             #[allow(dead_code)]
             impl [<$Name Ref>] {
-                /// Borrows the pointer as an immutable reference with explicit lifetime.
-                ///
-                /// # Safety
-                ///
-                /// The pointer must be valid for the lifetime `'a` and must not be null.
-                pub unsafe fn borrow<'a>(ptr: $ffi_type) -> &'a Self {
-                    if ptr.is_null() {
-                        vortex::error::vortex_panic!(
-                            "Attempted to borrow from a null pointer"
-                        );
-                    }
-                    unsafe { &*(ptr as *const Self) }
-                }
-
-                /// Borrows the pointer as a mutable reference with explicit lifetime.
-                ///
-                /// # Safety
-                ///
-                /// The pointer must be valid for the lifetime `'a`, must not be null,
-                /// and no other references to the same pointer must exist.
-                pub unsafe fn borrow_mut<'a>(ptr: $ffi_type) -> &'a mut Self {
-                    if ptr.is_null() {
-                        vortex::error::vortex_panic!(
-                            "Attempted to borrow_mut from a null pointer"
-                        );
-                    }
-                    unsafe { &mut *(ptr as *mut Self) }
-                }
-
                 /// Returns the raw FFI pointer.
                 pub fn as_ptr(&self) -> $ffi_type {
                     (self as *const Self).cast_mut().cast()
@@ -101,6 +72,35 @@ macro_rules! lifetime_wrapper {
                         );
                     }
                     Self(ptr)
+                }
+
+                /// Borrows the pointer as an immutable reference with explicit lifetime.
+                ///
+                /// # Safety
+                ///
+                /// The pointer must be valid for the lifetime `'a` and must not be null.
+                pub unsafe fn borrow<'a>(ptr: $ffi_type) -> &'a [<$Name Ref>] {
+                    if ptr.is_null() {
+                        vortex::error::vortex_panic!(
+                            "Attempted to borrow from a null pointer"
+                        );
+                    }
+                    unsafe { &*(ptr as *const [<$Name Ref>]) }
+                }
+
+                /// Borrows the pointer as a mutable reference with explicit lifetime.
+                ///
+                /// # Safety
+                ///
+                /// The pointer must be valid for the lifetime `'a`, must not be null,
+                /// and no other references to the same pointer must exist.
+                pub unsafe fn borrow_mut<'a>(ptr: $ffi_type) -> &'a mut [<$Name Ref>] {
+                    if ptr.is_null() {
+                        vortex::error::vortex_panic!(
+                            "Attempted to borrow_mut from a null pointer"
+                        );
+                    }
+                    unsafe { &mut *(ptr as *mut [<$Name Ref>]) }
                 }
 
                 /// Releases ownership and returns the raw pointer without

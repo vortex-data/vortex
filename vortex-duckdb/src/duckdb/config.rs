@@ -163,7 +163,7 @@ use crate::duckdb::LogicalType;
 
 impl DatabaseRef {
     pub fn config(&self) -> &ConfigRef {
-        unsafe { ConfigRef::borrow(cpp::duckdb_vx_database_get_config(self.as_ptr())) }
+        unsafe { Config::borrow(cpp::duckdb_vx_database_get_config(self.as_ptr())) }
     }
 }
 

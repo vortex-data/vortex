@@ -17,7 +17,7 @@ pub(crate) unsafe extern "C-unwind" fn get_virtual_columns_callback<T: TableFunc
 ) {
     let bind_data =
         unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null pointer");
-    let result = unsafe { VirtualColumnsResultRef::borrow_mut(result) };
+    let result = unsafe { VirtualColumnsResult::borrow_mut(result) };
 
     T::virtual_columns(bind_data, result);
 }

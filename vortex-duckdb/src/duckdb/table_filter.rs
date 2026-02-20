@@ -13,6 +13,7 @@ use vortex::error::vortex_panic;
 
 use crate::cpp;
 use crate::cpp::idx_t;
+use crate::duckdb::Expression;
 use crate::duckdb::ExpressionRef;
 use crate::duckdb::Value;
 use crate::duckdb::ValueRef;
@@ -31,7 +32,7 @@ impl TableFilterSetRef {
         if filter_set.is_null() {
             None
         } else {
-            Some(unsafe { (column_index, TableFilterRef::borrow(filter_set)) })
+            Some(unsafe { (column_index, TableFilter::borrow(filter_set)) })
         }
     }
 
@@ -75,7 +76,7 @@ impl TableFilterRef {
                 unsafe { cpp::duckdb_vx_table_filter_get_constant(self.as_ptr(), &raw mut out) };
 
                 TableFilterClass::ConstantComparison(ConstantComparison {
-                    value: unsafe { ValueRef::borrow(out.value) },
+                    value: unsafe { Value::borrow(out.value) },
                     operator: out.comparison_type,
                 })
             }
@@ -131,13 +132,13 @@ impl TableFilterRef {
                         out.child_name_len,
                     ))
                 };
-                let child_filter = unsafe { TableFilterRef::borrow(out.child_filter) };
+                let child_filter = unsafe { TableFilter::borrow(out.child_filter) };
 
                 TableFilterClass::StructExtract(name, child_filter)
             }
             cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_OPTIONAL_FILTER => {
                 let child_filter = unsafe {
-                    TableFilterRef::borrow(cpp::duckdb_vx_table_filter_get_optional(self.as_ptr()))
+                    TableFilter::borrow(cpp::duckdb_vx_table_filter_get_optional(self.as_ptr()))
                 };
                 TableFilterClass::Optional(child_filter)
             }
@@ -168,7 +169,7 @@ impl TableFilterRef {
             }
             cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_EXPRESSION_FILTER => {
                 let expr = unsafe {
-                    ExpressionRef::borrow(cpp::duckdb_vx_table_filter_get_expression(self.as_ptr()))
+                    Expression::borrow(cpp::duckdb_vx_table_filter_get_expression(self.as_ptr()))
                 };
                 TableFilterClass::ExpressionRef(expr)
             }
@@ -212,7 +213,7 @@ impl<'a> Conjunction<'a> {
     pub fn children(&self) -> impl Iterator<Item = &'a TableFilterRef> + 'a {
         self.children
             .iter()
-            .map(|&child| unsafe { TableFilterRef::borrow(child) })
+            .map(|&child| unsafe { TableFilter::borrow(child) })
     }
 }
 
@@ -236,7 +237,7 @@ impl<'a> Iterator for ValuesIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         (self.index < self.values_count).then(|| {
             let value = unsafe {
-                ValueRef::borrow(cpp::duckdb_vx_values_vec_get(self.values, self.index as _))
+                Value::borrow(cpp::duckdb_vx_values_vec_get(self.values, self.index as _))
             };
             self.index += 1;
             value

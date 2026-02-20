@@ -5,6 +5,7 @@ use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 
 use crate::cpp;
+use crate::duckdb::LogicalType;
 use crate::duckdb::LogicalTypeRef;
 use crate::lifetime_wrapper;
 
@@ -22,6 +23,6 @@ impl ScalarFunctionRef {
     }
 
     pub fn return_type(&self) -> &LogicalTypeRef {
-        unsafe { LogicalTypeRef::borrow(cpp::duckdb_vx_sfunc_return_type(self.as_ptr())) }
+        unsafe { LogicalType::borrow(cpp::duckdb_vx_sfunc_return_type(self.as_ptr())) }
     }
 }
