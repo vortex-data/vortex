@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::backtrace::Backtrace;
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use async_lock::Mutex;
 use async_lock::MutexGuard;
-use vortex_error::VortexResult;
+use vortex_error::{VortexError, VortexResult};
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -16,7 +17,7 @@ use crate::stats::ArrayStats;
 
 #[derive(Debug, Clone)]
 pub struct SharedArray {
-    pub(super) state: Arc<Mutex<SharedState>>,
+    pub(super) state: Arc<RwLock<SharedState>>,
     pub(super) dtype: DType,
     pub(super) stats: ArrayStats,
 }
@@ -32,35 +33,75 @@ impl SharedArray {
     pub fn new(source: ArrayRef) -> Self {
         Self {
             dtype: source.dtype().clone(),
-            state: Arc::new(Mutex::new(SharedState::Source(source))),
+            state: Arc::new(RwLock::new(SharedState::Source(source))),
             stats: ArrayStats::default(),
         }
     }
 
     #[cfg(not(target_family = "wasm"))]
-    fn lock_sync(&self) -> MutexGuard<'_, SharedState> {
-        self.state.lock_blocking()
+    fn wlock_sync(&self) -> VortexResult<RwLockWriteGuard<'_, SharedState>> {
+        let result = self.state.write();
+        match result {
+            Ok(guard) => Ok(guard),
+            Err(_) => Err(VortexError::Other(
+                "SharedArray: RwLock poisoned".into(),
+                Box::new(Backtrace::capture()),
+            )),
+        }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn rlock_sync(&self) -> VortexResult<RwLockReadGuard<'_, SharedState>> {
+        let result = self.state.read();
+        match result {
+            Ok(guard) => Ok(guard),
+            Err(_) => Err(VortexError::Other(
+                "SharedArray: RwLock poisoned".into(),
+                Box::new(Backtrace::capture()),
+            )),
+        }
     }
 
     #[cfg(target_family = "wasm")]
-    fn lock_sync(&self) -> MutexGuard<'_, SharedState> {
+    fn wlock_sync(&self) -> VortexResult<RwLockWriteGuard<'_, SharedState>> {
         // this should mirror how parking_lot compiles to wasm
         self.state
-            .try_lock()
-            .expect("SharedArray: mutex contention on single-threaded wasm target")
+            .try_write()
+            .map_err(|_| VortexError::Other(
+                "SharedArray: mutex contention on single-threaded wasm target".into(),
+                Box::new(Backtrace::capture()),
+            ))
     }
+
+    #[cfg(target_family = "wasm")]
+    fn rlock_sync(&self) -> VortexResult<RwLockReadGuard<'_, SharedState>> {
+        // this should mirror how parking_lot compiles to wasm
+        self.state.try_read()
+            .map_err(|_| VortexError::Other(
+                "SharedArray: mutex contention on single-threaded wasm target".into(),
+                Box::new(Backtrace::capture()),
+            ))
+    }
+
 
     pub fn get_or_compute(
         &self,
         f: impl FnOnce(&ArrayRef) -> VortexResult<Canonical>,
     ) -> VortexResult<Canonical> {
-        let mut state = self.lock_sync();
+        let mut state = self.rlock_sync();
         match &*state {
             SharedState::Cached(canonical) => Ok(canonical.clone()),
             SharedState::Source(source) => {
+                drop(state);
                 let canonical = f(source)?;
-                *state = SharedState::Cached(canonical.clone());
-                Ok(canonical)
+                let state = self.wlock_sync();
+                match &*state {
+                    SharedState::Cached(canonical) => Ok(canonical.clone()),
+                    SharedState::Source(_) => {
+                        *state = SharedState::Cached(canonical.clone());
+                        Ok(canonical)
+                    }
+                }
             }
         }
     }
@@ -68,16 +109,23 @@ impl SharedArray {
     pub async fn get_or_compute_async<F, Fut>(&self, f: F) -> VortexResult<Canonical>
     where
         F: FnOnce(ArrayRef) -> Fut,
-        Fut: Future<Output = VortexResult<Canonical>>,
+        Fut: Future<Output=VortexResult<Canonical>>,
     {
-        let mut state = self.state.lock().await;
+        let mut state = self.state.read().await;
         match &*state {
             SharedState::Cached(canonical) => Ok(canonical.clone()),
             SharedState::Source(source) => {
                 let source = source.clone();
+                drop(state);
                 let canonical = f(source).await?;
-                *state = SharedState::Cached(canonical.clone());
-                Ok(canonical)
+                let mut state = self.state.write().await;
+                match &*state {
+                    SharedState::Cached(canonical) => Ok(canonical.clone()),
+                    SharedState::Source(_) => {
+                        *state = SharedState::Cached(canonical.clone());
+                        Ok(canonical)
+                    }
+                }
             }
         }
     }
