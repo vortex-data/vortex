@@ -31,8 +31,11 @@ use vortex_error::vortex_panic;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -321,6 +324,10 @@ where
     T: NativePType + Num + Copy + std::fmt::Debug,
     Scalar: From<T>,
 {
+    println!("canon {}", array.as_ref().display_tree());
+    println!("canon values {}", array.as_ref().display_values());
+    println!("scalar_value {}", scalar_value);
+
     let canonicalized_array = array.to_primitive();
     let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
@@ -350,9 +357,20 @@ where
         let rhs_const = ConstantArray::new(scalar.clone(), array.len()).into_array();
 
         // Test array operator scalar
-        let result = array.binary(rhs_const, op);
+        let result = array
+            .binary(rhs_const, op)
+            .vortex_expect("apply failed")
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .map(|x| x.into_array());
+
+        println!("here");
+        if let Ok(r) = &result {
+            println!("r {}", r.display_tree());
+            println!("r {}", r.display_values());
+        }
 
         // Skip if the entire operation fails
+        // TODO(joe): this is odd.
         if result.is_err() {
             continue;
         }
