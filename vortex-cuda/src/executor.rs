@@ -25,7 +25,7 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::StructArrayParts;
 use vortex::array::arrays::StructVTable;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::dtype::PType;
+use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 

@@ -19,12 +19,12 @@ use vortex::array::arrays::PrimitiveArrayParts;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::VarBinViewArrayParts;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::dtype::DType;
-use vortex::array::dtype::NativeDecimalType;
-use vortex::array::dtype::NativePType;
 use vortex::array::match_each_decimal_value_type;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_native_simd_ptype;
+use vortex::dtype::DType;
+use vortex::dtype::NativeDecimalType;
+use vortex::dtype::NativePType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -308,10 +308,10 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::assert_arrays_eq;
-    use vortex::array::dtype::DecimalDType;
-    use vortex::array::dtype::i256;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
+    use vortex::dtype::DecimalDType;
+    use vortex::dtype::i256;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
 
