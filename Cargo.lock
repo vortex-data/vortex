@@ -10117,6 +10117,7 @@ dependencies = [
  "itertools 0.14.0",
  "memmap2",
  "num-traits",
+ "parking_lot",
  "rstest",
  "serde",
  "simdutf8",

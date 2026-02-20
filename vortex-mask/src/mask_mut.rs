@@ -752,7 +752,7 @@ mod tests {
         let original_true_count = original_frozen.true_count();
 
         // Convert back to mutable for split
-        let mut mask = original_frozen.try_into_mut().unwrap();
+        let mut mask = original_frozen.into_mut();
 
         // Split at 10
         let other = mask.split_off(10);
@@ -833,16 +833,16 @@ mod tests {
         mask_mut.append_n(false, 5);
         let mask = mask_mut.freeze();
 
-        // Should succeed with unique reference (no clones).
+        // With pooled allocations, try_into_mut on Values always fails (copies via into_mut).
+        // Verify that into_mut works correctly.
         let mask2 = {
             let mut mask_mut2 = MaskMut::with_capacity(10);
             mask_mut2.append_n(true, 5);
             mask_mut2.append_n(false, 5);
             mask_mut2.freeze()
         };
-        let result = mask2.try_into_mut();
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 10);
+        let mut_mask = mask2.into_mut();
+        assert_eq!(mut_mask.len(), 10);
 
         // Should fail with shared references.
         let _cloned = mask.clone();
@@ -856,7 +856,7 @@ mod tests {
 
     #[test]
     fn test_try_into_mut_round_trip() {
-        // Test freeze -> try_into_mut -> modify -> freeze cycle.
+        // Test freeze -> into_mut -> modify -> freeze cycle.
         let mut original = MaskMut::with_capacity(20);
         original.append_n(true, 10);
         original.append_n(false, 10);
@@ -864,7 +864,7 @@ mod tests {
         let frozen = original.freeze();
         assert_eq!(frozen.true_count(), 10);
 
-        let mut mut_mask = frozen.try_into_mut().unwrap();
+        let mut mut_mask = frozen.into_mut();
         mut_mask.append_n(true, 5);
         assert_eq!(mut_mask.len(), 25);
 

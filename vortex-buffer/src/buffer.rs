@@ -413,21 +413,13 @@ impl<T> Buffer<T> {
     }
 
     /// Try to convert self into `BufferMut<T>` if there is only a single strong reference.
+    ///
+    /// With pooled allocations this always returns `Err(self)`. Use [`into_mut()`](Self::into_mut)
+    /// which transparently copies through the pool when needed.
     pub fn try_into_mut(self) -> Result<BufferMut<T>, Self> {
-        self.bytes
-            .try_into_mut()
-            .map(|bytes| BufferMut {
-                bytes,
-                length: self.length,
-                alignment: self.alignment,
-                _marker: Default::default(),
-            })
-            .map_err(|bytes| Self {
-                bytes,
-                length: self.length,
-                alignment: self.alignment,
-                _marker: Default::default(),
-            })
+        // Bytes::from_owner does not support try_into_mut, so we always fail.
+        // Callers use into_mut() which has a copy-fallback that allocates from the pool.
+        Err(self)
     }
 
     /// Convert self into `BufferMut<T>`, cloning the data if there are multiple strong references.

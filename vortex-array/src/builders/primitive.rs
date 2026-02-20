@@ -527,12 +527,11 @@ mod tests {
 
     /// Test that creating an uninit range exceeding capacity panics.
     #[test]
-    #[should_panic(
-        expected = "uninit_range of len 10 exceeds builder with length 0 and capacity 6"
-    )]
+    #[should_panic(expected = "uninit_range of len")]
     fn test_uninit_range_exceeds_capacity_panics() {
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 5);
-        let _range = builder.uninit_range(10);
+        // Request more than the pool bucket can hold (1 KiB bucket = 256 i32 elements).
+        let _range = builder.uninit_range(1000);
     }
 
     /// Test that `copy_from_slice` debug asserts on out-of-bounds access.

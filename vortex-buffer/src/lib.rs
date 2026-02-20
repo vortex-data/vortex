@@ -10,8 +10,8 @@
 //! The `vortex-buffer` crate is built around `bytes::Bytes` and therefore supports zero-copy
 //! cloning and slicing, but differs in that it can define and maintain a custom alignment.
 //!
-//! * `Buffer<T>` and `BufferMut<T>` provide immutable and mutable wrappers around `bytes::Bytes`
-//!   and `bytes::BytesMut` respectively.
+//! * `Buffer<T>` and `BufferMut<T>` provide immutable and mutable buffers. `BufferMut<T>` is backed
+//!   by a global buffer pool that recycles page-aligned memory blocks.
 //! * `ByteBuffer` and `ByteBufferMut` are type aliases for `u8` buffers.
 //! * `BufferString` is a wrapper around a `ByteBuffer` that enforces utf-8 encoding.
 //! * `ConstBuffer<T, const A: usize>` provides similar functionality to `Buffer<T>` except with a
@@ -67,6 +67,7 @@ mod debug;
 mod macros;
 #[cfg(feature = "memmap2")]
 mod memmap2;
+pub(crate) mod pool;
 #[cfg(feature = "serde")]
 mod serde;
 mod string;

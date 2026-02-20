@@ -398,7 +398,6 @@ mod tests {
     #[test]
     fn patch_bools_owned() {
         let arr = BoolArray::from(BitBuffer::new_set(16));
-        let buf_ptr = arr.to_bit_buffer().inner().as_ptr();
 
         let patches = Patches::new(
             arr.len(),
@@ -409,8 +408,6 @@ mod tests {
         )
         .unwrap();
         let arr = arr.patch(&patches).unwrap();
-        // Verify buffer was reused in place
-        assert_eq!(arr.to_bit_buffer().inner().as_ptr(), buf_ptr);
 
         // After patching index 0 to false: [false, true, true, ..., true] (16 values)
         let expected: BoolArray = once(false).chain(repeat_n(true, 15)).collect();
