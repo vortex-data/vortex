@@ -63,7 +63,7 @@ fn test_zstd_with_validity_and_multi_frame() {
     validity[3] = true;
     validity[177] = true;
     let array = PrimitiveArray::new(
-        data.iter().cloned().collect::<Buffer<_>>(),
+        Buffer::from(data),
         Validity::Array(BoolArray::from_iter(validity).to_array()),
     );
 
