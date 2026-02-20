@@ -136,6 +136,8 @@ impl Hash for dyn IntegerScheme {
 }
 
 /// Unique identifier for integer compression schemes.
+///
+/// NOTE: Variant order matters for tie-breaking; `For` must precede `BitPacking` to avoid unnecessary patches.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence, Ord, PartialOrd)]
 pub enum IntCode {
     /// No compression applied.
@@ -144,10 +146,10 @@ pub enum IntCode {
     Constant,
     /// Frame of Reference encoding - subtracts minimum value then bitpacks.
     For,
-    /// ZigZag encoding - transforms negative integers to positive for better bitpacking.
-    ZigZag,
     /// BitPacking encoding - compresses non-negative integers by reducing bit width.
     BitPacking,
+    /// ZigZag encoding - transforms negative integers to positive for better bitpacking.
+    ZigZag,
     /// Sparse encoding - optimizes null-dominated or single-value-dominated arrays.
     Sparse,
     /// Dictionary encoding - creates a dictionary of unique values.
@@ -351,19 +353,28 @@ impl Scheme for FORScheme {
             .bit_width()
             .try_into()
             .vortex_expect("bit width must fit in u32");
-        let bw = match stats.typed.max_minus_min().checked_ilog2() {
+        let for_bw = match stats.typed.max_minus_min().checked_ilog2() {
             Some(l) => l + 1,
             // If max-min == 0, it we should use a different compression scheme
             // as we don't want to bitpack down to 0 bits.
             None => return Ok(0.0),
         };
 
-        // If we're not saving at least 1 byte, don't bother with FOR
-        if full_width - bw < 8 {
-            return Ok(0.0);
+        // If BitPacking could apply (non-negative values) and FOR doesn't reduce bit width
+        // compared to BitPacking, don't use FOR since it has overhead (storing reference).
+        // Only skip FOR when min >= 0, otherwise BitPacking can't apply directly.
+        if let Some(max_log) = stats
+            .typed
+            .max_ilog2()
+            .filter(|_| !stats.typed.min_is_negative())
+        {
+            let bitpack_bw = max_log + 1;
+            if for_bw >= bitpack_bw {
+                return Ok(0.0);
+            }
         }
 
-        Ok(full_width as f64 / bw as f64)
+        Ok(full_width as f64 / for_bw as f64)
     }
 
     fn compress(

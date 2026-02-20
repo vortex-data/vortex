@@ -95,11 +95,11 @@ fn make_struct_lv(num_lists: usize, list_size: usize, step: usize) -> ListViewAr
 }
 
 // ── i32 with varied list sizes ───────────────────────────────────────────────
-const LIST_SIZES: &[usize] = &[512, 1024, 2048];
+const LIST_SIZES: &[usize] = &[512, 2048];
 
 #[divan::bench(args = LIST_SIZES)]
 fn i32_varied_list_sizes(bencher: Bencher, list_size: usize) {
-    let lv = make_primitive_lv(1_000, list_size, list_size);
+    let lv = make_primitive_lv(100, list_size, list_size);
     bencher
         .with_inputs(|| &lv)
         .bench_refs(|lv| lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap());
@@ -108,7 +108,7 @@ fn i32_varied_list_sizes(bencher: Bencher, list_size: usize) {
 // ── i8 with 65K-element lists ─────────────────────────────────────────────────
 #[divan::bench]
 fn i8_large_lists(bencher: Bencher) {
-    let lv = make_i8_lv(1_000, 65_536, 65_536);
+    let lv = make_i8_lv(10, 65_536, 65_536);
     bencher
         .with_inputs(|| &lv)
         .bench_refs(|lv| lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap());
@@ -117,7 +117,7 @@ fn i8_large_lists(bencher: Bencher) {
 // ── i32 with 8-element overlapping lists ──────────────────────────────────────
 #[divan::bench]
 fn i32_small_overlapping(bencher: Bencher) {
-    let lv = make_primitive_lv(1_000, 8, 1);
+    let lv = make_primitive_lv(100, 8, 1);
     bencher
         .with_inputs(|| &lv)
         .bench_refs(|lv| lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap());
@@ -126,7 +126,7 @@ fn i32_small_overlapping(bencher: Bencher) {
 // ── VarBinView: variable-width elements ──────────────────────────────────────
 #[divan::bench]
 fn varbinview_rebuild(bencher: Bencher) {
-    let lv = make_varbinview_lv(1_000, 1_024, 1_024);
+    let lv = make_varbinview_lv(100, 1_024, 1_024);
     bencher
         .with_inputs(|| &lv)
         .bench_refs(|lv| lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap());
@@ -144,7 +144,7 @@ fn struct_rebuild(bencher: Bencher) {
 // ── FixedSizeList<i32, 64>: FSL elements ─────────────────────────────────────
 #[divan::bench]
 fn fsl_rebuild(bencher: Bencher) {
-    let num_lists = 1_000;
+    let num_lists = 10;
     let list_size = 256;
     let fsl_count = num_lists * list_size + list_size;
     let inner = PrimitiveArray::from_iter((0..fsl_count * 64).map(|i| i as i32)).into_array();
@@ -166,8 +166,8 @@ fn fsl_rebuild(bencher: Bencher) {
 // ── List<i32>: nested list elements ───────────────────────────────────────────
 #[divan::bench]
 fn list_i32_nested(bencher: Bencher) {
-    let num_lists = 1_000;
-    let list_size = 512;
+    let num_lists = 10;
+    let list_size = 128;
     let elem_count = num_lists * list_size + list_size;
     let inner_list_size = 8;
     let values = PrimitiveArray::from_iter(0..(elem_count * inner_list_size) as i32).into_array();

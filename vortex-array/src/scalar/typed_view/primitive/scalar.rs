@@ -337,10 +337,8 @@ impl<'a> PrimitiveScalar<'a> {
                     (Some(lhs), Some(rhs)) => match op {
                         NumericOperator::Add => Some(lhs + rhs),
                         NumericOperator::Sub => Some(lhs - rhs),
-                        NumericOperator::RSub => Some(rhs - lhs),
                         NumericOperator::Mul => Some(lhs * rhs),
                         NumericOperator::Div => Some(lhs / rhs),
-                        NumericOperator::RDiv => Some(rhs / lhs),
                     }
                 };
                 Some(Self { dtype: result_dtype, ptype, pvalue: value_or_null.map(PValue::from) })
@@ -373,10 +371,8 @@ impl<'a> PrimitiveScalar<'a> {
             (Some(lhs), Some(rhs)) => match op {
                 NumericOperator::Add => lhs.checked_add(&rhs).map(Some),
                 NumericOperator::Sub => lhs.checked_sub(&rhs).map(Some),
-                NumericOperator::RSub => rhs.checked_sub(&lhs).map(Some),
                 NumericOperator::Mul => lhs.checked_mul(&rhs).map(Some),
                 NumericOperator::Div => lhs.checked_div(&rhs).map(Some),
-                NumericOperator::RDiv => rhs.checked_div(&lhs).map(Some),
             },
         };
 

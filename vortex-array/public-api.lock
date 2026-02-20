@@ -164,7 +164,7 @@ pub fn vortex_array::arrays::DictVTable::cast(array: &vortex_array::arrays::Dict
 
 impl vortex_array::expr::CompareKernel for vortex_array::arrays::DictVTable
 
-pub fn vortex_array::arrays::DictVTable::compare(lhs: &vortex_array::arrays::DictArray, rhs: &dyn vortex_array::Array, operator: vortex_array::compute::Operator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::DictVTable::compare(lhs: &vortex_array::arrays::DictArray, rhs: &dyn vortex_array::Array, operator: vortex_array::expr::CompareOperator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::expr::FillNullKernel for vortex_array::arrays::DictVTable
 
@@ -1222,7 +1222,7 @@ pub fn vortex_array::arrays::DictVTable::cast(array: &vortex_array::arrays::Dict
 
 impl vortex_array::expr::CompareKernel for vortex_array::arrays::DictVTable
 
-pub fn vortex_array::arrays::DictVTable::compare(lhs: &vortex_array::arrays::DictArray, rhs: &dyn vortex_array::Array, operator: vortex_array::compute::Operator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::DictVTable::compare(lhs: &vortex_array::arrays::DictArray, rhs: &dyn vortex_array::Array, operator: vortex_array::expr::CompareOperator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::expr::FillNullKernel for vortex_array::arrays::DictVTable
 
@@ -1420,7 +1420,7 @@ pub fn vortex_array::arrays::ExtensionVTable::cast(array: &vortex_array::arrays:
 
 impl vortex_array::expr::CompareKernel for vortex_array::arrays::ExtensionVTable
 
-pub fn vortex_array::arrays::ExtensionVTable::compare(lhs: &vortex_array::arrays::ExtensionArray, rhs: &dyn vortex_array::Array, operator: vortex_array::compute::Operator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::ExtensionVTable::compare(lhs: &vortex_array::arrays::ExtensionArray, rhs: &dyn vortex_array::Array, operator: vortex_array::expr::CompareOperator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::expr::MaskReduce for vortex_array::arrays::ExtensionVTable
 
@@ -3632,7 +3632,7 @@ pub fn vortex_array::arrays::VarBinVTable::cast(array: &vortex_array::arrays::Va
 
 impl vortex_array::expr::CompareKernel for vortex_array::arrays::VarBinVTable
 
-pub fn vortex_array::arrays::VarBinVTable::compare(lhs: &vortex_array::arrays::VarBinArray, rhs: &dyn vortex_array::Array, operator: vortex_array::compute::Operator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::VarBinVTable::compare(lhs: &vortex_array::arrays::VarBinArray, rhs: &dyn vortex_array::Array, operator: vortex_array::expr::CompareOperator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::expr::MaskReduce for vortex_array::arrays::VarBinVTable
 
@@ -5412,6 +5412,8 @@ pub trait vortex_array::builtins::ArrayBuiltins: core::marker::Sized
 
 pub fn vortex_array::builtins::ArrayBuiltins::between(self, lower: vortex_array::ArrayRef, upper: vortex_array::ArrayRef, options: vortex_array::expr::BetweenOptions) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
+pub fn vortex_array::builtins::ArrayBuiltins::binary(&self, rhs: vortex_array::ArrayRef, op: vortex_array::expr::Operator) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
 pub fn vortex_array::builtins::ArrayBuiltins::cast(&self, dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::builtins::ArrayBuiltins::fill_null(&self, fill_value: impl core::convert::Into<vortex_array::scalar::Scalar>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -5432,6 +5434,8 @@ impl vortex_array::builtins::ArrayBuiltins for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::between(self, lower: vortex_array::ArrayRef, upper: vortex_array::ArrayRef, options: vortex_array::expr::BetweenOptions) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
+pub fn vortex_array::ArrayRef::binary(&self, rhs: vortex_array::ArrayRef, op: vortex_array::expr::Operator) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
 pub fn vortex_array::ArrayRef::cast(&self, dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::ArrayRef::fill_null(&self, fill_value: impl core::convert::Into<vortex_array::scalar::Scalar>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -5450,6 +5454,8 @@ pub fn vortex_array::ArrayRef::zip(&self, if_false: vortex_array::ArrayRef, mask
 
 pub trait vortex_array::builtins::ExprBuiltins: core::marker::Sized
 
+pub fn vortex_array::builtins::ExprBuiltins::binary(&self, rhs: vortex_array::expr::Expression, op: vortex_array::expr::Operator) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+
 pub fn vortex_array::builtins::ExprBuiltins::cast(&self, dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::builtins::ExprBuiltins::fill_null(&self, fill_value: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
@@ -5467,6 +5473,8 @@ pub fn vortex_array::builtins::ExprBuiltins::not(&self) -> vortex_error::VortexR
 pub fn vortex_array::builtins::ExprBuiltins::zip(&self, if_false: vortex_array::expr::Expression, mask: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 impl vortex_array::builtins::ExprBuiltins for vortex_array::expr::Expression
+
+pub fn vortex_array::expr::Expression::binary(&self, rhs: vortex_array::expr::Expression, op: vortex_array::expr::Operator) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::cast(&self, dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
@@ -5555,66 +5563,6 @@ pub fn vortex_array::compute::Input<'a>::from(value: &'a vortex_array::scalar::S
 impl<'a> core::convert::From<&'a vortex_mask::Mask> for vortex_array::compute::Input<'a>
 
 pub fn vortex_array::compute::Input<'a>::from(value: &'a vortex_mask::Mask) -> Self
-
-pub enum vortex_array::compute::Operator
-
-pub vortex_array::compute::Operator::Eq
-
-pub vortex_array::compute::Operator::Gt
-
-pub vortex_array::compute::Operator::Gte
-
-pub vortex_array::compute::Operator::Lt
-
-pub vortex_array::compute::Operator::Lte
-
-pub vortex_array::compute::Operator::NotEq
-
-impl vortex_array::compute::Operator
-
-pub fn vortex_array::compute::Operator::inverse(self) -> Self
-
-pub fn vortex_array::compute::Operator::swap(self) -> Self
-
-impl core::clone::Clone for vortex_array::compute::Operator
-
-pub fn vortex_array::compute::Operator::clone(&self) -> vortex_array::compute::Operator
-
-impl core::cmp::Eq for vortex_array::compute::Operator
-
-impl core::cmp::PartialEq for vortex_array::compute::Operator
-
-pub fn vortex_array::compute::Operator::eq(&self, other: &vortex_array::compute::Operator) -> bool
-
-impl core::cmp::PartialOrd for vortex_array::compute::Operator
-
-pub fn vortex_array::compute::Operator::partial_cmp(&self, other: &vortex_array::compute::Operator) -> core::option::Option<core::cmp::Ordering>
-
-impl core::convert::From<vortex_array::compute::Operator> for vortex_array::expr::Operator
-
-pub fn vortex_array::expr::Operator::from(cmp_operator: vortex_array::compute::Operator) -> Self
-
-impl core::convert::TryInto<vortex_array::compute::Operator> for vortex_array::expr::Operator
-
-pub type vortex_array::expr::Operator::Error = vortex_error::VortexError
-
-pub fn vortex_array::expr::Operator::try_into(self) -> vortex_error::VortexResult<vortex_array::compute::Operator>
-
-impl core::fmt::Debug for vortex_array::compute::Operator
-
-pub fn vortex_array::compute::Operator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::fmt::Display for vortex_array::compute::Operator
-
-pub fn vortex_array::compute::Operator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::compute::Operator
-
-pub fn vortex_array::compute::Operator::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::Copy for vortex_array::compute::Operator
-
-impl core::marker::StructuralPartialEq for vortex_array::compute::Operator
 
 pub enum vortex_array::compute::Output
 
@@ -6186,9 +6134,7 @@ pub fn vortex_array::compute::arrow_filter_fn(array: &dyn vortex_array::Array, m
 
 pub fn vortex_array::compute::cast(array: &dyn vortex_array::Array, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::compute::compare(left: &dyn vortex_array::Array, right: &dyn vortex_array::Array, operator: vortex_array::compute::Operator) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::compare_lengths_to_empty<P, I>(lengths: I, op: vortex_array::compute::Operator) -> vortex_buffer::bit::buf::BitBuffer where P: vortex_array::dtype::IntegerPType, I: core::iter::traits::iterator::Iterator<Item = P>
+pub fn vortex_array::compute::compare_lengths_to_empty<P, I>(lengths: I, op: vortex_array::expr::CompareOperator) -> vortex_buffer::bit::buf::BitBuffer where P: vortex_array::dtype::IntegerPType, I: core::iter::traits::iterator::Iterator<Item = P>
 
 pub fn vortex_array::compute::div(lhs: &dyn vortex_array::Array, rhs: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -6225,8 +6171,6 @@ pub fn vortex_array::compute::nan_count(array: &dyn vortex_array::Array) -> vort
 pub fn vortex_array::compute::numeric(lhs: &dyn vortex_array::Array, rhs: &dyn vortex_array::Array, op: vortex_array::scalar::NumericOperator) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::compute::or_kleene(lhs: &dyn vortex_array::Array, rhs: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::scalar_cmp(lhs: &vortex_array::scalar::Scalar, rhs: &vortex_array::scalar::Scalar, operator: vortex_array::compute::Operator) -> vortex_array::scalar::Scalar
 
 pub fn vortex_array::compute::sub(lhs: &dyn vortex_array::Array, rhs: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -6528,6 +6472,8 @@ impl vortex_array::dtype::datetime::Timestamp
 
 pub fn vortex_array::dtype::datetime::Timestamp::new(time_unit: vortex_array::dtype::datetime::TimeUnit, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
 
+pub fn vortex_array::dtype::datetime::Timestamp::new_with_options(options: vortex_array::dtype::datetime::TimestampOptions, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
+
 pub fn vortex_array::dtype::datetime::Timestamp::new_with_tz(time_unit: vortex_array::dtype::datetime::TimeUnit, timezone: core::option::Option<alloc::sync::Arc<str>>, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
 
 impl core::clone::Clone for vortex_array::dtype::datetime::Timestamp
@@ -6642,9 +6588,27 @@ pub fn vortex_array::dtype::extension::ExtDType<V>::storage_dtype(&self) -> &vor
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::try_with_vtable(vtable: V, metadata: <V as vortex_array::dtype::extension::ExtDTypeVTable>::Metadata, storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::dtype::extension::ExtDType<V>::vtable(&self) -> &V
+
 impl<V: core::clone::Clone + vortex_array::dtype::extension::ExtDTypeVTable> core::clone::Clone for vortex_array::dtype::extension::ExtDType<V>
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::clone(&self) -> vortex_array::dtype::extension::ExtDType<V>
+
+impl<V: core::cmp::Eq + vortex_array::dtype::extension::ExtDTypeVTable> core::cmp::Eq for vortex_array::dtype::extension::ExtDType<V>
+
+impl<V: core::cmp::PartialEq + vortex_array::dtype::extension::ExtDTypeVTable> core::cmp::PartialEq for vortex_array::dtype::extension::ExtDType<V>
+
+pub fn vortex_array::dtype::extension::ExtDType<V>::eq(&self, other: &vortex_array::dtype::extension::ExtDType<V>) -> bool
+
+impl<V: core::fmt::Debug + vortex_array::dtype::extension::ExtDTypeVTable> core::fmt::Debug for vortex_array::dtype::extension::ExtDType<V>
+
+pub fn vortex_array::dtype::extension::ExtDType<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<V: core::hash::Hash + vortex_array::dtype::extension::ExtDTypeVTable> core::hash::Hash for vortex_array::dtype::extension::ExtDType<V>
+
+pub fn vortex_array::dtype::extension::ExtDType<V>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl<V: vortex_array::dtype::extension::ExtDTypeVTable> core::marker::StructuralPartialEq for vortex_array::dtype::extension::ExtDType<V>
 
 pub struct vortex_array::dtype::extension::ExtDTypeMetadata<'a>
 
@@ -6690,7 +6654,11 @@ pub fn vortex_array::dtype::extension::ExtDTypeRef::eq_ignore_nullability(&self,
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::id(&self) -> vortex_array::dtype::extension::ExtID
 
+pub fn vortex_array::dtype::extension::ExtDTypeRef::is_nullable(&self) -> bool
+
 pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata_erased(&self) -> vortex_array::dtype::extension::ExtDTypeMetadata<'_>
+
+pub fn vortex_array::dtype::extension::ExtDTypeRef::nullability(&self) -> vortex_array::dtype::Nullability
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::storage_dtype(&self) -> &vortex_array::dtype::DType
 
@@ -7520,9 +7488,27 @@ pub fn vortex_array::dtype::extension::ExtDType<V>::storage_dtype(&self) -> &vor
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::try_with_vtable(vtable: V, metadata: <V as vortex_array::dtype::extension::ExtDTypeVTable>::Metadata, storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::dtype::extension::ExtDType<V>::vtable(&self) -> &V
+
 impl<V: core::clone::Clone + vortex_array::dtype::extension::ExtDTypeVTable> core::clone::Clone for vortex_array::dtype::extension::ExtDType<V>
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::clone(&self) -> vortex_array::dtype::extension::ExtDType<V>
+
+impl<V: core::cmp::Eq + vortex_array::dtype::extension::ExtDTypeVTable> core::cmp::Eq for vortex_array::dtype::extension::ExtDType<V>
+
+impl<V: core::cmp::PartialEq + vortex_array::dtype::extension::ExtDTypeVTable> core::cmp::PartialEq for vortex_array::dtype::extension::ExtDType<V>
+
+pub fn vortex_array::dtype::extension::ExtDType<V>::eq(&self, other: &vortex_array::dtype::extension::ExtDType<V>) -> bool
+
+impl<V: core::fmt::Debug + vortex_array::dtype::extension::ExtDTypeVTable> core::fmt::Debug for vortex_array::dtype::extension::ExtDType<V>
+
+pub fn vortex_array::dtype::extension::ExtDType<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<V: core::hash::Hash + vortex_array::dtype::extension::ExtDTypeVTable> core::hash::Hash for vortex_array::dtype::extension::ExtDType<V>
+
+pub fn vortex_array::dtype::extension::ExtDType<V>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl<V: vortex_array::dtype::extension::ExtDTypeVTable> core::marker::StructuralPartialEq for vortex_array::dtype::extension::ExtDType<V>
 
 pub struct vortex_array::dtype::ExtDTypeRef(_)
 
@@ -7544,7 +7530,11 @@ pub fn vortex_array::dtype::extension::ExtDTypeRef::eq_ignore_nullability(&self,
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::id(&self) -> vortex_array::dtype::extension::ExtID
 
+pub fn vortex_array::dtype::extension::ExtDTypeRef::is_nullable(&self) -> bool
+
 pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata_erased(&self) -> vortex_array::dtype::extension::ExtDTypeMetadata<'_>
+
+pub fn vortex_array::dtype::extension::ExtDTypeRef::nullability(&self) -> vortex_array::dtype::Nullability
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::storage_dtype(&self) -> &vortex_array::dtype::DType
 
@@ -10138,6 +10128,66 @@ impl core::marker::Copy for vortex_array::expr::Arity
 
 impl core::marker::StructuralPartialEq for vortex_array::expr::Arity
 
+pub enum vortex_array::expr::CompareOperator
+
+pub vortex_array::expr::CompareOperator::Eq
+
+pub vortex_array::expr::CompareOperator::Gt
+
+pub vortex_array::expr::CompareOperator::Gte
+
+pub vortex_array::expr::CompareOperator::Lt
+
+pub vortex_array::expr::CompareOperator::Lte
+
+pub vortex_array::expr::CompareOperator::NotEq
+
+impl vortex_array::expr::CompareOperator
+
+pub fn vortex_array::expr::CompareOperator::inverse(self) -> Self
+
+pub fn vortex_array::expr::CompareOperator::swap(self) -> Self
+
+impl core::clone::Clone for vortex_array::expr::CompareOperator
+
+pub fn vortex_array::expr::CompareOperator::clone(&self) -> vortex_array::expr::CompareOperator
+
+impl core::cmp::Eq for vortex_array::expr::CompareOperator
+
+impl core::cmp::PartialEq for vortex_array::expr::CompareOperator
+
+pub fn vortex_array::expr::CompareOperator::eq(&self, other: &vortex_array::expr::CompareOperator) -> bool
+
+impl core::cmp::PartialOrd for vortex_array::expr::CompareOperator
+
+pub fn vortex_array::expr::CompareOperator::partial_cmp(&self, other: &vortex_array::expr::CompareOperator) -> core::option::Option<core::cmp::Ordering>
+
+impl core::convert::From<vortex_array::expr::CompareOperator> for vortex_array::expr::Operator
+
+pub fn vortex_array::expr::Operator::from(value: vortex_array::expr::CompareOperator) -> Self
+
+impl core::convert::TryFrom<vortex_array::expr::Operator> for vortex_array::expr::CompareOperator
+
+pub type vortex_array::expr::CompareOperator::Error = vortex_error::VortexError
+
+pub fn vortex_array::expr::CompareOperator::try_from(value: vortex_array::expr::Operator) -> core::result::Result<Self, Self::Error>
+
+impl core::fmt::Debug for vortex_array::expr::CompareOperator
+
+pub fn vortex_array::expr::CompareOperator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::expr::CompareOperator
+
+pub fn vortex_array::expr::CompareOperator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::expr::CompareOperator
+
+pub fn vortex_array::expr::CompareOperator::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_array::expr::CompareOperator
+
+impl core::marker::StructuralPartialEq for vortex_array::expr::CompareOperator
+
 pub enum vortex_array::expr::DuplicateHandling
 
 pub vortex_array::expr::DuplicateHandling::Error
@@ -10254,8 +10304,6 @@ pub fn vortex_array::expr::Operator::is_comparison(&self) -> bool
 
 pub fn vortex_array::expr::Operator::logical_inverse(self) -> core::option::Option<Self>
 
-pub fn vortex_array::expr::Operator::maybe_cmp_operator(self) -> core::option::Option<vortex_array::compute::Operator>
-
 pub fn vortex_array::expr::Operator::swap(self) -> core::option::Option<Self>
 
 impl core::clone::Clone for vortex_array::expr::Operator
@@ -10272,9 +10320,9 @@ impl core::cmp::PartialOrd for vortex_array::expr::Operator
 
 pub fn vortex_array::expr::Operator::partial_cmp(&self, other: &vortex_array::expr::Operator) -> core::option::Option<core::cmp::Ordering>
 
-impl core::convert::From<vortex_array::compute::Operator> for vortex_array::expr::Operator
+impl core::convert::From<vortex_array::expr::CompareOperator> for vortex_array::expr::Operator
 
-pub fn vortex_array::expr::Operator::from(cmp_operator: vortex_array::compute::Operator) -> Self
+pub fn vortex_array::expr::Operator::from(value: vortex_array::expr::CompareOperator) -> Self
 
 impl core::convert::From<vortex_array::expr::Operator> for i32
 
@@ -10283,6 +10331,10 @@ pub fn i32::from(value: vortex_array::expr::Operator) -> Self
 impl core::convert::From<vortex_array::expr::Operator> for vortex_proto::expr::binary_opts::BinaryOp
 
 pub fn vortex_proto::expr::binary_opts::BinaryOp::from(value: vortex_array::expr::Operator) -> Self
+
+impl core::convert::From<vortex_array::scalar::NumericOperator> for vortex_array::expr::Operator
+
+pub fn vortex_array::expr::Operator::from(op: vortex_array::scalar::NumericOperator) -> Self
 
 impl core::convert::From<vortex_proto::expr::binary_opts::BinaryOp> for vortex_array::expr::Operator
 
@@ -10294,11 +10346,11 @@ pub type vortex_array::expr::Operator::Error = vortex_error::VortexError
 
 pub fn vortex_array::expr::Operator::try_from(value: i32) -> core::result::Result<Self, Self::Error>
 
-impl core::convert::TryInto<vortex_array::compute::Operator> for vortex_array::expr::Operator
+impl core::convert::TryFrom<vortex_array::expr::Operator> for vortex_array::expr::CompareOperator
 
-pub type vortex_array::expr::Operator::Error = vortex_error::VortexError
+pub type vortex_array::expr::CompareOperator::Error = vortex_error::VortexError
 
-pub fn vortex_array::expr::Operator::try_into(self) -> vortex_error::VortexResult<vortex_array::compute::Operator>
+pub fn vortex_array::expr::CompareOperator::try_from(value: vortex_array::expr::Operator) -> core::result::Result<Self, Self::Error>
 
 impl core::fmt::Debug for vortex_array::expr::Operator
 
@@ -10326,7 +10378,9 @@ impl vortex_array::expr::StrictComparison
 
 pub const fn vortex_array::expr::StrictComparison::is_strict(&self) -> bool
 
-pub const fn vortex_array::expr::StrictComparison::to_operator(&self) -> vortex_array::compute::Operator
+pub const fn vortex_array::expr::StrictComparison::to_compare_operator(&self) -> vortex_array::expr::CompareOperator
+
+pub const fn vortex_array::expr::StrictComparison::to_operator(&self) -> vortex_array::expr::Operator
 
 impl core::clone::Clone for vortex_array::expr::StrictComparison
 
@@ -10781,6 +10835,8 @@ impl core::ops::drop::Drop for vortex_array::expr::Expression
 pub fn vortex_array::expr::Expression::drop(&mut self)
 
 impl vortex_array::builtins::ExprBuiltins for vortex_array::expr::Expression
+
+pub fn vortex_array::expr::Expression::binary(&self, rhs: vortex_array::expr::Expression, op: vortex_array::expr::Operator) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub fn vortex_array::expr::Expression::cast(&self, dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
@@ -11646,19 +11702,19 @@ pub fn vortex_array::arrays::VarBinViewVTable::cast(array: &vortex_array::arrays
 
 pub trait vortex_array::expr::CompareKernel: vortex_array::vtable::VTable
 
-pub fn vortex_array::expr::CompareKernel::compare(lhs: &Self::Array, rhs: &dyn vortex_array::Array, operator: vortex_array::compute::Operator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::expr::CompareKernel::compare(lhs: &Self::Array, rhs: &dyn vortex_array::Array, operator: vortex_array::expr::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::expr::CompareKernel for vortex_array::arrays::DictVTable
 
-pub fn vortex_array::arrays::DictVTable::compare(lhs: &vortex_array::arrays::DictArray, rhs: &dyn vortex_array::Array, operator: vortex_array::compute::Operator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::DictVTable::compare(lhs: &vortex_array::arrays::DictArray, rhs: &dyn vortex_array::Array, operator: vortex_array::expr::CompareOperator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::expr::CompareKernel for vortex_array::arrays::ExtensionVTable
 
-pub fn vortex_array::arrays::ExtensionVTable::compare(lhs: &vortex_array::arrays::ExtensionArray, rhs: &dyn vortex_array::Array, operator: vortex_array::compute::Operator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::ExtensionVTable::compare(lhs: &vortex_array::arrays::ExtensionArray, rhs: &dyn vortex_array::Array, operator: vortex_array::expr::CompareOperator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::expr::CompareKernel for vortex_array::arrays::VarBinVTable
 
-pub fn vortex_array::arrays::VarBinVTable::compare(lhs: &vortex_array::arrays::VarBinArray, rhs: &dyn vortex_array::Array, operator: vortex_array::compute::Operator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::VarBinVTable::compare(lhs: &vortex_array::arrays::VarBinArray, rhs: &dyn vortex_array::Array, operator: vortex_array::expr::CompareOperator, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub trait vortex_array::expr::DynExprVTable: 'static + core::marker::Send + core::marker::Sync + vortex_array::expr::vtable::private::Sealed
 
@@ -12476,7 +12532,7 @@ pub fn vortex_array::expr::col(field: impl core::convert::Into<vortex_array::dty
 
 pub fn vortex_array::expr::descendent_annotations<A: vortex_array::expr::AnnotationFn>(expr: &vortex_array::expr::Expression, annotate: A) -> vortex_array::expr::Annotations<'_, <A as vortex_array::expr::AnnotationFn>::Annotation>
 
-pub fn vortex_array::expr::dynamic(operator: vortex_array::compute::Operator, rhs_value: impl core::ops::function::Fn() -> core::option::Option<vortex_array::scalar::ScalarValue> + core::marker::Send + core::marker::Sync + 'static, rhs_dtype: vortex_array::dtype::DType, default: bool, lhs: vortex_array::expr::Expression) -> vortex_array::expr::Expression
+pub fn vortex_array::expr::dynamic(operator: vortex_array::expr::CompareOperator, rhs_value: impl core::ops::function::Fn() -> core::option::Option<vortex_array::scalar::ScalarValue> + core::marker::Send + core::marker::Sync + 'static, rhs_dtype: vortex_array::dtype::DType, default: bool, lhs: vortex_array::expr::Expression) -> vortex_array::expr::Expression
 
 pub fn vortex_array::expr::eq(lhs: vortex_array::expr::Expression, rhs: vortex_array::expr::Expression) -> vortex_array::expr::Expression
 
@@ -12539,6 +12595,8 @@ pub fn vortex_array::expr::or_kleene(lhs: &dyn vortex_array::Array, rhs: &dyn vo
 pub fn vortex_array::expr::pack(elements: impl core::iter::traits::collect::IntoIterator<Item = (impl core::convert::Into<vortex_array::dtype::FieldName>, vortex_array::expr::Expression)>, nullability: vortex_array::dtype::Nullability) -> vortex_array::expr::Expression
 
 pub fn vortex_array::expr::root() -> vortex_array::expr::Expression
+
+pub fn vortex_array::expr::scalar_cmp(lhs: &vortex_array::scalar::Scalar, rhs: &vortex_array::scalar::Scalar, operator: vortex_array::expr::CompareOperator) -> vortex_array::scalar::Scalar
 
 pub fn vortex_array::expr::select(field_names: impl core::convert::Into<vortex_array::dtype::FieldNames>, child: vortex_array::expr::Expression) -> vortex_array::expr::Expression
 
@@ -13224,15 +13282,7 @@ pub vortex_array::scalar::NumericOperator::Div
 
 pub vortex_array::scalar::NumericOperator::Mul
 
-pub vortex_array::scalar::NumericOperator::RDiv
-
-pub vortex_array::scalar::NumericOperator::RSub
-
 pub vortex_array::scalar::NumericOperator::Sub
-
-impl vortex_array::scalar::NumericOperator
-
-pub fn vortex_array::scalar::NumericOperator::swap(self) -> Self
 
 impl core::clone::Clone for vortex_array::scalar::NumericOperator
 
@@ -13243,6 +13293,10 @@ impl core::cmp::Eq for vortex_array::scalar::NumericOperator
 impl core::cmp::PartialEq for vortex_array::scalar::NumericOperator
 
 pub fn vortex_array::scalar::NumericOperator::eq(&self, other: &vortex_array::scalar::NumericOperator) -> bool
+
+impl core::convert::From<vortex_array::scalar::NumericOperator> for vortex_array::expr::Operator
+
+pub fn vortex_array::expr::Operator::from(op: vortex_array::scalar::NumericOperator) -> Self
 
 impl core::fmt::Debug for vortex_array::scalar::NumericOperator
 

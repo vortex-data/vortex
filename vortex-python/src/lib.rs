@@ -9,6 +9,7 @@ use pyo3::prelude::*;
 
 pub(crate) mod arrays;
 pub mod arrow;
+#[cfg(feature = "tui")]
 mod cli;
 mod compress;
 mod dataset;
@@ -62,6 +63,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
 
     // Initialize our submodules, living under vortex._lib
     arrays::init(py, m)?;
+    #[cfg(feature = "tui")]
     cli::init(py, m)?;
     compress::init(py, m)?;
     dataset::init(py, m)?;

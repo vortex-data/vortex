@@ -46,6 +46,12 @@ impl Timestamp {
         )
         .vortex_expect("failed to create timestamp dtype")
     }
+
+    /// Creates a new `Timestamp` extension dtype with the given options and nullability.
+    pub fn new_with_options(options: TimestampOptions, nullability: Nullability) -> ExtDType<Self> {
+        ExtDType::try_new(options, DType::Primitive(PType::I64, nullability))
+            .vortex_expect("failed to create timestamp dtype")
+    }
 }
 
 /// Options for the Timestamp DType.

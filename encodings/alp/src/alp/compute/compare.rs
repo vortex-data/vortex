@@ -8,10 +8,11 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::Operator;
-use vortex_array::compute::compare;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativePType;
 use vortex_array::expr::CompareKernel;
+use vortex_array::expr::CompareOperator;
+use vortex_array::expr::Operator;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -28,7 +29,7 @@ impl CompareKernel for ALPVTable {
     fn compare(
         lhs: &ALPArray,
         rhs: &dyn Array,
-        operator: Operator,
+        operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if lhs.patches().is_some() {
@@ -71,7 +72,7 @@ impl CompareKernel for ALPVTable {
 fn alp_scalar_compare<F: ALPFloat + Into<Scalar>>(
     alp: &ALPArray,
     value: F,
-    operator: Operator,
+    operator: CompareOperator,
 ) -> VortexResult<Option<ArrayRef>>
 where
     F::ALPInt: Into<Scalar>,
@@ -89,16 +90,19 @@ where
     match encoded {
         Some(encoded) => {
             let s = ConstantArray::new(encoded, alp.len());
-            Ok(Some(compare(alp.encoded(), s.as_ref(), operator)?))
+            Ok(Some(
+                alp.encoded()
+                    .binary(s.into_array(), Operator::from(operator))?,
+            ))
         }
         None => match operator {
             // Since this value is not encodable it cannot be equal to any value in the encoded
             // array.
-            Operator::Eq => Ok(Some(ConstantArray::new(false, alp.len()).into_array())),
+            CompareOperator::Eq => Ok(Some(ConstantArray::new(false, alp.len()).into_array())),
             // Since this value is not encodable it cannot be equal to any value in the encoded
             // array, hence != to all values in the encoded array.
-            Operator::NotEq => Ok(Some(ConstantArray::new(true, alp.len()).into_array())),
-            Operator::Gt | Operator::Gte => {
+            CompareOperator::NotEq => Ok(Some(ConstantArray::new(true, alp.len()).into_array())),
+            CompareOperator::Gt | CompareOperator::Gte => {
                 // Per IEEE 754 totalOrder semantics the ordering is -Nan < -Inf < Inf < Nan.
                 // All values in the encoded array are definitely finite
                 let is_not_finite = NativePType::is_infinite(value) || NativePType::is_nan(value);
@@ -107,17 +111,19 @@ where
                         ConstantArray::new(value.is_sign_negative(), alp.len()).into_array(),
                     ))
                 } else {
-                    Ok(Some(compare(
-                        alp.encoded(),
-                        ConstantArray::new(F::encode_above(value, exponents), alp.len()).as_ref(),
-                        // Since the encoded value is unencodable gte is equivalent to gt.
-                        // Consider a value v, between two encodable values v_l (just less) and
-                        // v_a (just above), then for all encodable values (u), v > u <=> v_g >= u
-                        Operator::Gte,
-                    )?))
+                    Ok(Some(
+                        alp.encoded().binary(
+                            ConstantArray::new(F::encode_above(value, exponents), alp.len())
+                                .into_array(),
+                            // Since the encoded value is unencodable gte is equivalent to gt.
+                            // Consider a value v, between two encodable values v_l (just less) and
+                            // v_a (just above), then for all encodable values (u), v > u <=> v_g >= u
+                            Operator::Gte,
+                        )?,
+                    ))
                 }
             }
-            Operator::Lt | Operator::Lte => {
+            CompareOperator::Lt | CompareOperator::Lte => {
                 // Per IEEE 754 totalOrder semantics the ordering is -Nan < -Inf < Inf < Nan.
                 // All values in the encoded array are definitely finite
                 let is_not_finite = NativePType::is_infinite(value) || NativePType::is_nan(value);
@@ -126,13 +132,15 @@ where
                         ConstantArray::new(value.is_sign_positive(), alp.len()).into_array(),
                     ))
                 } else {
-                    Ok(Some(compare(
-                        alp.encoded(),
-                        ConstantArray::new(F::encode_below(value, exponents), alp.len()).as_ref(),
-                        // Since the encoded values unencodable lt is equivalent to lte.
-                        // See Gt | Gte for further explanation.
-                        Operator::Lte,
-                    )?))
+                    Ok(Some(
+                        alp.encoded().binary(
+                            ConstantArray::new(F::encode_below(value, exponents), alp.len())
+                                .into_array(),
+                            // Since the encoded values unencodable lt is equivalent to lte.
+                            // See Gt | Gte for further explanation.
+                            Operator::Lte,
+                        )?,
+                    ))
                 }
             }
         },
@@ -148,11 +156,12 @@ mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::Operator;
-    use vortex_array::compute::compare;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::expr::CompareOperator;
+    use vortex_array::expr::Operator;
     use vortex_array::scalar::Scalar;
 
     use super::*;
@@ -161,7 +170,7 @@ mod tests {
     fn test_alp_compare<F: ALPFloat + Into<Scalar>>(
         alp: &ALPArray,
         value: F,
-        operator: Operator,
+        operator: CompareOperator,
     ) -> Option<ArrayRef>
     where
         F::ALPInt: Into<Scalar>,
@@ -180,13 +189,13 @@ mod tests {
             vec![1234; 1025]
         );
 
-        let r = alp_scalar_compare(&encoded, 1.3_f32, Operator::Eq)
+        let r = alp_scalar_compare(&encoded, 1.3_f32, CompareOperator::Eq)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([false; 1025]);
         assert_arrays_eq!(r, expected);
 
-        let r = alp_scalar_compare(&encoded, 1.234f32, Operator::Eq)
+        let r = alp_scalar_compare(&encoded, 1.234f32, CompareOperator::Eq)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([true; 1025]);
@@ -204,14 +213,14 @@ mod tests {
         );
 
         #[allow(clippy::excessive_precision)]
-        let r_eq = alp_scalar_compare(&encoded, 1.234444_f32, Operator::Eq)
+        let r_eq = alp_scalar_compare(&encoded, 1.234444_f32, CompareOperator::Eq)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([false; 1025]);
         assert_arrays_eq!(r_eq, expected);
 
         #[allow(clippy::excessive_precision)]
-        let r_neq = alp_scalar_compare(&encoded, 1.234444f32, Operator::NotEq)
+        let r_neq = alp_scalar_compare(&encoded, 1.234444f32, CompareOperator::NotEq)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([true; 1025]);
@@ -229,28 +238,28 @@ mod tests {
         );
 
         // !(0.0605_f32 >= 0.06051_f32);
-        let r_gte = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Gte)
+        let r_gte = alp_scalar_compare(&encoded, 0.06051_f32, CompareOperator::Gte)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([false; 10]);
         assert_arrays_eq!(r_gte, expected);
 
         // (0.0605_f32 > 0.06051_f32);
-        let r_gt = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Gt)
+        let r_gt = alp_scalar_compare(&encoded, 0.06051_f32, CompareOperator::Gt)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([false; 10]);
         assert_arrays_eq!(r_gt, expected);
 
         // 0.0605_f32 <= 0.06051_f32;
-        let r_lte = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Lte)
+        let r_lte = alp_scalar_compare(&encoded, 0.06051_f32, CompareOperator::Lte)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_lte, expected);
 
         //0.0605_f32 < 0.06051_f32;
-        let r_lt = alp_scalar_compare(&encoded, 0.06051_f32, Operator::Lt)
+        let r_lt = alp_scalar_compare(&encoded, 0.06051_f32, CompareOperator::Lt)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([true; 10]);
@@ -267,31 +276,31 @@ mod tests {
             vec![0; 10]
         );
 
-        let r_gte = test_alp_compare(&encoded, -0.00000001_f32, Operator::Gte).unwrap();
+        let r_gte = test_alp_compare(&encoded, -0.00000001_f32, CompareOperator::Gte).unwrap();
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_gte, expected);
 
-        let r_gte = test_alp_compare(&encoded, -0.0_f32, Operator::Gte).unwrap();
+        let r_gte = test_alp_compare(&encoded, -0.0_f32, CompareOperator::Gte).unwrap();
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_gte, expected);
 
-        let r_gt = test_alp_compare(&encoded, -0.0000000001f32, Operator::Gt).unwrap();
+        let r_gt = test_alp_compare(&encoded, -0.0000000001f32, CompareOperator::Gt).unwrap();
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_gt, expected);
 
-        let r_gte = test_alp_compare(&encoded, -0.0_f32, Operator::Gt).unwrap();
+        let r_gte = test_alp_compare(&encoded, -0.0_f32, CompareOperator::Gt).unwrap();
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_gte, expected);
 
-        let r_lte = test_alp_compare(&encoded, 0.06051_f32, Operator::Lte).unwrap();
+        let r_lte = test_alp_compare(&encoded, 0.06051_f32, CompareOperator::Lte).unwrap();
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_lte, expected);
 
-        let r_lt = test_alp_compare(&encoded, 0.06051_f32, Operator::Lt).unwrap();
+        let r_lt = test_alp_compare(&encoded, 0.06051_f32, CompareOperator::Lt).unwrap();
         let expected = BoolArray::from_iter([true; 10]);
         assert_arrays_eq!(r_lt, expected);
 
-        let r_lt = test_alp_compare(&encoded, -0.00001_f32, Operator::Lt).unwrap();
+        let r_lt = test_alp_compare(&encoded, -0.00001_f32, CompareOperator::Lt).unwrap();
         let expected = BoolArray::from_iter([false; 10]);
         assert_arrays_eq!(r_lt, expected);
     }
@@ -305,7 +314,7 @@ mod tests {
 
         // Not supported!
         assert!(
-            alp_scalar_compare(&encoded, 1_000_000.9_f32, Operator::Eq)
+            alp_scalar_compare(&encoded, 1_000_000.9_f32, CompareOperator::Eq)
                 .unwrap()
                 .is_none()
         )
@@ -321,7 +330,10 @@ mod tests {
             array.len(),
         );
 
-        let r = compare(encoded.as_ref(), other.as_ref(), Operator::Eq).unwrap();
+        let r = encoded
+            .into_array()
+            .binary(other.into_array(), Operator::Eq)
+            .unwrap();
         // Comparing to null yields null results
         let expected = BoolArray::from_iter([None::<bool>; 10]);
         assert_arrays_eq!(r, expected);
@@ -336,7 +348,7 @@ mod tests {
         let array = PrimitiveArray::from_iter([1.234f32; 10]);
         let encoded = alp_encode(&array, None).unwrap();
 
-        let r = test_alp_compare(&encoded, value, Operator::Gt).unwrap();
+        let r = test_alp_compare(&encoded, value, CompareOperator::Gt).unwrap();
         let expected = BoolArray::from_iter([result; 10]);
         assert_arrays_eq!(r, expected);
     }
@@ -350,7 +362,7 @@ mod tests {
         let array = PrimitiveArray::from_iter([1.234f32; 10]);
         let encoded = alp_encode(&array, None).unwrap();
 
-        let r = test_alp_compare(&encoded, value, Operator::Lt).unwrap();
+        let r = test_alp_compare(&encoded, value, CompareOperator::Lt).unwrap();
         let expected = BoolArray::from_iter([result; 10]);
         assert_arrays_eq!(r, expected);
     }

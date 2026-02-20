@@ -81,13 +81,13 @@ impl VTable for IsNull {
             return Ok(ConstantArray::new(scalar.is_null(), args.row_count).into_array());
         }
 
-        Ok(match child.validity()? {
+        match child.validity()? {
             Validity::NonNullable | Validity::AllValid => {
-                ConstantArray::new(false, args.row_count).into_array()
+                Ok(ConstantArray::new(false, args.row_count).into_array())
             }
-            Validity::AllInvalid => ConstantArray::new(true, args.row_count).into_array(),
-            Validity::Array(a) => a.not()?.execute(args.ctx)?,
-        })
+            Validity::AllInvalid => Ok(ConstantArray::new(true, args.row_count).into_array()),
+            Validity::Array(a) => a.not(),
+        }
     }
 
     fn stat_falsification(

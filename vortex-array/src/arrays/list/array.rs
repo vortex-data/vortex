@@ -13,12 +13,14 @@ use vortex_error::vortex_panic;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::ListVTable;
 use crate::arrays::PrimitiveVTable;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::min_max;
-use crate::compute::sub_scalar;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
+use crate::expr::Operator;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 use crate::stats::ArrayStats;
@@ -321,7 +323,10 @@ impl ListArray {
 
         let offsets = self.offsets();
         let first_offset = offsets.scalar_at(0)?;
-        let adjusted_offsets = sub_scalar(offsets, first_offset)?;
+        let adjusted_offsets = offsets.to_array().binary(
+            ConstantArray::new(first_offset, offsets.len()).into_array(),
+            Operator::Sub,
+        )?;
 
         Self::try_new(elements, adjusted_offsets, self.validity.clone())
     }

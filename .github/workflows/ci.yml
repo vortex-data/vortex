@@ -284,8 +284,9 @@ jobs:
       - id: setup-rust
         uses: ./.github/actions/setup-rust
         with:
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install nightly for fmt
+        run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
       - name: Rust Lint - Format
         run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
       - name: Rustc check
@@ -412,10 +413,8 @@ jobs:
           tool: nextest
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
-        env:
-          RUSTFLAGS: "-Cinstrument-coverage -A warnings --cfg vortex_nightly"
         run: |
-          cargo +$NIGHTLY_TOOLCHAIN nextest run --locked --workspace --all-features --no-fail-fast
+          cargo nextest run --locked --workspace --all-features --no-fail-fast
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
       - name: Generate coverage report
@@ -823,7 +822,8 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+      - name: Install nightly for cbindgen macro expansion
+        run: rustup toolchain install $NIGHTLY_TOOLCHAIN
       - uses: ./.github/actions/setup-flatc
       - name: "regenerate all .fbs/.proto Rust code"
         run: |

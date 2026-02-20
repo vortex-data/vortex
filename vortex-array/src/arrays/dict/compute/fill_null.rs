@@ -12,9 +12,8 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::Operator;
-use crate::compute::compare;
 use crate::expr::FillNullKernel;
+use crate::expr::Operator;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
@@ -27,12 +26,14 @@ impl FillNullKernel for DictVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         // If the fill value already exists in the dictionary, we can simply rewrite the null codes
         // to point to the value.
-        let found_fill_values = compare(
-            array.values(),
-            ConstantArray::new(fill_value.clone(), array.values().len()).as_ref(),
-            Operator::Eq,
-        )?
-        .to_bool();
+        let found_fill_values = array
+            .values()
+            .to_array()
+            .binary(
+                ConstantArray::new(fill_value.clone(), array.values().len()).to_array(),
+                Operator::Eq,
+            )?
+            .to_bool();
 
         // We found the fill value already in the values at this given index.
         let Some(existing_fill_value_index) =

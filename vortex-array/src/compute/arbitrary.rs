@@ -4,17 +4,17 @@
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
 
-use crate::compute::Operator;
+use crate::expr::CompareOperator;
 
-impl<'a> Arbitrary<'a> for Operator {
+impl<'a> Arbitrary<'a> for CompareOperator {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         Ok(match u.int_in_range(0..=5)? {
-            0 => Operator::Eq,
-            1 => Operator::NotEq,
-            2 => Operator::Gt,
-            3 => Operator::Gte,
-            4 => Operator::Lt,
-            5 => Operator::Lte,
+            0 => CompareOperator::Eq,
+            1 => CompareOperator::NotEq,
+            2 => CompareOperator::Gt,
+            3 => CompareOperator::Gte,
+            4 => CompareOperator::Lt,
+            5 => CompareOperator::Lte,
             _ => unreachable!(),
         })
     }

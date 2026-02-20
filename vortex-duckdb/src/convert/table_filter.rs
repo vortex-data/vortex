@@ -4,13 +4,13 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex::compute::Operator;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::Binary;
+use vortex::expr::CompareOperator;
 use vortex::expr::Expression;
 use vortex::expr::VTableExt;
 use vortex::expr::and_collect;
@@ -86,13 +86,15 @@ pub fn try_from_table_filter(
         }
         TableFilterClass::Dynamic(dynamic) => {
             let op = match dynamic.operator {
-                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_EQUAL => Operator::Eq,
-                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOTEQUAL => Operator::NotEq,
-                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHAN => Operator::Lt,
-                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHAN => Operator::Gt,
-                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHANOREQUALTO => Operator::Lte,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_EQUAL => CompareOperator::Eq,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_NOTEQUAL => CompareOperator::NotEq,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHAN => CompareOperator::Lt,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHAN => CompareOperator::Gt,
+                DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_LESSTHANOREQUALTO => {
+                    CompareOperator::Lte
+                }
                 DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_GREATERTHANOREQUALTO => {
-                    Operator::Gte
+                    CompareOperator::Gte
                 }
                 _ => vortex_bail!(
                     "unsupported dynamic filter operator: {:?}",

@@ -13,9 +13,9 @@ use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::PrimitiveArrayParts;
 use vortex::array::arrays::SliceVTable;
-use vortex::array::dtype::NativePType;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_native_simd_ptype;
+use vortex::dtype::NativePType;
 use vortex::encodings::fastlanes::BitPackedVTable;
 use vortex::encodings::fastlanes::FoRArray;
 use vortex::encodings::fastlanes::FoRVTable;
@@ -125,13 +125,13 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
-    use vortex::array::scalar::Scalar;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
     use vortex::dtype::NativePType;
     use vortex::encodings::fastlanes::BitPackedArray;
     use vortex::encodings::fastlanes::FoRArray;
     use vortex::error::VortexExpect;
+    use vortex::scalar::Scalar;
     use vortex::session::VortexSession;
 
     use super::*;

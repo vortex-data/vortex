@@ -227,10 +227,8 @@ impl<'a> DecimalScalar<'a> {
                 let operation_result = match op {
                     NumericOperator::Add => lhs.checked_add(&rhs),
                     NumericOperator::Sub => lhs.checked_sub(&rhs),
-                    NumericOperator::RSub => rhs.checked_sub(&lhs),
                     NumericOperator::Mul => lhs.checked_mul(&rhs),
                     NumericOperator::Div => lhs.checked_div(&rhs),
-                    NumericOperator::RDiv => rhs.checked_div(&lhs),
                 }?;
 
                 // Check if the result fits within the precision constraints

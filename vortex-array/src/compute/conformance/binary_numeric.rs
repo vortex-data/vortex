@@ -32,9 +32,12 @@ use vortex_error::vortex_panic;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::RecursiveCanonical;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
-use crate::compute::numeric::numeric;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
@@ -102,28 +105,32 @@ where
         .cast(array.dtype())
         .vortex_expect("operation should succeed in conformance test");
 
-    let operators: [NumericOperator; 6] = [
+    let operators: [NumericOperator; 4] = [
         NumericOperator::Add,
         NumericOperator::Sub,
-        NumericOperator::RSub,
         NumericOperator::Mul,
         NumericOperator::Div,
-        NumericOperator::RDiv,
     ];
 
     for operator in operators {
+        let op = operator.into();
+        let rhs_const = ConstantArray::new(scalar_one.clone(), array.len()).into_array();
+
         // Test array operator scalar (e.g., array + 1)
-        let result = numeric(
-            &array,
-            &ConstantArray::new(scalar_one.clone(), array.len()).into_array(),
-            operator,
-        );
+        let result = array
+            .binary(rhs_const.clone(), op)
+            .vortex_expect("apply shouldn't fail")
+            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .map(|c| c.0.into_array());
 
         // Skip this operator if the entire operation fails
         // This can happen for some edge cases in specific encodings
         let Ok(result) = result else {
             continue;
         };
+
+        println!("result {}", result.display_tree());
+        println!("result {}", result.display_values());
 
         let actual_values = to_vec_of_scalar(&result);
 
@@ -153,11 +160,10 @@ where
         }
 
         // Test scalar operator array (e.g., 1 + array)
-        let result = numeric(
-            &ConstantArray::new(scalar_one.clone(), array.len()).into_array(),
-            &array,
-            operator,
-        );
+        let result = rhs_const.binary(array.clone(), op).and_then(|a| {
+            a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .map(|c| c.0.into_array())
+        });
 
         // Skip this operator if the entire operation fails
         let Ok(result) = result else {
@@ -341,29 +347,30 @@ where
         vec![
             NumericOperator::Add,
             NumericOperator::Sub,
-            NumericOperator::RSub,
             NumericOperator::Mul,
         ]
     } else {
         vec![
             NumericOperator::Add,
             NumericOperator::Sub,
-            NumericOperator::RSub,
             NumericOperator::Mul,
             NumericOperator::Div,
-            NumericOperator::RDiv,
         ]
     };
 
     for operator in operators {
+        let op = operator.into();
+        let rhs_const = ConstantArray::new(scalar.clone(), array.len()).into_array();
+
         // Test array operator scalar
-        let result = numeric(
-            &array,
-            &ConstantArray::new(scalar.clone(), array.len()).into_array(),
-            operator,
-        );
+        let result = array
+            .binary(rhs_const, op)
+            .vortex_expect("apply failed")
+            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .map(|x| x.0.into_array());
 
         // Skip if the entire operation fails
+        // TODO(joe): this is odd.
         if result.is_err() {
             continue;
         }
