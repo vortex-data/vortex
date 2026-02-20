@@ -26,10 +26,13 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldPath;
 use vortex_array::expr::Expression;
 use vortex_array::expr::stats::Precision;
+use vortex_array::stats::StatsSet;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::Selection;
@@ -67,6 +70,7 @@ pub type DataSourceRef = Arc<dyn DataSource>;
 ///
 /// The DataSource may be used multiple times to create multiple scans, whereas each scan and each
 /// split of a scan can only be consumed once.
+#[async_trait]
 pub trait DataSource: 'static + Send + Sync {
     /// Returns the dtype of the source.
     fn dtype(&self) -> &DType;
@@ -87,10 +91,16 @@ pub trait DataSource: 'static + Send + Sync {
     }
 
     /// Deserialize a split that was previously serialized from a compatible data source.
-    fn deserialize_split(&self, data: &[u8], session: &VortexSession) -> VortexResult<SplitRef>;
+    fn deserialize_split(&self, data: &[u8], session: &VortexSession) -> VortexResult<SplitRef> {
+        let _ = (data, session);
+        vortex_bail!("DataSource does not support deserialization")
+    }
 
     /// Returns a scan over the source.
-    fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef>;
+    async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef>;
+
+    /// Returns the statistics for a given field.
+    async fn field_statistics(&self, field_path: &FieldPath) -> VortexResult<StatsSet>;
 }
 
 /// A request to scan a data source.

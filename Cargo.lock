@@ -10675,6 +10675,7 @@ dependencies = [
  "bit-vec 0.8.0",
  "futures",
  "itertools 0.14.0",
+ "kanal",
  "parking_lot",
  "roaring 0.11.3",
  "sketches-ddsketch",

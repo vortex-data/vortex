@@ -27,10 +27,6 @@ use vortex::session::VortexSession;
 use crate::v2::source::VortexDataSource;
 
 /// A DataFusion [`TableProvider`] backed by a Vortex [`DataSourceRef`].
-///
-/// Passes the [`DataSourceRef`] to [`VortexDataSource`], which defers scan construction to
-/// [`open`](datafusion_datasource::source::DataSource::open) so that pushed-down filters and
-/// limits are included in the scan request.
 pub struct VortexTable {
     data_source: DataSourceRef,
     session: VortexSession,
@@ -80,21 +76,24 @@ impl TableProvider for VortexTable {
     async fn scan(
         &self,
         _state: &dyn Session,
-        // Unlike filters and limit, we _do_ apply the projection at this stage since DataFusion's
-        // physical projection expression push-down is still in its early stages. In theory, we
-        // could also wait to apply the projection until we can push down over the physical plan.
         projection: Option<&Vec<usize>>,
-        // We ignore push-down of logical filters since Vortex requires a physical
-        //  expression (i.e. we require that coercion semantics have already been performed by the
-        //  engine). Instead, DataFusion will push down filters through the physical plan via
-        //  the VortexScanSource DataSource.
         _filters: &[Expr],
-        // Similarly for limit, we wait until we can push down over the physical plan.
         _limit: Option<usize>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
+        // Construct the physical node representing this table.
         let data_source = VortexDataSource::builder(self.data_source.clone(), self.session.clone())
             .with_arrow_schema(self.arrow_schema.clone())
+            // We push down the projection now since it can make building the physical plan a lot
+            // cheaper, e.g. by only computing stats for the projected columns.
             .with_some_projection(projection.cloned())
+            // We don't push down filters for two reasons:
+            //  1. Vortex requires a physical expression, not logical. DataFusion will try to push
+            //     the physical filters later.
+            //  2. There's nothing useful we can do with filters now to reduce the amount of work
+            //     we have to do.
+            //
+            // We also don't push down the limit for the same reason, there's nothing useful we
+            // can do with it.
             .build()
             .await
             .map_err(|e| DataFusionError::External(Box::new(e)))?;
@@ -102,9 +101,13 @@ impl TableProvider for VortexTable {
         Ok(DataSourceExec::from_data_source(data_source))
     }
 
-    /// Returns statistics for the full table, before any projection.
-    /// To keep this reasonably cheap, we just return cardinality and byte size estimates.
-    /// We provide full statistics from the physical plan.
+    /// Returns statistics for the full table, prior to any projection.
+    ///
+    /// We should not (and actually, cannot) perform I/O here, so the best we can do is return
+    /// cardinality and byte size estimates.
+    ///
+    // NOTE(ngates): it's not obvious these are actually used? I think DataFusion does join
+    //  planning over stats from the physical plan?
     fn statistics(&self) -> Option<Statistics> {
         let num_rows = match self.data_source.row_count_estimate() {
             Some(vortex::expr::stats::Precision::Exact(v)) => {

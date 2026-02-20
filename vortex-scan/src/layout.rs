@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 
+use async_trait::async_trait;
 use futures::FutureExt;
 use futures::Stream;
 use futures::stream;
@@ -15,10 +16,12 @@ use futures::stream::StreamExt;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
+use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
@@ -86,6 +89,7 @@ impl LayoutReaderDataSource {
     }
 }
 
+#[async_trait]
 impl DataSource for LayoutReaderDataSource {
     fn dtype(&self) -> &DType {
         self.reader.dtype()
@@ -103,7 +107,7 @@ impl DataSource for LayoutReaderDataSource {
         vortex_bail!("LayoutReader splits are not yet serializable");
     }
 
-    fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+    async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
         let total_rows = self.reader.row_count();
         let row_range = scan_request.row_range.unwrap_or(0..total_rows);
 
@@ -170,6 +174,10 @@ impl DataSource for LayoutReaderDataSource {
             end_row: row_range.end,
             split_size: self.split_max_row_count,
         }))
+    }
+
+    async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
+        Ok(StatsSet::default())
     }
 }
 

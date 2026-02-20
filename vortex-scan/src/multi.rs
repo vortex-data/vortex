@@ -32,7 +32,9 @@ use futures::stream;
 use parking_lot::Mutex;
 use tracing::Instrument;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldPath;
 use vortex_array::expr::stats::Precision;
+use vortex_array::stats::StatsSet;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -169,6 +171,7 @@ impl MultiDataSource {
     }
 }
 
+#[async_trait]
 impl DataSource for MultiDataSource {
     fn dtype(&self) -> &DType {
         &self.dtype
@@ -227,7 +230,7 @@ impl DataSource for MultiDataSource {
         vortex_bail!("MultiDataSource splits are not yet serializable")
     }
 
-    fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+    async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
         let mut ready = VecDeque::new();
         let mut deferred = VecDeque::new();
 
@@ -259,6 +262,10 @@ impl DataSource for MultiDataSource {
         scan.fill_pipeline();
 
         Ok(Box::new(scan))
+    }
+
+    async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
+        Ok(StatsSet::default())
     }
 }
 
@@ -400,7 +407,7 @@ impl DataSourceScan for MultiDataSourceScan {
 
                     let mut child_request = s.request.clone();
                     child_request.limit = s.remaining_limit;
-                    let child_scan = match source.scan(child_request) {
+                    let child_scan = match source.scan(child_request).await {
                         Ok(scan) => scan,
                         Err(e) => return Some((Err(e), (None, None))),
                     };

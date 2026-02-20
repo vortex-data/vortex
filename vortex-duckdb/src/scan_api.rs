@@ -187,7 +187,7 @@ impl TableFunction for VortexScanApiTableFunction {
             ..Default::default()
         };
 
-        let scan = bind_data.data_source.scan(request)?;
+        let scan = RUNTIME.block_on(bind_data.data_source.scan(request))?;
         let conversion_cache = Arc::new(ConversionCache::new(0));
 
         let num_workers = std::thread::available_parallelism()

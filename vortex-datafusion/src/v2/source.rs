@@ -37,8 +37,11 @@ use datafusion_physical_plan::filter_pushdown::PushedDown;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::future::try_join_all;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
+use vortex::dtype::DType;
+use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -59,6 +62,7 @@ use vortex::session::VortexSession;
 use crate::convert::exprs::DefaultExpressionConvertor;
 use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::make_vortex_predicate;
+use crate::convert::stats::stats_set_to_df;
 
 /// A builder for a [`VortexDataSource`].
 pub struct VortexDataSourceBuilder {
@@ -134,13 +138,37 @@ impl VortexDataSourceBuilder {
             ));
         }
 
+        let DType::Struct(fields, ..) = projection.return_dtype(self.data_source.dtype())? else {
+            vortex_bail!("Projection does not evaluate to a struct");
+        };
+
+        // We now compute initial statistics.
+        let field_paths: Vec<_> = fields
+            .names()
+            .iter()
+            .cloned()
+            .map(FieldPath::from_name)
+            .collect();
+        let statistics = try_join_all(
+            field_paths
+                .iter()
+                .map(|path| self.data_source.field_statistics(&path)),
+        )
+        .await?
+        .iter()
+        .zip(fields.fields())
+        .map(|(stats, dtype)| stats_set_to_df(stats, &dtype))
+        .collect::<VortexResult<Vec<_>>>()?;
+
         Ok(VortexDataSource {
             data_source: self.data_source,
             session: self.session,
             initial_schema: arrow_schema.clone(),
             initial_projection: projection.clone(),
+            initial_statistics: statistics.clone(),
             final_projection: projection,
             final_schema: arrow_schema,
+            final_statistics: statistics,
             filter: None,
             limit: None,
             num_partitions: std::thread::available_parallelism()
@@ -177,10 +205,14 @@ pub struct VortexDataSource {
     /// The initial Arrow schema of the scan.
     initial_schema: SchemaRef,
     initial_projection: Expression,
+    #[allow(dead_code)]
+    initial_statistics: Vec<ColumnStatistics>,
+
     /// The projection expression pushed down by [`DataSource::try_swapping_with_projection`]
     /// This projection has already been evaluated against the initial_projection.
     final_projection: Expression,
     final_schema: SchemaRef,
+    final_statistics: Vec<ColumnStatistics>,
 
     /// An optional filter expression.
     /// Populated by [`DataSource::try_pushdown_filters`] when DataFusion pushes filters down.
@@ -229,36 +261,45 @@ impl DataSource for VortexDataSource {
             ..Default::default()
         };
 
-        let scan = self
-            .data_source
-            .scan(scan_request)
-            .map_err(|e| DataFusionError::External(Box::new(e)))?;
-
+        let data_source = self.data_source.clone();
         let output_schema = self.final_schema.clone();
         let session = self.session.clone();
+        let num_partitions = self.num_partitions;
 
-        // Each split.execute() returns a lazy stream whose early polls do preparation
-        // work (expression resolution, layout traversal, first I/O spawns). We use
-        // try_flatten_unordered to poll multiple split streams concurrently so that
-        // the next split is already warm when the current one finishes.
-        let scan_streams = scan.splits().map(|split_result| {
-            let split = split_result?;
-            split.execute()
-        });
+        // Defer the async DataSource::scan() call to the first poll of the stream.
+        let stream = futures::stream::once(async move {
+            let scan = data_source
+                .scan(scan_request)
+                .await
+                .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
-        let handle = session.handle();
-        let stream = scan_streams
-            .try_flatten_unordered(Some(self.num_partitions.get() * 2))
-            .map(move |result| {
-                let session = session.clone();
-                let schema = output_schema.clone();
-                handle.spawn_cpu(move || {
-                    let mut ctx = session.create_execution_ctx();
-                    result.and_then(|chunk| chunk.execute_record_batch(&schema, &mut ctx))
+            // Each split.execute() returns a lazy stream whose early polls do preparation
+            // work (expression resolution, layout traversal, first I/O spawns). We use
+            // try_flatten_unordered to poll multiple split streams concurrently so that
+            // the next split is already warm when the current one finishes.
+            let scan_streams = scan.splits().map(|split_result| {
+                let split = split_result?;
+                split.execute()
+            });
+
+            let handle = session.handle();
+            let stream = scan_streams
+                .try_flatten_unordered(Some(num_partitions.get() * 2))
+                .map(move |result| {
+                    let session = session.clone();
+                    let schema = output_schema.clone();
+                    handle.spawn_cpu(move || {
+                        let mut ctx = session.create_execution_ctx();
+                        result.and_then(|chunk| chunk.execute_record_batch(&schema, &mut ctx))
+                    })
                 })
-            })
-            .buffered(self.num_partitions.get())
-            .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
+                .buffered(num_partitions.get())
+                .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))))
+                .boxed();
+
+            Ok::<_, DataFusionError>(stream)
+        })
+        .try_flatten();
 
         Ok(Box::pin(RecordBatchStreamAdapter::new(
             self.final_schema.clone(),
@@ -312,8 +353,7 @@ impl DataSource for VortexDataSource {
 
         // Column statistics must match the output schema (final_schema), which may differ
         // from the initial schema after try_swapping_with_projection adds computed columns.
-        let column_statistics =
-            vec![ColumnStatistics::new_unknown(); self.final_schema.fields().len()];
+        let column_statistics = self.final_statistics.clone();
 
         Ok(Statistics {
             num_rows,
@@ -379,13 +419,18 @@ impl DataSource for VortexDataSource {
         let scan_projection = pack(scan_columns, Nullability::NonNullable);
         let scan_output_schema = Arc::new(Schema::new(scan_fields));
 
+        // TODO(ngates): we need a way to evaluate an expression over a stats set.
+        let scan_statistics =
+            vec![ColumnStatistics::new_unknown(); scan_output_schema.fields().len()];
+
         let mut this = self.clone();
         this.final_projection = scan_projection;
         this.final_schema = scan_output_schema;
+        this.final_statistics = scan_statistics;
+
         Ok(Some(Arc::new(this)))
     }
 
-    // TODO(ngates): do these filters apply to the initial_schema, or the final_schema?
     fn try_pushdown_filters(
         &self,
         filters: Vec<Arc<dyn PhysicalExpr>>,

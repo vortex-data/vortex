@@ -27,7 +27,16 @@ pub(super) struct MultiFileSession {
 impl Default for MultiFileSession {
     fn default() -> Self {
         Self {
-            footer_cache: moka::sync::Cache::builder().max_capacity(10_000).build(),
+            footer_cache: moka::sync::Cache::builder()
+                // Capacity and weigher are in KB
+                .max_capacity(100 * 1024) // 100MB
+                .weigher(|_k, footer: &Footer| {
+                    footer
+                        .approx_byte_size()
+                        .and_then(|bytes| u32::try_from(bytes / 1024).ok())
+                        .unwrap_or(10)
+                })
+                .build(),
         }
     }
 }

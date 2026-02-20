@@ -26,6 +26,7 @@ pub use split_by::SplitBy;
 mod scan_builder;
 pub use scan_builder::ScanBuilder;
 
+mod driver_async;
 pub mod layout;
 pub mod multi;
 mod repeated_scan;
