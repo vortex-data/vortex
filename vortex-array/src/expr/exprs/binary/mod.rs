@@ -3,7 +3,9 @@
 
 use std::fmt::Formatter;
 
+#[expect(deprecated)]
 pub use boolean::and_kleene;
+#[expect(deprecated)]
 pub use boolean::or_kleene;
 use prost::Message;
 use vortex_error::VortexExpect;
@@ -560,7 +562,7 @@ pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
 mod tests {
     use super::*;
     use crate::assert_arrays_eq;
-    use crate::compute::compare;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::expr::Expression;
@@ -732,16 +734,17 @@ mod tests {
         .unwrap()
         .into_array();
 
-        // Test using compare compute function directly
-        let result_equal = compare(&lhs_struct, &rhs_struct_equal, CompareOperator::Eq).unwrap();
+        // Test using binary method directly
+        let result_equal = lhs_struct.binary(rhs_struct_equal, Operator::Eq).unwrap();
         assert_eq!(
             result_equal.scalar_at(0).vortex_expect("value"),
             Scalar::bool(true, Nullability::NonNullable),
             "Equal structs should be equal"
         );
 
-        let result_different =
-            compare(&lhs_struct, &rhs_struct_different, CompareOperator::Eq).unwrap();
+        let result_different = lhs_struct
+            .binary(rhs_struct_different, Operator::Eq)
+            .unwrap();
         assert_eq!(
             result_different.scalar_at(0).vortex_expect("value"),
             Scalar::bool(false, Nullability::NonNullable),

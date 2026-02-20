@@ -10,34 +10,8 @@ use arrow_schema::SortOptions;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::arrays::ScalarFnArray;
-use crate::dtype::DType;
 use crate::dtype::IntegerPType;
-use crate::dtype::Nullability;
-use crate::expr::Binary;
 use crate::expr::CompareOperator;
-use crate::expr::Operator;
-use crate::expr::ScalarFn;
-use crate::scalar::Scalar;
-
-/// Compares two arrays and returns a new boolean array with the result of the comparison.
-///
-/// The returned array is lazy (a [`ScalarFnArray`]) and will be evaluated on demand.
-pub fn compare(
-    left: &dyn Array,
-    right: &dyn Array,
-    operator: CompareOperator,
-) -> VortexResult<ArrayRef> {
-    Ok(ScalarFnArray::try_new(
-        ScalarFn::new(Binary, Operator::from(operator)),
-        vec![left.to_array(), right.to_array()],
-        left.len(),
-    )?
-    .into_array())
-}
 
 /// Helper function to compare empty values with arrays that have external value length information
 /// like `VarBin`.
@@ -88,29 +62,14 @@ pub(crate) fn compare_nested_arrow_arrays(
     Ok(BooleanArray::new(values, nulls))
 }
 
-pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> Scalar {
-    if lhs.is_null() | rhs.is_null() {
-        Scalar::null(DType::Bool(Nullability::Nullable))
-    } else {
-        let b = match operator {
-            CompareOperator::Eq => lhs == rhs,
-            CompareOperator::NotEq => lhs != rhs,
-            CompareOperator::Gt => lhs > rhs,
-            CompareOperator::Gte => lhs >= rhs,
-            CompareOperator::Lt => lhs < rhs,
-            CompareOperator::Lte => lhs <= rhs,
-        };
-
-        Scalar::bool(b, lhs.dtype().nullability() | rhs.dtype().nullability())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::ArrayRef;
+    use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
@@ -121,8 +80,12 @@ mod tests {
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::FieldName;
     use crate::dtype::FieldNames;
+    use crate::dtype::Nullability;
+    use crate::expr::Operator;
+    use crate::scalar::Scalar;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 
@@ -133,13 +96,16 @@ mod tests {
             Validity::from_iter([false, true, true, true, true]),
         );
 
-        let matches = compare(arr.as_ref(), arr.as_ref(), CompareOperator::Eq)
+        let matches = arr
+            .to_array()
+            .binary(arr.to_array(), Operator::Eq)
             .unwrap()
             .to_bool();
-
         assert_eq!(to_int_indices(matches).unwrap(), [1u64, 2, 3, 4]);
 
-        let matches = compare(arr.as_ref(), arr.as_ref(), CompareOperator::NotEq)
+        let matches = arr
+            .to_array()
+            .binary(arr.to_array(), Operator::NotEq)
             .unwrap()
             .to_bool();
         let empty: [u64; 0] = [];
@@ -150,22 +116,30 @@ mod tests {
             Validity::from_iter([false, true, true, true, true]),
         );
 
-        let matches = compare(arr.as_ref(), other.as_ref(), CompareOperator::Lte)
+        let matches = arr
+            .to_array()
+            .binary(other.to_array(), Operator::Lte)
             .unwrap()
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
-        let matches = compare(arr.as_ref(), other.as_ref(), CompareOperator::Lt)
+        let matches = arr
+            .to_array()
+            .binary(other.to_array(), Operator::Lt)
             .unwrap()
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
 
-        let matches = compare(other.as_ref(), arr.as_ref(), CompareOperator::Gte)
+        let matches = other
+            .to_array()
+            .binary(arr.to_array(), Operator::Gte)
             .unwrap()
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
-        let matches = compare(other.as_ref(), arr.as_ref(), CompareOperator::Gt)
+        let matches = other
+            .to_array()
+            .binary(arr.to_array(), Operator::Gt)
             .unwrap()
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
@@ -176,7 +150,10 @@ mod tests {
         let left = ConstantArray::new(Scalar::from(2u32), 10);
         let right = ConstantArray::new(Scalar::from(10u32), 10);
 
-        let result = compare(left.as_ref(), right.as_ref(), CompareOperator::Gt).unwrap();
+        let result = left
+            .to_array()
+            .binary(right.to_array(), Operator::Gt)
+            .unwrap();
         assert_eq!(result.len(), 10);
         let scalar = result.scalar_at(0).unwrap();
         assert_eq!(scalar.as_bool().value(), Some(false));
@@ -202,7 +179,7 @@ mod tests {
     #[case(VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array())]
     #[case(VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array())]
     fn arrow_compare_different_encodings(#[case] left: ArrayRef, #[case] right: ArrayRef) {
-        let res = compare(&left, &right, CompareOperator::Eq).unwrap();
+        let res = left.binary(right, Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([true, true]);
         assert_arrays_eq!(res, expected);
     }
@@ -210,7 +187,6 @@ mod tests {
     #[ignore = "Arrow's ListView cannot be compared"]
     #[test]
     fn test_list_array_comparison() {
-        // Create two simple list arrays with integers
         let values1 = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
         let offsets1 = PrimitiveArray::from_iter([0i32, 2, 4, 6]);
         let list1 = ListArray::try_new(
@@ -229,18 +205,24 @@ mod tests {
         )
         .unwrap();
 
-        // Test equality - first two lists should be equal, third should be different
-        let result = compare(list1.as_ref(), list2.as_ref(), CompareOperator::Eq).unwrap();
+        let result = list1
+            .to_array()
+            .binary(list2.to_array(), Operator::Eq)
+            .unwrap();
         let expected = BoolArray::from_iter([true, true, false]);
         assert_arrays_eq!(result, expected);
 
-        // Test inequality
-        let result = compare(list1.as_ref(), list2.as_ref(), CompareOperator::NotEq).unwrap();
+        let result = list1
+            .to_array()
+            .binary(list2.to_array(), Operator::NotEq)
+            .unwrap();
         let expected = BoolArray::from_iter([false, false, true]);
         assert_arrays_eq!(result, expected);
 
-        // Test less than
-        let result = compare(list1.as_ref(), list2.as_ref(), CompareOperator::Lt).unwrap();
+        let result = list1
+            .to_array()
+            .binary(list2.to_array(), Operator::Lt)
+            .unwrap();
         let expected = BoolArray::from_iter([false, false, true]);
         assert_arrays_eq!(result, expected);
     }
@@ -253,7 +235,6 @@ mod tests {
         use crate::dtype::DType;
         use crate::dtype::PType;
 
-        // Create a list array
         let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
         let offsets = PrimitiveArray::from_iter([0i32, 2, 4, 6]);
         let list = ListArray::try_new(
@@ -263,7 +244,6 @@ mod tests {
         )
         .unwrap();
 
-        // Create a constant list scalar [3,4] that will be broadcasted
         let list_scalar = Scalar::list(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![3i32.into(), 4i32.into()],
@@ -271,15 +251,16 @@ mod tests {
         );
         let constant = ConstantArray::new(list_scalar, 3);
 
-        // Compare list with constant - all should be compared to [3,4]
-        let result = compare(list.as_ref(), constant.as_ref(), CompareOperator::Eq).unwrap();
+        let result = list
+            .to_array()
+            .binary(constant.to_array(), Operator::Eq)
+            .unwrap();
         let expected = BoolArray::from_iter([false, true, false]);
         assert_arrays_eq!(result, expected);
     }
 
     #[test]
     fn test_struct_array_comparison() {
-        // Create two struct arrays with bool and int fields
         let bool_field1 = BoolArray::from_iter([Some(true), Some(false), Some(true)]);
         let int_field1 = PrimitiveArray::from_iter([1i32, 2, 3]);
 
@@ -298,13 +279,17 @@ mod tests {
         ])
         .unwrap();
 
-        // Test equality
-        let result = compare(struct1.as_ref(), struct2.as_ref(), CompareOperator::Eq).unwrap();
+        let result = struct1
+            .to_array()
+            .binary(struct2.to_array(), Operator::Eq)
+            .unwrap();
         let expected = BoolArray::from_iter([true, true, false]);
         assert_arrays_eq!(result, expected);
 
-        // Test greater than
-        let result = compare(struct1.as_ref(), struct2.as_ref(), CompareOperator::Gt).unwrap();
+        let result = struct1
+            .to_array()
+            .binary(struct2.to_array(), Operator::Gt)
+            .unwrap();
         let expected = BoolArray::from_iter([false, false, true]);
         assert_arrays_eq!(result, expected);
     }
@@ -327,7 +312,10 @@ mod tests {
         )
         .unwrap();
 
-        let result = compare(empty1.as_ref(), empty2.as_ref(), CompareOperator::Eq).unwrap();
+        let result = empty1
+            .to_array()
+            .binary(empty2.to_array(), Operator::Eq)
+            .unwrap();
         let expected = BoolArray::from_iter([true, true, true, true, true]);
         assert_arrays_eq!(result, expected);
     }
@@ -341,8 +329,10 @@ mod tests {
             Validity::AllValid,
         );
 
-        // Compare two lists together
-        let result = compare(list.as_ref(), list.as_ref(), CompareOperator::Eq).unwrap();
+        let result = list
+            .to_array()
+            .binary(list.to_array(), Operator::Eq)
+            .unwrap();
         assert!(result.scalar_at(0).unwrap().is_valid());
         assert!(result.scalar_at(1).unwrap().is_valid());
         assert!(result.scalar_at(2).unwrap().is_valid());

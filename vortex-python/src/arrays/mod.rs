@@ -26,12 +26,12 @@ use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::ChunkedVTable;
 use vortex::array::arrow::IntoArrowArray;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_integer_ptype;
-use vortex::compute::compare;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
-use vortex::expr::CompareOperator;
+use vortex::expr::Operator;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
 
@@ -454,42 +454,42 @@ impl PyArray {
     ///Rust docs are *not* copied into Python for __lt__: https://github.com/PyO3/pyo3/issues/4326
     fn __lt__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = compare(&slf, &*other, CompareOperator::Lt)?;
+        let inner = slf.binary(other.into_inner(), Operator::Lt)?;
         Ok(PyArrayRef::from(inner))
     }
 
     ///Rust docs are *not* copied into Python for __le__: https://github.com/PyO3/pyo3/issues/4326
     fn __le__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = compare(&*slf, &*other, CompareOperator::Lte)?;
+        let inner = slf.binary(other.into_inner(), Operator::Lte)?;
         Ok(PyArrayRef::from(inner))
     }
 
     ///Rust docs are *not* copied into Python for __eq__: https://github.com/PyO3/pyo3/issues/4326
     fn __eq__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = compare(&*slf, &*other, CompareOperator::Eq)?;
+        let inner = slf.binary(other.into_inner(), Operator::Eq)?;
         Ok(PyArrayRef::from(inner))
     }
 
     ///Rust docs are *not* copied into Python for __ne__: https://github.com/PyO3/pyo3/issues/4326
     fn __ne__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = compare(&*slf, &*other, CompareOperator::NotEq)?;
+        let inner = slf.binary(other.into_inner(), Operator::NotEq)?;
         Ok(PyArrayRef::from(inner))
     }
 
     ///Rust docs are *not* copied into Python for __ge__: https://github.com/PyO3/pyo3/issues/4326
     fn __ge__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = compare(&*slf, &*other, CompareOperator::Gte)?;
+        let inner = slf.binary(other.into_inner(), Operator::Gte)?;
         Ok(PyArrayRef::from(inner))
     }
 
     ///Rust docs are *not* copied into Python for __gt__: https://github.com/PyO3/pyo3/issues/4326
     fn __gt__(slf: Bound<Self>, other: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = compare(&*slf, &*other, CompareOperator::Gt)?;
+        let inner = slf.binary(other.into_inner(), Operator::Gt)?;
         Ok(PyArrayRef::from(inner))
     }
 

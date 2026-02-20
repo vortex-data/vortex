@@ -8,10 +8,11 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::compare;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativePType;
 use vortex_array::expr::CompareKernel;
 use vortex_array::expr::CompareOperator;
+use vortex_array::expr::Operator;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -89,7 +90,10 @@ where
     match encoded {
         Some(encoded) => {
             let s = ConstantArray::new(encoded, alp.len());
-            Ok(Some(compare(alp.encoded(), s.as_ref(), operator)?))
+            Ok(Some(
+                alp.encoded()
+                    .binary(s.into_array(), Operator::from(operator))?,
+            ))
         }
         None => match operator {
             // Since this value is not encodable it cannot be equal to any value in the encoded
@@ -107,14 +111,16 @@ where
                         ConstantArray::new(value.is_sign_negative(), alp.len()).into_array(),
                     ))
                 } else {
-                    Ok(Some(compare(
-                        alp.encoded(),
-                        ConstantArray::new(F::encode_above(value, exponents), alp.len()).as_ref(),
-                        // Since the encoded value is unencodable gte is equivalent to gt.
-                        // Consider a value v, between two encodable values v_l (just less) and
-                        // v_a (just above), then for all encodable values (u), v > u <=> v_g >= u
-                        CompareOperator::Gte,
-                    )?))
+                    Ok(Some(
+                        alp.encoded().binary(
+                            ConstantArray::new(F::encode_above(value, exponents), alp.len())
+                                .into_array(),
+                            // Since the encoded value is unencodable gte is equivalent to gt.
+                            // Consider a value v, between two encodable values v_l (just less) and
+                            // v_a (just above), then for all encodable values (u), v > u <=> v_g >= u
+                            Operator::Gte,
+                        )?,
+                    ))
                 }
             }
             CompareOperator::Lt | CompareOperator::Lte => {
@@ -126,13 +132,15 @@ where
                         ConstantArray::new(value.is_sign_positive(), alp.len()).into_array(),
                     ))
                 } else {
-                    Ok(Some(compare(
-                        alp.encoded(),
-                        ConstantArray::new(F::encode_below(value, exponents), alp.len()).as_ref(),
-                        // Since the encoded values unencodable lt is equivalent to lte.
-                        // See Gt | Gte for further explanation.
-                        CompareOperator::Lte,
-                    )?))
+                    Ok(Some(
+                        alp.encoded().binary(
+                            ConstantArray::new(F::encode_below(value, exponents), alp.len())
+                                .into_array(),
+                            // Since the encoded values unencodable lt is equivalent to lte.
+                            // See Gt | Gte for further explanation.
+                            Operator::Lte,
+                        )?,
+                    ))
                 }
             }
         },
@@ -148,11 +156,12 @@ mod tests {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::compare;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::CompareOperator;
+    use vortex_array::expr::Operator;
     use vortex_array::scalar::Scalar;
 
     use super::*;
@@ -321,7 +330,10 @@ mod tests {
             array.len(),
         );
 
-        let r = compare(encoded.as_ref(), other.as_ref(), CompareOperator::Eq).unwrap();
+        let r = encoded
+            .into_array()
+            .binary(other.into_array(), Operator::Eq)
+            .unwrap();
         // Comparing to null yields null results
         let expected = BoolArray::from_iter([None::<bool>; 10]);
         assert_arrays_eq!(r, expected);

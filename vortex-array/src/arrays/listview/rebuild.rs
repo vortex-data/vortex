@@ -11,9 +11,11 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ListViewArray;
 use crate::builders::builder_with_capacity;
+use crate::builtins::ArrayBuiltins;
 use crate::compute;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
+use crate::expr::Operator;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
@@ -211,7 +213,10 @@ impl ListViewArray {
             last_offset + last_size
         } else {
             let min_max = compute::min_max(
-                &compute::add(self.offsets(), self.sizes())
+                &self
+                    .offsets()
+                    .clone()
+                    .binary(self.sizes().clone(), Operator::Add)
                     .vortex_expect("`offsets + sizes` somehow overflowed"),
             )
             .vortex_expect("Something went wrong while computing min and max")

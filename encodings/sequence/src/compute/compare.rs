@@ -138,10 +138,10 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::compare;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::Nullability::Nullable;
-    use vortex_array::expr::CompareOperator;
+    use vortex_array::expr::Operator;
 
     use crate::SequenceArray;
 
@@ -149,7 +149,7 @@ mod tests {
     fn test_compare_match() {
         let lhs = SequenceArray::typed_new(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(4i64, lhs.len());
-        let result = compare(lhs.as_ref(), rhs.as_ref(), CompareOperator::Eq).unwrap();
+        let result = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([false, false, true, false]);
         assert_arrays_eq!(result, expected);
     }
@@ -158,7 +158,7 @@ mod tests {
     fn test_compare_match_scale() {
         let lhs = SequenceArray::typed_new(2i64, 3, Nullable, 4).unwrap();
         let rhs = ConstantArray::new(8i64, lhs.len());
-        let result = compare(lhs.as_ref(), rhs.as_ref(), CompareOperator::Eq).unwrap();
+        let result = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(true), Some(false)]);
         assert_arrays_eq!(result, expected);
     }
@@ -167,7 +167,7 @@ mod tests {
     fn test_compare_no_match() {
         let lhs = SequenceArray::typed_new(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(1i64, lhs.len());
-        let result = compare(lhs.as_ref(), rhs.as_ref(), CompareOperator::Eq).unwrap();
+        let result = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([false, false, false, false]);
         assert_arrays_eq!(result, expected);
     }

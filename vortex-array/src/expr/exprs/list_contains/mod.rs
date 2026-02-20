@@ -30,7 +30,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
-use crate::expr;
 use crate::expr::Arity;
 use crate::expr::Binary;
 use crate::expr::ChildName;
@@ -255,7 +254,7 @@ fn constant_list_scalar_contains(
             )?
             .fill_null(false_scalar.clone())?;
         if let Some(acc) = result {
-            result = Some(expr::or_kleene(&acc, &res)?)
+            result = Some(acc.binary(res, Operator::Or)?)
         } else {
             result = Some(res);
         }

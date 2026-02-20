@@ -9,9 +9,10 @@ use crate::ExecutionCtx;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
-use crate::compute;
+use crate::builtins::ArrayBuiltins;
 use crate::expr::CompareKernel;
 use crate::expr::CompareOperator;
+use crate::expr::Operator;
 
 impl CompareKernel for ExtensionVTable {
     fn compare(
@@ -23,17 +24,23 @@ impl CompareKernel for ExtensionVTable {
         // If the RHS is a constant, we can extract the storage scalar.
         if let Some(const_ext) = rhs.as_constant() {
             let storage_scalar = const_ext.as_extension().to_storage_scalar();
-            return compute::compare(
-                lhs.storage(),
-                ConstantArray::new(storage_scalar, lhs.len()).as_ref(),
-                operator,
-            )
-            .map(Some);
+            return lhs
+                .storage()
+                .to_array()
+                .binary(
+                    ConstantArray::new(storage_scalar, lhs.len()).to_array(),
+                    Operator::from(operator),
+                )
+                .map(Some);
         }
 
         // If the RHS is an extension array matching ours, we can extract the storage.
         if let Some(rhs_ext) = rhs.as_opt::<ExtensionVTable>() {
-            return compute::compare(lhs.storage(), rhs_ext.storage(), operator).map(Some);
+            return lhs
+                .storage()
+                .to_array()
+                .binary(rhs_ext.storage().to_array(), Operator::from(operator))
+                .map(Some);
         }
 
         // Otherwise, we need the RHS to handle this comparison.

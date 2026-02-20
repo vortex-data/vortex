@@ -19,7 +19,8 @@ use crate::arrow::Datum;
 use crate::arrow::IntoArrowArray;
 use crate::arrow::from_arrow_array_with_len;
 use crate::compute::compare_nested_arrow_arrays;
-use crate::compute::scalar_cmp;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::expr::Binary;
 use crate::expr::CompareOperator;
 use crate::kernel::ExecuteParentKernel;
@@ -86,18 +87,14 @@ where
         // Empty array → empty bool result
         if len == 0 {
             return Ok(Some(
-                Canonical::empty(&crate::dtype::DType::Bool(nullable.into())).into_array(),
+                Canonical::empty(&DType::Bool(nullable.into())).into_array(),
             ));
         }
 
         // Null constant on either side → all-null bool result
         if other.as_constant().is_some_and(|s| s.is_null()) {
             return Ok(Some(
-                ConstantArray::new(
-                    Scalar::null(crate::dtype::DType::Bool(nullable.into())),
-                    len,
-                )
-                .into_array(),
+                ConstantArray::new(Scalar::null(DType::Bool(nullable.into())), len).into_array(),
             ));
         }
 
@@ -117,17 +114,15 @@ pub(crate) fn execute_compare(
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
 
     if lhs.is_empty() {
-        return Ok(Canonical::empty(&crate::dtype::DType::Bool(nullable.into())).into_array());
+        return Ok(Canonical::empty(&DType::Bool(nullable.into())).into_array());
     }
 
     let left_constant_null = lhs.as_constant().map(|l| l.is_null()).unwrap_or(false);
     let right_constant_null = rhs.as_constant().map(|r| r.is_null()).unwrap_or(false);
     if left_constant_null || right_constant_null {
-        return Ok(ConstantArray::new(
-            Scalar::null(crate::dtype::DType::Bool(nullable.into())),
-            lhs.len(),
-        )
-        .into_array());
+        return Ok(
+            ConstantArray::new(Scalar::null(DType::Bool(nullable.into())), lhs.len()).into_array(),
+        );
     }
 
     // Constant-constant fast path
@@ -181,4 +176,21 @@ fn arrow_compare_arrays(
         }
     };
     from_arrow_array_with_len(&array, left.len(), nullable)
+}
+
+pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> Scalar {
+    if lhs.is_null() | rhs.is_null() {
+        Scalar::null(DType::Bool(Nullability::Nullable))
+    } else {
+        let b = match operator {
+            CompareOperator::Eq => lhs == rhs,
+            CompareOperator::NotEq => lhs != rhs,
+            CompareOperator::Gt => lhs > rhs,
+            CompareOperator::Gte => lhs >= rhs,
+            CompareOperator::Lt => lhs < rhs,
+            CompareOperator::Lte => lhs <= rhs,
+        };
+
+        Scalar::bool(b, lhs.dtype().nullability() | rhs.dtype().nullability())
+    }
 }

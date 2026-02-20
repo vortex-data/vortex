@@ -554,9 +554,9 @@ pub fn compress_array(array: &dyn Array, _strategy: CompressorStrategy) -> Array
 pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzzResult<bool> {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::compare;
     use vortex_array::compute::min_max;
     use vortex_array::compute::sum;
+    use vortex_array::expr::Operator;
     let FuzzArrayAction { array, actions } = fuzz_action;
     let mut current_array = array.to_array();
 
@@ -600,12 +600,12 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Compare(v, op) => {
-                let compare_result = compare(
-                    &current_array,
-                    &ConstantArray::new(v.clone(), current_array.len()).into_array(),
-                    op,
-                )
-                .vortex_expect("compare operation should succeed in fuzz test");
+                let compare_result = current_array
+                    .binary(
+                        ConstantArray::new(v.clone(), current_array.len()).into_array(),
+                        Operator::from(op),
+                    )
+                    .vortex_expect("compare operation should succeed in fuzz test");
                 if let Err(e) = assert_array_eq(&expected.array(), &compare_result, i) {
                     vortex_panic!(
                         "Failed to compare {}with {op} {v}\nError: {e}",

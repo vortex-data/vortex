@@ -22,12 +22,13 @@ use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
-use crate::compute::compare;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::compare_lengths_to_empty;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::expr::CompareKernel;
 use crate::expr::CompareOperator;
+use crate::expr::Operator;
 use crate::match_each_integer_ptype;
 use crate::vtable::ValidityHelper;
 
@@ -117,7 +118,11 @@ impl CompareKernel for VarBinVTable {
             // NOTE: If the rhs is not a VarBin array it will be canonicalized to a VarBinView
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
-            return Ok(Some(compare(lhs.to_varbinview().as_ref(), rhs, operator)?));
+            return Ok(Some(
+                lhs.to_varbinview()
+                    .to_array()
+                    .binary(rhs.to_array(), Operator::from(operator))?,
+            ));
         } else {
             Ok(None)
         }
@@ -145,10 +150,10 @@ mod test {
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
-    use crate::compute::compare;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::expr::CompareOperator;
+    use crate::expr::Operator;
     use crate::scalar::Scalar;
 
     #[test]
@@ -157,17 +162,18 @@ mod test {
             [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
         );
-        let result = compare(
-            array.as_ref(),
-            ConstantArray::new(
-                Scalar::binary(ByteBuffer::copy_from(b"abc"), Nullability::Nullable),
-                3,
+        let result = array
+            .to_array()
+            .binary(
+                ConstantArray::new(
+                    Scalar::binary(ByteBuffer::copy_from(b"abc"), Nullability::Nullable),
+                    3,
+                )
+                .to_array(),
+                Operator::Eq,
             )
-            .as_ref(),
-            CompareOperator::Eq,
-        )
-        .unwrap()
-        .to_bool();
+            .unwrap()
+            .to_bool();
 
         assert_eq!(
             &result.validity_mask().unwrap().to_bit_buffer(),
@@ -189,7 +195,9 @@ mod test {
             [None, None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
         );
-        let result = compare(array.as_ref(), vbv.as_ref(), CompareOperator::Eq)
+        let result = array
+            .to_array()
+            .binary(vbv.to_array(), Operator::Eq)
             .unwrap()
             .to_bool();
 
@@ -209,10 +217,10 @@ mod tests {
     use crate::Array;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
-    use crate::compute::compare;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::expr::CompareOperator;
+    use crate::expr::Operator;
     use crate::scalar::Scalar;
 
     #[test]
@@ -222,7 +230,8 @@ mod tests {
         let const_ = ConstantArray::new(Scalar::utf8("", Nullability::Nullable), 1);
 
         assert_eq!(
-            compare(arr.as_ref(), const_.as_ref(), CompareOperator::Eq)
+            arr.to_array()
+                .binary(const_.to_array(), Operator::Eq)
                 .unwrap()
                 .dtype(),
             &DType::Bool(Nullability::Nullable)

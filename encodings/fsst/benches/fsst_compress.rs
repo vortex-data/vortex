@@ -18,11 +18,11 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
-use vortex_array::compute::compare;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::CompareOperator;
+use vortex_array::expr::Operator;
 use vortex_array::scalar::Scalar;
 use vortex_array::session::ArraySession;
 use vortex_fsst::fsst_compress;
@@ -97,7 +97,9 @@ fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (us
             )
         })
         .bench_refs(|(fsst_array, constant, ctx)| {
-            compare(fsst_array.as_ref(), constant.as_ref(), CompareOperator::Eq)
+            fsst_array
+                .to_array()
+                .binary(constant.to_array(), Operator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap();
@@ -123,14 +125,15 @@ fn canonicalize_compare(
             )
         })
         .bench_refs(|(fsst_array, constant, ctx)| {
-            compare(
-                fsst_array.to_canonical().unwrap().as_ref(),
-                constant.as_ref(),
-                CompareOperator::Eq,
-            )
-            .unwrap()
-            .execute::<RecursiveCanonical>(ctx)
-            .unwrap();
+            fsst_array
+                .to_canonical()
+                .unwrap()
+                .as_ref()
+                .to_array()
+                .binary(constant.to_array(), Operator::Eq)
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap();
         });
 }
 

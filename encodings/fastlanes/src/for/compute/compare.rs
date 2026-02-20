@@ -7,12 +7,14 @@ use num_traits::WrappingSub;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::compare;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::CompareKernel;
 use vortex_array::expr::CompareOperator;
+use vortex_array::expr::Operator;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
@@ -78,12 +80,12 @@ where
     // unsigned integer type).
     let rhs = Scalar::primitive(rhs, nullability);
 
-    compare(
-        lhs.encoded(),
-        ConstantArray::new(rhs, lhs.len()).as_ref(),
-        operator,
-    )
-    .map(Some)
+    lhs.encoded()
+        .binary(
+            ConstantArray::new(rhs, lhs.len()).into_array(),
+            Operator::from(operator),
+        )
+        .map(Some)
 }
 
 #[cfg(test)]

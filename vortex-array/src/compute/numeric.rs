@@ -7,11 +7,12 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::Options;
+use crate::expr::Operator;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
 
@@ -20,62 +21,59 @@ use crate::scalar::Scalar;
 /// Errs at runtime if the sum would overflow or underflow.
 ///
 /// The result is null at any index that either input is null.
+#[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn add(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    numeric(lhs, rhs, NumericOperator::Add)
+    lhs.to_array().binary(rhs.to_array(), Operator::Add)
 }
 
 /// Point-wise add a scalar value to this array on the right-hand-side.
+#[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn add_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
-    numeric(
-        lhs,
-        &ConstantArray::new(rhs, lhs.len()).into_array(),
-        NumericOperator::Add,
-    )
+    lhs.to_array()
+        .binary(ConstantArray::new(rhs, lhs.len()).to_array(), Operator::Add)
 }
 
 /// Point-wise subtract two numeric arrays.
+#[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn sub(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    numeric(lhs, rhs, NumericOperator::Sub)
+    lhs.to_array().binary(rhs.to_array(), Operator::Sub)
 }
 
 /// Point-wise subtract a scalar value from this array on the right-hand-side.
+#[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn sub_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
-    numeric(
-        lhs,
-        &ConstantArray::new(rhs, lhs.len()).into_array(),
-        NumericOperator::Sub,
-    )
+    lhs.to_array()
+        .binary(ConstantArray::new(rhs, lhs.len()).to_array(), Operator::Sub)
 }
 
 /// Point-wise multiply two numeric arrays.
+#[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn mul(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    numeric(lhs, rhs, NumericOperator::Mul)
+    lhs.to_array().binary(rhs.to_array(), Operator::Mul)
 }
 
 /// Point-wise multiply a scalar value into this array on the right-hand-side.
+#[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn mul_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
-    numeric(
-        lhs,
-        &ConstantArray::new(rhs, lhs.len()).into_array(),
-        NumericOperator::Mul,
-    )
+    lhs.to_array()
+        .binary(ConstantArray::new(rhs, lhs.len()).to_array(), Operator::Mul)
 }
 
 /// Point-wise divide two numeric arrays.
+#[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn div(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    numeric(lhs, rhs, NumericOperator::Div)
+    lhs.to_array().binary(rhs.to_array(), Operator::Div)
 }
 
 /// Point-wise divide a scalar value into this array on the right-hand-side.
+#[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn div_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
-    numeric(
-        lhs,
-        &ConstantArray::new(rhs, lhs.len()).into_array(),
-        NumericOperator::Mul,
-    )
+    lhs.to_array()
+        .binary(ConstantArray::new(rhs, lhs.len()).to_array(), Operator::Div)
 }
 
 /// Point-wise numeric operation between two arrays of the same type and length.
+#[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn numeric(lhs: &dyn Array, rhs: &dyn Array, op: NumericOperator) -> VortexResult<ArrayRef> {
     arrow_numeric(lhs, rhs, op)
 }
@@ -111,6 +109,7 @@ pub(crate) fn arrow_numeric(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod test {
     use vortex_buffer::buffer;
 
