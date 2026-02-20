@@ -20,9 +20,9 @@ use super::ConversionCache;
 use super::all_invalid;
 use super::new_array_exporter_with_flatten;
 use crate::cpp;
-use crate::duckdb::OwnedLogicalType;
-use crate::duckdb::OwnedVector;
+use crate::duckdb::LogicalType;
 use crate::duckdb::Vector;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 
 struct ListExporter<O> {
@@ -33,7 +33,7 @@ struct ListExporter<O> {
     /// Note that we are trading less compute for more memory here, as we will export the entire
     /// array in the constructor of the exporter (`new_exporter`) even if some of the elements are
     /// unreachable.
-    duckdb_elements: Arc<Mutex<OwnedVector>>,
+    duckdb_elements: Arc<Mutex<Vector>>,
     offsets: PrimitiveArray,
     num_elements: usize,
     offset_type: PhantomData<O>,
@@ -56,7 +56,7 @@ pub(crate) fn new_exporter(
     let validity = validity.to_array(array_len).execute::<Mask>(ctx)?;
 
     if validity.all_false() {
-        let ltype = OwnedLogicalType::try_from(dtype)?;
+        let ltype = LogicalType::try_from(dtype)?;
         return Ok(all_invalid::new_exporter(array_len, &ltype));
     }
 
@@ -71,8 +71,8 @@ pub(crate) fn new_exporter(
         Some(elements) => elements,
         None => {
             // We have no cached the vector yet, so create a new DuckDB vector for the elements.
-            let elements_type: OwnedLogicalType = elements.dtype().try_into()?;
-            let mut duckdb_elements = OwnedVector::with_capacity(&elements_type, num_elements);
+            let elements_type: LogicalType = elements.dtype().try_into()?;
+            let mut duckdb_elements = Vector::with_capacity(&elements_type, num_elements);
             let elements_exporter =
                 new_array_exporter_with_flatten(elements.clone(), cache, ctx, true)?;
 
@@ -105,7 +105,7 @@ pub(crate) fn new_exporter(
 }
 
 impl<O: IntegerPType> ColumnExporter for ListExporter<O> {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         // Verify that offset + len doesn't exceed the validity mask length.
         assert!(
             offset + len <= self.validity.len(),
@@ -163,8 +163,8 @@ mod tests {
 
     use super::*;
     use crate::SESSION;
-    use crate::duckdb::OwnedDataChunk;
-    use crate::duckdb::OwnedLogicalType;
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
     use crate::exporter::new_array_exporter;
 
     #[test]
@@ -179,9 +179,9 @@ mod tests {
         }
         .into_array();
 
-        let list_type = OwnedLogicalType::list_type(OwnedLogicalType::int32())
-            .vortex_expect("LogicalType creation should succeed for test data");
-        let mut chunk = OwnedDataChunk::new([list_type]);
+        let list_type = LogicalType::list_type(LogicalType::int32())
+            .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        let mut chunk = DataChunk::new([list_type]);
 
         new_array_exporter(
             list,
@@ -218,9 +218,9 @@ mod tests {
         }
         .into_array();
 
-        let list_type = OwnedLogicalType::list_type(OwnedLogicalType::varchar())
-            .vortex_expect("LogicalType creation should succeed for test data");
-        let mut chunk = OwnedDataChunk::new([list_type]);
+        let list_type = LogicalType::list_type(LogicalType::varchar())
+            .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        let mut chunk = DataChunk::new([list_type]);
 
         new_array_exporter(
             list,

@@ -6,7 +6,7 @@ use vortex::encodings::sequence::SequenceArray;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
-use crate::duckdb::Vector;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 
 struct SequenceExporter {
@@ -25,7 +25,7 @@ pub(crate) fn new_exporter(array: &SequenceArray) -> VortexResult<Box<dyn Column
 }
 
 impl ColumnExporter for SequenceExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         let offset = offset.as_i64();
         let start = (offset * self.step) + self.start;
 
@@ -40,14 +40,13 @@ mod tests {
 
     use super::*;
     use crate::cpp;
-    use crate::duckdb::OwnedDataChunk;
-    use crate::duckdb::OwnedLogicalType;
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
 
     #[test]
     fn test_sequence() {
         let arr = SequenceArray::typed_new(2, 5, Nullability::NonNullable, 100).unwrap();
-        let mut chunk =
-            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
         new_exporter(&arr)
             .unwrap()

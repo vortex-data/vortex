@@ -27,24 +27,24 @@ macro_rules! duckdb_try {
 
 /// Generates two FFI pointer wrapper types using the opaque-pointee pattern:
 ///
-/// - `$Name` — an opaque ZST pointee type, never constructed directly.
-///   Used only behind pointers/references (`&$Name`, `&mut $Name`).
+/// - `$Name` — an owned handle that calls the destructor on drop.
+///   Derefs to `&${Name}Ref` / `&mut ${Name}Ref`.
 ///
-/// - `Owned$Name` — an owned handle that calls the destructor on drop.
-///   Derefs to `&$Name` / `&mut $Name`.
+/// - `${Name}Ref` — an opaque ZST pointee type, never constructed directly.
+///   Used only behind pointers/references (`&${Name}Ref`, `&mut ${Name}Ref`).
 #[macro_export]
 macro_rules! lifetime_wrapper {
-    // Main form: generates opaque $Name + Owned$Name.
+    // Main form: generates owned $Name + opaque ${Name}Ref.
     ($(#[$meta:meta])* $Name:ident, $ffi_type:ty, $destructor:expr) => {
         paste::paste! {
-            // --- Opaque pointee (never constructed, used as &$Name / &mut $Name) ---
+            // --- Opaque pointee (never constructed, used as &${Name}Ref / &mut ${Name}Ref) ---
 
             $(#[$meta])*
             #[allow(dead_code)]
-            pub struct $Name(());
+            pub struct [<$Name Ref>](());
 
             #[allow(dead_code)]
-            impl $Name {
+            impl [<$Name Ref>] {
                 /// Borrows the pointer as an immutable reference with explicit lifetime.
                 ///
                 /// # Safety
@@ -84,10 +84,10 @@ macro_rules! lifetime_wrapper {
 
             $(#[$meta])*
             #[allow(dead_code)]
-            pub struct [<Owned $Name>]($ffi_type);
+            pub struct $Name($ffi_type);
 
             #[allow(dead_code)]
-            impl [<Owned $Name>] {
+            impl $Name {
                 /// Takes ownership of the pointer. The owned handle becomes
                 /// responsible for calling the destructor when dropped.
                 ///
@@ -111,26 +111,26 @@ macro_rules! lifetime_wrapper {
                 }
             }
 
-            impl std::ops::Deref for [<Owned $Name>] {
-                type Target = $Name;
+            impl std::ops::Deref for $Name {
+                type Target = [<$Name Ref>];
 
                 fn deref(&self) -> &Self::Target {
-                    // SAFETY: The opaque $Name is a ZST and the pointer is valid
+                    // SAFETY: The opaque [<$Name Ref>] is a ZST and the pointer is valid
                     // for the lifetime of the owned handle.
-                    unsafe { &*(self.0 as *const $Name) }
+                    unsafe { &*(self.0 as *const [<$Name Ref>]) }
                 }
             }
 
-            impl std::ops::DerefMut for [<Owned $Name>] {
+            impl std::ops::DerefMut for $Name {
                 fn deref_mut(&mut self) -> &mut Self::Target {
-                    // SAFETY: The opaque $Name is a ZST and the pointer is valid
+                    // SAFETY: The opaque [<$Name Ref>] is a ZST and the pointer is valid
                     // for the lifetime of the owned handle. We have &mut self so
                     // exclusive access is guaranteed.
-                    unsafe { &mut *(self.0 as *mut $Name) }
+                    unsafe { &mut *(self.0 as *mut [<$Name Ref>]) }
                 }
             }
 
-            impl Drop for [<Owned $Name>] {
+            impl Drop for $Name {
                 fn drop(&mut self) {
                     let destructor = $destructor;
                     #[allow(unused_unsafe)]

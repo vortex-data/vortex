@@ -9,7 +9,7 @@
 //!
 //! # Supported Scalar Conversions
 //!
-//! | Vortex Scalar | DuckDB Value |
+//! | Vortex Scalar | DuckDB ValueRef |
 //! |---------------|--------------|
 //! | `Null` | `NULL` |
 //! | `Bool` | `BOOLEAN` |
@@ -49,13 +49,13 @@ use vortex::scalar::ScalarValue;
 use vortex::scalar::Utf8Scalar;
 
 use crate::convert::dtype::FromLogicalType;
-use crate::duckdb::OwnedLogicalType;
-use crate::duckdb::OwnedValue;
+use crate::duckdb::LogicalType;
 use crate::duckdb::Value;
+use crate::duckdb::ValueRef;
 
 /// Trait for converting Vortex scalars to DuckDB values.
 pub trait ToDuckDBScalar {
-    fn try_to_duckdb_scalar(&self) -> VortexResult<OwnedValue>;
+    fn try_to_duckdb_scalar(&self) -> VortexResult<Value>;
 }
 
 impl ToDuckDBScalar for Scalar {
@@ -64,14 +64,14 @@ impl ToDuckDBScalar for Scalar {
     /// # Note
     ///
     /// Struct and List scalars are not yet implemented and cause a panic.
-    fn try_to_duckdb_scalar(&self) -> VortexResult<OwnedValue> {
+    fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         if self.is_null() {
-            let lt = OwnedLogicalType::try_from(self.dtype())?;
-            return Ok(OwnedValue::null(&lt));
+            let lt = LogicalType::try_from(self.dtype())?;
+            return Ok(Value::null(&lt));
         }
 
         match self.dtype() {
-            DType::Null => Ok(OwnedValue::sql_null()),
+            DType::Null => Ok(Value::sql_null()),
             DType::Bool(_) => self.as_bool().try_to_duckdb_scalar(),
             DType::Primitive(..) => self.as_primitive().try_to_duckdb_scalar(),
             DType::Decimal(..) => self.as_decimal().try_to_duckdb_scalar(),
@@ -89,13 +89,11 @@ impl ToDuckDBScalar for PrimitiveScalar<'_> {
     /// # Note
     ///
     /// - `F16` values are converted to `F32` before creating the DuckDB value
-    fn try_to_duckdb_scalar(&self) -> VortexResult<OwnedValue> {
+    fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         if self.ptype() == PType::F16 {
-            return OwnedValue::try_from(self.as_::<f16>().map(|f| f.to_f32()));
+            return Value::try_from(self.as_::<f16>().map(|f| f.to_f32()));
         }
-        match_each_native_simd_ptype!(self.ptype(), |P| {
-            Ok(OwnedValue::try_from(self.as_::<P>())?)
-        })
+        match_each_native_simd_ptype!(self.ptype(), |P| { Ok(Value::try_from(self.as_::<P>())?) })
     }
 }
 
@@ -112,15 +110,15 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
     ///
     /// This scalar conversion always uses `i128` for all decimal values regardless of precision,
     /// which differs from the array conversion logic that uses precision-based storage optimization.
-    fn try_to_duckdb_scalar(&self) -> VortexResult<OwnedValue> {
+    fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         let decimal_type = self
             .dtype()
             .as_decimal_opt()
             .ok_or_else(|| vortex_err!("decimal scalar without decimal dtype"))?;
 
         let Some(decimal_value) = self.decimal_value() else {
-            let lt = OwnedLogicalType::try_from(self.dtype())?;
-            return Ok(OwnedValue::null(&lt));
+            let lt = LogicalType::try_from(self.dtype())?;
+            return Ok(Value::null(&lt));
         };
 
         let huge_value = match decimal_value {
@@ -132,7 +130,7 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
             DecimalValue::I256(_) => vortex_bail!("cannot handle a i256 decimal in duckdb"),
         };
 
-        Ok(OwnedValue::new_decimal(
+        Ok(Value::new_decimal(
             decimal_type.precision(),
             decimal_type.scale(),
             huge_value,
@@ -142,35 +140,35 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
 
 impl ToDuckDBScalar for BoolScalar<'_> {
     /// Converts a boolean scalar to a DuckDB boolean value.
-    fn try_to_duckdb_scalar(&self) -> VortexResult<OwnedValue> {
-        OwnedValue::try_from(self.value())
+    fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
+        Value::try_from(self.value())
     }
 }
 
 impl ToDuckDBScalar for Utf8Scalar<'_> {
     /// Converts a UTF-8 string scalar to a DuckDB VARCHAR value.
-    fn try_to_duckdb_scalar(&self) -> VortexResult<OwnedValue> {
+    fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         Ok(match self.value() {
-            Some(value) => OwnedValue::from(value.as_str()),
-            None => OwnedValue::null(&OwnedLogicalType::varchar()),
+            Some(value) => Value::from(value.as_str()),
+            None => Value::null(&LogicalType::varchar()),
         })
     }
 }
 
 impl ToDuckDBScalar for BinaryScalar<'_> {
     /// Converts a binary scalar to a DuckDB BLOB value.
-    fn try_to_duckdb_scalar(&self) -> VortexResult<OwnedValue> {
+    fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         Ok(match self.value() {
-            Some(value) => OwnedValue::from(value.as_slice()),
-            None => OwnedValue::null(&OwnedLogicalType::blob()),
+            Some(value) => Value::from(value.as_slice()),
+            None => Value::null(&LogicalType::blob()),
         })
     }
 }
 
 impl ToDuckDBScalar for ExtScalar<'_> {
     /// Converts an extension scalar (primarily temporal types) to a DuckDB value.
-    fn try_to_duckdb_scalar(&self) -> VortexResult<OwnedValue> {
-        let logical_type = OwnedLogicalType::try_from(&DType::Extension(self.ext_dtype().clone()))?;
+    fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
+        let logical_type = LogicalType::try_from(&DType::Extension(self.ext_dtype().clone()))?;
         let Some(temporal) = self.ext_dtype().metadata_opt::<AnyTemporal>() else {
             vortex_bail!("Cannot convert non-temporal extension scalar to duckdb value");
         };
@@ -195,13 +193,13 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                             "Currently only UTC timezone is supported for duckdb timestamp(tz) conversion"
                         );
                     }
-                    return Ok(OwnedValue::new_timestamp_tz(value()?));
+                    return Ok(Value::new_timestamp_tz(value()?));
                 }
                 match unit {
-                    TimeUnit::Nanoseconds => OwnedValue::new_timestamp_ns(value()?),
-                    TimeUnit::Microseconds => OwnedValue::new_timestamp_us(value()?),
-                    TimeUnit::Milliseconds => OwnedValue::new_timestamp_ms(value()?),
-                    TimeUnit::Seconds => OwnedValue::new_timestamp_s(value()?),
+                    TimeUnit::Nanoseconds => Value::new_timestamp_ns(value()?),
+                    TimeUnit::Microseconds => Value::new_timestamp_us(value()?),
+                    TimeUnit::Milliseconds => Value::new_timestamp_ms(value()?),
+                    TimeUnit::Seconds => Value::new_timestamp_s(value()?),
                     TimeUnit::Days => {
                         vortex_bail!("timestamp(d) is cannot be converted to duckdb scalar")
                     }
@@ -215,14 +213,14 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                         vortex_err!("temporal types must be backed by primitive scalars")
                     })?
                     .as_::<i32>()
-                    .map(OwnedValue::new_date)
-                    .unwrap_or_else(|| OwnedValue::null(&logical_type)),
+                    .map(Value::new_date)
+                    .unwrap_or_else(|| Value::null(&logical_type)),
                 _ => vortex_bail!("cannot have TimeUnit {unit}, so represent a day"),
             },
             TemporalMetadata::Time(unit) => match unit {
-                TimeUnit::Microseconds => OwnedValue::new_time(value()?),
-                TimeUnit::Milliseconds => OwnedValue::new_time(value()? * 1000),
-                TimeUnit::Seconds => OwnedValue::new_time(value()? * 1000 * 1000),
+                TimeUnit::Microseconds => Value::new_time(value()?),
+                TimeUnit::Milliseconds => Value::new_time(value()? * 1000),
+                TimeUnit::Seconds => Value::new_time(value()? * 1000 * 1000),
                 TimeUnit::Nanoseconds | TimeUnit::Days => {
                     vortex_bail!("cannot convert timeunit {unit} to a duckdb MS time")
                 }
@@ -231,18 +229,18 @@ impl ToDuckDBScalar for ExtScalar<'_> {
     }
 }
 
-impl TryFrom<OwnedValue> for Scalar {
+impl TryFrom<Value> for Scalar {
     type Error = VortexError;
 
-    fn try_from(value: OwnedValue) -> Result<Self, Self::Error> {
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
         Scalar::try_from(&*value)
     }
 }
 
-impl<'a> TryFrom<&'a Value> for Scalar {
+impl<'a> TryFrom<&'a ValueRef> for Scalar {
     type Error = VortexError;
 
-    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a ValueRef) -> Result<Self, Self::Error> {
         use crate::duckdb::ExtractedValue;
         let dtype = DType::from_logical_type(value.logical_type(), Nullable)?;
         match value.extract() {

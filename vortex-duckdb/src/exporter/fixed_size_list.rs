@@ -17,8 +17,8 @@ use super::ConversionCache;
 use super::all_invalid;
 use super::new_array_exporter_with_flatten;
 use super::validity;
-use crate::duckdb::OwnedLogicalType;
-use crate::duckdb::Vector;
+use crate::duckdb::LogicalType;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 
 /// Exporter for converting Vortex [`FixedSizeListArray`] to DuckDB ARRAY vectors.
@@ -43,7 +43,7 @@ pub(crate) fn new_exporter(
     let elements_exporter = new_array_exporter_with_flatten(elements, cache, ctx, true)?;
 
     if mask.all_false() {
-        let ltype = OwnedLogicalType::try_from(dtype)?;
+        let ltype = LogicalType::try_from(dtype)?;
         return Ok(all_invalid::new_exporter(len, &ltype));
     }
 
@@ -60,7 +60,7 @@ pub(crate) fn new_exporter(
 impl ColumnExporter for FixedSizeListExporter {
     // TODO(connor): Should `export` be `unsafe` instead? We have no way to verify this without
     // making an assertion.
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         // Verify that offset + len doesn't exceed the validity mask length.
         assert!(
             offset + len <= self.len,
@@ -98,22 +98,21 @@ mod tests {
     use super::*;
     use crate::SESSION;
     use crate::cpp;
-    use crate::duckdb::OwnedDataChunk;
-    use crate::duckdb::OwnedLogicalType;
-    use crate::duckdb::Vector;
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
+    use crate::duckdb::VectorRef;
 
-    /// Sets up a DataChunk, exports the array to it, and returns the chunk.
+    /// Sets up a DataChunkRef, exports the array to it, and returns the chunk.
     fn export_to_chunk(
         fsl: FixedSizeListArray,
         list_size: u32,
         offset: usize,
         len: usize,
-    ) -> OwnedDataChunk {
-        let array_type =
-            OwnedLogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, list_size);
+    ) -> DataChunk {
+        let array_type = LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, list_size);
 
         // TODO(connor): This mutable API is brittle. Maybe bundle this logic?
-        let mut chunk = OwnedDataChunk::new([array_type]);
+        let mut chunk = DataChunk::new([array_type]);
 
         new_exporter(
             fsl,
@@ -130,7 +129,7 @@ mod tests {
 
     /// Asserts that the null pattern in a vector matches the expected pattern.
     /// true = valid (not null), false = null
-    fn assert_nulls(vector: &Vector, expected: &[bool]) {
+    fn assert_nulls(vector: &VectorRef, expected: &[bool]) {
         for (i, &expected_valid) in expected.iter().enumerate() {
             if expected_valid {
                 assert!(
@@ -150,7 +149,7 @@ mod tests {
 
     /// Helper function to verify array elements in a DuckDB vector.
     fn verify_array_elements(
-        vector: &Vector,
+        vector: &VectorRef,
         expected_values: &[i32],
         list_size: usize,
         num_lists: usize,
@@ -291,11 +290,11 @@ mod tests {
     }
 
     /// Helper to create nested array type for DuckDB.
-    fn create_nested_array_type(inner_list_size: u32, outer_list_size: u32) -> OwnedLogicalType {
+    fn create_nested_array_type(inner_list_size: u32, outer_list_size: u32) -> LogicalType {
         let inner_array_type =
-            OwnedLogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, inner_list_size);
+            LogicalType::new_array(cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER, inner_list_size);
 
-        OwnedLogicalType::array_type(inner_array_type, outer_list_size)
+        LogicalType::array_type(inner_array_type, outer_list_size)
             .vortex_expect("failed to create nested array type")
     }
 
@@ -328,7 +327,7 @@ mod tests {
 
         // Create the nested array type and export.
         let outer_array_type = create_nested_array_type(2, 3);
-        let mut chunk = OwnedDataChunk::new([outer_array_type]);
+        let mut chunk = DataChunk::new([outer_array_type]);
 
         new_exporter(
             outer_fsl,
@@ -385,7 +384,7 @@ mod tests {
 
         // Create the nested array type and export.
         let outer_array_type = create_nested_array_type(2, 3);
-        let mut chunk = OwnedDataChunk::new([outer_array_type]);
+        let mut chunk = DataChunk::new([outer_array_type]);
 
         new_exporter(
             outer_fsl,

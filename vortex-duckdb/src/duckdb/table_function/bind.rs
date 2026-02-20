@@ -6,11 +6,11 @@ use std::ffi::CStr;
 use vortex::error::vortex_err;
 
 use crate::cpp;
-use crate::duckdb::ClientContext;
-use crate::duckdb::LogicalType;
-use crate::duckdb::OwnedData;
-use crate::duckdb::OwnedValue;
+use crate::duckdb::ClientContextRef;
+use crate::duckdb::Data;
+use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableFunction;
+use crate::duckdb::Value;
 use crate::duckdb::try_or_null;
 use crate::lifetime_wrapper;
 
@@ -21,13 +21,13 @@ pub(crate) unsafe extern "C-unwind" fn bind_callback<T: TableFunction>(
     bind_result: cpp::duckdb_vx_tfunc_bind_result,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
-    let client_context = unsafe { ClientContext::borrow(ctx) };
-    let bind_input = unsafe { OwnedBindInput::own(bind_input) };
-    let mut bind_result = unsafe { OwnedBindResult::own(bind_result) };
+    let client_context = unsafe { ClientContextRef::borrow(ctx) };
+    let bind_input = unsafe { BindInput::own(bind_input) };
+    let mut bind_result = unsafe { BindResult::own(bind_result) };
 
     try_or_null(error_out, || {
         let bind_data = T::bind(client_context, &bind_input, &mut bind_result)?;
-        Ok(OwnedData::from(Box::new(bind_data)).as_ptr())
+        Ok(Data::from(Box::new(bind_data)).as_ptr())
     })
 }
 
@@ -43,33 +43,33 @@ pub(crate) unsafe extern "C-unwind" fn bind_data_clone_callback<T: TableFunction
                 .ok_or(vortex_err!("bind_data is nullptr"))?
         };
         let copied_data = bind_data.clone();
-        Ok(OwnedData::from(Box::new(copied_data)).as_ptr())
+        Ok(Data::from(Box::new(copied_data)).as_ptr())
     })
 }
 
 lifetime_wrapper!(BindInput, cpp::duckdb_vx_tfunc_bind_input, |_| {});
 
-impl BindInput {
+impl BindInputRef {
     /// Returns the parameter at the given index.
-    pub fn get_parameter(&self, index: usize) -> Option<OwnedValue> {
+    pub fn get_parameter(&self, index: usize) -> Option<Value> {
         let value_ptr =
             unsafe { cpp::duckdb_vx_tfunc_bind_input_get_parameter(self.as_ptr(), index as _) };
         if value_ptr.is_null() {
             None
         } else {
-            Some(unsafe { OwnedValue::own(value_ptr) })
+            Some(unsafe { Value::own(value_ptr) })
         }
     }
 
     /// Returns the named parameter with the given name, if it exists.
-    pub fn get_named_parameter(&self, name: &CStr) -> Option<OwnedValue> {
+    pub fn get_named_parameter(&self, name: &CStr) -> Option<Value> {
         let value_ptr = unsafe {
             cpp::duckdb_vx_tfunc_bind_input_get_named_parameter(self.as_ptr(), name.as_ptr())
         };
         if value_ptr.is_null() {
             None
         } else {
-            Some(unsafe { OwnedValue::own(value_ptr) })
+            Some(unsafe { Value::own(value_ptr) })
         }
     }
 
@@ -81,8 +81,8 @@ impl BindInput {
 
 lifetime_wrapper!(BindResult, cpp::duckdb_vx_tfunc_bind_result, |_| {});
 
-impl BindResult {
-    pub fn add_result_column(&self, name: &str, logical_type: &LogicalType) {
+impl BindResultRef {
+    pub fn add_result_column(&self, name: &str, logical_type: &LogicalTypeRef) {
         unsafe {
             cpp::duckdb_vx_tfunc_bind_result_add_column(
                 self.as_ptr(),

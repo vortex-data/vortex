@@ -20,14 +20,15 @@ mod virtual_columns;
 pub use bind::*;
 pub use init::*;
 pub use virtual_columns::VirtualColumnsResult;
+pub use virtual_columns::VirtualColumnsResultRef;
 
 use crate::cpp;
 use crate::cpp::duckdb_client_context;
-use crate::duckdb::Database;
-use crate::duckdb::OwnedLogicalType;
-use crate::duckdb::client_context::ClientContext;
-use crate::duckdb::data_chunk::DataChunk;
-use crate::duckdb::expr::Expression;
+use crate::duckdb::DatabaseRef;
+use crate::duckdb::LogicalType;
+use crate::duckdb::client_context::ClientContextRef;
+use crate::duckdb::data_chunk::DataChunkRef;
+use crate::duckdb::expr::ExpressionRef;
 use crate::duckdb::table_function::cardinality::cardinality_callback;
 use crate::duckdb::table_function::partition::get_partition_data_callback;
 use crate::duckdb::table_function::pushdown_complex_filter::pushdown_complex_filter_callback;
@@ -62,13 +63,13 @@ pub trait TableFunction: Sized + Debug {
     const MAX_THREADS: u64 = u64::MAX;
 
     /// Returns the parameters of the table function.
-    fn parameters() -> Vec<OwnedLogicalType> {
+    fn parameters() -> Vec<LogicalType> {
         // By default, we don't have any parameters.
         vec![]
     }
 
     /// Returns the named parameters of the table function, if any.
-    fn named_parameters() -> Vec<(CString, OwnedLogicalType)> {
+    fn named_parameters() -> Vec<(CString, LogicalType)> {
         // By default, we don't have any named parameters.
         vec![]
     }
@@ -76,18 +77,18 @@ pub trait TableFunction: Sized + Debug {
     /// This function is used for determining the schema of a table producing function and
     /// returning bind data.
     fn bind(
-        client_context: &ClientContext,
-        input: &BindInput,
-        result: &mut BindResult,
+        client_context: &ClientContextRef,
+        input: &BindInputRef,
+        result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData>;
 
     /// The function is called during query execution and is responsible for producing the output
     fn scan(
-        client_context: &ClientContext,
+        client_context: &ClientContextRef,
         bind_data: &Self::BindData,
         init_local: &mut Self::LocalState,
         init_global: &mut Self::GlobalState,
-        chunk: &mut DataChunk,
+        chunk: &mut DataChunkRef,
     ) -> VortexResult<()>;
 
     /// Initialize the global operator state of the function.
@@ -119,7 +120,7 @@ pub trait TableFunction: Sized + Debug {
     /// applied later in the query plan.
     fn pushdown_complex_filter(
         _bind_data: &mut Self::BindData,
-        _expr: &Expression,
+        _expr: &ExpressionRef,
     ) -> VortexResult<bool> {
         Ok(false)
     }
@@ -138,7 +139,7 @@ pub trait TableFunction: Sized + Debug {
     ) -> VortexResult<u64>;
 
     /// Returns the virtual columns of the table function.
-    fn virtual_columns(_bind_data: &Self::BindData, _result: &mut VirtualColumnsResult) {}
+    fn virtual_columns(_bind_data: &Self::BindData, _result: &mut VirtualColumnsResultRef) {}
 
     /// Returns a vector of key-value pairs for EXPLAIN output
     fn to_string(_bind_data: &Self::BindData) -> Option<Vec<(String, String)>> {
@@ -157,7 +158,7 @@ pub enum Cardinality {
     Maximum(u64),
 }
 
-impl Database {
+impl DatabaseRef {
     pub fn register_table_function<T: TableFunction>(&self, name: &CStr) -> VortexResult<()> {
         // Set up the parameters.
         let parameters = T::parameters();
@@ -250,13 +251,13 @@ unsafe extern "C-unwind" fn function<T: TableFunction>(
     output: cpp::duckdb_data_chunk,
     error_out: *mut cpp::duckdb_vx_error,
 ) {
-    let client_context = unsafe { ClientContext::borrow(duckdb_client_context) };
+    let client_context = unsafe { ClientContextRef::borrow(duckdb_client_context) };
     let bind_data = unsafe { &*(bind_data as *const T::BindData) };
     let global_init_data = unsafe { global_init_data.cast::<T::GlobalState>().as_mut() }
         .vortex_expect("global_init_data null pointer");
     let local_init_data = unsafe { local_init_data.cast::<T::LocalState>().as_mut() }
         .vortex_expect("local_init_data null pointer");
-    let data_chunk = unsafe { DataChunk::borrow_mut(output) };
+    let data_chunk = unsafe { DataChunkRef::borrow_mut(output) };
 
     match T::scan(
         client_context,

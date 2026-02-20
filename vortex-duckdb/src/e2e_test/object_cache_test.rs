@@ -9,11 +9,11 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
 use crate::cpp::DUCKDB_TYPE;
-use crate::duckdb::BindInput;
-use crate::duckdb::BindResult;
-use crate::duckdb::ClientContext;
-use crate::duckdb::DataChunk;
-use crate::duckdb::OwnedLogicalType;
+use crate::duckdb::BindInputRef;
+use crate::duckdb::BindResultRef;
+use crate::duckdb::ClientContextRef;
+use crate::duckdb::DataChunkRef;
+use crate::duckdb::LogicalType;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
 
@@ -43,11 +43,11 @@ impl TableFunction for TestTableFunction {
     type LocalState = TestLocalState;
 
     fn bind(
-        client_context: &ClientContext,
-        _input: &BindInput,
-        result: &mut BindResult,
+        client_context: &ClientContextRef,
+        _input: &BindInputRef,
+        result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData> {
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         result.add_result_column("test_value", &logical_type);
 
         let cache = client_context.object_cache();
@@ -73,11 +73,11 @@ impl TableFunction for TestTableFunction {
     }
 
     fn scan(
-        _client_context: &ClientContext,
+        _client_context: &ClientContextRef,
         _bind_data: &Self::BindData,
         _local_state: &mut Self::LocalState,
         _global_state: &mut Self::GlobalState,
-        chunk: &mut DataChunk,
+        chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
         chunk.set_len(0);
 
@@ -114,11 +114,11 @@ impl TableFunction for TestTableFunction {
     }
 }
 
-use crate::duckdb::OwnedDatabase;
+use crate::duckdb::Database;
 
 #[test]
 fn test_table_function_with_object_cache() -> VortexResult<()> {
-    let db = OwnedDatabase::open_in_memory()?;
+    let db = Database::open_in_memory()?;
     let conn = db.connect()?;
 
     // Register our test table function

@@ -8,7 +8,7 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
 use crate::cpp;
-use crate::duckdb::OwnedDataChunk;
+use crate::duckdb::DataChunk;
 use crate::lifetime_wrapper;
 
 lifetime_wrapper! {
@@ -26,8 +26,8 @@ lifetime_wrapper! {
     }
 }
 
-impl OwnedQueryResult {
-    /// Create a new `OwnedQueryResult` from a `duckdb_result`.
+impl QueryResult {
+    /// Create a new `QueryResult` from a `duckdb_result`.
     ///
     /// Takes ownership of the result and will destroy it on drop.
     pub unsafe fn new(result: cpp::duckdb_result) -> Self {
@@ -36,7 +36,7 @@ impl OwnedQueryResult {
     }
 }
 
-impl QueryResult {
+impl QueryResultRef {
     /// Get the number of columns in the result.
     pub fn column_count(&self) -> u64 {
         unsafe { cpp::duckdb_column_count(self.as_ptr()) }
@@ -69,16 +69,16 @@ impl QueryResult {
     }
 
     /// Get the type of a column by index.
-    pub fn column_type(&self, col_idx: usize) -> OwnedLogicalType {
+    pub fn column_type(&self, col_idx: usize) -> LogicalType {
         let dtype = unsafe { cpp::duckdb_column_type(self.as_ptr(), col_idx as u64) };
-        OwnedLogicalType::new(dtype)
+        LogicalType::new(dtype)
     }
 }
 
-use crate::duckdb::OwnedLogicalType;
+use crate::duckdb::LogicalType;
 
-impl IntoIterator for OwnedQueryResult {
-    type Item = OwnedDataChunk;
+impl IntoIterator for QueryResult {
+    type Item = DataChunk;
     type IntoIter = QueryResultIter;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -87,23 +87,23 @@ impl IntoIterator for OwnedQueryResult {
 }
 
 pub struct QueryResultIter {
-    result: OwnedQueryResult,
+    result: QueryResult,
 }
 
 impl QueryResultIter {
-    pub fn new(result: OwnedQueryResult) -> Self {
+    pub fn new(result: QueryResult) -> Self {
         Self { result }
     }
 }
 
 impl Iterator for QueryResultIter {
-    type Item = OwnedDataChunk;
+    type Item = DataChunk;
 
     fn next(&mut self) -> Option<Self::Item> {
         let chunk = unsafe { cpp::duckdb_fetch_chunk(*self.result.as_ptr()) };
         if chunk.is_null() {
             return None;
         }
-        Some(unsafe { OwnedDataChunk::own(chunk) })
+        Some(unsafe { DataChunk::own(chunk) })
     }
 }

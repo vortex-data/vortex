@@ -15,9 +15,9 @@ use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::duckdb::OwnedLogicalType;
-use crate::duckdb::OwnedVectorBuffer;
-use crate::duckdb::Vector;
+use crate::duckdb::LogicalType;
+use crate::duckdb::VectorBuffer;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::validity;
@@ -25,7 +25,7 @@ use crate::exporter::validity;
 struct VarBinViewExporter {
     views: Buffer<BinaryView>,
     buffers: Arc<[ByteBuffer]>,
-    vector_buffers: Vec<OwnedVectorBuffer>,
+    vector_buffers: Vec<VectorBuffer>,
 }
 
 pub(crate) fn new_exporter(
@@ -41,7 +41,7 @@ pub(crate) fn new_exporter(
     } = array.into_parts();
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;
     if validity.all_false() {
-        let ltype = OwnedLogicalType::try_from(dtype)?;
+        let ltype = LogicalType::try_from(dtype)?;
         return Ok(all_invalid::new_exporter(len, &ltype));
     }
 
@@ -57,18 +57,14 @@ pub(crate) fn new_exporter(
         validity,
         Box::new(VarBinViewExporter {
             views: Buffer::<BinaryView>::from_byte_buffer(views.unwrap_host()),
-            vector_buffers: buffers
-                .iter()
-                .cloned()
-                .map(OwnedVectorBuffer::new)
-                .collect_vec(),
+            vector_buffers: buffers.iter().cloned().map(VectorBuffer::new).collect_vec(),
             buffers,
         }),
     ))
 }
 
 impl ColumnExporter for VarBinViewExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         // Copy the views into place.
         for (mut_view, view) in unsafe { vector.as_slice_mut::<PtrBinaryView>(len) }
             .iter_mut()
@@ -150,15 +146,15 @@ mod tests {
     use vortex_array::arrays::VarBinViewArray;
 
     use crate::SESSION;
-    use crate::duckdb::OwnedDataChunk;
-    use crate::duckdb::OwnedLogicalType;
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
     use crate::exporter::varbinview::new_exporter;
 
     #[test]
     fn all_invalid_varbinview() -> VortexResult<()> {
         let arr = VarBinViewArray::from_iter([Option::<&str>::None; 4], DType::Utf8(Nullable));
 
-        let mut chunk = OwnedDataChunk::new([OwnedLogicalType::varchar()]);
+        let mut chunk = DataChunk::new([LogicalType::varchar()]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())?.export(
             0,
@@ -181,7 +177,7 @@ mod tests {
         let arr =
             VarBinViewArray::from_iter([None, None, None, Some("Hey")], DType::Utf8(Nullable));
 
-        let mut chunk = OwnedDataChunk::new([OwnedLogicalType::varchar()]);
+        let mut chunk = DataChunk::new([LogicalType::varchar()]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())?.export(
             0,
@@ -206,7 +202,7 @@ mod tests {
             DType::Utf8(Nullable),
         );
 
-        let mut chunk = OwnedDataChunk::new([OwnedLogicalType::varchar()]);
+        let mut chunk = DataChunk::new([LogicalType::varchar()]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())?.export(
             0,

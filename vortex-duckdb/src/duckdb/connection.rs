@@ -9,9 +9,9 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
 use crate::cpp;
-use crate::duckdb::ClientContext;
-use crate::duckdb::Database;
-use crate::duckdb::OwnedQueryResult;
+use crate::duckdb::ClientContextRef;
+use crate::duckdb::DatabaseRef;
+use crate::duckdb::QueryResult;
 use crate::duckdb_try;
 use crate::lifetime_wrapper;
 
@@ -22,8 +22,8 @@ lifetime_wrapper!(
     cpp::duckdb_disconnect
 );
 
-impl OwnedConnection {
-    pub fn connect(db: &Database) -> VortexResult<Self> {
+impl Connection {
+    pub fn connect(db: &DatabaseRef) -> VortexResult<Self> {
         let mut ptr: cpp::duckdb_connection = ptr::null_mut();
         duckdb_try!(
             unsafe { cpp::duckdb_connect(db.as_ptr(), &raw mut ptr) },
@@ -33,9 +33,9 @@ impl OwnedConnection {
     }
 }
 
-impl Connection {
+impl ConnectionRef {
     /// Execute SQL query and return the result.
-    pub fn query(&self, query: &str) -> VortexResult<OwnedQueryResult> {
+    pub fn query(&self, query: &str) -> VortexResult<QueryResult> {
         let mut result: cpp::duckdb_result = unsafe { std::mem::zeroed() };
         let query_cstr =
             std::ffi::CString::new(query).map_err(|_| vortex_err!("Invalid query string"))?;
@@ -57,11 +57,11 @@ impl Connection {
             return Err(vortex_err!("Failed to execute query: {}", error_msg));
         }
 
-        Ok(unsafe { OwnedQueryResult::new(result) })
+        Ok(unsafe { QueryResult::new(result) })
     }
 
     /// Get the client context for this connection.
-    pub fn client_context(&self) -> VortexResult<&ClientContext> {
+    pub fn client_context(&self) -> VortexResult<&ClientContextRef> {
         unsafe {
             let client_context = cpp::duckdb_vx_connection_get_client_context(self.as_ptr());
             if client_context.is_null() {
@@ -70,7 +70,7 @@ impl Connection {
                     self.as_ptr()
                 )
             }
-            Ok(ClientContext::borrow(client_context))
+            Ok(ClientContextRef::borrow(client_context))
         }
     }
 }
@@ -81,10 +81,10 @@ mod tests {
 
     use super::*;
     use crate::cpp::duckdb_string_t;
-    use crate::duckdb::OwnedDatabase;
+    use crate::duckdb::Database;
 
-    fn test_connection() -> VortexResult<OwnedConnection> {
-        let db = OwnedDatabase::open_in_memory()?;
+    fn test_connection() -> VortexResult<Connection> {
+        let db = Database::open_in_memory()?;
         db.connect()
     }
 

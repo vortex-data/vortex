@@ -8,8 +8,8 @@ use vortex::buffer::BitBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::duckdb::OwnedLogicalType;
-use crate::duckdb::Vector;
+use crate::duckdb::LogicalType;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::validity;
@@ -27,7 +27,7 @@ pub(crate) fn new_exporter(
     let validity = array.validity()?.to_array(len).execute::<Mask>(ctx)?;
 
     if validity.all_false() {
-        return Ok(all_invalid::new_exporter(len, &OwnedLogicalType::bool()));
+        return Ok(all_invalid::new_exporter(len, &LogicalType::bool()));
     }
 
     Ok(validity::new_exporter(
@@ -37,7 +37,7 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for BoolExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         // DuckDB uses byte bools, not bit bools.
         // maybe we can convert into these from a compressed array sometimes?.
         unsafe { vector.as_slice_mut(len) }.copy_from_slice(
@@ -61,14 +61,13 @@ mod tests {
     use super::*;
     use crate::SESSION;
     use crate::cpp;
-    use crate::duckdb::OwnedDataChunk;
-    use crate::duckdb::OwnedLogicalType;
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
 
     #[test]
     fn test_bool() {
         let arr = BoolArray::from_iter([true, false, true]);
-        let mut chunk =
-            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
@@ -88,8 +87,7 @@ mod tests {
     fn test_bool_long() {
         let arr = BoolArray::from_iter([true; 128]);
 
-        let mut chunk =
-            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
@@ -112,8 +110,7 @@ mod tests {
     fn test_bool_nullable() {
         let arr = BoolArray::from_iter([Some(true), None, Some(false)]);
 
-        let mut chunk =
-            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
@@ -133,8 +130,7 @@ mod tests {
     fn test_bool_all_invalid() {
         let arr = BoolArray::from_iter([None; 3]);
 
-        let mut chunk =
-            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_BOOLEAN)]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()

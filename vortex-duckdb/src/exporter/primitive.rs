@@ -11,9 +11,9 @@ use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::duckdb::OwnedLogicalType;
-use crate::duckdb::OwnedVectorBuffer;
-use crate::duckdb::Vector;
+use crate::duckdb::LogicalType;
+use crate::duckdb::VectorBuffer;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::validity;
@@ -21,7 +21,7 @@ use crate::exporter::validity;
 struct PrimitiveExporter<T: NativePType> {
     len: usize,
     start: *const T,
-    shared_buffer: OwnedVectorBuffer,
+    shared_buffer: VectorBuffer,
     _phantom_type: PhantomData<T>,
 }
 
@@ -35,7 +35,7 @@ pub fn new_exporter(
         .execute::<Mask>(ctx)?;
 
     if validity.all_false() {
-        let ltype = OwnedLogicalType::try_from(array.ptype())?;
+        let ltype = LogicalType::try_from(array.ptype())?;
         return Ok(all_invalid::new_exporter(array.len(), &ltype));
     }
 
@@ -44,7 +44,7 @@ pub fn new_exporter(
         let prim = Box::new(PrimitiveExporter {
             len: buffer.len(),
             start: buffer.as_ptr(),
-            shared_buffer: OwnedVectorBuffer::new(buffer),
+            shared_buffer: VectorBuffer::new(buffer),
             _phantom_type: Default::default(),
         });
         Ok(validity::new_exporter(validity, prim))
@@ -52,7 +52,7 @@ pub fn new_exporter(
 }
 
 impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         assert!(self.len >= offset + len);
 
         let pos = unsafe { self.start.add(offset) };
@@ -74,15 +74,14 @@ mod tests {
     use crate::SESSION;
     use crate::cpp;
     use crate::duckdb::DUCKDB_STANDARD_VECTOR_SIZE;
-    use crate::duckdb::OwnedDataChunk;
-    use crate::duckdb::OwnedLogicalType;
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
 
     #[test]
     fn test_primitive_exporter() {
         let arr = PrimitiveArray::from_iter(0..10);
 
-        let mut chunk =
-            OwnedDataChunk::new([OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
@@ -106,11 +105,7 @@ mod tests {
 
         {
             let mut chunk = (0..ARRAY_COUNT)
-                .map(|_| {
-                    OwnedDataChunk::new([OwnedLogicalType::new(
-                        cpp::duckdb_type::DUCKDB_TYPE_INTEGER,
-                    )])
-                })
+                .map(|_| DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]))
                 .collect_vec();
 
             for i in 0..ARRAY_COUNT {

@@ -15,7 +15,7 @@ use vortex::io::runtime::BlockingRuntime;
 
 use crate::RUNTIME;
 use crate::cpp;
-use crate::duckdb::ClientContext;
+use crate::duckdb::ClientContextRef;
 use crate::lifetime_wrapper;
 
 lifetime_wrapper!(
@@ -23,8 +23,8 @@ lifetime_wrapper!(
     cpp::duckdb_vx_file_handle,
     cpp::duckdb_vx_fs_close
 );
-unsafe impl Send for OwnedFsFileHandle {}
-unsafe impl Sync for OwnedFsFileHandle {}
+unsafe impl Send for FsFileHandle {}
+unsafe impl Sync for FsFileHandle {}
 
 pub(crate) fn fs_error(err: cpp::duckdb_vx_error) -> VortexError {
     if err.is_null() {
@@ -48,7 +48,7 @@ pub(crate) struct DirEntry {
 /// Returns file and subdirectory names (not full paths). The caller is
 /// responsible for joining paths and recursing into subdirectories.
 pub(crate) fn duckdb_fs_list_dir(
-    ctx: &ClientContext,
+    ctx: &ClientContextRef,
     directory: &str,
 ) -> VortexResult<Vec<DirEntry>> {
     let c_directory =
@@ -88,12 +88,12 @@ unsafe extern "C-unwind" fn list_files_callback(
 }
 
 pub(crate) struct DuckDbFsWriter {
-    handle: Arc<OwnedFsFileHandle>,
+    handle: Arc<FsFileHandle>,
     pos: u64,
 }
 
 impl DuckDbFsWriter {
-    pub(crate) fn new(ctx: &ClientContext, path: &str) -> VortexResult<Self> {
+    pub(crate) fn new(ctx: &ClientContextRef, path: &str) -> VortexResult<Self> {
         let c_path = CString::new(path).map_err(|e| vortex_err!("Invalid path: {e}"))?;
         let mut err: cpp::duckdb_vx_error = ptr::null_mut();
         let file_handle =
@@ -103,7 +103,7 @@ impl DuckDbFsWriter {
         }
 
         Ok(Self {
-            handle: Arc::new(unsafe { OwnedFsFileHandle::own(file_handle) }),
+            handle: Arc::new(unsafe { FsFileHandle::own(file_handle) }),
             pos: 0,
         })
     }
@@ -170,11 +170,11 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::duckdb::OwnedDatabase;
+    use crate::duckdb::Database;
 
     #[test]
     fn test_writer_roundtrip_local() {
-        let db = OwnedDatabase::open_in_memory().unwrap();
+        let db = Database::open_in_memory().unwrap();
         let conn = db.connect().unwrap();
         let ctx = conn.client_context().unwrap();
 

@@ -8,7 +8,7 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::duckdb::OwnedVector;
+use crate::duckdb::Vector;
 
 /// Cache for array conversions from Vortex to DuckDB.
 ///
@@ -17,7 +17,7 @@ use crate::duckdb::OwnedVector;
 /// We hold on to the `ArrayRef` to ensure that the key (ptr addr) doesn't get reused.
 #[derive(Default)]
 pub struct ConversionCache {
-    pub values_cache: DashMap<usize, (ArrayRef, Arc<Mutex<OwnedVector>>)>,
+    pub values_cache: DashMap<usize, (ArrayRef, Arc<Mutex<Vector>>)>,
     pub canonical_cache: DashMap<usize, (ArrayRef, Canonical)>,
     // A value which must be unique for a given DuckDB operator.
     instance_id: u64,

@@ -12,13 +12,13 @@ lifetime_wrapper!(
     }
 );
 
-impl OwnedSelectionVector {
+impl SelectionVector {
     pub fn with_capacity(len: usize) -> Self {
         unsafe { Self::own(cpp::duckdb_create_selection_vector(len as _)) }
     }
 }
 
-impl SelectionVector {
+impl SelectionVectorRef {
     // NOTE(ngates): selection vector doesn't hold its own length. Which makes writing a safe
     //  Rust API annoying...
     pub unsafe fn as_slice_mut(&mut self, length: usize) -> &mut [u32] {

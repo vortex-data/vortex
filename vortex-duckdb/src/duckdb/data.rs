@@ -10,7 +10,7 @@ use crate::lifetime_wrapper;
 
 lifetime_wrapper!(Data, cpp::duckdb_vx_data, |_| {});
 
-impl<T> From<Box<T>> for OwnedData {
+impl<T> From<Box<T>> for Data {
     fn from(value: Box<T>) -> Self {
         unsafe {
             Self::own(cpp::duckdb_vx_data_create(

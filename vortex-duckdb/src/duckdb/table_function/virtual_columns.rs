@@ -6,7 +6,7 @@ use std::ffi::c_void;
 use vortex::error::VortexExpect;
 
 use crate::cpp;
-use crate::duckdb::LogicalType;
+use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableFunction;
 use crate::lifetime_wrapper;
 
@@ -17,7 +17,7 @@ pub(crate) unsafe extern "C-unwind" fn get_virtual_columns_callback<T: TableFunc
 ) {
     let bind_data =
         unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null pointer");
-    let result = unsafe { VirtualColumnsResult::borrow_mut(result) };
+    let result = unsafe { VirtualColumnsResultRef::borrow_mut(result) };
 
     T::virtual_columns(bind_data, result);
 }
@@ -28,8 +28,8 @@ lifetime_wrapper!(
     |_| {}
 );
 
-impl VirtualColumnsResult {
-    pub fn register(&self, column_idx: u64, name: &str, logical_type: &LogicalType) {
+impl VirtualColumnsResultRef {
+    pub fn register(&self, column_idx: u64, name: &str, logical_type: &LogicalTypeRef) {
         unsafe {
             cpp::duckdb_vx_tfunc_virtual_columns_push(
                 self.as_ptr(),

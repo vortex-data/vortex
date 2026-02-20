@@ -6,8 +6,8 @@ use std::ffi::CStr;
 use vortex::error::vortex_panic;
 
 use crate::cpp;
-use crate::duckdb::ObjectCache;
-use crate::duckdb::OwnedValue;
+use crate::duckdb::ObjectCacheRef;
+use crate::duckdb::Value;
 use crate::lifetime_wrapper;
 
 lifetime_wrapper!(
@@ -17,45 +17,45 @@ lifetime_wrapper!(
     cpp::duckdb_destroy_client_context
 );
 
-// SAFETY: ClientContext carries an opaque pointer. It is safe to send/share across threads
+// SAFETY: ClientContextRef carries an opaque pointer. It is safe to send/share across threads
 // under the same guarantees: the underlying DuckDB context is valid for the connection
 // lifetime and DuckDB synchronizes internal state.
-unsafe impl Send for ClientContext {}
-unsafe impl Sync for ClientContext {}
+unsafe impl Send for ClientContextRef {}
+unsafe impl Sync for ClientContextRef {}
 
-impl ClientContext {
-    /// Erases the lifetime of this reference, returning a `&'static ClientContext`.
+impl ClientContextRef {
+    /// Erases the lifetime of this reference, returning a `&'static ClientContextRef`.
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the underlying `ClientContext` outlives all uses of the
-    /// returned reference. In practice, the `ClientContext` is owned by the `Connection`
+    /// The caller must ensure that the underlying `ClientContextRef` outlives all uses of the
+    /// returned reference. In practice, the `ClientContextRef` is owned by the `ConnectionRef`
     /// and lives as long as the connection, so this is safe as long as the connection is kept alive.
     pub unsafe fn erase_lifetime(&self) -> &'static Self {
         unsafe { &*(self as *const Self) }
     }
 
     /// Get the object cache for this client context.
-    pub fn object_cache(&self) -> &ObjectCache {
+    pub fn object_cache(&self) -> &ObjectCacheRef {
         unsafe {
             let cache = cpp::duckdb_client_context_get_object_cache(self.as_ptr());
             if cache.is_null() {
                 vortex_panic!("Failed to get object cache from client context");
             }
-            ObjectCache::borrow(cache)
+            ObjectCacheRef::borrow(cache)
         }
     }
 
     /// Try to get the current value of a configuration setting.
     /// Returns None if the setting doesn't exist.
-    pub fn try_get_current_setting(&self, key: &CStr) -> Option<OwnedValue> {
+    pub fn try_get_current_setting(&self, key: &CStr) -> Option<Value> {
         unsafe {
             let value_ptr =
                 cpp::duckdb_client_context_try_get_current_setting(self.as_ptr(), key.as_ptr());
             if value_ptr.is_null() {
                 None
             } else {
-                Some(OwnedValue::own(value_ptr))
+                Some(Value::own(value_ptr))
             }
         }
     }

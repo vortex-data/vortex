@@ -19,24 +19,24 @@ use crate::cpp;
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::idx_t;
 use crate::duckdb::LogicalType;
-use crate::duckdb::OwnedLogicalType;
+use crate::duckdb::LogicalTypeRef;
 use crate::lifetime_wrapper;
 
 lifetime_wrapper!(Value, cpp::duckdb_value, cpp::duckdb_destroy_value);
 
-impl Value {
-    pub fn logical_type(&self) -> &LogicalType {
-        unsafe { LogicalType::borrow(cpp::duckdb_get_value_type(self.as_ptr())) }
+impl ValueRef {
+    pub fn logical_type(&self) -> &LogicalTypeRef {
+        unsafe { LogicalTypeRef::borrow(cpp::duckdb_get_value_type(self.as_ptr())) }
     }
 
     pub fn as_string(&self) -> BufferString {
         let ExtractedValue::Varchar(string) = self.extract() else {
-            vortex_panic!("Value is not a string");
+            vortex_panic!("ValueRef is not a string");
         };
         string
     }
 
-    /// Extracts the value from the DuckDB `Value` into a `ExtractedValue`.
+    /// Extracts the value from the DuckDB `ValueRef` into a `ExtractedValue`.
     pub fn extract(&self) -> ExtractedValue {
         if unsafe { cpp::duckdb_is_null_value(self.as_ptr()) } {
             return ExtractedValue::Null;
@@ -136,7 +136,7 @@ impl Value {
                 ExtractedValue::List(
                     (0..elem_count)
                         .map(|i| unsafe {
-                            OwnedValue::own(cpp::duckdb_get_list_child(self.as_ptr(), i as idx_t))
+                            Value::own(cpp::duckdb_get_list_child(self.as_ptr(), i as idx_t))
                         })
                         .collect::<Vec<_>>(),
                 )
@@ -144,7 +144,7 @@ impl Value {
             DUCKDB_TYPE::DUCKDB_TYPE_STRUCT => ExtractedValue::List(
                 (0..self.logical_type().struct_type_child_count())
                     .map(|i| unsafe {
-                        OwnedValue::own(cpp::duckdb_get_struct_child(self.as_ptr(), i as idx_t))
+                        Value::own(cpp::duckdb_get_struct_child(self.as_ptr(), i as idx_t))
                     })
                     .collect::<Vec<_>>(),
             ),
@@ -154,7 +154,7 @@ impl Value {
     }
 }
 
-impl Debug for Value {
+impl Debug for ValueRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let ptr = unsafe { cpp::duckdb_value_to_string(self.as_ptr()) };
         write!(f, "{}", unsafe { CStr::from_ptr(ptr).to_string_lossy() })?;
@@ -163,18 +163,18 @@ impl Debug for Value {
     }
 }
 
-impl Debug for OwnedValue {
+impl Debug for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(&**self, f)
     }
 }
 
-impl OwnedValue {
+impl Value {
     pub fn sql_null() -> Self {
         unsafe { Self::own(cpp::duckdb_create_null_value()) }
     }
 
-    pub fn null(logical_type: &LogicalType) -> Self {
+    pub fn null(logical_type: &LogicalTypeRef) -> Self {
         unsafe { Self::own(cpp::duckdb_vx_value_create_null(logical_type.as_ptr())) }
     }
 
@@ -244,7 +244,7 @@ impl OwnedValue {
     }
 }
 
-impl Display for Value {
+impl Display for ValueRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let ptr = unsafe { cpp::duckdb_vx_value_to_string(self.as_ptr()) };
         write!(f, "{}", unsafe { CStr::from_ptr(ptr) }.to_string_lossy())?;
@@ -253,7 +253,7 @@ impl Display for Value {
     }
 }
 
-impl Display for OwnedValue {
+impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&**self, f)
     }
@@ -264,9 +264,9 @@ pub fn i128_from_parts(high: i64, low: u64) -> i128 {
     ((high as i128) << 64) | (low as i128)
 }
 
-impl<T> TryFrom<Option<T>> for OwnedValue
+impl<T> TryFrom<Option<T>> for Value
 where
-    T: Into<OwnedValue> + NativeDType,
+    T: Into<Value> + NativeDType,
 {
     type Error = VortexError;
 
@@ -274,80 +274,80 @@ where
         match value {
             Some(v) => Ok(v.into()),
             None => {
-                let lt = OwnedLogicalType::try_from(&T::dtype())?;
-                Ok(OwnedValue::null(&lt))
+                let lt = LogicalType::try_from(&T::dtype())?;
+                Ok(Value::null(&lt))
             }
         }
     }
 }
 
-impl From<i8> for OwnedValue {
+impl From<i8> for Value {
     fn from(value: i8) -> Self {
         unsafe { Self::own(cpp::duckdb_create_int8(value)) }
     }
 }
 
-impl From<i16> for OwnedValue {
+impl From<i16> for Value {
     fn from(value: i16) -> Self {
         unsafe { Self::own(cpp::duckdb_create_int16(value)) }
     }
 }
 
-impl From<i32> for OwnedValue {
+impl From<i32> for Value {
     fn from(value: i32) -> Self {
         unsafe { Self::own(cpp::duckdb_create_int32(value)) }
     }
 }
 
-impl From<i64> for OwnedValue {
+impl From<i64> for Value {
     fn from(value: i64) -> Self {
         unsafe { Self::own(cpp::duckdb_create_int64(value)) }
     }
 }
 
-impl From<u8> for OwnedValue {
+impl From<u8> for Value {
     fn from(value: u8) -> Self {
         unsafe { Self::own(cpp::duckdb_create_uint8(value)) }
     }
 }
 
-impl From<u16> for OwnedValue {
+impl From<u16> for Value {
     fn from(value: u16) -> Self {
         unsafe { Self::own(cpp::duckdb_create_uint16(value)) }
     }
 }
 
-impl From<u32> for OwnedValue {
+impl From<u32> for Value {
     fn from(value: u32) -> Self {
         unsafe { Self::own(cpp::duckdb_create_uint32(value)) }
     }
 }
 
-impl From<u64> for OwnedValue {
+impl From<u64> for Value {
     fn from(value: u64) -> Self {
         unsafe { Self::own(cpp::duckdb_create_uint64(value)) }
     }
 }
 
-impl From<f32> for OwnedValue {
+impl From<f32> for Value {
     fn from(value: f32) -> Self {
         unsafe { Self::own(cpp::duckdb_create_float(value)) }
     }
 }
 
-impl From<f64> for OwnedValue {
+impl From<f64> for Value {
     fn from(value: f64) -> Self {
         unsafe { Self::own(cpp::duckdb_create_double(value)) }
     }
 }
 
-impl From<bool> for OwnedValue {
+impl From<bool> for Value {
     fn from(value: bool) -> Self {
         unsafe { Self::own(cpp::duckdb_create_bool(value)) }
     }
 }
 
-impl From<&str> for OwnedValue {
+impl From<&str> for Value {
     fn from(value: &str) -> Self {
         unsafe {
             Self::own(cpp::duckdb_create_varchar_length(
@@ -358,13 +358,13 @@ impl From<&str> for OwnedValue {
     }
 }
 
-impl From<&[u8]> for OwnedValue {
+impl From<&[u8]> for Value {
     fn from(value: &[u8]) -> Self {
         unsafe { Self::own(cpp::duckdb_create_blob(value.as_ptr(), value.len() as _)) }
     }
 }
 
-/// An enum for extracting the underlying typed value from a `Value`.
+/// An enum for extracting the underlying typed value from a `ValueRef`.
 pub enum ExtractedValue {
     Null,
     TinyInt(i8),
@@ -388,7 +388,7 @@ pub enum ExtractedValue {
     TimestampMs(i64),
     TimestampS(i64),
     Decimal(u8, i8, i128),
-    List(Vec<OwnedValue>),
+    List(Vec<Value>),
 }
 
 #[cfg(test)]

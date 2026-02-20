@@ -14,14 +14,14 @@ use vortex_bench::Benchmark;
 use vortex_bench::Format;
 use vortex_bench::IdempotentPath;
 use vortex_bench::generate_duckdb_registration_sql;
-use vortex_duckdb::duckdb::OwnedConfig;
-use vortex_duckdb::duckdb::OwnedConnection;
-use vortex_duckdb::duckdb::OwnedDatabase;
+use vortex_duckdb::duckdb::Config;
+use vortex_duckdb::duckdb::Connection;
+use vortex_duckdb::duckdb::Database;
 
 /// DuckDB context for benchmarks.
 pub struct DuckClient {
-    pub db: OwnedDatabase,
-    pub connection: OwnedConnection,
+    pub db: Database,
+    pub connection: Connection,
     pub db_path: PathBuf,
     pub threads: Option<usize>,
 }
@@ -65,8 +65,8 @@ impl DuckClient {
     pub fn open_and_setup_database(
         path: Option<PathBuf>,
         threads: Option<usize>,
-    ) -> Result<(OwnedDatabase, OwnedConnection)> {
-        let mut config = OwnedConfig::new().vortex_expect("failed to create duckdb config");
+    ) -> Result<(Database, Connection)> {
+        let mut config = Config::new().vortex_expect("failed to create duckdb config");
 
         // Set DuckDB thread count if specified
         if let Some(thread_count) = threads {
@@ -74,8 +74,8 @@ impl DuckClient {
         }
 
         let db = match path {
-            Some(path) => OwnedDatabase::open_with_config(path, config),
-            None => OwnedDatabase::open_in_memory_with_config(config),
+            Some(path) => Database::open_with_config(path, config),
+            None => Database::open_in_memory_with_config(config),
         }?;
 
         let connection = db.connect()?;

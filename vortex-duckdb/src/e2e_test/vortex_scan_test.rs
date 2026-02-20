@@ -44,11 +44,11 @@ use crate::SESSION;
 use crate::cpp;
 use crate::cpp::duckdb_string_t;
 use crate::cpp::duckdb_timestamp;
-use crate::duckdb::OwnedConnection;
-use crate::duckdb::OwnedDatabase;
+use crate::duckdb::Connection;
+use crate::duckdb::Database;
 
-fn database_connection() -> OwnedConnection {
-    let db = OwnedDatabase::open_in_memory().unwrap();
+fn database_connection() -> Connection {
+    let db = Database::open_in_memory().unwrap();
     db.register_vortex_scan_replacement().unwrap();
     crate::initialize(&db).unwrap();
     db.connect().unwrap()

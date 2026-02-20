@@ -10,7 +10,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 
 use crate::cpp::*;
-use crate::duckdb::ddb_string::OwnedDDBString;
+use crate::duckdb::ddb_string::DDBString;
 use crate::lifetime_wrapper;
 
 lifetime_wrapper!(
@@ -19,28 +19,28 @@ lifetime_wrapper!(
     duckdb_destroy_logical_type
 );
 
-/// `OwnedLogicalType` is Send+Sync, as the wrapped pointer is Send+Sync.
-unsafe impl Send for OwnedLogicalType {}
-unsafe impl Sync for OwnedLogicalType {}
+/// `LogicalType` is Send+Sync, as the wrapped pointer is Send+Sync.
+unsafe impl Send for LogicalType {}
+unsafe impl Sync for LogicalType {}
 
-impl Clone for OwnedLogicalType {
+impl Clone for LogicalType {
     fn clone(&self) -> Self {
         unsafe { Self::own(duckdb_vx_logical_type_copy(self.as_ptr())) }
     }
 }
 
-impl OwnedLogicalType {
+impl LogicalType {
     pub fn new(dtype: DUCKDB_TYPE) -> Self {
         unsafe { Self::own(duckdb_create_logical_type(dtype)) }
     }
 
     /// Creates a DuckDB struct logical type from child types and field names.
-    pub fn struct_type<T, N>(child_types: T, child_names: N) -> VortexResult<OwnedLogicalType>
+    pub fn struct_type<T, N>(child_types: T, child_names: N) -> VortexResult<LogicalType>
     where
-        T: IntoIterator<Item = OwnedLogicalType>,
+        T: IntoIterator<Item = LogicalType>,
         N: IntoIterator<Item = CString>,
     {
-        let child_types: Vec<OwnedLogicalType> = child_types.into_iter().collect();
+        let child_types: Vec<LogicalType> = child_types.into_iter().collect();
         let child_names: Vec<CString> = child_names.into_iter().collect();
 
         let mut child_type_ptrs: Vec<duckdb_logical_type> =
@@ -79,7 +79,7 @@ impl OwnedLogicalType {
     }
 
     /// Creates a DuckDB list logical type with the specified element type.
-    pub fn list_type(element_type: OwnedLogicalType) -> VortexResult<Self> {
+    pub fn list_type(element_type: LogicalType) -> VortexResult<Self> {
         let ptr = unsafe { duckdb_create_list_type(element_type.as_ptr()) };
 
         if ptr.is_null() {
@@ -91,7 +91,7 @@ impl OwnedLogicalType {
     /// Creates a DuckDB fixed-size list logical type with the specified element type and list size.
     ///
     /// Note that DuckDB calls what we call a fixed-size list the ARRAY type.
-    pub fn array_type(element_type: OwnedLogicalType, list_size: u32) -> VortexResult<Self> {
+    pub fn array_type(element_type: LogicalType, list_size: u32) -> VortexResult<Self> {
         // SAFETY: We trust that DuckDB correctly gives us a valid pointer or `NULL`.
         let ptr = unsafe { duckdb_create_array_type(element_type.as_ptr(), list_size as idx_t) };
 
@@ -168,7 +168,7 @@ impl OwnedLogicalType {
     }
 }
 
-impl LogicalType {
+impl LogicalTypeRef {
     pub fn as_type_id(&self) -> DUCKDB_TYPE {
         unsafe { duckdb_get_type_id(self.as_ptr()) }
     }
@@ -182,8 +182,8 @@ impl LogicalType {
         }
     }
 
-    pub fn array_child_type(&self) -> OwnedLogicalType {
-        unsafe { OwnedLogicalType::own(duckdb_array_type_child_type(self.as_ptr())) }
+    pub fn array_child_type(&self) -> LogicalType {
+        unsafe { LogicalType::own(duckdb_array_type_child_type(self.as_ptr())) }
     }
 
     pub fn array_type_array_size(&self) -> u32 {
@@ -191,24 +191,24 @@ impl LogicalType {
             .vortex_expect("Array size must fit in u32")
     }
 
-    pub fn list_child_type(&self) -> OwnedLogicalType {
-        unsafe { OwnedLogicalType::own(duckdb_list_type_child_type(self.as_ptr())) }
+    pub fn list_child_type(&self) -> LogicalType {
+        unsafe { LogicalType::own(duckdb_list_type_child_type(self.as_ptr())) }
     }
 
-    pub fn map_key_type(&self) -> OwnedLogicalType {
-        unsafe { OwnedLogicalType::own(duckdb_map_type_key_type(self.as_ptr())) }
+    pub fn map_key_type(&self) -> LogicalType {
+        unsafe { LogicalType::own(duckdb_map_type_key_type(self.as_ptr())) }
     }
 
-    pub fn map_value_type(&self) -> OwnedLogicalType {
-        unsafe { OwnedLogicalType::own(duckdb_map_type_value_type(self.as_ptr())) }
+    pub fn map_value_type(&self) -> LogicalType {
+        unsafe { LogicalType::own(duckdb_map_type_value_type(self.as_ptr())) }
     }
 
-    pub fn struct_child_type(&self, idx: usize) -> OwnedLogicalType {
-        unsafe { OwnedLogicalType::own(duckdb_struct_type_child_type(self.as_ptr(), idx as idx_t)) }
+    pub fn struct_child_type(&self, idx: usize) -> LogicalType {
+        unsafe { LogicalType::own(duckdb_struct_type_child_type(self.as_ptr(), idx as idx_t)) }
     }
 
-    pub fn struct_child_name(&self, idx: usize) -> OwnedDDBString {
-        unsafe { OwnedDDBString::own(duckdb_struct_type_child_name(self.as_ptr(), idx as idx_t)) }
+    pub fn struct_child_name(&self, idx: usize) -> DDBString {
+        unsafe { DDBString::own(duckdb_struct_type_child_name(self.as_ptr(), idx as idx_t)) }
     }
 
     pub fn struct_type_child_count(&self) -> usize {
@@ -216,12 +216,12 @@ impl LogicalType {
             .vortex_expect("Struct type child count must fit in usize")
     }
 
-    pub fn union_member_type(&self, idx: usize) -> OwnedLogicalType {
-        unsafe { OwnedLogicalType::own(duckdb_union_type_member_type(self.as_ptr(), idx as idx_t)) }
+    pub fn union_member_type(&self, idx: usize) -> LogicalType {
+        unsafe { LogicalType::own(duckdb_union_type_member_type(self.as_ptr(), idx as idx_t)) }
     }
 
-    pub fn union_member_name(&self, idx: usize) -> OwnedDDBString {
-        unsafe { OwnedDDBString::own(duckdb_union_type_member_name(self.as_ptr(), idx as idx_t)) }
+    pub fn union_member_name(&self, idx: usize) -> DDBString {
+        unsafe { DDBString::own(duckdb_union_type_member_name(self.as_ptr(), idx as idx_t)) }
     }
 
     pub fn union_member_count(&self) -> usize {
@@ -230,14 +230,14 @@ impl LogicalType {
     }
 }
 
-impl Debug for LogicalType {
+impl Debug for LogicalTypeRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let debug = unsafe { OwnedDDBString::own(duckdb_vx_logical_type_stringify(self.as_ptr())) };
+        let debug = unsafe { DDBString::own(duckdb_vx_logical_type_stringify(self.as_ptr())) };
         write!(f, "{}", debug)
     }
 }
 
-impl Debug for OwnedLogicalType {
+impl Debug for LogicalType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(&**self, f)
     }
@@ -291,7 +291,7 @@ integer_type!(UHugeInt, u128);
 #[macro_export]
 macro_rules! match_each_primitive_type {
     ($self:expr, | $type:ident | $body:block) => {{
-        use $crate::duckdb::LogicalType;
+        use $crate::duckdb::LogicalTypeRef;
         match $self.as_type_id() {
             DUCKDB_TYPE::DUCKDB_TYPE_TINYINT => {
                 let $type = <$crate::duckdb::TinyInt as $crate::duckdb::PrimitiveType>::NATIVE;
@@ -385,14 +385,14 @@ mod tests {
                 !excluded_types.contains(&variant)
             })
         {
-            assert_eq!(OwnedLogicalType::new(variant).clone().as_type_id(), variant);
+            assert_eq!(LogicalType::new(variant).clone().as_type_id(), variant);
         }
     }
 
     #[test]
     fn test_clone_decimal_logical_type() {
         let decimal_type =
-            OwnedLogicalType::decimal_type(10, 2).vortex_expect("Failed to create decimal type");
+            LogicalType::decimal_type(10, 2).vortex_expect("Failed to create decimal type");
         #[allow(clippy::redundant_clone)]
         let cloned = decimal_type.clone();
 
@@ -407,9 +407,9 @@ mod tests {
 
     #[test]
     fn test_clone_list_logical_type() {
-        let int_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let int_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
         let list_type =
-            OwnedLogicalType::list_type(int_type).vortex_expect("Failed to create list type");
+            LogicalType::list_type(int_type).vortex_expect("Failed to create list type");
 
         #[allow(clippy::redundant_clone)]
         let cloned = list_type.clone();
@@ -429,11 +429,9 @@ mod tests {
 
     #[test]
     fn test_clone_array_logical_type() {
-        let array_type = OwnedLogicalType::array_type(
-            OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR),
-            5,
-        )
-        .vortex_expect("Failed to create array type");
+        let array_type =
+            LogicalType::array_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR), 5)
+                .vortex_expect("Failed to create array type");
         #[allow(clippy::redundant_clone)]
         let cloned = array_type.clone();
 
@@ -458,10 +456,10 @@ mod tests {
 
     #[test]
     fn test_clone_map_logical_type() {
-        let key_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR);
-        let value_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let key_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR);
+        let value_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
         let map_type = unsafe {
-            OwnedLogicalType::own(duckdb_create_map_type(
+            LogicalType::own(duckdb_create_map_type(
                 key_type.as_ptr(),
                 value_type.as_ptr(),
             ))
@@ -489,13 +487,13 @@ mod tests {
 
     #[test]
     fn test_clone_struct_logical_type() {
-        let name_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR);
-        let age_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let name_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR);
+        let age_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
 
         let member_types = vec![name_type, age_type];
         let member_names = vec![CString::new("name").unwrap(), CString::new("age").unwrap()];
 
-        let struct_type = OwnedLogicalType::struct_type(member_types, member_names)
+        let struct_type = LogicalType::struct_type(member_types, member_names)
             .vortex_expect("Failed to create struct type");
 
         #[allow(clippy::redundant_clone)]
@@ -526,8 +524,8 @@ mod tests {
 
     #[test]
     fn test_clone_union_logical_type() {
-        let str_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR);
-        let num_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let str_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR);
+        let num_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
 
         let mut member_types = vec![str_type.as_ptr(), num_type.as_ptr()];
         let str_cstr = CString::new("str").unwrap();
@@ -535,7 +533,7 @@ mod tests {
         let mut member_names = vec![str_cstr.as_ptr(), num_cstr.as_ptr()];
 
         let union_type = unsafe {
-            OwnedLogicalType::own(duckdb_create_union_type(
+            LogicalType::own(duckdb_create_union_type(
                 member_types.as_mut_ptr(),
                 member_names.as_mut_ptr(),
                 2,

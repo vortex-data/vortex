@@ -42,8 +42,8 @@ use crate::cpp::duckdb_timestamp;
 use crate::cpp::duckdb_timestamp_ms;
 use crate::cpp::duckdb_timestamp_ns;
 use crate::cpp::duckdb_timestamp_s;
-use crate::duckdb::DataChunk;
-use crate::duckdb::Vector;
+use crate::duckdb::DataChunkRef;
+use crate::duckdb::VectorRef;
 use crate::exporter::precision_to_duckdb_storage_size;
 
 pub struct DuckString<'a> {
@@ -67,7 +67,7 @@ impl<'a> DuckString<'a> {
     }
 }
 
-fn vector_as_slice<T: NativePType>(vector: &Vector, len: usize) -> ArrayRef {
+fn vector_as_slice<T: NativePType>(vector: &VectorRef, len: usize) -> ArrayRef {
     let data = vector.as_slice_with_len::<T>(len);
 
     PrimitiveArray::new(
@@ -78,7 +78,7 @@ fn vector_as_slice<T: NativePType>(vector: &Vector, len: usize) -> ArrayRef {
 }
 
 fn vector_mapped<T, P: NativePType, F: Fn(&T) -> P>(
-    vector: &Vector,
+    vector: &VectorRef,
     len: usize,
     from_duckdb_type: F,
 ) -> ArrayRef {
@@ -91,7 +91,7 @@ fn vector_mapped<T, P: NativePType, F: Fn(&T) -> P>(
     .into_array()
 }
 
-fn vector_as_string_blob(vector: &Vector, len: usize, dtype: DType) -> ArrayRef {
+fn vector_as_string_blob(vector: &VectorRef, len: usize, dtype: DType) -> ArrayRef {
     let data = vector.as_slice_with_len::<duckdb_string_t>(len);
     let validity = vector.validity_ref(len);
 
@@ -210,7 +210,7 @@ fn process_duckdb_lists(
 }
 
 /// Converts flat vector to a vortex array
-pub fn flat_vector_to_vortex(vector: &Vector, len: usize) -> VortexResult<ArrayRef> {
+pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<ArrayRef> {
     let type_id = vector.logical_type().as_type_id();
     match type_id {
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP => {
@@ -352,7 +352,10 @@ pub fn flat_vector_to_vortex(vector: &Vector, len: usize) -> VortexResult<ArrayR
     }
 }
 
-pub fn data_chunk_to_vortex(field_names: &FieldNames, chunk: &DataChunk) -> VortexResult<ArrayRef> {
+pub fn data_chunk_to_vortex(
+    field_names: &FieldNames,
+    chunk: &DataChunkRef,
+) -> VortexResult<ArrayRef> {
     let len = chunk.len();
 
     let columns = (0..chunk.column_count())
@@ -383,16 +386,16 @@ mod tests {
 
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
-    use crate::duckdb::OwnedLogicalType;
-    use crate::duckdb::OwnedVector;
+    use crate::duckdb::LogicalType;
+    use crate::duckdb::Vector;
 
     #[test]
     fn test_integer_vector_conversion() {
         let values = vec![1i32, 2, 3, 4, 5];
         let len = values.len();
 
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -412,8 +415,8 @@ mod tests {
         let values = vec![1_703_980_800_000_000_i64, 0i64, -86_400_000_000_i64]; // microseconds
         let len = values.len();
 
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -435,8 +438,8 @@ mod tests {
         let values = vec![1_703_980_800_i64, 0i64, -86_400_i64]; // seconds
         let len = values.len();
 
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -458,8 +461,8 @@ mod tests {
         let values = vec![1_703_980_800_000_i64, 0i64, -86_400_000_i64]; // milliseconds
         let len = values.len();
 
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -481,8 +484,8 @@ mod tests {
         let values = vec![1_703_980_800_000_000_i64, 0i64, -86_400_000_000_i64];
         let len = values.len();
 
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -491,7 +494,7 @@ mod tests {
         }
 
         // Set middle element as null
-        // SAFETY: Vector was created with this length.
+        // SAFETY: VectorRef was created with this length.
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         validity_slice.set(1, false);
 
@@ -520,8 +523,8 @@ mod tests {
         ];
         let len = values.len();
 
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -543,8 +546,8 @@ mod tests {
         let values = vec![1_703_980_800_000_000_i64]; // Single microsecond timestamp
         let len = values.len();
 
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -566,8 +569,8 @@ mod tests {
         let values = vec![true, false, true, false];
         let len = values.len();
 
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -587,8 +590,8 @@ mod tests {
         let values = vec![1i32, 2, 3];
         let len = values.len();
 
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -597,7 +600,7 @@ mod tests {
         }
 
         // Set middle element as null
-        // SAFETY: Vector was created with this length.
+        // SAFETY: VectorRef was created with this length.
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         validity_slice.set(1, false);
 
@@ -619,9 +622,9 @@ mod tests {
         let len = 1;
 
         let logical_type =
-            OwnedLogicalType::list_type(OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
-                .vortex_expect("LogicalType creation should succeed for test data");
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+            LogicalType::list_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
+                .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -651,12 +654,10 @@ mod tests {
         let values = vec![1i32, 2, 3, 4];
         let len = 1;
 
-        let logical_type = OwnedLogicalType::array_type(
-            OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
-            4,
-        )
-        .vortex_expect("LogicalType creation should succeed for test data");
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type =
+            LogicalType::array_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER), 4)
+                .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         unsafe {
@@ -679,9 +680,9 @@ mod tests {
     #[test]
     fn test_empty_struct() {
         let len = 4;
-        let logical_type = OwnedLogicalType::struct_type([], [])
-            .vortex_expect("LogicalType creation should succeed for test data");
-        let vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::struct_type([], [])
+            .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        let vector = Vector::with_capacity(&logical_type, len);
 
         // Test conversion
         let result = flat_vector_to_vortex(&vector, len).unwrap();
@@ -697,15 +698,15 @@ mod tests {
         let values2 = vec![5i32, 6, 7, 8];
         let len = values1.len();
 
-        let logical_type = OwnedLogicalType::struct_type(
+        let logical_type = LogicalType::struct_type(
             [
-                OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
-                OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
+                LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
+                LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER),
             ],
             [CString::new("a").unwrap(), CString::new("b").unwrap()],
         )
-        .vortex_expect("LogicalType creation should succeed for test data");
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with data
         for (i, values) in
@@ -742,9 +743,8 @@ mod tests {
         let len = 2;
 
         let logical_type =
-            OwnedLogicalType::list_type(OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
-                .unwrap();
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+            LogicalType::list_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER)).unwrap();
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Entry 0: offset=0, length=4 -> all elements (end=4)
         // Entry 1: null, offset=0, length=0 (end=0)
@@ -791,9 +791,8 @@ mod tests {
         let len = 2;
 
         let logical_type =
-            OwnedLogicalType::list_type(OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
-                .unwrap();
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+            LogicalType::list_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER)).unwrap();
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Populate with out-of-order list entries:
         // - Entry 0: offset=2, length=2 -> elements [3, 4] (end=4)
@@ -838,9 +837,8 @@ mod tests {
         let len = 3;
 
         let logical_type =
-            OwnedLogicalType::list_type(OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER))
-                .unwrap();
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+            LogicalType::list_type(LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER)).unwrap();
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         // Entry 0: valid, offset=0, length=2 -> elements [1, 2]
         // Entry 1: null with garbage values (offset=9999, length=9999)

@@ -11,7 +11,7 @@ use vortex::error::vortex_bail;
 use crate::cpp;
 use crate::cpp::duckdb_logical_type;
 use crate::cpp::duckdb_vx_error;
-use crate::duckdb::Vector;
+use crate::duckdb::VectorRef;
 use crate::lifetime_wrapper;
 
 lifetime_wrapper!(
@@ -20,9 +20,9 @@ lifetime_wrapper!(
     cpp::duckdb_destroy_data_chunk
 );
 
-impl OwnedDataChunk {
+impl DataChunk {
     /// Create a new data chunk using a list of logical dtypes
-    pub fn new(column_types: impl AsRef<[OwnedLogicalType]>) -> OwnedDataChunk {
+    pub fn new(column_types: impl AsRef<[LogicalType]>) -> DataChunk {
         let mut ptrs = column_types
             .as_ref()
             .iter()
@@ -30,13 +30,13 @@ impl OwnedDataChunk {
             .collect::<Vec<duckdb_logical_type>>();
 
         let ptr = unsafe { cpp::duckdb_create_data_chunk(ptrs.as_mut_ptr(), ptrs.len() as _) };
-        unsafe { OwnedDataChunk::own(ptr) }
+        unsafe { DataChunk::own(ptr) }
     }
 }
 
-use crate::duckdb::OwnedLogicalType;
+use crate::duckdb::LogicalType;
 
-impl DataChunk {
+impl DataChunkRef {
     /// Returns the column count of the data chunk.
     pub fn column_count(&self) -> usize {
         usize::try_from(unsafe { cpp::duckdb_data_chunk_get_column_count(self.as_ptr()) })
@@ -49,13 +49,13 @@ impl DataChunk {
     }
 
     /// Returns the vector at the specified column index.
-    pub fn get_vector(&self, idx: usize) -> &Vector {
-        unsafe { Vector::borrow(cpp::duckdb_data_chunk_get_vector(self.as_ptr(), idx as _)) }
+    pub fn get_vector(&self, idx: usize) -> &VectorRef {
+        unsafe { VectorRef::borrow(cpp::duckdb_data_chunk_get_vector(self.as_ptr(), idx as _)) }
     }
 
     /// Returns a mutable reference to the vector at the specified column index.
-    pub fn get_vector_mut(&mut self, idx: usize) -> &mut Vector {
-        unsafe { Vector::borrow_mut(cpp::duckdb_data_chunk_get_vector(self.as_ptr(), idx as _)) }
+    pub fn get_vector_mut(&mut self, idx: usize) -> &mut VectorRef {
+        unsafe { VectorRef::borrow_mut(cpp::duckdb_data_chunk_get_vector(self.as_ptr(), idx as _)) }
     }
 
     pub fn len(&self) -> u64 {
@@ -67,10 +67,10 @@ impl DataChunk {
     }
 }
 
-impl TryFrom<&DataChunk> for String {
+impl TryFrom<&DataChunkRef> for String {
     type Error = VortexError;
 
-    fn try_from(value: &DataChunk) -> Result<Self, Self::Error> {
+    fn try_from(value: &DataChunkRef) -> Result<Self, Self::Error> {
         let mut err: duckdb_vx_error = ptr::null_mut();
         #[cfg(debug_assertions)]
         unsafe {

@@ -6,7 +6,7 @@ use vortex::array::ExecutionCtx;
 use vortex::array::arrays::TemporalArray;
 use vortex::error::VortexResult;
 
-use crate::duckdb::Vector;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::primitive;
 
@@ -15,7 +15,7 @@ struct TemporalExporter {
 }
 
 impl ColumnExporter for TemporalExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         self.storage_type_exporter.export(offset, len, vector)
     }
 }
@@ -48,8 +48,8 @@ mod tests {
 
     use crate::SESSION;
     use crate::cpp;
-    use crate::duckdb::OwnedDataChunk;
-    use crate::duckdb::OwnedLogicalType;
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
     use crate::exporter::temporal::new_exporter;
 
     #[test]
@@ -59,9 +59,8 @@ mod tests {
             TimeUnit::Seconds,
             None,
         );
-        let mut chunk = OwnedDataChunk::new([OwnedLogicalType::new(
-            cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP_S,
-        )]);
+        let mut chunk =
+            DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP_S)]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
@@ -85,9 +84,7 @@ mod tests {
             TimeUnit::Microseconds,
             None,
         );
-        let mut chunk = OwnedDataChunk::new([OwnedLogicalType::new(
-            cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP,
-        )]);
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP)]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
@@ -110,7 +107,7 @@ mod tests {
             TimeUnit::Microseconds,
         );
 
-        let mut chunk = OwnedDataChunk::new([OwnedLogicalType::try_from(arr.dtype()).unwrap()]);
+        let mut chunk = DataChunk::new([LogicalType::try_from(arr.dtype()).unwrap()]);
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()

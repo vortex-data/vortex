@@ -4,7 +4,7 @@
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::duckdb::Vector;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 
 struct ValidityExporter {
@@ -24,7 +24,7 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for ValidityExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         assert!(
             offset + len <= self.mask.len(),
             "cannot access outside of array"

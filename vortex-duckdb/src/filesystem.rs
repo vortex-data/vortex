@@ -36,14 +36,14 @@ use vortex::io::runtime::BlockingRuntime;
 
 use crate::RUNTIME;
 use crate::cpp;
-use crate::duckdb::ClientContext;
-use crate::duckdb::OwnedFsFileHandle;
+use crate::duckdb::ClientContextRef;
+use crate::duckdb::FsFileHandle;
 use crate::duckdb::duckdb_fs_list_dir;
 use crate::duckdb::fs_error;
 
 pub(super) fn resolve_filesystem(
     base_url: &Url,
-    ctx: &ClientContext,
+    ctx: &ClientContextRef,
 ) -> VortexResult<FileSystemRef> {
     let fs_config = ctx
         .try_get_current_setting(c"vortex_filesystem")
@@ -57,7 +57,7 @@ pub(super) fn resolve_filesystem(
             "Using DuckDB's built-in filesystem for URL scheme '{}'",
             base_url.scheme()
         );
-        // SAFETY: The ClientContext is owned by the Connection and lives for the duration of
+        // SAFETY: The ClientContextRef is owned by the ConnectionRef and lives for the duration of
         // query execution. DuckDB keeps the connection alive while the filesystem is in use.
         Arc::new(DuckDbFileSystem::new(base_url.clone(), unsafe {
             ctx.erase_lifetime()
@@ -102,7 +102,7 @@ fn object_store_fs(base_url: &Url) -> VortexResult<FileSystemRef> {
 
 struct DuckDbFileSystem {
     base_url: Url,
-    ctx: &'static ClientContext,
+    ctx: &'static ClientContextRef,
 }
 
 impl Debug for DuckDbFileSystem {
@@ -114,7 +114,7 @@ impl Debug for DuckDbFileSystem {
 }
 
 impl DuckDbFileSystem {
-    pub fn new(base_url: Url, ctx: &'static ClientContext) -> Self {
+    pub fn new(base_url: Url, ctx: &'static ClientContextRef) -> Self {
         Self { base_url, ctx }
     }
 }
@@ -168,7 +168,7 @@ impl FileSystem for DuckDbFileSystem {
 /// Recursively list all files under `directory`, stripping `base_path` from each
 /// returned URL to produce relative paths.
 fn list_recursive(
-    ctx: &ClientContext,
+    ctx: &ClientContextRef,
     directory: &str,
     base_path: &str,
 ) -> VortexResult<Vec<FileListing>> {
@@ -198,7 +198,7 @@ fn list_recursive(
 
 /// A VortexReadAt implementation backed by DuckDB's filesystem (e.g., httpfs/s3).
 pub(crate) struct DuckDbFsReader {
-    handle: Arc<OwnedFsFileHandle>,
+    handle: Arc<FsFileHandle>,
     uri: Arc<str>,
     is_local: bool,
     size: Arc<OnceLock<u64>>,
@@ -219,7 +219,7 @@ impl DuckDbFsReader {
         let is_local = url.scheme() == "file";
 
         Ok(Self {
-            handle: Arc::new(unsafe { OwnedFsFileHandle::own(handle) }),
+            handle: Arc::new(unsafe { FsFileHandle::own(handle) }),
             uri: Arc::from(url.as_str()),
             is_local,
             size: Arc::new(OnceLock::new()),

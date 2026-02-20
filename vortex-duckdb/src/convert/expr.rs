@@ -35,7 +35,7 @@ use crate::duckdb;
 
 const DUCKDB_FUNCTION_NAME_CONTAINS: &str = "contains";
 
-fn like_pattern_str(value: &duckdb::Expression) -> VortexResult<Option<String>> {
+fn like_pattern_str(value: &duckdb::ExpressionRef) -> VortexResult<Option<String>> {
     match value.as_class().vortex_expect("unknown class") {
         duckdb::ExpressionClass::BoundConstant(constant) => {
             Ok(Some(format!("%{}%", constant.value.as_string().as_str())))
@@ -45,7 +45,9 @@ fn like_pattern_str(value: &duckdb::Expression) -> VortexResult<Option<String>> 
 }
 
 #[allow(clippy::cognitive_complexity)]
-pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Option<Expression>> {
+pub fn try_from_bound_expression(
+    value: &duckdb::ExpressionRef,
+) -> VortexResult<Option<Expression>> {
     let Some(value) = value.as_class() else {
         tracing::debug!("no expression class id {:?}", value.as_class_id());
         return Ok(None);

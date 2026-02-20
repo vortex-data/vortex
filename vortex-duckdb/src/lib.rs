@@ -16,9 +16,9 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
 use crate::copy::VortexCopyFunction;
-use crate::duckdb::Database;
-use crate::duckdb::OwnedLogicalType;
-use crate::duckdb::OwnedValue;
+use crate::duckdb::DatabaseRef;
+use crate::duckdb::LogicalType;
+use crate::duckdb::Value;
 use crate::scan::VortexTableFunction;
 
 mod convert;
@@ -45,12 +45,12 @@ static SESSION: LazyLock<VortexSession> =
 /// Initialize the Vortex extension by registering the extension functions.
 /// Note: This also registers extension options. If you want to register options
 /// separately (e.g., before creating connections), call `register_extension_options` first.
-pub fn initialize(db: &Database) -> VortexResult<()> {
+pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
     db.config().add_extension_options(
         "vortex_filesystem",
         "Whether to use Vortex's filesystem ('vortex') or DuckDB's filesystems ('duckdb').",
-        OwnedLogicalType::varchar(),
-        OwnedValue::from("vortex"),
+        LogicalType::varchar(),
+        Value::from("vortex"),
     )?;
     db.register_table_function::<VortexTableFunction>(c"vortex_scan")?;
     db.register_table_function::<VortexTableFunction>(c"read_vortex")?;
@@ -68,7 +68,7 @@ pub fn initialize(db: &Database) -> VortexResult<()> {
 /// The DuckDB extension ABI initialization function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
-    let database = unsafe { Database::borrow(db) };
+    let database = unsafe { DatabaseRef::borrow(db) };
 
     database
         .register_vortex_scan_replacement()

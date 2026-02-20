@@ -57,17 +57,17 @@ use crate::RUNTIME;
 use crate::SESSION;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_table_filter;
-use crate::duckdb::BindInput;
-use crate::duckdb::BindResult;
+use crate::duckdb::BindInputRef;
+use crate::duckdb::BindResultRef;
 use crate::duckdb::Cardinality;
-use crate::duckdb::ClientContext;
-use crate::duckdb::DataChunk;
-use crate::duckdb::Expression;
+use crate::duckdb::ClientContextRef;
+use crate::duckdb::DataChunkRef;
+use crate::duckdb::ExpressionRef;
 use crate::duckdb::ExtractedValue;
-use crate::duckdb::OwnedLogicalType;
+use crate::duckdb::LogicalType;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
-use crate::duckdb::VirtualColumnsResult;
+use crate::duckdb::VirtualColumnsResultRef;
 use crate::duckdb::footer_cache::FooterCache;
 use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
@@ -79,7 +79,7 @@ pub struct VortexBindData {
     filter_exprs: Vec<VortexExpression>,
     files: Vec<FileListing>,
     column_names: Vec<String>,
-    column_types: Vec<OwnedLogicalType>,
+    column_types: Vec<LogicalType>,
 }
 
 impl Clone for VortexBindData {
@@ -139,7 +139,7 @@ pub struct VortexTableFunction;
 /// Extracts the schema from a Vortex file.
 fn extract_schema_from_vortex_file(
     file: &VortexFile,
-) -> VortexResult<(Vec<String>, Vec<OwnedLogicalType>)> {
+) -> VortexResult<(Vec<String>, Vec<LogicalType>)> {
     let dtype = file.dtype();
 
     // For now, we assume the top-level type to be a struct.
@@ -151,7 +151,7 @@ fn extract_schema_from_vortex_file(
     let mut column_types = Vec::new();
 
     for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
-        let logical_type = OwnedLogicalType::try_from(&field_dtype)?;
+        let logical_type = LogicalType::try_from(&field_dtype)?;
         column_names.push(field_name.to_string());
         column_types.push(logical_type);
     }
@@ -216,7 +216,7 @@ fn extract_table_filter_expr(
 
 // taken from duckdb/common/constants.h COLUMN_IDENTIFIER_EMPTY
 // This is used by duckdb whenever there is no projection id in a logical_get node.
-// For some reason we cannot return an empty DataChunk and duckdb will look for the virtual column
+// For some reason we cannot return an empty DataChunkRef and duckdb will look for the virtual column
 // with this index and create a data chunk with a single vector of that type.
 static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
 static EMPTY_COLUMN_NAME: &str = "";
@@ -233,14 +233,14 @@ impl TableFunction for VortexTableFunction {
     /// Input parameter types of the `vortex_scan` table function.
     ///
     // `vortex_scan` takes a single file glob parameter.
-    fn parameters() -> Vec<OwnedLogicalType> {
-        vec![OwnedLogicalType::varchar()]
+    fn parameters() -> Vec<LogicalType> {
+        vec![LogicalType::varchar()]
     }
 
     fn bind(
-        ctx: &ClientContext,
-        input: &BindInput,
-        result: &mut BindResult,
+        ctx: &ClientContextRef,
+        input: &BindInputRef,
+        result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData> {
         let glob_url_parameter = input
             .get_parameter(0)
@@ -339,11 +339,11 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn scan(
-        _client_context: &ClientContext,
+        _client_context: &ClientContextRef,
         _bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
         global_state: &mut Self::GlobalState,
-        chunk: &mut DataChunk,
+        chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
         loop {
             if local_state.exporter.is_none() {
@@ -417,7 +417,7 @@ impl TableFunction for VortexTableFunction {
         );
 
         let client_context = init_input.client_context()?;
-        // SAFETY: The ObjectCache is owned by the DatabaseInstance and lives as long as the
+        // SAFETY: The ObjectCacheRef is owned by the DatabaseInstance and lives as long as the
         // database. DuckDB keeps the database alive for the duration of any query execution.
         let object_cache = unsafe { client_context.object_cache().erase_lifetime() };
 
@@ -536,7 +536,7 @@ impl TableFunction for VortexTableFunction {
 
     fn pushdown_complex_filter(
         bind_data: &mut Self::BindData,
-        expr: &Expression,
+        expr: &ExpressionRef,
     ) -> VortexResult<bool> {
         let Some(expr) = try_from_bound_expression(expr)? else {
             return Ok(false);
@@ -590,12 +590,8 @@ impl TableFunction for VortexTableFunction {
         Some(result)
     }
 
-    fn virtual_columns(_bind_data: &Self::BindData, result: &mut VirtualColumnsResult) {
-        result.register(
-            EMPTY_COLUMN_IDX,
-            EMPTY_COLUMN_NAME,
-            &OwnedLogicalType::bool(),
-        );
+    fn virtual_columns(_bind_data: &Self::BindData, result: &mut VirtualColumnsResultRef) {
+        result.register(EMPTY_COLUMN_IDX, EMPTY_COLUMN_NAME, &LogicalType::bool());
     }
 }
 

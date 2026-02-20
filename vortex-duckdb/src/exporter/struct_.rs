@@ -9,8 +9,8 @@ use vortex::array::arrays::StructArrayParts;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::error::VortexResult;
 
-use crate::duckdb::OwnedLogicalType;
-use crate::duckdb::Vector;
+use crate::duckdb::LogicalType;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::ConversionCache;
 use crate::exporter::all_invalid;
@@ -36,7 +36,7 @@ pub(crate) fn new_exporter(
     let validity = validity.to_array(len).execute::<BoolArray>(ctx)?;
 
     if validity.to_bit_buffer().true_count() == 0 {
-        let ltype = OwnedLogicalType::try_from(struct_fields)?;
+        let ltype = LogicalType::try_from(struct_fields)?;
         return Ok(all_invalid::new_exporter(len, &ltype));
     }
 
@@ -58,7 +58,7 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for StructExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         for (idx, child) in self.children.iter().enumerate() {
             child.export(offset, len, vector.struct_vector_get_child_mut(idx))?;
         }
@@ -84,8 +84,8 @@ mod tests {
     use super::*;
     use crate::SESSION;
     use crate::cpp;
-    use crate::duckdb::OwnedDataChunk;
-    use crate::duckdb::OwnedLogicalType;
+    use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
 
     #[test]
     fn test_struct_exporter() {
@@ -95,14 +95,14 @@ mod tests {
                 .into_array();
         let arr =
             StructArray::from_fields(&[("a", prim), ("b", strings)]).vortex_expect("struct array");
-        let mut chunk = OwnedDataChunk::new([OwnedLogicalType::struct_type(
+        let mut chunk = DataChunk::new([LogicalType::struct_type(
             vec![
-                OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER),
-                OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_VARCHAR),
+                LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER),
+                LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_VARCHAR),
             ],
             vec![CString::new("col1").unwrap(), CString::new("col2").unwrap()],
         )
-        .vortex_expect("LogicalType creation should succeed for test data")]);
+        .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
 
         new_exporter(
             arr,
@@ -159,14 +159,14 @@ mod tests {
             ])),
         )
         .vortex_expect("StructArray creation should succeed for test data");
-        let mut chunk = OwnedDataChunk::new([OwnedLogicalType::struct_type(
+        let mut chunk = DataChunk::new([LogicalType::struct_type(
             vec![
-                OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER),
-                OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_VARCHAR),
+                LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER),
+                LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_VARCHAR),
             ],
             vec![CString::new("col1").unwrap(), CString::new("col2").unwrap()],
         )
-        .vortex_expect("LogicalType creation should succeed for test data")]);
+        .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
 
         new_exporter(
             arr,
@@ -204,14 +204,14 @@ mod tests {
             ])),
         )
         .vortex_expect("StructArray creation should succeed for test data");
-        let mut chunk = OwnedDataChunk::new([OwnedLogicalType::struct_type(
+        let mut chunk = DataChunk::new([LogicalType::struct_type(
             vec![
-                OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER),
-                OwnedLogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_VARCHAR),
+                LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER),
+                LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_VARCHAR),
             ],
             vec![CString::new("col1").unwrap(), CString::new("col2").unwrap()],
         )
-        .vortex_expect("LogicalType creation should succeed for test data")]);
+        .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
 
         new_exporter(
             arr,

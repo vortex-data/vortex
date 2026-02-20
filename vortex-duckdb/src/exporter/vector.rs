@@ -3,11 +3,11 @@
 
 use vortex::mask::Mask;
 
-use crate::duckdb::OwnedValue;
-use crate::duckdb::Vector;
+use crate::duckdb::Value;
+use crate::duckdb::VectorRef;
 use crate::exporter::copy_from_slice;
 
-impl Vector {
+impl VectorRef {
     pub(super) unsafe fn set_validity(&mut self, mask: &Mask, offset: usize, len: usize) -> bool {
         match mask {
             Mask::AllTrue(_) => {
@@ -49,6 +49,6 @@ impl Vector {
     }
 
     pub(super) fn set_all_false_validity(&mut self) {
-        self.reference_value(&OwnedValue::null(&self.logical_type()));
+        self.reference_value(&Value::null(&self.logical_type()));
     }
 }

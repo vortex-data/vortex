@@ -12,8 +12,8 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
 use crate::cpp;
-use crate::duckdb::OwnedConfig;
-use crate::duckdb::connection::OwnedConnection;
+use crate::duckdb::Config;
+use crate::duckdb::connection::Connection;
 use crate::duckdb_try;
 use crate::lifetime_wrapper;
 
@@ -24,7 +24,7 @@ lifetime_wrapper!(
     cpp::duckdb_close
 );
 
-impl OwnedDatabase {
+impl Database {
     /// Creates a new DuckDB database instance in memory.
     pub fn open_in_memory() -> VortexResult<Self> {
         let mut ptr: duckdb_database = ptr::null_mut();
@@ -58,7 +58,7 @@ impl OwnedDatabase {
     /// Opens a DuckDB database from a file path with custom configuration.
     ///
     /// Creates a new file in case the path does not exist.
-    pub fn open_with_config<P: AsRef<Path>>(path: P, config: OwnedConfig) -> VortexResult<Self> {
+    pub fn open_with_config<P: AsRef<Path>>(path: P, config: Config) -> VortexResult<Self> {
         let path_str = path
             .as_ref()
             .to_str()
@@ -70,7 +70,7 @@ impl OwnedDatabase {
         let mut error: *mut c_char = ptr::null_mut();
 
         // duckdb_open_ext borrows the config (copies it internally), so we pass as_ptr()
-        // and let the OwnedConfig drop naturally at the end of this function.
+        // and let the Config drop naturally at the end of this function.
         let result = unsafe {
             cpp::duckdb_open_ext(
                 path_cstr.as_ptr(),
@@ -102,12 +102,12 @@ impl OwnedDatabase {
     }
 
     /// Opens an in-memory DuckDB database with custom configuration.
-    pub fn open_in_memory_with_config(config: OwnedConfig) -> VortexResult<Self> {
+    pub fn open_in_memory_with_config(config: Config) -> VortexResult<Self> {
         let mut ptr: duckdb_database = ptr::null_mut();
         let mut error: *mut c_char = ptr::null_mut();
 
         // duckdb_open_ext borrows the config (copies it internally), so we pass as_ptr()
-        // and let the OwnedConfig drop naturally at the end of this function.
+        // and let the Config drop naturally at the end of this function.
         let result = unsafe {
             cpp::duckdb_open_ext(ptr::null(), &raw mut ptr, config.as_ptr(), &raw mut error)
         };
@@ -130,10 +130,10 @@ impl OwnedDatabase {
     }
 }
 
-impl Database {
+impl DatabaseRef {
     /// Connects to the DuckDB database.
-    pub fn connect(&self) -> VortexResult<OwnedConnection> {
-        OwnedConnection::connect(self)
+    pub fn connect(&self) -> VortexResult<Connection> {
+        Connection::connect(self)
     }
 
     pub fn register_vortex_scan_replacement(&self) -> VortexResult<()> {
@@ -151,11 +151,11 @@ mod tests {
 
     #[test]
     fn test_database_with_config() {
-        let mut config = OwnedConfig::new().unwrap();
+        let mut config = Config::new().unwrap();
         config.set("memory_limit", "512MB").unwrap();
         config.set("threads", "1").unwrap();
 
-        let db = OwnedDatabase::open_in_memory_with_config(config);
+        let db = Database::open_in_memory_with_config(config);
         assert!(db.is_ok());
 
         let conn = db.unwrap().connect();
@@ -164,10 +164,10 @@ mod tests {
 
     #[test]
     fn test_file_database_with_config() {
-        let mut config = OwnedConfig::new().unwrap();
+        let mut config = Config::new().unwrap();
         config.set("memory_limit", "256MB").unwrap();
 
-        let db = OwnedDatabase::open_with_config("test_config_unit.db", config);
+        let db = Database::open_with_config("test_config_unit.db", config);
         assert!(db.is_ok());
 
         let conn = db.unwrap().connect();

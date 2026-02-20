@@ -21,35 +21,35 @@ use crate::cpp;
 use crate::cpp::duckdb_vx_error;
 use crate::cpp::idx_t;
 use crate::duckdb::LogicalType;
-use crate::duckdb::OwnedLogicalType;
-use crate::duckdb::OwnedValue;
-use crate::duckdb::SelectionVector;
+use crate::duckdb::LogicalTypeRef;
+use crate::duckdb::SelectionVectorRef;
 use crate::duckdb::Value;
-use crate::duckdb::VectorBuffer;
+use crate::duckdb::ValueRef;
+use crate::duckdb::VectorBufferRef;
 use crate::lifetime_wrapper;
 
 pub const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
 
 lifetime_wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
 
-/// Safety: It is safe to mark `OwnedVector` as `Send` as the memory it points is `Send`.
-unsafe impl Send for OwnedVector {}
+/// Safety: It is safe to mark `Vector` as `Send` as the memory it points is `Send`.
+unsafe impl Send for Vector {}
 
-impl OwnedVector {
+impl Vector {
     /// Create a new vector with the given type.
-    pub fn new(logical_type: &LogicalType) -> Self {
+    pub fn new(logical_type: &LogicalTypeRef) -> Self {
         unsafe { Self::own(cpp::duckdb_create_vector(logical_type.as_ptr(), 0)) }
     }
 
     /// Create a new vector with the given type and capacity.
-    pub fn with_capacity(logical_type: &LogicalType, len: usize) -> Self {
+    pub fn with_capacity(logical_type: &LogicalTypeRef, len: usize) -> Self {
         unsafe { Self::own(cpp::duckdb_create_vector(logical_type.as_ptr(), len as _)) }
     }
 }
 
-impl Vector {
+impl VectorRef {
     /// Converts the vector is a constant vector with every element `value`.
-    pub fn reference_value(&mut self, value: &Value) {
+    pub fn reference_value(&mut self, value: &ValueRef) {
         unsafe {
             cpp::duckdb_vector_reference_value(self.as_ptr(), value.as_ptr());
         }
@@ -58,7 +58,7 @@ impl Vector {
     /// Reference the data from another vector.
     ///
     /// After calling this, both vectors share ownership of the same underlying data.
-    pub fn reference(&mut self, other: &Vector) {
+    pub fn reference(&mut self, other: &VectorRef) {
         unsafe { cpp::duckdb_vector_reference_vector(self.as_ptr(), other.as_ptr()) }
     }
 
@@ -69,9 +69,9 @@ impl Vector {
     /// `dictionary` differs from `slice_to_dictionary` in that it initializes hash caching.
     pub fn dictionary(
         &self,
-        dict: &Vector,
+        dict: &VectorRef,
         dictionary_size: usize,
-        sel_vec: &SelectionVector,
+        sel_vec: &SelectionVectorRef,
         count: usize,
     ) {
         unsafe {
@@ -144,11 +144,11 @@ impl Vector {
         !is_valid
     }
 
-    pub unsafe fn set_vector_buffer(&self, buffer: &VectorBuffer) {
+    pub unsafe fn set_vector_buffer(&self, buffer: &VectorBufferRef) {
         unsafe { cpp::duckdb_vx_vector_set_vector_data_buffer(self.as_ptr(), buffer.as_ptr()) }
     }
 
-    pub fn add_string_vector_buffer(&self, buffer: &VectorBuffer) {
+    pub fn add_string_vector_buffer(&self, buffer: &VectorBufferRef) {
         unsafe {
             cpp::duckdb_vx_string_vector_add_vector_data_buffer(self.as_ptr(), buffer.as_ptr())
         }
@@ -165,9 +165,9 @@ impl Vector {
         unsafe { cpp::duckdb_vector_assign_string_element(self.as_ptr(), idx as _, value.as_ptr()) }
     }
 
-    pub fn logical_type(&self) -> OwnedLogicalType {
+    pub fn logical_type(&self) -> LogicalType {
         // NOTE(ngates): weirdly this function does indeed return an owned logical type.
-        unsafe { OwnedLogicalType::own(cpp::duckdb_vector_get_column_type(self.as_ptr())) }
+        unsafe { LogicalType::own(cpp::duckdb_vector_get_column_type(self.as_ptr())) }
     }
 
     /// Ensure the validity slice is writable.
@@ -301,14 +301,14 @@ impl Vector {
         }
     }
 
-    pub fn get_value(&self, idx: u64, len: u64) -> Option<OwnedValue> {
+    pub fn get_value(&self, idx: u64, len: u64) -> Option<Value> {
         if idx >= len {
             return None;
         }
 
         unsafe {
             let value_ptr = cpp::duckdb_vx_vector_get_value(self.as_ptr(), idx as idx_t);
-            Some(OwnedValue::own(value_ptr))
+            Some(Value::own(value_ptr))
         }
     }
 }
@@ -351,13 +351,13 @@ mod tests {
 
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
-    use crate::duckdb::OwnedSelectionVector;
+    use crate::duckdb::SelectionVector;
 
     #[test]
     fn test_create_validity_all_valid() {
         let len = 10;
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let vector = Vector::with_capacity(&logical_type, len);
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
@@ -371,8 +371,8 @@ mod tests {
     #[test]
     fn test_create_validity_with_nulls() {
         let len = 10;
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         validity_slice.set(1, false);
@@ -392,8 +392,8 @@ mod tests {
     #[test]
     fn test_create_validity_single_element() {
         let len = 1;
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         validity_slice.set(0, false);
@@ -406,8 +406,8 @@ mod tests {
     #[test]
     fn test_create_validity_single_element_valid() {
         let len = 1;
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         let _validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
 
@@ -419,8 +419,8 @@ mod tests {
     #[test]
     fn test_create_validity_empty() {
         let len = 0;
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let vector = Vector::with_capacity(&logical_type, len);
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
@@ -430,8 +430,8 @@ mod tests {
     #[test]
     fn test_create_validity_all_nulls() {
         let len = 10;
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         for i in 0..len {
@@ -446,8 +446,8 @@ mod tests {
     #[test]
     fn test_row_is_null_all_valid() {
         let len = 10;
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let vector = Vector::with_capacity(&logical_type, len);
 
         let validity = vector.validity_ref(len);
         for i in 0..len {
@@ -458,8 +458,8 @@ mod tests {
     #[test]
     fn test_row_is_null_with_nulls() {
         let len = 10;
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         validity_slice.set(1, false);
@@ -482,8 +482,8 @@ mod tests {
     #[test]
     fn test_row_is_null_all_nulls() {
         let len = 10;
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         for i in 0..len {
@@ -499,8 +499,8 @@ mod tests {
     #[test]
     fn test_row_is_null_single_element() {
         let len = 1;
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         validity_slice.set(0, false);
@@ -512,8 +512,8 @@ mod tests {
     #[test]
     fn test_row_is_null_single_element_valid() {
         let len = 1;
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         let _validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
 
@@ -524,8 +524,8 @@ mod tests {
     #[test]
     fn test_row_is_null_byte_boundaries() {
         let len = 128;
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = OwnedVector::with_capacity(&logical_type, len);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         validity_slice.set(0, false);
@@ -548,16 +548,16 @@ mod tests {
 
     #[test]
     fn test_dictionary() {
-        let logical_type = OwnedLogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
+        let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
 
-        let mut dict = OwnedVector::with_capacity(&logical_type, 2);
+        let mut dict = Vector::with_capacity(&logical_type, 2);
         let dict_slice = unsafe { dict.as_slice_mut::<i32>(2) };
         dict_slice[0] = 100;
         dict_slice[1] = 200;
 
-        let vector = OwnedVector::with_capacity(&logical_type, 3);
+        let vector = Vector::with_capacity(&logical_type, 3);
 
-        let mut sel_vec = OwnedSelectionVector::with_capacity(3);
+        let mut sel_vec = SelectionVector::with_capacity(3);
         let sel_slice = unsafe { sel_vec.as_slice_mut(3) };
         sel_slice[0] = 0;
         sel_slice[1] = 1;

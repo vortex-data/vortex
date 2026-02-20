@@ -23,11 +23,11 @@ use vortex::expr::or_collect;
 use vortex::scalar::Scalar;
 
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
-use crate::duckdb::TableFilter;
 use crate::duckdb::TableFilterClass;
+use crate::duckdb::TableFilterRef;
 
 pub fn try_from_table_filter(
-    value: &TableFilter,
+    value: &TableFilterRef,
     col: &Expression,
     scope_dtype: &DType,
 ) -> VortexResult<Option<Expression>> {
@@ -116,7 +116,7 @@ pub fn try_from_table_filter(
                 col.clone(),
             )
         }
-        TableFilterClass::Expression(expr) => {
+        TableFilterClass::ExpressionRef(expr) => {
             // TODO(ngates): figure out which column ID DuckDB is using for the expression.
             vortex_bail!("expression table filter is not supported: {}", expr);
         }
