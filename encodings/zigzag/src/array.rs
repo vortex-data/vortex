@@ -141,7 +141,7 @@ impl ZigZagVTable {
 
 impl ZigZagArray {
     pub fn new(encoded: ArrayRef) -> Self {
-        Self::try_new(encoded).vortex_expect("ZigZigArray new")
+        Self::try_new(encoded).vortex_expect("ZigZagArray new")
     }
 
     pub fn try_new(encoded: ArrayRef) -> VortexResult<Self> {
