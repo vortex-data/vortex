@@ -268,6 +268,7 @@ impl SegmentSource for FileSegmentSource {
             id,
             state,
             polled: false,
+            finished: false,
             events: self.events.clone(),
         };
 
@@ -284,6 +285,7 @@ struct ReadFuture {
     id: usize,
     state: Arc<ReadRequestState>,
     polled: bool,
+    finished: bool,
     events: mpsc::UnboundedSender<ReadEvent>,
 }
 
@@ -292,6 +294,13 @@ impl Future for ReadFuture {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if !self.polled {
+            // Requests can be resolved before first poll when they are coalesced with nearby
+            // requests. In that case, avoid an unnecessary Polled event.
+            if let Poll::Ready(result) = self.state.poll_result(cx) {
+                self.finished = true;
+                return Poll::Ready(result);
+            }
+
             self.polled = true;
             // Notify the I/O stream that this request has been polled.
             if let Err(e) = self.events.unbounded_send(ReadEvent::Polled(self.id)) {
@@ -300,15 +309,23 @@ impl Future for ReadFuture {
             IO_POLLED.fetch_add(1, Ordering::Relaxed);
         }
 
-        self.state.poll_result(cx)
+        let poll = self.state.poll_result(cx);
+        if poll.is_ready() {
+            self.finished = true;
+        }
+        poll
     }
 }
 
 impl Drop for ReadFuture {
     fn drop(&mut self) {
+        // Completed requests have already left driver state.
+        if self.finished {
+            return;
+        }
+
         self.state.close();
-        // When the FileHandle is dropped, we can send a shutdown event to the I/O stream.
-        // If the I/O stream has already been dropped, this will fail silently.
+        // Best-effort cancellation signal to the I/O stream.
         if self
             .events
             .unbounded_send(ReadEvent::Dropped(self.id))
