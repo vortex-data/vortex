@@ -4,6 +4,7 @@
 //! Stats as they are stored on arrays.
 
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use parking_lot::RwLock;
 use vortex_error::VortexError;
@@ -30,10 +31,14 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
+///
+/// Uses lazy allocation: the backing `Arc<RwLock<StatsSet>>` is only allocated on the first write.
+/// This avoids heap allocation and deallocation overhead for ephemeral wrapper arrays
+/// (Slice, Filter, ScalarFn) that never use stats.
 // TODO(adamg): This is a very bad name.
 #[derive(Clone, Default, Debug)]
 pub struct ArrayStats {
-    inner: Arc<RwLock<StatsSet>>,
+    inner: OnceLock<Arc<RwLock<StatsSet>>>,
 }
 
 /// Reference to an array's [`StatsSet`]. Can be used to get and mutate the underlying stats.
@@ -46,6 +51,12 @@ pub struct StatsSetRef<'a> {
 }
 
 impl ArrayStats {
+    /// Returns the inner Arc, allocating it on first access (for writes).
+    fn get_or_init(&self) -> &Arc<RwLock<StatsSet>> {
+        self.inner
+            .get_or_init(|| Arc::new(RwLock::new(StatsSet::default())))
+    }
+
     pub fn to_ref<'a>(&'a self, array: &'a dyn Array) -> StatsSetRef<'a> {
         StatsSetRef {
             dyn_array_ref: array,
@@ -54,49 +65,56 @@ impl ArrayStats {
     }
 
     pub fn set(&self, stat: Stat, value: Precision<ScalarValue>) {
-        self.inner.write().set(stat, value);
+        self.get_or_init().write().set(stat, value);
     }
 
     pub fn clear(&self, stat: Stat) {
-        self.inner.write().clear(stat);
+        self.get_or_init().write().clear(stat);
     }
 
     pub fn retain(&self, stats: &[Stat]) {
-        self.inner.write().retain_only(stats);
+        self.get_or_init().write().retain_only(stats);
     }
 }
 
 impl From<StatsSet> for ArrayStats {
     fn from(value: StatsSet) -> Self {
         Self {
-            inner: Arc::new(RwLock::new(value)),
+            inner: OnceLock::from(Arc::new(RwLock::new(value))),
         }
     }
 }
 
 impl From<ArrayStats> for StatsSet {
     fn from(value: ArrayStats) -> Self {
-        value.inner.read().clone()
+        match value.inner.get() {
+            Some(arc) => arc.read().clone(),
+            None => StatsSet::default(),
+        }
     }
 }
 
 impl StatsSetRef<'_> {
     pub fn set_iter(&self, iter: StatsSetIntoIter) {
-        let mut guard = self.array_stats.inner.write();
+        let mut guard = self.array_stats.get_or_init().write();
         for (stat, value) in iter {
             guard.set(stat, value);
         }
     }
 
     pub fn inherit_from(&self, stats: StatsSetRef<'_>) {
-        // Only inherit if the underlying stats are different
-        if !Arc::ptr_eq(&self.array_stats.inner, &stats.array_stats.inner) {
-            stats.with_iter(|iter| self.inherit(iter));
+        match (self.array_stats.inner.get(), stats.array_stats.inner.get()) {
+            // Same backing Arc, nothing to do.
+            (Some(a), Some(b)) if Arc::ptr_eq(a, b) => {}
+            // Source has no stats, nothing to inherit.
+            (_, None) => {}
+            // Otherwise, inherit from source.
+            _ => stats.with_iter(|iter| self.inherit(iter)),
         }
     }
 
     pub fn inherit<'a>(&self, iter: impl Iterator<Item = &'a (Stat, Precision<ScalarValue>)>) {
-        let mut guard = self.array_stats.inner.write();
+        let mut guard = self.array_stats.get_or_init().write();
         for (stat, value) in iter {
             if !value.is_exact() {
                 if !guard.get(*stat).is_some_and(|v| v.is_exact()) {
@@ -109,25 +127,29 @@ impl StatsSetRef<'_> {
     }
 
     pub fn with_typed_stats_set<U, F: FnOnce(TypedStatsSetRef) -> U>(&self, apply: F) -> U {
-        apply(
-            self.array_stats
-                .inner
-                .read()
-                .as_typed_ref(self.dyn_array_ref.dtype()),
-        )
+        match self.array_stats.inner.get() {
+            Some(arc) => apply(arc.read().as_typed_ref(self.dyn_array_ref.dtype())),
+            None => {
+                let empty = StatsSet::default();
+                apply(empty.as_typed_ref(self.dyn_array_ref.dtype()))
+            }
+        }
     }
 
     pub fn with_mut_typed_stats_set<U, F: FnOnce(MutTypedStatsSetRef) -> U>(&self, apply: F) -> U {
         apply(
             self.array_stats
-                .inner
+                .get_or_init()
                 .write()
                 .as_mut_typed_ref(self.dyn_array_ref.dtype()),
         )
     }
 
     pub fn to_owned(&self) -> StatsSet {
-        self.array_stats.inner.read().clone()
+        match self.array_stats.inner.get() {
+            Some(arc) => arc.read().clone(),
+            None => StatsSet::default(),
+        }
     }
 
     pub fn with_iter<
@@ -137,8 +159,13 @@ impl StatsSetRef<'_> {
         &self,
         f: F,
     ) -> R {
-        let lock = self.array_stats.inner.read();
-        f(&mut lock.iter())
+        match self.array_stats.inner.get() {
+            Some(arc) => {
+                let lock = arc.read();
+                f(&mut lock.iter())
+            }
+            None => f(&mut std::iter::empty()),
+        }
     }
 
     pub fn compute_stat(&self, stat: Stat) -> VortexResult<Option<Scalar>> {
@@ -269,12 +296,16 @@ impl StatsProvider for StatsSetRef<'_> {
     fn get(&self, stat: Stat) -> Option<Precision<Scalar>> {
         self.array_stats
             .inner
+            .get()?
             .read()
             .as_typed_ref(self.dyn_array_ref.dtype())
             .get(stat)
     }
 
     fn len(&self) -> usize {
-        self.array_stats.inner.read().len()
+        match self.array_stats.inner.get() {
+            Some(arc) => arc.read().len(),
+            None => 0,
+        }
     }
 }
