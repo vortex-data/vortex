@@ -352,7 +352,7 @@ impl FileOpener for VortexOpener {
                 scan_builder = scan_builder.with_limit(limit);
             }
 
-            scan_builder = scan_builder.with_concurrency(scan_concurrency.unwrap_or(1));
+            scan_builder = scan_builder.with_concurrency(scan_concurrency.unwrap_or(4));
 
             let stream = scan_builder
                 .with_metrics_registry(metrics_registry)
