@@ -19,6 +19,7 @@ workspace = true
 futures = { workspace = true, features = ["executor"] }
 tokio = { workspace = true, features = ["macros", "full"] }
 tracing = { workspace = true, features = ["std", "attributes"] }
+tracing-perfetto = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 vortex = { workspace = true }
 vortex-cuda = { workspace = true, features = ["_test-harness"] }

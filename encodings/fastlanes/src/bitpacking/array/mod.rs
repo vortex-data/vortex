@@ -307,20 +307,6 @@ mod test {
 
     use crate::BitPackedArray;
 
-    // #[cfg_attr(miri, ignore)]
-    // #[test]
-    // fn test_bitpacked_metadata() {
-    //     check_metadata(
-    //         "bitpacked.metadata",
-    //         RkyvMetadata(BitPackedMetadata {
-    //             patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
-    //             validity: ValidityMetadata::AllValid,
-    //             offset: u16::MAX,
-    //             bit_width: u8::MAX,
-    //         }),
-    //     );
-    // }
-
     #[test]
     fn test_encode() {
         let values = [

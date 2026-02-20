@@ -276,17 +276,6 @@ impl From<Vec<Option<bool>>> for ByteBoolArray {
 mod tests {
     use super::*;
 
-    // #[cfg_attr(miri, ignore)]
-    // #[test]
-    // fn test_bytebool_metadata() {
-    //     check_metadata(
-    //         "bytebool.metadata",
-    //         SerdeMetadata(ByteBoolMetadata {
-    //             validity: ValidityMetadata::AllValid,
-    //         }),
-    //     );
-    // }
-
     #[test]
     fn test_validity_construction() {
         let v = vec![true, false];
