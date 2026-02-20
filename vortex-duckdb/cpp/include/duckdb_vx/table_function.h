@@ -133,7 +133,9 @@ typedef struct {
     void *pushdown_expression;
     duckdb_vx_string_map (*to_string)(void *bind_data);
     // void *dynamic_to_string;
-    void *table_scan_progress;
+
+    double (*table_scan_progress)(duckdb_client_context ctx, void *bind_data, void *global_state);
+
     idx_t (*get_partition_data)(const void *bind_data,
                                 void *init_global_data,
                                 void *init_local_data,
