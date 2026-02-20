@@ -10,16 +10,16 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
-use vortex_dtype::FieldName;
-use vortex_dtype::FieldNames;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::dtype::DType;
+use crate::dtype::FieldName;
+use crate::dtype::FieldNames;
+use crate::dtype::StructFields;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -315,12 +315,11 @@ impl Scalar {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType::I32;
-    use vortex_dtype::StructFields;
-
     use super::*;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType::I32;
+    use crate::dtype::StructFields;
     use crate::scalar::PValue;
 
     fn setup_types() -> (DType, DType, DType) {
@@ -474,8 +473,8 @@ mod tests {
         let target_fields = StructFields::new(
             ["x", "y"].into(),
             vec![
-                DType::Primitive(vortex_dtype::PType::I64, Nullability::NonNullable),
-                DType::Primitive(vortex_dtype::PType::I64, Nullability::NonNullable),
+                DType::Primitive(crate::dtype::PType::I64, Nullability::NonNullable),
+                DType::Primitive(crate::dtype::PType::I64, Nullability::NonNullable),
             ],
         );
         let target_dtype = DType::Struct(target_fields, Nullability::NonNullable);

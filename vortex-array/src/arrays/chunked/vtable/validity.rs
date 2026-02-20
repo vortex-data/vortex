@@ -2,14 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
 

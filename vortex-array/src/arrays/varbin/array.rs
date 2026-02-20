@@ -4,10 +4,6 @@
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -19,6 +15,10 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
+use crate::dtype::Nullability;
+use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 

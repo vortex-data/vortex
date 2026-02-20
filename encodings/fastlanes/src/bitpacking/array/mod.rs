@@ -5,12 +5,12 @@ use fastlanes::BitPacking;
 use vortex_array::Array;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -306,20 +306,6 @@ mod test {
     use vortex_buffer::Buffer;
 
     use crate::BitPackedArray;
-
-    // #[cfg_attr(miri, ignore)]
-    // #[test]
-    // fn test_bitpacked_metadata() {
-    //     check_metadata(
-    //         "bitpacked.metadata",
-    //         RkyvMetadata(BitPackedMetadata {
-    //             patches: Some(PatchesMetadata::new(usize::MAX, usize::MAX, PType::U64)),
-    //             validity: ValidityMetadata::AllValid,
-    //             offset: u16::MAX,
-    //             bit_width: u8::MAX,
-    //         }),
-    //     );
-    // }
 
     #[test]
     fn test_encode() {

@@ -13,7 +13,7 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
-use vortex_dtype::DType;
+use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
@@ -273,10 +273,10 @@ mod tests {
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SharedArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
 

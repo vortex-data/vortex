@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::IntegerPType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
-use vortex_dtype::match_smallest_offset_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -17,7 +13,11 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::TakeExecute;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
+use crate::dtype::IntegerPType;
+use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
+use crate::match_each_integer_ptype;
+use crate::match_smallest_offset_type;
 use crate::vtable::ValidityHelper;
 
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
@@ -184,9 +184,6 @@ mod test {
 
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType::I32;
 
     use crate::Array;
     use crate::IntoArray as _;
@@ -195,6 +192,9 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::list::ListArray;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType::I32;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 

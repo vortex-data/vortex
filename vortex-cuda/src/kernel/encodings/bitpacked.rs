@@ -10,23 +10,23 @@ use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::buffer::DeviceBufferExt;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::buffer::DeviceBufferExt;
+use vortex::array::match_each_integer_ptype;
+use vortex::array::match_each_unsigned_integer_ptype;
+use vortex::dtype::NativePType;
+use vortex::encodings::fastlanes::BitPackedArray;
+use vortex::encodings::fastlanes::BitPackedArrayParts;
+use vortex::encodings::fastlanes::BitPackedVTable;
+use vortex::encodings::fastlanes::unpack_iter::BitPacked;
+use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
+use vortex::error::vortex_err;
 use vortex_cuda_macros::cuda_tests;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_integer_ptype;
-use vortex_dtype::match_each_unsigned_integer_ptype;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
-use vortex_fastlanes::BitPackedArray;
-use vortex_fastlanes::BitPackedArrayParts;
-use vortex_fastlanes::BitPackedVTable;
-use vortex_fastlanes::unpack_iter::BitPacked;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -56,7 +56,7 @@ impl CudaExecute for BitPackedExecutor {
             Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected BitPackedArray"))?;
 
         match_each_integer_ptype!(array.ptype(), |A| {
-            decode_bitpacked::<A>(array, ctx).await
+            decode_bitpacked::<A>(array, A::default(), ctx).await
         })
     }
 }
@@ -87,8 +87,10 @@ pub fn bitpacked_cuda_launch_config(output_width: usize, len: usize) -> VortexRe
     })
 }
 
+#[instrument(skip_all)]
 pub(crate) async fn decode_bitpacked<A>(
     array: BitPackedArray,
+    reference: A,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical>
 where
@@ -122,7 +124,7 @@ where
     let config = bitpacked_cuda_launch_config(output_width, len)?;
 
     ctx.launch_kernel_config(&cuda_function, config, len, |args| {
-        args.arg(&input_view).arg(&output_view);
+        args.arg(&input_view).arg(&output_view).arg(&reference);
     })?;
 
     let output_handle = match patches {
@@ -155,16 +157,16 @@ where
 mod tests {
     use futures::executor::block_on;
     use rstest::rstest;
-    use vortex_array::ExecutionCtx;
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::session::ArraySession;
-    use vortex_array::validity::Validity::NonNullable;
-    use vortex_array::vtable::VTable;
-    use vortex_buffer::Buffer;
-    use vortex_error::VortexExpect;
-    use vortex_session::VortexSession;
+    use vortex::array::ExecutionCtx;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::array::session::ArraySession;
+    use vortex::array::validity::Validity::NonNullable;
+    use vortex::array::vtable::VTable;
+    use vortex::buffer::Buffer;
+    use vortex::error::VortexExpect;
+    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;

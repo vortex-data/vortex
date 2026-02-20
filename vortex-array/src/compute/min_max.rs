@@ -4,10 +4,6 @@
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use vortex_dtype::DType;
-use vortex_dtype::FieldNames;
-use vortex_dtype::Nullability;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -20,6 +16,10 @@ use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Output;
 use crate::compute::UnaryArgs;
+use crate::dtype::DType;
+use crate::dtype::FieldNames;
+use crate::dtype::Nullability;
+use crate::dtype::StructFields;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;

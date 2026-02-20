@@ -14,8 +14,6 @@ use std::sync::Arc;
 
 pub use visitor::*;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -45,6 +43,8 @@ use crate::arrays::VarBinViewVTable;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::compute;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
 use crate::expr::ScalarFn;

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 
 use super::DictVTable;
@@ -9,6 +8,7 @@ use crate::Array;
 use crate::IntoArray;
 use crate::arrays::dict::DictArray;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::Nullability;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;

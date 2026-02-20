@@ -5,8 +5,6 @@ mod kernel;
 use std::fmt::Formatter;
 
 pub use kernel::*;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -21,6 +19,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::mask_validity_canonical;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -192,11 +192,11 @@ pub fn mask(array: Expression, mask: Expression) -> Expression {
 
 #[cfg(test)]
 mod test {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::PType;
     use vortex_error::VortexExpect;
 
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::mask::mask;
     use crate::scalar::Scalar;

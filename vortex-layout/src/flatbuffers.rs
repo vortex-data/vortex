@@ -9,7 +9,7 @@ use flatbuffers::VerifierOptions;
 use flatbuffers::WIPOffset;
 use flatbuffers::root_with_opts;
 use vortex_array::ArrayContext;
-use vortex_dtype::DType;
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;

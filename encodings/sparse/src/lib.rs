@@ -20,10 +20,10 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::compute::Operator;
-use vortex_array::compute::compare;
 use vortex_array::compute::filter;
-use vortex_array::compute::sub_scalar;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::expr::Operator;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::scalar::Scalar;
@@ -40,8 +40,6 @@ use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::VisitorVTable;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -272,7 +270,10 @@ impl SparseArray {
     pub fn resolved_patches(&self) -> VortexResult<Patches> {
         let patches = self.patches();
         let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
-        let indices = sub_scalar(patches.indices(), indices_offset)?;
+        let indices = patches.indices().to_array().binary(
+            ConstantArray::new(indices_offset, patches.indices().len()).into_array(),
+            Operator::Sub,
+        )?;
 
         Patches::new(
             patches.array_len(),
@@ -354,7 +355,9 @@ impl SparseArray {
 
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
         let non_top_mask = Mask::from_buffer(
-            compare(array, &fill_array, Operator::NotEq)?
+            array
+                .to_array()
+                .binary(fill_array.clone(), Operator::NotEq)?
                 .fill_null(Scalar::bool(true, Nullability::NonNullable))?
                 .to_bool()
                 .to_bit_buffer(),
@@ -455,12 +458,12 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexExpect;
 
     use super::*;

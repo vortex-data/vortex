@@ -9,13 +9,13 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -227,11 +227,10 @@ impl<'a> ListScalar<'a> {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-
     use super::*;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
 
     #[test]
     fn test_list_scalar_creation() {

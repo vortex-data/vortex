@@ -60,9 +60,6 @@ mod test {
     #[allow(unused_imports)]
     use itertools::Itertools;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType::I32;
 
     use crate::Array;
     use crate::ArrayRef;
@@ -75,11 +72,14 @@ mod test {
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
-    use crate::compute::Operator;
-    use crate::compute::compare;
+    use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType::I32;
+    use crate::expr::Operator;
     #[test]
     fn canonicalise_nullable_primitive() {
         let values: Vec<Option<i32>> = (0..65)
@@ -157,7 +157,9 @@ mod test {
     fn compare_sliced_dict() {
         use crate::arrays::BoolArray;
         let sliced = sliced_dict_array();
-        let compared = compare(&sliced, ConstantArray::new(42, 3).as_ref(), Operator::Eq).unwrap();
+        let compared = sliced
+            .binary(ConstantArray::new(42, 3).to_array(), Operator::Eq)
+            .unwrap();
 
         let expected = BoolArray::from_iter([Some(false), None, Some(true)]);
         assert_arrays_eq!(compared, expected.to_array());
@@ -265,8 +267,6 @@ mod test {
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
@@ -274,6 +274,8 @@ mod tests {
     use crate::arrays::dict::DictArray;
     use crate::builders::dict::dict_encode;
     use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
 
     #[rstest]
     // Primitive arrays

@@ -7,17 +7,17 @@ use std::sync::Arc;
 
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::ExtDType;
-use vortex_dtype::ExtDTypeRef;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::extension::ExtDTypeVTable;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::dtype::extension::ExtDType;
+use crate::dtype::extension::ExtDTypeRef;
+use crate::dtype::extension::ExtVTable;
 use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
@@ -171,7 +171,7 @@ impl Scalar {
     }
 
     /// Creates a new extension scalar wrapping the given storage value.
-    pub fn extension<V: ExtDTypeVTable + Default>(options: V::Metadata, value: Scalar) -> Self {
+    pub fn extension<V: ExtVTable + Default>(options: V::Metadata, value: Scalar) -> Self {
         let ext_dtype = ExtDType::<V>::try_new(options, value.dtype().clone())
             .vortex_expect("Failed to create extension dtype");
         Self::try_new(DType::Extension(ext_dtype.erased()), value.into_value())

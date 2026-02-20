@@ -108,9 +108,8 @@ char *duckdb_vx_value_to_string(duckdb_value value) {
         // Use the ToString method to get the string representation
         std::string str_value = ddb_value->ToString();
 
-        // Allocate memory for the C string using malloc (compatible with duckdb_free)
         size_t str_len = str_value.length() + 1;
-        char *result = static_cast<char *>(malloc(str_len));
+        char *result = static_cast<char *>(duckdb_malloc(str_len));
         if (!result) {
             return nullptr;
         }

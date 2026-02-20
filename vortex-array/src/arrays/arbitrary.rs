@@ -9,12 +9,6 @@ use arbitrary::Result;
 use arbitrary::Unstructured;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 
 use super::BoolArray;
@@ -32,6 +26,12 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DecimalBuilder;
 use crate::builders::FixedSizeListBuilder;
 use crate::builders::ListViewBuilder;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::match_each_decimal_value_type;
 use crate::scalar::Scalar;
 use crate::scalar::arbitrary::random_scalar;
 use crate::validity::Validity;
@@ -114,19 +114,16 @@ fn random_array_chunk(
         },
         d @ DType::Decimal(decimal, n) => {
             let elem_len = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
-            match_each_decimal_value_type!(
-                DecimalType::smallest_decimal_value_type(decimal),
-                |DVT| {
-                    let mut builder = DecimalBuilder::new::<DVT>(*decimal, *n);
-                    for _i in 0..elem_len {
-                        let random_decimal = random_scalar(u, d)?;
-                        builder.append_scalar(&random_decimal).vortex_expect(
-                            "was somehow unable to append a decimal to a decimal builder",
-                        );
-                    }
-                    Ok(builder.finish())
+            match_each_decimal_value_type!(DecimalType::smallest_decimal_value_type(decimal), |D| {
+                let mut builder = DecimalBuilder::new::<D>(*decimal, *n);
+                for _i in 0..elem_len {
+                    let random_decimal = random_scalar(u, d)?;
+                    builder.append_scalar(&random_decimal).vortex_expect(
+                        "was somehow unable to append a decimal to a decimal builder",
+                    );
                 }
-            )
+                Ok(builder.finish())
+            })
         }
         DType::Utf8(n) => random_string(u, *n, chunk_len),
         DType::Binary(n) => random_bytes(u, *n, chunk_len),

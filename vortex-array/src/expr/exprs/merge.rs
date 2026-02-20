@@ -7,10 +7,6 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
-use vortex_dtype::DType;
-use vortex_dtype::FieldNames;
-use vortex_dtype::Nullability;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -20,6 +16,10 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::ArrayRef;
 use crate::IntoArray as _;
 use crate::arrays::StructArray;
+use crate::dtype::DType;
+use crate::dtype::FieldNames;
+use crate::dtype::Nullability;
+use crate::dtype::StructFields;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -281,7 +281,7 @@ impl Display for DuplicateHandling {
 /// later expressions win. Fields are not recursively merged.
 ///
 /// ```rust
-/// # use vortex_dtype::Nullability;
+/// # use vortex_array::dtype::Nullability;
 /// # use vortex_array::expr::{merge, get_item, root};
 /// let expr = merge([get_item("a", root()), get_item("b", root())]);
 /// ```
@@ -301,12 +301,6 @@ pub fn merge_opts(
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType::I32;
-    use vortex_dtype::PType::I64;
-    use vortex_dtype::PType::U32;
-    use vortex_dtype::PType::U64;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
 
@@ -317,6 +311,12 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::PType::I32;
+    use crate::dtype::PType::I64;
+    use crate::dtype::PType::U32;
+    use crate::dtype::PType::U64;
     use crate::expr::Expression;
     use crate::expr::Pack;
     use crate::expr::exprs::get_item::get_item;

@@ -15,11 +15,6 @@ use num_traits::CheckedAdd;
 use num_traits::CheckedDiv;
 use num_traits::CheckedMul;
 use num_traits::CheckedSub;
-use vortex_dtype::DType;
-use vortex_dtype::FromPrimitiveOrF16;
-use vortex_dtype::NativePType;
-use vortex_dtype::PType;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -27,6 +22,11 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use super::pvalue::CoercePValue;
+use crate::dtype::DType;
+use crate::dtype::FromPrimitiveOrF16;
+use crate::dtype::NativePType;
+use crate::dtype::PType;
+use crate::match_each_native_ptype;
 use crate::scalar::NumericOperator;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
@@ -193,7 +193,7 @@ impl<'a> PrimitiveScalar<'a> {
     /// # Examples
     ///
     /// ```should_panic
-    /// # use vortex_dtype::{DType, PType};
+    /// # use vortex_array::dtype::{DType, PType};
     /// # use vortex_array::scalar::Scalar;
     /// let wide = Scalar::primitive(1000i32, false.into());
     ///
@@ -227,7 +227,7 @@ impl<'a> PrimitiveScalar<'a> {
     /// # Examples
     ///
     /// ```
-    /// # use vortex_dtype::{DType, PType};
+    /// # use vortex_array::dtype::{DType, PType};
     /// # use vortex_array::scalar::Scalar;
     ///
     /// // Non-null values
@@ -337,10 +337,8 @@ impl<'a> PrimitiveScalar<'a> {
                     (Some(lhs), Some(rhs)) => match op {
                         NumericOperator::Add => Some(lhs + rhs),
                         NumericOperator::Sub => Some(lhs - rhs),
-                        NumericOperator::RSub => Some(rhs - lhs),
                         NumericOperator::Mul => Some(lhs * rhs),
                         NumericOperator::Div => Some(lhs / rhs),
-                        NumericOperator::RDiv => Some(rhs / lhs),
                     }
                 };
                 Some(Self { dtype: result_dtype, ptype, pvalue: value_or_null.map(PValue::from) })
@@ -373,10 +371,8 @@ impl<'a> PrimitiveScalar<'a> {
             (Some(lhs), Some(rhs)) => match op {
                 NumericOperator::Add => lhs.checked_add(&rhs).map(Some),
                 NumericOperator::Sub => lhs.checked_sub(&rhs).map(Some),
-                NumericOperator::RSub => rhs.checked_sub(&lhs).map(Some),
                 NumericOperator::Mul => lhs.checked_mul(&rhs).map(Some),
                 NumericOperator::Div => lhs.checked_div(&rhs).map(Some),
-                NumericOperator::RDiv => rhs.checked_div(&lhs).map(Some),
             },
         };
 

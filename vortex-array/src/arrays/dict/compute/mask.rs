@@ -8,8 +8,8 @@ use crate::IntoArray;
 use crate::arrays::DictArray;
 use crate::arrays::DictVTable;
 use crate::arrays::ScalarFnArrayExt;
-use crate::compute::MaskReduce;
 use crate::expr::EmptyOptions;
+use crate::expr::MaskReduce;
 use crate::expr::mask::Mask as MaskExpr;
 
 impl MaskReduce for DictVTable {

@@ -2,10 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -14,6 +10,10 @@ use crate::arrays::DecimalVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
+use crate::dtype::DecimalDType;
+use crate::dtype::NativeDecimalType;
+use crate::dtype::Nullability::NonNullable;
+use crate::match_each_decimal_value_type;
 use crate::register_kernel;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
@@ -73,11 +73,11 @@ where
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DecimalDType;
 
     use crate::arrays::DecimalArray;
     use crate::compute::MinMaxResult;
     use crate::compute::min_max;
+    use crate::dtype::DecimalDType;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;

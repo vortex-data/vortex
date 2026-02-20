@@ -5,12 +5,12 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
-use vortex_array::VortexSessionExecute;
-use vortex_array::vtable::ArrayId;
-use vortex_error::VortexResult;
-use vortex_session::Ref;
-use vortex_session::SessionExt;
-use vortex_utils::aliases::dash_map::DashMap;
+use vortex::array::VortexSessionExecute;
+use vortex::array::vtable::ArrayId;
+use vortex::error::VortexResult;
+use vortex::session::Ref;
+use vortex::session::SessionExt;
+use vortex::utils::aliases::dash_map::DashMap;
 
 use crate::ExportDeviceArray;
 use crate::arrow::CanonicalDeviceArrayExport;
@@ -63,7 +63,7 @@ impl CudaSession {
 
     /// Creates a new CUDA execution context.
     pub fn create_execution_ctx(
-        vortex_session: &vortex_session::VortexSession,
+        vortex_session: &vortex::session::VortexSession,
     ) -> VortexResult<CudaExecutionCtx> {
         let stream = vortex_session.cuda_session().new_stream()?;
         Ok(CudaExecutionCtx::new(

@@ -4,7 +4,6 @@
 use std::ops::BitAnd;
 
 use Nullability::NonNullable;
-use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -13,6 +12,7 @@ use crate::arrays::BoolVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
+use crate::dtype::Nullability;
 use crate::register_kernel;
 use crate::scalar::Scalar;
 
@@ -77,11 +77,11 @@ register_kernel!(MinMaxKernelAdapter(BoolVTable).lift());
 #[cfg(test)]
 mod tests {
     use Nullability::NonNullable;
-    use vortex_dtype::Nullability;
 
     use crate::arrays::BoolArray;
     use crate::compute::MinMaxResult;
     use crate::compute::min_max;
+    use crate::dtype::Nullability;
     use crate::scalar::Scalar;
 
     #[test]

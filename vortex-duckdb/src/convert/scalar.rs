@@ -19,25 +19,25 @@
 //! | `Binary` | `BLOB` |
 //! | `ExtScalar` (temporal) | `DATE`/`TIME`/`TIMESTAMP` |
 
+use vortex::array::match_each_native_simd_ptype;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::Nullability::Nullable;
 use vortex::dtype::PType;
 use vortex::dtype::PType::I32;
 use vortex::dtype::PType::I64;
-use vortex::dtype::datetime::AnyTemporal;
-use vortex::dtype::datetime::Date;
-use vortex::dtype::datetime::TemporalMetadata;
-use vortex::dtype::datetime::Time;
-use vortex::dtype::datetime::TimeUnit;
-use vortex::dtype::datetime::Timestamp;
-use vortex::dtype::datetime::TimestampOptions;
 use vortex::dtype::half::f16;
-use vortex::dtype::match_each_native_simd_ptype;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
+use vortex::extension::datetime::AnyTemporal;
+use vortex::extension::datetime::Date;
+use vortex::extension::datetime::TemporalMetadata;
+use vortex::extension::datetime::Time;
+use vortex::extension::datetime::TimeUnit;
+use vortex::extension::datetime::Timestamp;
+use vortex::extension::datetime::TimestampOptions;
 use vortex::scalar::BinaryScalar;
 use vortex::scalar::BoolScalar;
 use vortex::scalar::DecimalScalar;
@@ -346,8 +346,8 @@ impl<'a> TryFrom<&'a Value> for Scalar {
 
 #[cfg(test)]
 mod tests {
-    use vortex::dtype::datetime::Timestamp;
-    use vortex::dtype::datetime::TimestampOptions;
+    use vortex::extension::datetime::Timestamp;
+    use vortex::extension::datetime::TimestampOptions;
     use vortex::scalar::Scalar;
 
     use crate::convert::ToDuckDBScalar;
@@ -378,7 +378,7 @@ mod tests {
         use vortex::dtype::DType;
         use vortex::dtype::Nullability;
         use vortex::dtype::PType;
-        use vortex::dtype::datetime::TimeUnit;
+        use vortex::extension::datetime::TimeUnit;
         use vortex::scalar::Scalar;
         use vortex::scalar::ScalarValue;
 

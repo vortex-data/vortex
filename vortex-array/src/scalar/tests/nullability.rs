@@ -8,13 +8,13 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::datetime::Date;
-    use vortex_dtype::datetime::TimeUnit;
-    use vortex_dtype::datetime::Timestamp;
 
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;

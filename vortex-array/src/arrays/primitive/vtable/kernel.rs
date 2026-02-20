@@ -3,8 +3,8 @@
 
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::TakeExecuteAdaptor;
-use crate::compute::CastExecuteAdaptor;
 use crate::expr::BetweenExecuteAdaptor;
+use crate::expr::CastExecuteAdaptor;
 use crate::expr::FillNullExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 

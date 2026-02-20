@@ -3,8 +3,6 @@
 
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -17,7 +15,9 @@ use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::TakeExecute;
+use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
+use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

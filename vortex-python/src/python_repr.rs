@@ -7,9 +7,9 @@ use std::fmt::Formatter;
 
 use itertools::Itertools;
 use vortex::dtype::DType;
-use vortex::dtype::ExtID;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::dtype::extension::ExtId;
 
 pub trait PythonRepr {
     fn python_repr(&self) -> impl Display;
@@ -124,17 +124,17 @@ impl Display for NullabilityPythonRepr<'_> {
     }
 }
 
-struct ExtIDPythonRepr<'a>(&'a ExtID);
+struct ExtIdPythonRepr<'a>(&'a ExtId);
 
-impl PythonRepr for ExtID {
+impl PythonRepr for ExtId {
     fn python_repr(&self) -> impl Display {
-        ExtIDPythonRepr(self)
+        ExtIdPythonRepr(self)
     }
 }
 
-impl Display for ExtIDPythonRepr<'_> {
+impl Display for ExtIdPythonRepr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let ExtIDPythonRepr(ext_id) = self;
+        let ExtIdPythonRepr(ext_id) = self;
         write!(f, "\"{}\"", ext_id.as_ref().escape_default())
     }
 }

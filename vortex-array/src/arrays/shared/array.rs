@@ -6,12 +6,12 @@ use std::sync::Arc;
 
 use async_lock::Mutex;
 use async_lock::MutexGuard;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::dtype::DType;
 use crate::stats::ArrayStats;
 
 #[derive(Debug, Clone)]

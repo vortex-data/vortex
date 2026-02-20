@@ -4,8 +4,7 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 
-use vortex_dtype::DType;
-
+use crate::dtype::DType;
 use crate::expr::ScalarFn;
 
 #[derive(Clone)]

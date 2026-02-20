@@ -11,11 +11,6 @@ use std::sync::LazyLock;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_integer_ptype;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -27,7 +22,12 @@ use crate::arrays::PrimitiveVTable;
 use crate::arrays::TakeExecute;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
+use crate::dtype::NativePType;
 use crate::executor::ExecutionCtx;
+use crate::match_each_integer_ptype;
+use crate::match_each_native_ptype;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

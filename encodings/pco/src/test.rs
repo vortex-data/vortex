@@ -13,6 +13,9 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrow::ArrowArrayExecutor;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayParts;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::session::ArraySession;
@@ -21,9 +24,6 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -88,7 +88,7 @@ fn test_validity_and_multiple_chunks_and_pages() {
     validity[7..15].fill(false);
     validity[101] = false;
     let array = PrimitiveArray::new(
-        data.iter().cloned().collect::<Buffer<_>>(),
+        Buffer::from(data),
         Validity::Array(BoolArray::from_iter(validity).to_array()),
     );
     let compression_level = 3;
@@ -128,7 +128,7 @@ fn test_validity_vtable() {
     let data: Vec<i32> = (0..5).collect();
     let mask_bools = vec![false, true, true, false, true];
     let array = PrimitiveArray::new(
-        data.iter().cloned().collect::<Buffer<_>>(),
+        Buffer::from(data),
         Validity::Array(BoolArray::from_iter(mask_bools.clone()).to_array()),
     );
     let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();

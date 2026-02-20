@@ -3,14 +3,14 @@
 
 use std::fmt::Formatter;
 
-use vortex_dtype::DType;
-use vortex_dtype::FieldPath;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::dtype::DType;
+use crate::dtype::FieldPath;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;

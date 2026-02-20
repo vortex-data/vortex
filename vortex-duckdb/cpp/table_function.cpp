@@ -74,6 +74,16 @@ struct CTableBindResult {
     vector<string> &names;
 };
 
+double c_table_scan_progress(ClientContext &context,
+                             const FunctionData *bind_data,
+                             const GlobalTableFunctionState *global_state) {
+    auto &bind = bind_data->Cast<CTableBindData>();
+    duckdb_client_context c_ctx = reinterpret_cast<duckdb_client_context>(&context);
+    void *const c_bind_data = bind.ffi_data->DataPtr();
+    void *const c_global_state = global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
+    return bind.info->vtab.table_scan_progress(c_ctx, c_bind_data, c_global_state);
+}
+
 unique_ptr<FunctionData> c_bind(ClientContext &context,
                                 TableFunctionBindInput &input,
                                 vector<LogicalType> &return_types,
@@ -247,7 +257,8 @@ extern "C" duckdb_value duckdb_vx_tfunc_bind_input_get_named_parameter(duckdb_vx
     if (t == info->named_parameters.end()) {
         return nullptr;
     }
-    return reinterpret_cast<duckdb_value>(new Value(t->second));
+    auto value = duckdb::make_uniq<Value>(t->second);
+    return reinterpret_cast<duckdb_value>(value.release());
 }
 
 extern "C" void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_result ffi_result,
@@ -261,7 +272,7 @@ extern "C" void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_resu
     const auto logical_type = reinterpret_cast<LogicalType *>(ffi_type);
 
     result->names.emplace_back(name_str, name_len);
-    result->return_types.push_back(*logical_type);
+    result->return_types.emplace_back(*logical_type);
 }
 
 virtual_column_map_t c_get_virtual_columns(ClientContext &context, optional_ptr<FunctionData> bind_data) {
@@ -319,8 +330,8 @@ InsertionOrderPreservingMap<string> c_to_string(TableFunctionToStringInput &inpu
         if (map) {
             // Copy the map contents to the result
             auto *cpp_map = reinterpret_cast<InsertionOrderPreservingMap<string> *>(map);
-            for (const auto &kv : *cpp_map) {
-                result[kv.first] = kv.second;
+            for (const auto &[key, value] : *cpp_map) {
+                result[key] = value;
             }
             // Free the map allocated by Rust
             duckdb_vx_string_map_free(map);
@@ -350,16 +361,18 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const d
     tf.get_partition_data = c_get_partition_data;
     tf.get_virtual_columns = c_get_virtual_columns;
     tf.to_string = c_to_string;
+    tf.table_scan_progress = c_table_scan_progress;
 
     // Set up the parameters
+    tf.arguments.reserve(vtab->parameter_count);
     for (size_t i = 0; i < vtab->parameter_count; i++) {
         auto logical_type = reinterpret_cast<LogicalType *>(vtab->parameters[i]);
-        tf.arguments.push_back(*logical_type);
+        tf.arguments.emplace_back(*logical_type);
     }
     // And the named parameters
     for (size_t i = 0; i < vtab->named_parameter_count; i++) {
         auto logical_type = reinterpret_cast<LogicalType *>(vtab->named_parameter_types[i]);
-        tf.named_parameters.insert({vtab->named_parameter_names[i], *logical_type});
+        tf.named_parameters.emplace(vtab->named_parameter_names[i], *logical_type);
     }
 
     // Assign the VTable to the function info so we can access it later to invoke the callbacks.

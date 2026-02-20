@@ -9,8 +9,6 @@ use std::fmt::Formatter;
 
 pub use kernel::*;
 use prost::Message;
-use vortex_dtype::DType;
-use vortex_dtype::DType::Bool;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -27,9 +25,9 @@ use crate::arrays::ConstantArray;
 use crate::arrays::DecimalVTable;
 use crate::arrays::PrimitiveVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::BooleanOperator;
 use crate::compute::Options;
-use crate::compute::compare;
+use crate::dtype::DType;
+use crate::dtype::DType::Bool;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -40,6 +38,7 @@ use crate::expr::VTableExt;
 use crate::expr::execute_boolean;
 use crate::expr::expression::Expression;
 use crate::expr::exprs::binary::Binary;
+use crate::expr::exprs::operators::CompareOperator;
 use crate::expr::exprs::operators::Operator;
 use crate::scalar::Scalar;
 
@@ -81,10 +80,17 @@ pub enum StrictComparison {
 }
 
 impl StrictComparison {
-    pub const fn to_operator(&self) -> crate::compute::Operator {
+    pub const fn to_compare_operator(&self) -> CompareOperator {
         match self {
-            StrictComparison::Strict => crate::compute::Operator::Lt,
-            StrictComparison::NonStrict => crate::compute::Operator::Lte,
+            StrictComparison::Strict => CompareOperator::Lt,
+            StrictComparison::NonStrict => CompareOperator::Lte,
+        }
+    }
+
+    pub const fn to_operator(&self) -> Operator {
+        match self {
+            StrictComparison::Strict => Operator::Lt,
+            StrictComparison::NonStrict => Operator::Lte,
         }
     }
 
@@ -162,11 +168,15 @@ fn between_canonical(
 
     // TODO(joe): return lazy compare once the executor supports this
     // Fall back to compare + boolean and
-    execute_boolean(
-        &compare(lower, arr, options.lower_strict.to_operator())?,
-        &compare(arr, upper, options.upper_strict.to_operator())?,
-        BooleanOperator::AndKleene,
-    )
+    let lower_cmp = lower.to_array().binary(
+        arr.to_array(),
+        Operator::from(options.lower_strict.to_compare_operator()),
+    )?;
+    let upper_cmp = arr.to_array().binary(
+        upper.to_array(),
+        Operator::from(options.upper_strict.to_compare_operator()),
+    )?;
+    execute_boolean(&lower_cmp, &upper_cmp, Operator::And)
 }
 
 /// An optimized scalar expression to compute whether values fall between two bounds.
@@ -318,11 +328,8 @@ impl VTable for Between {
         let lower = expr.child(1).clone();
         let upper = expr.child(2).clone();
 
-        let lhs = Binary.new_expr(
-            options.lower_strict.to_operator().into(),
-            [lower, arr.clone()],
-        );
-        let rhs = Binary.new_expr(options.upper_strict.to_operator().into(), [arr, upper]);
+        let lhs = Binary.new_expr(options.lower_strict.to_operator(), [lower, arr.clone()]);
+        let rhs = Binary.new_expr(options.upper_strict.to_operator(), [arr, upper]);
 
         Binary
             .new_expr(Operator::And, [lhs, rhs])
@@ -368,10 +375,6 @@ pub fn between(
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
 
     use super::*;
     use crate::IntoArray;
@@ -381,6 +384,10 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;

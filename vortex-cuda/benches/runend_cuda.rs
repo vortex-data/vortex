@@ -18,17 +18,17 @@ use criterion::Criterion;
 use criterion::Throughput;
 use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
-use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::validity::Validity;
-use vortex_buffer::Buffer;
+use vortex::array::IntoArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::validity::Validity;
+use vortex::buffer::Buffer;
+use vortex::dtype::NativePType;
+use vortex::encodings::runend::RunEndArray;
+use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
-use vortex_dtype::NativePType;
-use vortex_runend::RunEndArray;
-use vortex_session::VortexSession;
 
 use crate::common::TimedLaunchStrategy;
 

@@ -7,9 +7,6 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::GenericByteViewArray;
 use arrow_array::types::ByteViewType;
 use arrow_buffer::ScalarBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -18,6 +15,9 @@ use crate::arrays::VarBinViewArray;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::arrow::FromArrowType;
 use crate::vtable::ValidityHelper;
 
 /// Convert a canonical VarBinViewArray directly to Arrow.

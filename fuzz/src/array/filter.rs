@@ -11,12 +11,12 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::dtype::DType;
+use vortex_array::match_each_decimal_value_type;
+use vortex_array::match_each_native_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
 use crate::array::take_canonical_array_non_nullable_indices;

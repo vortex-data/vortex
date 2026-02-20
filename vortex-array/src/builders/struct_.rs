@@ -4,9 +4,6 @@
 use std::any::Any;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -24,6 +21,9 @@ use crate::builders::LazyBitBufferBuilder;
 use crate::builders::builder_with_capacity;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::StructFields;
 use crate::scalar::Scalar;
 use crate::scalar::StructScalar;
 
@@ -206,11 +206,6 @@ impl ArrayBuilder for StructBuilder {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType::I32;
-    use vortex_dtype::StructFields;
-
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -218,6 +213,10 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::struct_::StructBuilder;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType::I32;
+    use crate::dtype::StructFields;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 

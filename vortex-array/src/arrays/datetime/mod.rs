@@ -6,14 +6,6 @@ mod test;
 
 use std::sync::Arc;
 
-use vortex_dtype::DType;
-use vortex_dtype::datetime::AnyTemporal;
-use vortex_dtype::datetime::Date;
-use vortex_dtype::datetime::TemporalMetadata;
-use vortex_dtype::datetime::Time;
-use vortex_dtype::datetime::TimeUnit;
-use vortex_dtype::datetime::Timestamp;
-use vortex_dtype::extension::ExtDTypeRef;
 use vortex_error::VortexError;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -23,6 +15,14 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
+use crate::dtype::DType;
+use crate::dtype::extension::ExtDTypeRef;
+use crate::extension::datetime::AnyTemporal;
+use crate::extension::datetime::Date;
+use crate::extension::datetime::TemporalMetadata;
+use crate::extension::datetime::Time;
+use crate::extension::datetime::TimeUnit;
+use crate::extension::datetime::Timestamp;
 
 /// An array wrapper for primitive values that have an associated temporal meaning.
 ///

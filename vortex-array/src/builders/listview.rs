@@ -12,10 +12,6 @@
 
 use std::sync::Arc;
 
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -37,6 +33,10 @@ use crate::builders::UninitRange;
 use crate::builders::builder_with_capacity;
 use crate::builders::lazy_null_builder::LazyBitBufferBuilder;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
+use crate::dtype::Nullability;
+use crate::match_each_integer_ptype;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
 
@@ -429,11 +429,6 @@ fn adjust_and_extend_offsets<'a, O: IntegerPType, A: IntegerPType>(
 mod tests {
     use std::sync::Arc;
 
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::PType::I32;
-
     use super::ListViewBuilder;
     use crate::IntoArray;
     use crate::array::Array;
@@ -441,6 +436,10 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType::I32;
     use crate::scalar::Scalar;
     use crate::vtable::ValidityHelper;
 

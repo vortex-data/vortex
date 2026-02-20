@@ -8,12 +8,12 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_mask::Mask;
 
 use crate::ZstdArray;
@@ -63,7 +63,7 @@ fn test_zstd_with_validity_and_multi_frame() {
     validity[3] = true;
     validity[177] = true;
     let array = PrimitiveArray::new(
-        data.iter().cloned().collect::<Buffer<_>>(),
+        Buffer::from(data),
         Validity::Array(BoolArray::from_iter(validity).to_array()),
     );
 

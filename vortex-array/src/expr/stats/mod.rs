@@ -9,12 +9,13 @@ use enum_iterator::Sequence;
 use enum_iterator::all;
 use num_enum::IntoPrimitive;
 use num_enum::TryFromPrimitive;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::MAX_PRECISION;
-use vortex_dtype::Nullability::NonNullable;
-use vortex_dtype::Nullability::Nullable;
-use vortex_dtype::PType;
+
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::MAX_PRECISION;
+use crate::dtype::Nullability::NonNullable;
+use crate::dtype::Nullability::Nullable;
+use crate::dtype::PType;
 
 mod bound;
 mod precision;

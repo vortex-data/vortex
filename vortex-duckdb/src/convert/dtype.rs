@@ -47,16 +47,16 @@ use vortex::dtype::PType::U16;
 use vortex::dtype::PType::U32;
 use vortex::dtype::PType::U64;
 use vortex::dtype::StructFields;
-use vortex::dtype::datetime::AnyTemporal;
-use vortex::dtype::datetime::Date;
-use vortex::dtype::datetime::TemporalMetadata;
-use vortex::dtype::datetime::Time;
-use vortex::dtype::datetime::TimeUnit;
-use vortex::dtype::datetime::Timestamp;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
+use vortex::extension::datetime::AnyTemporal;
+use vortex::extension::datetime::Date;
+use vortex::extension::datetime::TemporalMetadata;
+use vortex::extension::datetime::Time;
+use vortex::extension::datetime::TimeUnit;
+use vortex::extension::datetime::Timestamp;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::LogicalType;
@@ -339,12 +339,14 @@ mod tests {
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
     use vortex::dtype::StructFields;
-    use vortex::dtype::datetime::Date;
-    use vortex::dtype::datetime::Time;
-    use vortex::dtype::datetime::Timestamp;
-    use vortex::dtype::extension::EmptyMetadata;
-    use vortex::dtype::extension::ExtDTypeVTable;
+    use vortex::dtype::extension::ExtDType;
+    use vortex::dtype::extension::ExtId;
+    use vortex::dtype::extension::ExtVTable;
     use vortex::error::VortexResult;
+    use vortex::extension::EmptyMetadata;
+    use vortex::extension::datetime::Date;
+    use vortex::extension::datetime::Time;
+    use vortex::extension::datetime::Timestamp;
 
     use crate::cpp;
     use crate::duckdb::OwnedLogicalType;
@@ -480,7 +482,7 @@ mod tests {
 
     #[test]
     fn test_date_extension_type() {
-        use vortex::dtype::datetime::TimeUnit;
+        use vortex::extension::datetime::TimeUnit;
 
         let dtype = DType::Extension(Date::new(TimeUnit::Days, Nullability::NonNullable).erased());
         let logical_type = OwnedLogicalType::try_from(&dtype).unwrap();
@@ -493,7 +495,7 @@ mod tests {
 
     #[test]
     fn test_time_extension_type() {
-        use vortex::dtype::datetime::TimeUnit;
+        use vortex::extension::datetime::TimeUnit;
 
         let dtype =
             DType::Extension(Time::new(TimeUnit::Microseconds, Nullability::NonNullable).erased());
@@ -507,7 +509,7 @@ mod tests {
 
     #[test]
     fn test_timestamp_extension_types() {
-        use vortex::dtype::datetime::TimeUnit;
+        use vortex::extension::datetime::TimeUnit;
 
         let test_cases = [
             (
@@ -536,7 +538,7 @@ mod tests {
 
     #[test]
     fn test_timestamp_with_timezone() {
-        use vortex::dtype::datetime::TimeUnit;
+        use vortex::extension::datetime::TimeUnit;
 
         let dtype = DType::Extension(
             Timestamp::new_with_tz(
@@ -555,7 +557,7 @@ mod tests {
 
     #[test]
     fn test_temporal_extension_invalid_time_units() {
-        use vortex::dtype::datetime::TimeUnit;
+        use vortex::extension::datetime::TimeUnit;
 
         // Invalid DATE time unit
         let dtype =
@@ -570,17 +572,13 @@ mod tests {
 
     #[test]
     fn test_unsupported_extension_type() {
-        use vortex::dtype::ExtDType;
-        use vortex::dtype::ExtID;
-        use vortex::dtype::PType;
-
         #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct TestExt;
-        impl ExtDTypeVTable for TestExt {
+        impl ExtVTable for TestExt {
             type Metadata = EmptyMetadata;
 
-            fn id(&self) -> ExtID {
-                ExtID::new_ref("unknown.extension")
+            fn id(&self) -> ExtId {
+                ExtId::new_ref("unknown.extension")
             }
 
             fn validate_dtype(

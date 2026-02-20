@@ -3,18 +3,21 @@
 
 use num_traits::FromPrimitive;
 use vortex_buffer::BufferMut;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::IntoArray;
 use crate::ToCanonical;
+use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::builders::builder_with_capacity;
+use crate::builtins::ArrayBuiltins;
 use crate::compute;
+use crate::dtype::IntegerPType;
+use crate::dtype::Nullability;
+use crate::expr::Operator;
+use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
 
@@ -211,7 +214,10 @@ impl ListViewArray {
             last_offset + last_size
         } else {
             let min_max = compute::min_max(
-                &compute::add(self.offsets(), self.sizes())
+                &self
+                    .offsets()
+                    .clone()
+                    .binary(self.sizes().clone(), Operator::Add)
                     .vortex_expect("`offsets + sizes` somehow overflowed"),
             )
             .vortex_expect("Something went wrong while computing min and max")
@@ -229,7 +235,12 @@ impl ListViewArray {
                 .vortex_expect("unable to convert the min offset `start` into a `usize`");
             let scalar = Scalar::primitive(offset, Nullability::NonNullable);
 
-            compute::sub_scalar(self.offsets(), scalar)
+            self.offsets()
+                .to_array()
+                .binary(
+                    ConstantArray::new(scalar, self.offsets().len()).into_array(),
+                    Operator::Sub,
+                )
                 .vortex_expect("was somehow unable to adjust offsets down by their minimum")
         });
 
@@ -264,7 +275,6 @@ impl ListViewArray {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::BitBuffer;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
 
     use super::ListViewRebuildMode;
@@ -273,6 +283,7 @@ mod tests {
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::Nullability;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 

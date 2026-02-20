@@ -5,7 +5,6 @@ use std::any::Any;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -21,6 +20,7 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::StructArray;
+use crate::dtype::DType;
 use crate::expr::Pack;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
@@ -53,8 +53,8 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
         };
 
         let validity = match pack_options.nullability {
-            vortex_dtype::Nullability::NonNullable => Validity::NonNullable,
-            vortex_dtype::Nullability::Nullable => Validity::AllValid,
+            crate::dtype::Nullability::NonNullable => Validity::NonNullable,
+            crate::dtype::Nullability::Nullable => Validity::AllValid,
         };
 
         Ok(Some(
@@ -224,15 +224,15 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexExpect;
 
     use crate::array::IntoArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::expr::cast;
     use crate::expr::is_null;
     use crate::expr::root;

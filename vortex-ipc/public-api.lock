@@ -28,7 +28,7 @@ pub fn vortex_ipc::iterator::SyncIPCReader<R>::next(&mut self) -> core::option::
 
 impl<R: std::io::Read> vortex_array::iter::ArrayIterator for vortex_ipc::iterator::SyncIPCReader<R>
 
-pub fn vortex_ipc::iterator::SyncIPCReader<R>::dtype(&self) -> &vortex_dtype::dtype::DType
+pub fn vortex_ipc::iterator::SyncIPCReader<R>::dtype(&self) -> &vortex_array::dtype::DType
 
 pub trait vortex_ipc::iterator::ArrayIteratorIPC
 
@@ -62,7 +62,7 @@ pub vortex_ipc::messages::EncoderMessage::Array(&'a dyn vortex_array::array::Arr
 
 pub vortex_ipc::messages::EncoderMessage::Buffer(&'a vortex_buffer::ByteBuffer)
 
-pub vortex_ipc::messages::EncoderMessage::DType(&'a vortex_dtype::dtype::DType)
+pub vortex_ipc::messages::EncoderMessage::DType(&'a vortex_array::dtype::DType)
 
 pub enum vortex_ipc::messages::PollRead
 
@@ -182,7 +182,7 @@ pub fn vortex_ipc::stream::AsyncIPCReader<R>::poll_next(self: core::pin::Pin<&mu
 
 impl<R: futures_io::if_std::AsyncRead> vortex_array::stream::ArrayStream for vortex_ipc::stream::AsyncIPCReader<R>
 
-pub fn vortex_ipc::stream::AsyncIPCReader<R>::dtype(&self) -> &vortex_dtype::dtype::DType
+pub fn vortex_ipc::stream::AsyncIPCReader<R>::dtype(&self) -> &vortex_array::dtype::DType
 
 pub trait vortex_ipc::stream::ArrayStreamIPC
 

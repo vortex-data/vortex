@@ -38,7 +38,7 @@ pub trait vortex_scan::api::DataSource: 'static + core::marker::Send + core::mar
 
 pub fn vortex_scan::api::DataSource::deserialize_split(&self, data: &[u8]) -> vortex_error::VortexResult<vortex_scan::api::SplitRef>
 
-pub fn vortex_scan::api::DataSource::dtype(&self) -> &vortex_dtype::dtype::DType
+pub fn vortex_scan::api::DataSource::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_scan::api::DataSource::row_count_estimate(&self) -> vortex_scan::api::Estimate<u64>
 
@@ -50,7 +50,7 @@ impl vortex_scan::api::DataSource for vortex_scan::layout::LayoutReaderDataSourc
 
 pub fn vortex_scan::layout::LayoutReaderDataSource::deserialize_split(&self, _split: &[u8]) -> vortex_error::VortexResult<vortex_scan::api::SplitRef>
 
-pub fn vortex_scan::layout::LayoutReaderDataSource::dtype(&self) -> &vortex_dtype::dtype::DType
+pub fn vortex_scan::layout::LayoutReaderDataSource::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_scan::layout::LayoutReaderDataSource::row_count_estimate(&self) -> vortex_scan::api::Estimate<u64>
 
@@ -64,7 +64,7 @@ pub fn vortex_scan::api::DataSourceProvider::initialize<'life0, 'life1, 'async_t
 
 pub trait vortex_scan::api::DataSourceScan: 'static + core::marker::Send
 
-pub fn vortex_scan::api::DataSourceScan::dtype(&self) -> &vortex_dtype::dtype::DType
+pub fn vortex_scan::api::DataSourceScan::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_scan::api::DataSourceScan::next_splits<'life0, 'async_trait>(&'life0 mut self, max_splits: usize) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::vec::Vec<vortex_scan::api::SplitRef>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 
@@ -122,7 +122,7 @@ impl vortex_scan::api::DataSource for vortex_scan::layout::LayoutReaderDataSourc
 
 pub fn vortex_scan::layout::LayoutReaderDataSource::deserialize_split(&self, _split: &[u8]) -> vortex_error::VortexResult<vortex_scan::api::SplitRef>
 
-pub fn vortex_scan::layout::LayoutReaderDataSource::dtype(&self) -> &vortex_dtype::dtype::DType
+pub fn vortex_scan::layout::LayoutReaderDataSource::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_scan::layout::LayoutReaderDataSource::row_count_estimate(&self) -> vortex_scan::api::Estimate<u64>
 
@@ -156,7 +156,7 @@ pub vortex_scan::SplitBy::RowCount(usize)
 
 impl vortex_scan::SplitBy
 
-pub fn vortex_scan::SplitBy::splits(&self, layout_reader: &dyn vortex_layout::reader::LayoutReader, row_range: &core::ops::range::Range<u64>, field_mask: &[vortex_dtype::field_mask::FieldMask]) -> vortex_error::VortexResult<alloc::collections::btree::set::BTreeSet<u64>>
+pub fn vortex_scan::SplitBy::splits(&self, layout_reader: &dyn vortex_layout::reader::LayoutReader, row_range: &core::ops::range::Range<u64>, field_mask: &[vortex_array::dtype::field_mask::FieldMask]) -> vortex_error::VortexResult<alloc::collections::btree::set::BTreeSet<u64>>
 
 impl core::clone::Clone for vortex_scan::SplitBy
 
@@ -176,7 +176,7 @@ pub struct vortex_scan::RepeatedScan<A: 'static + core::marker::Send>
 
 impl vortex_scan::RepeatedScan<vortex_array::array::ArrayRef>
 
-pub fn vortex_scan::RepeatedScan<vortex_array::array::ArrayRef>::dtype(&self) -> &vortex_dtype::dtype::DType
+pub fn vortex_scan::RepeatedScan<vortex_array::array::ArrayRef>::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_scan::RepeatedScan<vortex_array::array::ArrayRef>::execute_array_iter<B: vortex_io::runtime::blocking::BlockingRuntime>(&self, row_range: core::option::Option<core::ops::range::Range<u64>>, runtime: &B) -> vortex_error::VortexResult<impl vortex_array::iter::ArrayIterator + 'static>
 
@@ -208,7 +208,7 @@ impl<A: 'static + core::marker::Send> vortex_scan::ScanBuilder<A>
 
 pub fn vortex_scan::ScanBuilder<A>::build(self) -> vortex_error::VortexResult<alloc::vec::Vec<futures_core::future::BoxFuture<'static, vortex_error::VortexResult<core::option::Option<A>>>>>
 
-pub fn vortex_scan::ScanBuilder<A>::dtype(&self) -> vortex_error::VortexResult<vortex_dtype::dtype::DType>
+pub fn vortex_scan::ScanBuilder<A>::dtype(&self) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_scan::ScanBuilder<A>::into_iter<B: vortex_io::runtime::blocking::BlockingRuntime>(self, runtime: &B) -> vortex_error::VortexResult<impl core::iter::traits::iterator::Iterator<Item = vortex_error::VortexResult<A>> + 'static>
 

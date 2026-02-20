@@ -14,6 +14,11 @@
 #include <stdlib.h>
 
 /**
+ * Maximum size of an inlined binary value.
+ */
+#define BinaryView_MAX_INLINED_SIZE 12
+
+/**
  * Variant enum for Vortex primitive types.
  */
 typedef enum {
