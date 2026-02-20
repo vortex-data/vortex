@@ -216,7 +216,7 @@ fn extract_table_filter_expr(
 
 // taken from duckdb/common/constants.h COLUMN_IDENTIFIER_EMPTY
 // This is used by duckdb whenever there is no projection id in a logical_get node.
-// For some reason we cannot return an empty DataChunkRef and duckdb will look for the virtual column
+// For some reason we cannot return an empty DataChunk and duckdb will look for the virtual column
 // with this index and create a data chunk with a single vector of that type.
 static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
 static EMPTY_COLUMN_NAME: &str = "";
@@ -417,7 +417,7 @@ impl TableFunction for VortexTableFunction {
         );
 
         let client_context = init_input.client_context()?;
-        // SAFETY: The ObjectCacheRef is owned by the DatabaseInstance and lives as long as the
+        // SAFETY: The ObjectCache is owned by the DatabaseInstance and lives as long as the
         // database. DuckDB keeps the database alive for the duration of any query execution.
         let object_cache = unsafe { client_context.object_cache().erase_lifetime() };
 

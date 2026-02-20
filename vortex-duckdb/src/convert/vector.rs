@@ -494,7 +494,7 @@ mod tests {
         }
 
         // Set middle element as null
-        // SAFETY: VectorRef was created with this length.
+        // SAFETY: Vector was created with this length.
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         validity_slice.set(1, false);
 
@@ -600,7 +600,7 @@ mod tests {
         }
 
         // Set middle element as null
-        // SAFETY: VectorRef was created with this length.
+        // SAFETY: Vector was created with this length.
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
         validity_slice.set(1, false);
 

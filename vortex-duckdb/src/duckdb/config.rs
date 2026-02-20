@@ -56,7 +56,7 @@ impl ConfigRef {
     }
 
     /// Gets the value of a configuration parameter that was previously set.
-    /// Returns None if the parameter was never set on this ConfigRef instance.
+    /// Returns None if the parameter was never set on this Config instance.
     pub fn get(&self, key: &str) -> Option<Value> {
         let key_cstr = CString::new(key).ok()?;
 

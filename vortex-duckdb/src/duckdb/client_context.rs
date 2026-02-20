@@ -17,7 +17,7 @@ lifetime_wrapper!(
     cpp::duckdb_destroy_client_context
 );
 
-// SAFETY: ClientContextRef carries an opaque pointer. It is safe to send/share across threads
+// SAFETY: ClientContext carries an opaque pointer. It is safe to send/share across threads
 // under the same guarantees: the underlying DuckDB context is valid for the connection
 // lifetime and DuckDB synchronizes internal state.
 unsafe impl Send for ClientContextRef {}
@@ -28,8 +28,8 @@ impl ClientContextRef {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the underlying `ClientContextRef` outlives all uses of the
-    /// returned reference. In practice, the `ClientContextRef` is owned by the `ConnectionRef`
+    /// The caller must ensure that the underlying `ClientContext` outlives all uses of the
+    /// returned reference. In practice, the `ClientContext` is owned by the `Connection`
     /// and lives as long as the connection, so this is safe as long as the connection is kept alive.
     pub unsafe fn erase_lifetime(&self) -> &'static Self {
         unsafe { &*(self as *const Self) }

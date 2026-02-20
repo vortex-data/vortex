@@ -21,7 +21,7 @@ unsafe extern "C-unwind" fn rust_box_deleter<T>(ptr: *mut c_void) {
 }
 
 lifetime_wrapper!(ObjectCache, cpp::duckdb_vx_object_cache, |_| {
-    vortex_panic!("ObjectCacheRef is owned by the DatabaseInstance, not by Rust")
+    vortex_panic!("ObjectCache is owned by the DatabaseInstance, not by Rust")
 });
 
 impl ObjectCacheRef {
@@ -29,8 +29,8 @@ impl ObjectCacheRef {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the underlying `ObjectCacheRef` outlives all uses of the
-    /// returned reference. In practice, the `ObjectCacheRef` is owned by the `DatabaseInstance`
+    /// The caller must ensure that the underlying `ObjectCache` outlives all uses of the
+    /// returned reference. In practice, the `ObjectCache` is owned by the `DatabaseInstance`
     /// and lives as long as the database, so this is safe as long as the database is kept alive.
     pub unsafe fn erase_lifetime(&self) -> &'static Self {
         unsafe { &*(self as *const Self) }

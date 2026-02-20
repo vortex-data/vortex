@@ -129,7 +129,7 @@ impl CopyFunction for VortexCopyFunction {
         let array_stream = ArrayStreamAdapter::new(bind_data.dtype.clone(), rx.into_stream());
 
         let handle = SESSION.handle();
-        // SAFETY: The ClientContextRef is owned by the ConnectionRef and lives for the duration of
+        // SAFETY: The ClientContext is owned by the Connection and lives for the duration of
         // query execution. DuckDB keeps the connection alive while this copy function runs.
         let ctx = unsafe { client_context.erase_lifetime() };
         let write_task = handle.spawn(async move {

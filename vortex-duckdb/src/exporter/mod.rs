@@ -79,7 +79,7 @@ impl ArrayExporter {
         if self.fields.is_empty() {
             // In the case of a projection pushdown with zero columns duckdb will ask us for the
             // `EMPTY_COLUMN_IDX`, which we define as a bool column, we can leave the vector as
-            // uninitialized and just return a DataChunkRef with the correct length.
+            // uninitialized and just return a DataChunk with the correct length.
             // One place no fields can occur is in count(*) queries.
             chunk.set_len(self.remaining);
             self.remaining = 0;

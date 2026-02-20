@@ -102,7 +102,7 @@ mod tests {
     use crate::duckdb::LogicalType;
     use crate::duckdb::VectorRef;
 
-    /// Sets up a DataChunkRef, exports the array to it, and returns the chunk.
+    /// Sets up a DataChunk, exports the array to it, and returns the chunk.
     fn export_to_chunk(
         fsl: FixedSizeListArray,
         list_size: u32,

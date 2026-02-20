@@ -57,7 +57,7 @@ pub(super) fn resolve_filesystem(
             "Using DuckDB's built-in filesystem for URL scheme '{}'",
             base_url.scheme()
         );
-        // SAFETY: The ClientContextRef is owned by the ConnectionRef and lives for the duration of
+        // SAFETY: The ClientContext is owned by the Connection and lives for the duration of
         // query execution. DuckDB keeps the connection alive while the filesystem is in use.
         Arc::new(DuckDbFileSystem::new(base_url.clone(), unsafe {
             ctx.erase_lifetime()

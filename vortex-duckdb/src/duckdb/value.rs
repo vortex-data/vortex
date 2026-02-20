@@ -36,7 +36,7 @@ impl ValueRef {
         string
     }
 
-    /// Extracts the value from the DuckDB `ValueRef` into a `ExtractedValue`.
+    /// Extracts the value from the DuckDB `Value` into a `ExtractedValue`.
     pub fn extract(&self) -> ExtractedValue {
         if unsafe { cpp::duckdb_is_null_value(self.as_ptr()) } {
             return ExtractedValue::Null;
@@ -364,7 +364,7 @@ impl From<&[u8]> for Value {
     }
 }
 
-/// An enum for extracting the underlying typed value from a `ValueRef`.
+/// An enum for extracting the underlying typed value from a `Value`.
 pub enum ExtractedValue {
     Null,
     TinyInt(i8),

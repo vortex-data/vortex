@@ -20,7 +20,7 @@ lifetime_wrapper!(
 );
 
 impl DDBString {
-    /// Creates an owned DDBStringRef from a C string pointer, validating it is UTF-8.
+    /// Creates an owned DDBString from a C string pointer, validating it is UTF-8.
     ///
     /// # Safety
     ///

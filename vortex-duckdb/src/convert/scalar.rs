@@ -9,7 +9,7 @@
 //!
 //! # Supported Scalar Conversions
 //!
-//! | Vortex Scalar | DuckDB ValueRef |
+//! | Vortex Scalar | DuckDB Value |
 //! |---------------|--------------|
 //! | `Null` | `NULL` |
 //! | `Bool` | `BOOLEAN` |
