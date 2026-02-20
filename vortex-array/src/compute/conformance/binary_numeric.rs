@@ -31,9 +31,9 @@ use vortex_error::vortex_panic;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
+use crate::RecursiveCanonical;
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
@@ -120,14 +120,17 @@ where
         let result = array
             .binary(rhs_const.clone(), op)
             .vortex_expect("apply shouldn't fail")
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
-            .map(|c| c.into_array());
+            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .map(|c| c.0.into_array());
 
         // Skip this operator if the entire operation fails
         // This can happen for some edge cases in specific encodings
         let Ok(result) = result else {
             continue;
         };
+
+        println!("result {}", result.display_tree());
+        println!("result {}", result.display_values());
 
         let actual_values = to_vec_of_scalar(&result);
 
@@ -157,7 +160,10 @@ where
         }
 
         // Test scalar operator array (e.g., 1 + array)
-        let result = rhs_const.binary(array.clone(), op);
+        let result = rhs_const.binary(array.clone(), op).and_then(|a| {
+            a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .map(|c| c.0.into_array())
+        });
 
         // Skip this operator if the entire operation fails
         let Ok(result) = result else {
@@ -328,10 +334,6 @@ where
     T: NativePType + Num + Copy + std::fmt::Debug,
     Scalar: From<T>,
 {
-    println!("canon {}", array.as_ref().display_tree());
-    println!("canon values {}", array.as_ref().display_values());
-    println!("scalar_value {}", scalar_value);
-
     let canonicalized_array = array.to_primitive();
     let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
 
@@ -364,14 +366,8 @@ where
         let result = array
             .binary(rhs_const, op)
             .vortex_expect("apply failed")
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
-            .map(|x| x.into_array());
-
-        println!("here");
-        if let Ok(r) = &result {
-            println!("r {}", r.display_tree());
-            println!("r {}", r.display_values());
-        }
+            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .map(|x| x.0.into_array());
 
         // Skip if the entire operation fails
         // TODO(joe): this is odd.

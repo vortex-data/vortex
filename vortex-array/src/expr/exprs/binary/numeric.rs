@@ -47,7 +47,5 @@ fn constant_numeric(
         return Ok(None);
     };
 
-    Ok(Some(
-        ConstantArray::new(result, lhs.len()).into_array(),
-    ))
+    Ok(Some(ConstantArray::new(result, lhs.len()).into_array()))
 }
