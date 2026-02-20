@@ -117,7 +117,11 @@ where
         let rhs_const = ConstantArray::new(scalar_one.clone(), array.len()).into_array();
 
         // Test array operator scalar (e.g., array + 1)
-        let result = array.binary(rhs_const.clone(), op);
+        let result = array
+            .binary(rhs_const.clone(), op)
+            .vortex_expect("apply shouldn't fail")
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .map(|c| c.into_array());
 
         // Skip this operator if the entire operation fails
         // This can happen for some edge cases in specific encodings

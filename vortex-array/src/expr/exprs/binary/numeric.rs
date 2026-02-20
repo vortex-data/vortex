@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -39,14 +38,16 @@ fn constant_numeric(
         return Ok(None);
     };
 
+    let Some(result) = lhs
+        .scalar()
+        .as_primitive()
+        .checked_binary_numeric(&rhs.scalar().as_primitive(), op)
+    else {
+        // Overflow detected — fall through to arrow_numeric which uses wrapping arithmetic.
+        return Ok(None);
+    };
+
     Ok(Some(
-        ConstantArray::new(
-            lhs.scalar()
-                .as_primitive()
-                .checked_binary_numeric(&rhs.scalar().as_primitive(), op)
-                .ok_or_else(|| vortex_err!("numeric overflow"))?,
-            lhs.len(),
-        )
-        .into_array(),
+        ConstantArray::new(result, lhs.len()).into_array(),
     ))
 }
