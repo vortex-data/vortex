@@ -43,6 +43,7 @@ use crate::duckdb::LogicalType;
 use crate::duckdb::VectorRef;
 
 pub struct ArrayExporter {
+    ctx: ExecutionCtx,
     fields: Vec<Box<dyn ColumnExporter>>,
     array_len: usize,
     remaining: usize,
@@ -52,16 +53,17 @@ impl ArrayExporter {
     pub fn try_new(
         array: &StructArray,
         cache: &ConversionCache,
-        ctx: &mut ExecutionCtx,
+        mut ctx: ExecutionCtx,
     ) -> VortexResult<Self> {
         let all_valid = array.validity().all_valid(array.len())?;
         assert!(all_valid);
         let fields = array
             .unmasked_fields()
             .iter()
-            .map(|field| new_array_exporter(field.clone(), cache, ctx))
+            .map(|field| new_array_exporter(field.clone(), cache, &mut ctx))
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(Self {
+            ctx,
             fields,
             array_len: array.len(),
             remaining: array.len(),
@@ -93,7 +95,7 @@ impl ArrayExporter {
         chunk.set_len(chunk_len);
 
         for (i, field) in self.fields.iter_mut().enumerate() {
-            field.export(position, chunk_len, chunk.get_vector_mut(i))?;
+            field.export(position, chunk_len, chunk.get_vector_mut(i), &mut self.ctx)?;
         }
 
         Ok(true)
@@ -105,9 +107,15 @@ impl ArrayExporter {
 /// NOTE(ngates): we could actually convert this into a Vortex compute function that takes
 ///  the offset, len and `WritableVector` as options. Not sure what it should return though?
 ///  This would allow Vortex extension authors to plug into the DuckDB exporter system.
-pub trait ColumnExporter {
+pub trait ColumnExporter: 'static {
     /// Export the given range of data from the Vortex array to the DuckDB vector.
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()>;
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()>;
 }
 
 fn new_array_exporter(

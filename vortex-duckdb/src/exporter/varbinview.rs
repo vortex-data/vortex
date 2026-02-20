@@ -64,7 +64,7 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for VarBinViewExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
         // Copy the views into place.
         for (mut_view, view) in unsafe { vector.as_slice_mut::<PtrBinaryView>(len) }
             .iter_mut()
@@ -155,12 +155,9 @@ mod tests {
         let arr = VarBinViewArray::from_iter([Option::<&str>::None; 4], DType::Utf8(Nullable));
 
         let mut chunk = DataChunk::new([LogicalType::varchar()]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut SESSION.create_execution_ctx())?.export(
-            0,
-            3,
-            chunk.get_vector_mut(0),
-        )?;
+        new_exporter(arr, &mut ctx)?.export(0, 3, chunk.get_vector_mut(0), &mut ctx)?;
         chunk.set_len(3);
 
         assert_eq!(
@@ -178,12 +175,9 @@ mod tests {
             VarBinViewArray::from_iter([None, None, None, Some("Hey")], DType::Utf8(Nullable));
 
         let mut chunk = DataChunk::new([LogicalType::varchar()]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut SESSION.create_execution_ctx())?.export(
-            0,
-            3,
-            chunk.get_vector_mut(0),
-        )?;
+        new_exporter(arr, &mut ctx)?.export(0, 3, chunk.get_vector_mut(0), &mut ctx)?;
         chunk.set_len(3);
 
         assert_eq!(
@@ -203,12 +197,9 @@ mod tests {
         );
 
         let mut chunk = DataChunk::new([LogicalType::varchar()]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut SESSION.create_execution_ctx())?.export(
-            0,
-            3,
-            chunk.get_vector_mut(0),
-        )?;
+        new_exporter(arr, &mut ctx)?.export(0, 3, chunk.get_vector_mut(0), &mut ctx)?;
         chunk.set_len(3);
 
         assert_eq!(

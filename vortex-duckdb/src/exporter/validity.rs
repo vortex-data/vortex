@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::ExecutionCtx;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
@@ -24,7 +25,7 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for ValidityExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
         assert!(
             offset + len <= self.mask.len(),
             "cannot access outside of array"
@@ -34,7 +35,7 @@ impl ColumnExporter for ValidityExporter {
             return Ok(());
         }
 
-        self.exporter.export(offset, len, vector)?;
+        self.exporter.export(offset, len, vector, ctx)?;
 
         Ok(())
     }

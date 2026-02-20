@@ -77,7 +77,7 @@ pub(crate) fn new_exporter(
                 new_array_exporter_with_flatten(elements.clone(), cache, ctx, true)?;
 
             if num_elements != 0 {
-                elements_exporter.export(0, num_elements, &mut duckdb_elements)?;
+                elements_exporter.export(0, num_elements, &mut duckdb_elements, ctx)?;
             }
 
             let shared_elements = Arc::new(Mutex::new(duckdb_elements));
@@ -105,7 +105,7 @@ pub(crate) fn new_exporter(
 }
 
 impl<O: IntegerPType> ColumnExporter for ListExporter<O> {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
         // Verify that offset + len doesn't exceed the validity mask length.
         assert!(
             offset + len <= self.validity.len(),
@@ -183,14 +183,11 @@ mod tests {
             .vortex_expect("LogicalTypeRef creation should succeed for test data");
         let mut chunk = DataChunk::new([list_type]);
 
-        new_array_exporter(
-            list,
-            &ConversionCache::default(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-        .export(0, 0, chunk.get_vector_mut(0))
-        .unwrap();
+        let mut ctx = SESSION.create_execution_ctx();
+        new_array_exporter(list, &ConversionCache::default(), &mut ctx)
+            .unwrap()
+            .export(0, 0, chunk.get_vector_mut(0), &mut ctx)
+            .unwrap();
         chunk.set_len(0);
 
         assert_eq!(
@@ -222,14 +219,11 @@ mod tests {
             .vortex_expect("LogicalTypeRef creation should succeed for test data");
         let mut chunk = DataChunk::new([list_type]);
 
-        new_array_exporter(
-            list,
-            &ConversionCache::default(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-        .export(0, 4, chunk.get_vector_mut(0))
-        .unwrap();
+        let mut ctx = SESSION.create_execution_ctx();
+        new_array_exporter(list, &ConversionCache::default(), &mut ctx)
+            .unwrap()
+            .export(0, 4, chunk.get_vector_mut(0), &mut ctx)
+            .unwrap();
         chunk.set_len(4);
 
         assert_eq!(

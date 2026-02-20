@@ -52,7 +52,7 @@ pub fn new_exporter(
 }
 
 impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
         assert!(self.len >= offset + len);
 
         let pos = unsafe { self.start.add(offset) };
@@ -82,10 +82,11 @@ mod tests {
         let arr = PrimitiveArray::from_iter(0..10);
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut SESSION.create_execution_ctx())
+        new_exporter(arr, &mut ctx)
             .unwrap()
-            .export(0, 3, chunk.get_vector_mut(0))
+            .export(0, 3, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
         chunk.set_len(3);
 
@@ -109,12 +110,14 @@ mod tests {
                 .collect_vec();
 
             for i in 0..ARRAY_COUNT {
-                new_exporter(arr.clone(), &mut SESSION.create_execution_ctx())
+                let mut ctx = SESSION.create_execution_ctx();
+                new_exporter(arr.clone(), &mut ctx)
                     .unwrap()
                     .export(
                         i * DUCKDB_STANDARD_VECTOR_SIZE,
                         DUCKDB_STANDARD_VECTOR_SIZE,
                         chunk[i].get_vector_mut(0),
+                        &mut ctx,
                     )
                     .unwrap();
                 chunk[i].set_len(DUCKDB_STANDARD_VECTOR_SIZE);

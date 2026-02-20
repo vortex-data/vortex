@@ -35,7 +35,7 @@ pub trait CopyFunction: Sized + Debug {
     /// The function is called during query execution and is responsible for consuming the output
     fn copy_to_sink(
         bind_data: &Self::BindData,
-        init_global: &mut Self::GlobalState,
+        init_global: &Self::GlobalState,
         init_local: &mut Self::LocalState,
         chunk: &mut DataChunkRef,
     ) -> VortexResult<()>;

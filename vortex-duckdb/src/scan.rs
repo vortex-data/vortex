@@ -24,10 +24,9 @@ use futures::stream::SelectAll;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use url::Url;
-use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::ExecutionCtx;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ScalarFnVTable;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::StructVTable;
@@ -50,7 +49,6 @@ use vortex::io::filesystem::FileSystemRef;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::metrics::tracing::get_global_labels;
-use vortex::session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::RUNTIME;
@@ -112,7 +110,6 @@ impl Debug for VortexBindData {
 pub struct VortexGlobalData {
     iterator: ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>,
     batch_id: AtomicU64,
-    ctx: ExecutionCtx,
     bytes_total: Arc<AtomicU64>,
     bytes_read: AtomicU64,
 }
@@ -342,11 +339,12 @@ impl TableFunction for VortexTableFunction {
         _client_context: &ClientContextRef,
         _bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
-        global_state: &mut Self::GlobalState,
+        global_state: &Self::GlobalState,
         chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
         loop {
             if local_state.exporter.is_none() {
+                let mut ctx = SESSION.create_execution_ctx();
                 let Some(result) = local_state.iterator.next() else {
                     return Ok(());
                 };
@@ -365,15 +363,13 @@ impl TableFunction for VortexTableFunction {
                         pack_options.nullability.into(),
                     )
                 } else {
-                    array_result
-                        .execute::<Canonical>(&mut global_state.ctx)?
-                        .into_struct()
+                    array_result.execute::<Canonical>(&mut ctx)?.into_struct()
                 };
 
                 local_state.exporter = Some(ArrayExporter::try_new(
                     &array_result,
                     &conversion_cache,
-                    &mut global_state.ctx,
+                    ctx,
                 )?);
                 // Relaxed since there is no intra-instruction ordering required.
                 local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
@@ -493,8 +489,6 @@ impl TableFunction for VortexTableFunction {
                 max_concurrency: num_workers * 2,
             }),
             batch_id: AtomicU64::new(0),
-            // TODO(joe): fetch this from somewhere??.
-            ctx: ExecutionCtx::new(VortexSession::default()),
             bytes_read: AtomicU64::new(0),
             bytes_total,
         })
@@ -502,7 +496,7 @@ impl TableFunction for VortexTableFunction {
 
     fn init_local(
         _init: &TableInitInput<Self>,
-        global: &mut Self::GlobalState,
+        global: &Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
         unsafe {
             use custom_labels::sys;
@@ -528,8 +522,8 @@ impl TableFunction for VortexTableFunction {
 
     fn table_scan_progress(
         _client_context: &ClientContextRef,
-        _bind_data: &mut Self::BindData,
-        global_state: &mut Self::GlobalState,
+        _bind_data: &Self::BindData,
+        global_state: &Self::GlobalState,
     ) -> f64 {
         global_state.progress()
     }
@@ -561,7 +555,7 @@ impl TableFunction for VortexTableFunction {
 
     fn partition_data(
         _bind_data: &Self::BindData,
-        _global_init_data: &mut Self::GlobalState,
+        _global_init_data: &Self::GlobalState,
         _local_init_data: &mut Self::LocalState,
     ) -> VortexResult<u64> {
         _local_init_data
@@ -670,10 +664,7 @@ mod tests {
     use std::sync::atomic::AtomicU64;
     use std::sync::atomic::Ordering::Relaxed;
 
-    use vortex::VortexSessionDefault as _;
     use vortex::io::runtime::current::CurrentThreadRuntime;
-    use vortex::session::VortexSession;
-    use vortex_array::ExecutionCtx;
 
     use crate::scan::VortexGlobalData;
 
@@ -684,7 +675,6 @@ mod tests {
         let state = VortexGlobalData {
             iterator,
             batch_id: AtomicU64::new(0),
-            ctx: ExecutionCtx::new(VortexSession::default()),
             bytes_total: Arc::new(AtomicU64::new(100)),
             bytes_read: AtomicU64::new(0),
         };

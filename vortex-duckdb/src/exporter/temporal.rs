@@ -15,8 +15,8 @@ struct TemporalExporter {
 }
 
 impl ColumnExporter for TemporalExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
-        self.storage_type_exporter.export(offset, len, vector)
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+        self.storage_type_exporter.export(offset, len, vector, ctx)
     }
 }
 
@@ -61,10 +61,11 @@ mod tests {
         );
         let mut chunk =
             DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP_S)]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut SESSION.create_execution_ctx())
+        new_exporter(arr, &mut ctx)
             .unwrap()
-            .export(1, 5, chunk.get_vector_mut(0))
+            .export(1, 5, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
         chunk.set_len(2);
 
@@ -85,10 +86,11 @@ mod tests {
             None,
         );
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP)]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut SESSION.create_execution_ctx())
+        new_exporter(arr, &mut ctx)
             .unwrap()
-            .export(1, 5, chunk.get_vector_mut(0))
+            .export(1, 5, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
         chunk.set_len(4);
 
@@ -108,10 +110,11 @@ mod tests {
         );
 
         let mut chunk = DataChunk::new([LogicalType::try_from(arr.dtype()).unwrap()]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut SESSION.create_execution_ctx())
+        new_exporter(arr, &mut ctx)
             .unwrap()
-            .export(1, 5, chunk.get_vector_mut(0))
+            .export(1, 5, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
 
         chunk.set_len(4);
