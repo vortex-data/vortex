@@ -349,10 +349,10 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
                 LazyScanState::Builder(builder) => {
                     let builder = builder.take().vortex_expect("polled after completion");
                     let ordered = builder.ordered;
-                    let num_workers = std::thread::available_parallelism()
-                        .map(|n| n.get())
-                        .unwrap_or(1);
-                    let concurrency = builder.concurrency * num_workers;
+                    // let num_workers = std::thread::available_parallelism()
+                    //     .map(|n| n.get())
+                    //     .unwrap_or(1);
+                    let concurrency = builder.concurrency;
                     let handle = builder.session.handle();
                     let task = handle.spawn_blocking(move || {
                         builder.prepare().and_then(|scan| scan.execute(None))
