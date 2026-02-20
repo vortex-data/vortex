@@ -24,6 +24,7 @@ use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::array as fba;
 use vortex_flatbuffers::array::Compression;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::Array;
 use crate::ArrayContext;
@@ -528,6 +529,21 @@ impl ArrayParts {
         array_tree: ByteBuffer,
         segment: BufferHandle,
     ) -> VortexResult<Self> {
+        // HashMap::new doesn't allocate when empty, so this has no overhead
+        Self::from_flatbuffer_and_segment_with_overrides(array_tree, segment, &HashMap::new())
+    }
+
+    /// Create an [`ArrayParts`] from a pre-existing flatbuffer (ArrayNode) and a segment,
+    /// substituting host-resident buffer overrides for specific buffer indices.
+    ///
+    /// Buffers whose index appears in `buffer_overrides` are resolved from the provided
+    /// host data instead of the segment. All other buffers are sliced from the segment
+    /// using the padding and alignment described in the flatbuffer.
+    pub fn from_flatbuffer_and_segment_with_overrides(
+        array_tree: ByteBuffer,
+        segment: BufferHandle,
+        buffer_overrides: &HashMap<u32, ByteBuffer>,
+    ) -> VortexResult<Self> {
         // We align each buffer individually, so we remove alignment requirements on the segment
         // for host-resident buffers. Device buffers are sliced directly.
         let segment = segment.ensure_aligned(Alignment::none())?;
@@ -543,14 +559,22 @@ impl ArrayParts {
             .buffers()
             .unwrap_or_default()
             .iter()
-            .map(|fb_buf| {
+            .enumerate()
+            .map(|(idx, fb_buf)| {
                 offset += fb_buf.padding() as usize;
                 let buffer_len = fb_buf.length() as usize;
-                let buffer = segment.slice(offset..(offset + buffer_len));
-                let buffer =
-                    buffer.ensure_aligned(Alignment::from_exponent(fb_buf.alignment_exponent()))?;
+                let alignment = Alignment::from_exponent(fb_buf.alignment_exponent());
+
+                let idx = u32::try_from(idx).vortex_expect("buffer count must fit in u32");
+                let handle = if let Some(host_data) = buffer_overrides.get(&idx) {
+                    BufferHandle::new_host(host_data.clone()).ensure_aligned(alignment)?
+                } else {
+                    let buffer = segment.slice(offset..(offset + buffer_len));
+                    buffer.ensure_aligned(alignment)?
+                };
+
                 offset += buffer_len;
-                Ok(buffer)
+                Ok(handle)
             })
             .collect::<VortexResult<Arc<[_]>>>()?;
 

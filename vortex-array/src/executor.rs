@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::type_name;
 use std::fmt;
 use std::fmt::Display;
 use std::sync::Arc;
@@ -33,23 +32,15 @@ impl dyn Array + '_ {
     ///
     /// See the [`Executable`] implementation for details on how this execution is performed.
     pub fn execute<E: Executable>(self: Arc<Self>, ctx: &mut ExecutionCtx) -> VortexResult<E> {
-        ctx.log_entry(
-            &self,
-            format_args!("execute<{}> {}", type_name::<E>(), self),
-        );
         E::execute(self, ctx)
     }
 
     /// Execute this array, labeling the execution step with a name for tracing.
     pub fn execute_as<E: Executable>(
         self: Arc<Self>,
-        name: &'static str,
+        _name: &'static str,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<E> {
-        ctx.log_entry(
-            &self,
-            format_args!("{}: execute<{}> {}", name, type_name::<E>(), self),
-        );
         E::execute(self, ctx)
     }
 }
@@ -92,18 +83,6 @@ impl ExecutionCtx {
             let formatted = format!(" - {msg}");
             tracing::trace!("exec[{}]: {formatted}", self.id);
             self.ops.push(formatted);
-        }
-    }
-
-    /// Log an execution entry point. On the first call into this context, the full
-    /// `display_tree` of the array is included so the starting state is visible.
-    fn log_entry(&mut self, array: &dyn Array, msg: fmt::Arguments<'_>) {
-        if tracing::enabled!(tracing::Level::DEBUG) {
-            if self.ops.is_empty() {
-                self.log(format_args!("{msg}\n{}", array.display_tree()));
-            } else {
-                self.log(msg);
-            }
         }
     }
 }

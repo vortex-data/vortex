@@ -15084,6 +15084,8 @@ pub fn vortex_array::serde::ArrayParts::from_array_tree(array_tree: impl core::c
 
 pub fn vortex_array::serde::ArrayParts::from_flatbuffer_and_segment(array_tree: vortex_buffer::ByteBuffer, segment: vortex_array::buffer::BufferHandle) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::serde::ArrayParts::from_flatbuffer_and_segment_with_overrides(array_tree: vortex_buffer::ByteBuffer, segment: vortex_array::buffer::BufferHandle, buffer_overrides: &vortex_utils::aliases::hash_map::HashMap<u32, vortex_buffer::ByteBuffer>) -> vortex_error::VortexResult<Self>
+
 pub fn vortex_array::serde::ArrayParts::from_flatbuffer_with_buffers(array_tree: impl core::convert::Into<vortex_buffer::ByteBuffer>, buffers: alloc::vec::Vec<vortex_array::buffer::BufferHandle>) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::serde::ArrayParts::metadata(&self) -> &[u8]
