@@ -6528,6 +6528,8 @@ impl vortex_array::dtype::datetime::Timestamp
 
 pub fn vortex_array::dtype::datetime::Timestamp::new(time_unit: vortex_array::dtype::datetime::TimeUnit, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
 
+pub fn vortex_array::dtype::datetime::Timestamp::new_with_options(options: vortex_array::dtype::datetime::TimestampOptions, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
+
 pub fn vortex_array::dtype::datetime::Timestamp::new_with_tz(time_unit: vortex_array::dtype::datetime::TimeUnit, timezone: core::option::Option<alloc::sync::Arc<str>>, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
 
 impl core::clone::Clone for vortex_array::dtype::datetime::Timestamp
@@ -6642,9 +6644,27 @@ pub fn vortex_array::dtype::extension::ExtDType<V>::storage_dtype(&self) -> &vor
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::try_with_vtable(vtable: V, metadata: <V as vortex_array::dtype::extension::ExtDTypeVTable>::Metadata, storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::dtype::extension::ExtDType<V>::vtable(&self) -> &V
+
 impl<V: core::clone::Clone + vortex_array::dtype::extension::ExtDTypeVTable> core::clone::Clone for vortex_array::dtype::extension::ExtDType<V>
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::clone(&self) -> vortex_array::dtype::extension::ExtDType<V>
+
+impl<V: core::cmp::Eq + vortex_array::dtype::extension::ExtDTypeVTable> core::cmp::Eq for vortex_array::dtype::extension::ExtDType<V>
+
+impl<V: core::cmp::PartialEq + vortex_array::dtype::extension::ExtDTypeVTable> core::cmp::PartialEq for vortex_array::dtype::extension::ExtDType<V>
+
+pub fn vortex_array::dtype::extension::ExtDType<V>::eq(&self, other: &vortex_array::dtype::extension::ExtDType<V>) -> bool
+
+impl<V: core::fmt::Debug + vortex_array::dtype::extension::ExtDTypeVTable> core::fmt::Debug for vortex_array::dtype::extension::ExtDType<V>
+
+pub fn vortex_array::dtype::extension::ExtDType<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<V: core::hash::Hash + vortex_array::dtype::extension::ExtDTypeVTable> core::hash::Hash for vortex_array::dtype::extension::ExtDType<V>
+
+pub fn vortex_array::dtype::extension::ExtDType<V>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl<V: vortex_array::dtype::extension::ExtDTypeVTable> core::marker::StructuralPartialEq for vortex_array::dtype::extension::ExtDType<V>
 
 pub struct vortex_array::dtype::extension::ExtDTypeMetadata<'a>
 
@@ -6690,7 +6710,11 @@ pub fn vortex_array::dtype::extension::ExtDTypeRef::eq_ignore_nullability(&self,
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::id(&self) -> vortex_array::dtype::extension::ExtID
 
+pub fn vortex_array::dtype::extension::ExtDTypeRef::is_nullable(&self) -> bool
+
 pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata_erased(&self) -> vortex_array::dtype::extension::ExtDTypeMetadata<'_>
+
+pub fn vortex_array::dtype::extension::ExtDTypeRef::nullability(&self) -> vortex_array::dtype::Nullability
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::storage_dtype(&self) -> &vortex_array::dtype::DType
 
@@ -7520,9 +7544,27 @@ pub fn vortex_array::dtype::extension::ExtDType<V>::storage_dtype(&self) -> &vor
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::try_with_vtable(vtable: V, metadata: <V as vortex_array::dtype::extension::ExtDTypeVTable>::Metadata, storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::dtype::extension::ExtDType<V>::vtable(&self) -> &V
+
 impl<V: core::clone::Clone + vortex_array::dtype::extension::ExtDTypeVTable> core::clone::Clone for vortex_array::dtype::extension::ExtDType<V>
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::clone(&self) -> vortex_array::dtype::extension::ExtDType<V>
+
+impl<V: core::cmp::Eq + vortex_array::dtype::extension::ExtDTypeVTable> core::cmp::Eq for vortex_array::dtype::extension::ExtDType<V>
+
+impl<V: core::cmp::PartialEq + vortex_array::dtype::extension::ExtDTypeVTable> core::cmp::PartialEq for vortex_array::dtype::extension::ExtDType<V>
+
+pub fn vortex_array::dtype::extension::ExtDType<V>::eq(&self, other: &vortex_array::dtype::extension::ExtDType<V>) -> bool
+
+impl<V: core::fmt::Debug + vortex_array::dtype::extension::ExtDTypeVTable> core::fmt::Debug for vortex_array::dtype::extension::ExtDType<V>
+
+pub fn vortex_array::dtype::extension::ExtDType<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<V: core::hash::Hash + vortex_array::dtype::extension::ExtDTypeVTable> core::hash::Hash for vortex_array::dtype::extension::ExtDType<V>
+
+pub fn vortex_array::dtype::extension::ExtDType<V>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl<V: vortex_array::dtype::extension::ExtDTypeVTable> core::marker::StructuralPartialEq for vortex_array::dtype::extension::ExtDType<V>
 
 pub struct vortex_array::dtype::ExtDTypeRef(_)
 
@@ -7544,7 +7586,11 @@ pub fn vortex_array::dtype::extension::ExtDTypeRef::eq_ignore_nullability(&self,
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::id(&self) -> vortex_array::dtype::extension::ExtID
 
+pub fn vortex_array::dtype::extension::ExtDTypeRef::is_nullable(&self) -> bool
+
 pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata_erased(&self) -> vortex_array::dtype::extension::ExtDTypeMetadata<'_>
+
+pub fn vortex_array::dtype::extension::ExtDTypeRef::nullability(&self) -> vortex_array::dtype::Nullability
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::storage_dtype(&self) -> &vortex_array::dtype::DType
 
