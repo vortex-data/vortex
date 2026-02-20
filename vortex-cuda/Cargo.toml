@@ -36,6 +36,7 @@ kanal = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
 prost = { workspace = true }
+rayon = { workspace = true }
 tracing = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }

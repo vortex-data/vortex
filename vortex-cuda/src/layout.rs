@@ -75,6 +75,21 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
+/// Offload a CPU-bound closure to the rayon thread pool, returning a future
+/// that resolves when the computation completes. This keeps tokio workers free
+/// for IO polling.
+async fn spawn_compute<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    let (tx, rx) = futures::channel::oneshot::channel();
+    rayon::spawn(move || {
+        drop(tx.send(f()));
+    });
+    rx.await.expect("rayon task panicked")
+}
+
 /// A buffer inlined into layout metadata for host-side access.
 #[derive(Clone, prost::Message)]
 pub struct InlinedBuffer {
@@ -359,35 +374,42 @@ impl LayoutReader for CudaFlatReader {
         let session = self.session.clone();
 
         Ok(MaskFuture::new(mask.len(), async move {
-            let mut array = array.clone().await?;
+            // IO phase: await data on tokio worker.
+            let array = array.clone().await?;
             let mask = mask.await?;
 
-            if row_range.start > 0 || row_range.end < array.len() {
-                array = slice_unoptimized(array, row_range.clone())?;
-            }
+            // CPU phase: offload to rayon so tokio workers stay free for IO.
+            spawn_compute(move || {
+                let mut array = array;
+                if row_range.start > 0 || row_range.end < array.len() {
+                    array = slice_unoptimized(array, row_range)?;
+                }
 
-            let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
-                let array = apply_unoptimized(&*array, &expr)?;
-                let array = filter_unoptimized(array, mask.clone())?;
-                let mut ctx = session.create_execution_ctx();
-                let array_mask = array.execute::<Mask>(&mut ctx)?;
-                mask.intersect_by_rank(&array_mask)
-            } else {
-                let array = apply_unoptimized(&*array, &expr)?;
-                let mut ctx = session.create_execution_ctx();
-                let array_mask = array.execute::<Mask>(&mut ctx)?;
-                mask.bitand(&array_mask)
-            };
+                let mask_density = mask.density();
+                let array_mask = if mask_density < EXPR_EVAL_THRESHOLD {
+                    let array = apply_unoptimized(&*array, &expr)?;
+                    let array = filter_unoptimized(array, mask.clone())?;
+                    let mut ctx = session.create_execution_ctx();
+                    let array_mask = array.execute::<Mask>(&mut ctx)?;
+                    mask.intersect_by_rank(&array_mask)
+                } else {
+                    let array = apply_unoptimized(&*array, &expr)?;
+                    let mut ctx = session.create_execution_ctx();
+                    let array_mask = array.execute::<Mask>(&mut ctx)?;
+                    mask.bitand(&array_mask)
+                };
 
-            tracing::debug!(
-                "CudaFlat mask evaluation {} - {} (mask = {}) => {}",
-                name,
-                expr,
-                mask.density(),
-                array_mask.density(),
-            );
+                tracing::debug!(
+                    "CudaFlat mask evaluation {} - {} (mask = {}) => {}",
+                    name,
+                    expr,
+                    mask_density,
+                    array_mask.density(),
+                );
 
-            Ok(array_mask)
+                Ok(array_mask)
+            })
+            .await
         }))
     }
 
@@ -407,28 +429,34 @@ impl LayoutReader for CudaFlatReader {
         let expr = (!is_identity).then(|| expr.clone());
 
         Ok(async move {
-            if is_identity {
-                tracing::debug!("CudaFlat array evaluation {} - <root>", name);
-            } else if let Some(expr) = &expr {
-                tracing::debug!("CudaFlat array evaluation {} - {}", name, expr);
-            }
-
-            let mut array = array.clone().await?;
+            // IO phase: await data on tokio worker.
+            let array = array.clone().await?;
             let mask = mask.await?;
 
-            if row_range.start > 0 || row_range.end < array.len() {
-                array = slice_unoptimized(array, row_range.clone())?;
-            }
+            // CPU phase: offload to rayon so tokio workers stay free for IO.
+            spawn_compute(move || {
+                if is_identity {
+                    tracing::debug!("CudaFlat array evaluation {} - <root>", name);
+                } else if let Some(expr) = &expr {
+                    tracing::debug!("CudaFlat array evaluation {} - {}", name, expr);
+                }
 
-            if !mask.all_true() {
-                array = filter_unoptimized(array, mask)?;
-            }
+                let mut array = array;
+                if row_range.start > 0 || row_range.end < array.len() {
+                    array = slice_unoptimized(array, row_range)?;
+                }
 
-            if let Some(expr) = &expr {
-                array = apply_unoptimized(&*array, expr)?;
-            }
+                if !mask.all_true() {
+                    array = filter_unoptimized(array, mask)?;
+                }
 
-            Ok(array)
+                if let Some(expr) = &expr {
+                    array = apply_unoptimized(&*array, expr)?;
+                }
+
+                Ok(array)
+            })
+            .await
         }
         .boxed())
     }

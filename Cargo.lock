@@ -10164,6 +10164,7 @@ dependencies = [
  "parking_lot",
  "paste",
  "prost 0.14.3",
+ "rayon",
  "rstest",
  "tokio",
  "tracing",
