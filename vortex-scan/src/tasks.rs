@@ -6,6 +6,8 @@
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use bit_vec::BitVec;
 use futures::FutureExt;
@@ -15,6 +17,7 @@ use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_layout::LayoutReader;
 use vortex_mask::Mask;
 
@@ -22,6 +25,17 @@ use crate::filter::FilterExpr;
 use crate::selection::Selection;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
+
+static MAPPER_TOTAL_NS: AtomicU64 = AtomicU64::new(0);
+static MAPPER_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Print accumulated mapper timing stats. Call at the end of a benchmark run.
+pub fn print_mapper_stats() {
+    let total_ns = MAPPER_TOTAL_NS.load(Ordering::Relaxed);
+    let count = MAPPER_COUNT.load(Ordering::Relaxed);
+    let total_s = total_ns as f64 / 1e9;
+    eprintln!("mapper_stats: total_cpu={total_s:.2}s count={count}");
+}
 
 /// Logic for executing a single split reading task.
 ///
@@ -149,7 +163,22 @@ pub(super) fn split_exec<A: 'static + Send>(
         }
 
         let array = projection_future.await?;
-        mapper(array).map(Some)
+
+        // Run mapper (and its subsequent array drops) on rayon to keep tokio
+        // workers free for IO polling.
+        let (tx, rx) = oneshot::channel();
+        rayon::spawn(move || {
+            let start = std::time::Instant::now();
+            let result = mapper(array).map(Some);
+            let elapsed_ns = u64::try_from(start.elapsed().as_nanos()).unwrap_or(u64::MAX);
+            MAPPER_TOTAL_NS.fetch_add(elapsed_ns, Ordering::Relaxed);
+            MAPPER_COUNT.fetch_add(1, Ordering::Relaxed);
+            drop(tx.send(result));
+        });
+        let Ok(result) = rx.await else {
+            vortex_panic!("mapper task panicked");
+        };
+        result
     };
 
     Ok(array_fut.boxed())

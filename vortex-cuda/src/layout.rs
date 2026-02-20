@@ -75,6 +75,23 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering as AtomicOrdering;
+
+static FILTER_EVAL_TOTAL_NS: AtomicU64 = AtomicU64::new(0);
+static FILTER_EVAL_COUNT: AtomicU64 = AtomicU64::new(0);
+static PROJ_EVAL_TOTAL_NS: AtomicU64 = AtomicU64::new(0);
+static PROJ_EVAL_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Print accumulated CudaFlatReader evaluation timing stats.
+pub fn print_cuda_eval_stats() {
+    let filter_s = FILTER_EVAL_TOTAL_NS.load(AtomicOrdering::Relaxed) as f64 / 1e9;
+    let filter_n = FILTER_EVAL_COUNT.load(AtomicOrdering::Relaxed);
+    let proj_s = PROJ_EVAL_TOTAL_NS.load(AtomicOrdering::Relaxed) as f64 / 1e9;
+    let proj_n = PROJ_EVAL_COUNT.load(AtomicOrdering::Relaxed);
+    eprintln!("cuda_eval_stats: filter_cpu={filter_s:.2}s count={filter_n} proj_cpu={proj_s:.2}s count={proj_n}");
+}
+
 /// Offload a CPU-bound closure to the rayon thread pool, returning a future
 /// that resolves when the computation completes. This keeps tokio workers free
 /// for IO polling.
@@ -87,7 +104,10 @@ where
     rayon::spawn(move || {
         drop(tx.send(f()));
     });
-    rx.await.expect("rayon task panicked")
+    let Ok(result) = rx.await else {
+        vortex_panic!("rayon task panicked");
+    };
+    result
 }
 
 /// A buffer inlined into layout metadata for host-side access.
@@ -380,6 +400,7 @@ impl LayoutReader for CudaFlatReader {
 
             // CPU phase: offload to rayon so tokio workers stay free for IO.
             spawn_compute(move || {
+                let start = std::time::Instant::now();
                 let mut array = array;
                 if row_range.start > 0 || row_range.end < array.len() {
                     array = slice_unoptimized(array, row_range)?;
@@ -407,6 +428,8 @@ impl LayoutReader for CudaFlatReader {
                     array_mask.density(),
                 );
 
+                FILTER_EVAL_TOTAL_NS.fetch_add(u64::try_from(start.elapsed().as_nanos()).unwrap_or(u64::MAX), AtomicOrdering::Relaxed);
+                FILTER_EVAL_COUNT.fetch_add(1, AtomicOrdering::Relaxed);
                 Ok(array_mask)
             })
             .await
@@ -435,6 +458,7 @@ impl LayoutReader for CudaFlatReader {
 
             // CPU phase: offload to rayon so tokio workers stay free for IO.
             spawn_compute(move || {
+                let start = std::time::Instant::now();
                 if is_identity {
                     tracing::debug!("CudaFlat array evaluation {} - <root>", name);
                 } else if let Some(expr) = &expr {
@@ -454,6 +478,8 @@ impl LayoutReader for CudaFlatReader {
                     array = apply_unoptimized(&*array, expr)?;
                 }
 
+                PROJ_EVAL_TOTAL_NS.fetch_add(u64::try_from(start.elapsed().as_nanos()).unwrap_or(u64::MAX), AtomicOrdering::Relaxed);
+                PROJ_EVAL_COUNT.fetch_add(1, AtomicOrdering::Relaxed);
                 Ok(array)
             })
             .await

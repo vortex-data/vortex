@@ -213,13 +213,11 @@ async fn main() -> Result<()> {
         let cuda_session = SESSION.cuda_session();
         vortex_cuda::layout::register_cuda_layout(&SESSION);
         let pool = std::sync::Arc::new(PinnedByteBufferPool::new(cuda_session.context().clone()));
-        let allocator = std::sync::Arc::new(
-            PinnedDeviceAllocator::from_session_with_streams(
-                pool.clone(),
-                &SESSION,
-                args.gpu_streams,
-            )?,
-        );
+        let allocator = std::sync::Arc::new(PinnedDeviceAllocator::from_session_with_streams(
+            pool.clone(),
+            &SESSION,
+            args.gpu_streams,
+        )?);
         (Some(allocator), Some(pool))
     } else {
         (None, None)
@@ -428,6 +426,8 @@ async fn main() -> Result<()> {
         println!("gpu_sync_ms={:.2}", gpu_sync_ms);
     }
     print_stats(pinned_pool.as_deref());
+    vortex_scan::print_mapper_stats();
+    vortex_cuda::layout::print_cuda_eval_stats();
 
     Ok(())
 }

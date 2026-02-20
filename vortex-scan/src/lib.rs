@@ -12,6 +12,7 @@ mod filter;
 pub mod row_mask;
 mod splits;
 mod tasks;
+pub use tasks::print_mapper_stats;
 
 mod selection;
 pub use selection::Selection;
