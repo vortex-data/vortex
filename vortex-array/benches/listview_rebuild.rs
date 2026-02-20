@@ -95,11 +95,11 @@ fn make_struct_lv(num_lists: usize, list_size: usize, step: usize) -> ListViewAr
 }
 
 // ── i32 with varied list sizes ───────────────────────────────────────────────
-const LIST_SIZES: &[usize] = &[512, 1024, 2048];
+const LIST_SIZES: &[usize] = &[512, 2048];
 
 #[divan::bench(args = LIST_SIZES)]
 fn i32_varied_list_sizes(bencher: Bencher, list_size: usize) {
-    let lv = make_primitive_lv(1_000, list_size, list_size);
+    let lv = make_primitive_lv(100, list_size, list_size);
     bencher
         .with_inputs(|| &lv)
         .bench_refs(|lv| lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap());
@@ -117,7 +117,7 @@ fn i8_large_lists(bencher: Bencher) {
 // ── i32 with 8-element overlapping lists ──────────────────────────────────────
 #[divan::bench]
 fn i32_small_overlapping(bencher: Bencher) {
-    let lv = make_primitive_lv(1_000, 8, 1);
+    let lv = make_primitive_lv(100, 8, 1);
     bencher
         .with_inputs(|| &lv)
         .bench_refs(|lv| lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap());
@@ -126,7 +126,7 @@ fn i32_small_overlapping(bencher: Bencher) {
 // ── VarBinView: variable-width elements ──────────────────────────────────────
 #[divan::bench]
 fn varbinview_rebuild(bencher: Bencher) {
-    let lv = make_varbinview_lv(1_000, 1_024, 1_024);
+    let lv = make_varbinview_lv(100, 1_024, 1_024);
     bencher
         .with_inputs(|| &lv)
         .bench_refs(|lv| lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap());
