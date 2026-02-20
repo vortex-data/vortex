@@ -19,7 +19,7 @@ jobs:
     secrets: inherit
 
   publish-rust:
-    runs-on: ubuntu-latest
+    runs-on: shipfox-2vcpu-ubuntu-2404
     timeout-minutes: 120
     needs: [package]
     steps:

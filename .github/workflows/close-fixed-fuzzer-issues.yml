@@ -25,19 +25,9 @@ jobs:
       fail-fast: false
       matrix:
         target: [file_io, array_ops, compress_roundtrip]
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m8g.large
-      - image=ubuntu24-full-arm64
-      - disk=large
-      - extras=s3-cache
-      - tag=fuzzer-cleanup-${{ matrix.target }}
+    runs-on: shipfox-2vcpu-ubuntu-2404-arm
     timeout-minutes: 60
     steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
-
       - uses: actions/checkout@v6
 
       - uses: ./.github/actions/setup-rust

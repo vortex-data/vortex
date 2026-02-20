@@ -48,18 +48,9 @@ jobs:
 
   python-lint:
     name: "Python (lint)"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=python-lint
+    runs-on: shipfox-15vcpu-ubuntu-2404
     timeout-minutes: 120
     steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
@@ -82,21 +73,12 @@ jobs:
 
   python-test:
     name: "Python (test)"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=python-test
+    runs-on: shipfox-15vcpu-ubuntu-2404
     timeout-minutes: 120
     env:
       RUST_LOG: "info,uv=debug"
       MATURIN_PEP517_ARGS: "--profile dev"
     steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
@@ -131,7 +113,7 @@ jobs:
 
   python-wheel-build:
     name: "Python (wheel build)"
-    runs-on: ubuntu-latest
+    runs-on: shipfox-2vcpu-ubuntu-2404
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v6
@@ -173,17 +155,8 @@ jobs:
   rust-docs:
     name: "Rust (docs)"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=rust-docs
+    runs-on: shipfox-8vcpu-ubuntu-2404
     steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
@@ -197,13 +170,7 @@ jobs:
   build-rust:
     name: "Rust build (${{matrix.config.name}})"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=${{ matrix.config.name }}
+    runs-on: shipfox-8vcpu-ubuntu-2404
     env:
       # disable lints for build, they will be caught in Rust lint job.
       RUSTFLAGS: "-A warnings"
@@ -224,9 +191,6 @@ jobs:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"wasm_js\"'"
             args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-test-e2e-cuda --exclude vortex-sqllogictest"
     steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
       - id: setup-rust
         uses: ./.github/actions/setup-rust
@@ -247,17 +211,8 @@ jobs:
   check-min-deps:
     name: "Check build with minimal dependencies"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=rust-min-deps
+    runs-on: shipfox-8vcpu-ubuntu-2404
     steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
@@ -269,17 +224,8 @@ jobs:
   rust-lint:
     name: "Rust (lint)"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=rust-lint
+    runs-on: shipfox-15vcpu-ubuntu-2404
     steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
       - id: setup-rust
         uses: ./.github/actions/setup-rust
@@ -313,17 +259,8 @@ jobs:
   rust-lint-no-default:
     name: "Rust (lint, no default)"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=rust-lint-no-default
+    runs-on: shipfox-15vcpu-ubuntu-2404
     steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
       - id: setup-rust
         uses: ./.github/actions/setup-rust
@@ -339,17 +276,8 @@ jobs:
   public-api:
     name: "Public API lock files"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=public-api
+    runs-on: shipfox-15vcpu-ubuntu-2404
     steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:
@@ -440,13 +368,7 @@ jobs:
   rust-test:
     name: "Rust tests (sanitizer)"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=rust-test-sanitizer
+    runs-on: shipfox-15vcpu-ubuntu-2404
     env:
       # Add debug symbols and enable ASAN/LSAN with better output
       ASAN_OPTIONS: "symbolize=1:print_stats=1:check_initialization_order=1:detect_leaks=1:halt_on_error=0:verbosity=1:leak_check_at_exit=1"
@@ -460,9 +382,6 @@ jobs:
       # Skip slow tests that are too expensive under sanitizer
       VORTEX_SKIP_SLOW_TESTS: "1"
     steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
       - name: Install llvm
         uses: aminya/setup-cpp@v1
@@ -637,18 +556,9 @@ jobs:
 
   build-java:
     name: "Java"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=16
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=java
+    runs-on: shipfox-15vcpu-ubuntu-2404
     timeout-minutes: 120
     steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
         with:
@@ -724,17 +634,8 @@ jobs:
   cxx-test:
     name: "C++ build"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=cxx-build
+    runs-on: shipfox-8vcpu-ubuntu-2404
     steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
       - id: setup-rust
         uses: ./.github/actions/setup-rust
@@ -754,17 +655,8 @@ jobs:
 
   sqllogic-test:
     name: "SQL logic tests"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=sql-logic-test
+    runs-on: shipfox-8vcpu-ubuntu-2404
     steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
       - id: setup-rust
         uses: ./.github/actions/setup-rust
@@ -777,7 +669,7 @@ jobs:
 
   wasm-integration:
     name: "wasm-integration"
-    runs-on: ubuntu-latest
+    runs-on: shipfox-2vcpu-ubuntu-2404
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v6
@@ -794,7 +686,7 @@ jobs:
 
   miri:
     name: "Rust tests (miri)"
-    runs-on: ubuntu-latest
+    runs-on: shipfox-2vcpu-ubuntu-2404
     timeout-minutes: 120
     env:
       MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation -Zmiri-env-forward=RUST_BACKTRACE
@@ -815,7 +707,7 @@ jobs:
 
   generated-files:
     name: "Check generated source files are up to date"
-    runs-on: ubuntu-latest
+    runs-on: shipfox-2vcpu-ubuntu-2404
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v6
@@ -857,8 +749,8 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - { os: ubuntu, runs-on: "ubuntu-24.04-arm", target: aarch64-unknown-linux-gnu }
-          - { os: ubuntu, runs-on: "ubuntu-24.04", target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu, runs-on: "shipfox-2vcpu-ubuntu-2404-arm", target: aarch64-unknown-linux-gnu }
+          - { os: ubuntu, runs-on: "shipfox-2vcpu-ubuntu-2404", target: x86_64-unknown-linux-gnu }
     steps:
       - uses: actions/checkout@v6
         with:
@@ -878,17 +770,8 @@ jobs:
   rust-publish-dry-run:
     name: "Rust publish dry-run"
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m7i+m7i-flex+m7a
-      - cpu=8
-      - image=ubuntu24-full-x64
-      - extras=s3-cache
-      - tag=rust-publish-dry-run
+    runs-on: shipfox-8vcpu-ubuntu-2404
     steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
       - id: setup-rust
         uses: ./.github/actions/setup-rust

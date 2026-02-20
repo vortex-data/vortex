@@ -31,7 +31,7 @@ jobs:
       github.event_name == 'workflow_call' ||
       github.event_name == 'workflow_dispatch'
 
-    runs-on: ubuntu-latest
+    runs-on: shipfox-2vcpu-ubuntu-2404
     timeout-minutes: 90
 
     permissions:
