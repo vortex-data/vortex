@@ -8,7 +8,6 @@ use std::fmt::Formatter;
 
 pub use kernel::*;
 use prost::Message;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -19,6 +18,7 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
+use crate::dtype::DType;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -294,11 +294,10 @@ pub fn not_ilike(child: Expression, pattern: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
     use crate::expr::col;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::like::LikeVariant;

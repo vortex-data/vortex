@@ -5,9 +5,6 @@ use std::any::Any;
 use std::mem::MaybeUninit;
 
 use vortex_buffer::BufferMut;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -22,6 +19,9 @@ use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
 use crate::scalar::Scalar;
 
 /// The builder for building a [`PrimitiveArray`], parametrized by the `PType`.
@@ -72,7 +72,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// ```
     /// use std::mem::MaybeUninit;
     /// use vortex_array::builders::{ArrayBuilder, PrimitiveBuilder};
-    /// use vortex_dtype::Nullability;
+    /// use vortex_array::dtype::Nullability;
     ///
     /// // Create a new builder.
     /// let mut builder: PrimitiveBuilder<i32> =
@@ -579,8 +579,7 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        use vortex_dtype::DType;
-
+        use crate::dtype::DType;
         use crate::scalar::Scalar;
 
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::Nullable, 10);
@@ -595,7 +594,7 @@ mod tests {
 
         // Test appending null value.
         let null_scalar = Scalar::null(DType::Primitive(
-            vortex_dtype::PType::I32,
+            crate::dtype::PType::I32,
             Nullability::Nullable,
         ));
         builder.append_scalar(&null_scalar).unwrap();

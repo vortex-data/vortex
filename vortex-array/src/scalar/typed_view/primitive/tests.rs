@@ -5,17 +5,17 @@ use std::cmp::Ordering;
 
 use num_traits::CheckedSub;
 use rstest::rstest;
-use vortex_dtype::DType;
-use vortex_dtype::FromPrimitiveOrF16;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::ToBytes;
-use vortex_dtype::half::f16;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::pvalue::CoercePValue;
 use super::*;
+use crate::dtype::DType;
+use crate::dtype::FromPrimitiveOrF16;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::dtype::ToBytes;
+use crate::dtype::half::f16;
 use crate::scalar::PValue;
 use crate::scalar::PrimitiveScalar;
 use crate::scalar::ScalarValue;

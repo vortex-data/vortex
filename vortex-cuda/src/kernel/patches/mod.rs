@@ -3,14 +3,15 @@
 
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
-use vortex_array::arrays::PrimitiveArrayParts;
-use vortex_array::patches::Patches;
-use vortex_array::validity::Validity;
-use vortex_array::vtable::ValidityHelper;
+use tracing::instrument;
+use vortex::array::arrays::PrimitiveArrayParts;
+use vortex::array::dtype::NativePType;
+use vortex::array::patches::Patches;
+use vortex::array::validity::Validity;
+use vortex::array::vtable::ValidityHelper;
+use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
 use vortex_cuda_macros::cuda_tests;
-use vortex_dtype::NativePType;
-use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -18,6 +19,7 @@ use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;
 
 /// Apply a set of patches in-place onto a [`CudaDeviceBuffer`] holding `ValuesT`.
+#[instrument(skip_all)]
 pub(crate) async fn execute_patches<
     ValuesT: NativePType + DeviceRepr,
     IndicesT: NativePType + DeviceRepr,
@@ -93,20 +95,20 @@ mod tests {
     use std::sync::Arc;
 
     use cudarc::driver::DeviceRepr;
-    use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::PrimitiveArrayParts;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::buffer::BufferHandle;
-    use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::patches::Patches;
-    use vortex_array::validity::Validity;
-    use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::NativePType;
-    use vortex_dtype::Nullability;
-    use vortex_session::VortexSession;
+    use vortex::array::IntoArray;
+    use vortex::array::ToCanonical;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::PrimitiveArrayParts;
+    use vortex::array::assert_arrays_eq;
+    use vortex::array::buffer::BufferHandle;
+    use vortex::array::builtins::ArrayBuiltins;
+    use vortex::array::dtype::DType;
+    use vortex::array::dtype::NativePType;
+    use vortex::array::dtype::Nullability;
+    use vortex::array::patches::Patches;
+    use vortex::array::validity::Validity;
+    use vortex::buffer::buffer;
+    use vortex::session::VortexSession;
 
     use crate::CanonicalCudaExt;
     use crate::CudaDeviceBuffer;
@@ -159,7 +161,7 @@ mod tests {
             ..
         } = values.into_parts();
 
-        let handle = ctx.move_to_device(cuda_buffer).unwrap().await.unwrap();
+        let handle = ctx.ensure_on_device(cuda_buffer).await.unwrap();
         let device_buf = handle
             .as_device()
             .as_any()

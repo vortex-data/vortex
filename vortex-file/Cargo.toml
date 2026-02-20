@@ -39,7 +39,6 @@ vortex-bytebool = { workspace = true }
 
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
-vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["file"] }
@@ -62,10 +61,6 @@ tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-io = { workspace = true, features = ["tokio"] }
 vortex-scan = { workspace = true }
-
-[target.'cfg(unix)'.dev-dependencies]
-vortex-cuda = { workspace = true }
-vortex-cuda-macros = { workspace = true }
 
 [lints]
 workspace = true

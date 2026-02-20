@@ -15,10 +15,10 @@ pub mod builder;
 mod accessor;
 
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 
+use crate::dtype::DType;
 use crate::scalar::Scalar;
 
 pub fn varbin_scalar(value: ByteBuffer, dtype: &DType) -> Scalar {

@@ -19,8 +19,9 @@ VortexScanReplacement(duckdb::ClientContext &context,
         return nullptr;
     }
     auto table_function = duckdb::make_uniq<duckdb::TableFunctionRef>();
-    duckdb::vector<duckdb::unique_ptr<duckdb::ParsedExpression>> children;
-    children.push_back(duckdb::make_uniq<duckdb::ConstantExpression>(duckdb::Value(table_name)));
+
+    duckdb::vector<duckdb::unique_ptr<duckdb::ParsedExpression>> children(1);
+    children[0] = duckdb::make_uniq<duckdb::ConstantExpression>(duckdb::Value(table_name));
     table_function->function =
         duckdb::make_uniq<duckdb::FunctionExpression>("read_vortex", std::move(children));
 

@@ -3,8 +3,10 @@
 
 pub mod binary_numeric;
 pub mod cast;
+#[allow(deprecated)]
 pub mod consistency;
 pub mod filter;
+#[allow(deprecated)]
 pub mod mask;
 pub mod search_sorted;
 pub mod take;

@@ -78,8 +78,10 @@ jobs:
         with:
           compiler: llvm
 
-      - name: Install cargo fuzz
-        run: cargo install --locked cargo-fuzz
+      - name: Install cargo-fuzz
+        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        with:
+          tool: cargo-fuzz
 
       - name: Restore corpus
         shell: bash

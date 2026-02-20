@@ -4,7 +4,6 @@
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -17,6 +16,7 @@ use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Output;
 use crate::compute::UnaryArgs;
+use crate::dtype::DType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;

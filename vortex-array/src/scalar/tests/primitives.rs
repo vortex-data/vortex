@@ -8,15 +8,15 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::ByteBuffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::NativeDecimalType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::datetime::Date;
-    use vortex_dtype::datetime::TimeUnit;
     use vortex_utils::aliases::hash_set::HashSet;
 
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::NativeDecimalType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::datetime::Date;
+    use crate::dtype::datetime::TimeUnit;
     use crate::scalar::DecimalScalar;
     use crate::scalar::DecimalValue;
     use crate::scalar::PValue;

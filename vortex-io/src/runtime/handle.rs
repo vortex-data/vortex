@@ -27,7 +27,7 @@ pub struct Handle {
 }
 
 impl Handle {
-    pub(crate) fn new(runtime: Weak<dyn Executor>) -> Self {
+    pub fn new(runtime: Weak<dyn Executor>) -> Self {
         Self { runtime }
     }
 

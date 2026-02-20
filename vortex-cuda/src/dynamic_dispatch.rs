@@ -120,19 +120,19 @@ mod tests {
     use cudarc::driver::DevicePtr;
     use cudarc::driver::LaunchConfig;
     use cudarc::driver::PushKernelArg;
-    use vortex_alp::ALPFloat;
-    use vortex_alp::Exponents;
-    use vortex_alp::alp_encode;
-    use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::buffer::BufferHandle;
-    use vortex_array::validity::Validity::NonNullable;
-    use vortex_buffer::Buffer;
-    use vortex_error::VortexExpect;
-    use vortex_error::VortexResult;
-    use vortex_fastlanes::BitPackedArray;
-    use vortex_fastlanes::FoRArray;
-    use vortex_session::VortexSession;
+    use futures::executor::block_on;
+    use vortex::array::ToCanonical;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::validity::Validity::NonNullable;
+    use vortex::buffer::Buffer;
+    use vortex::encodings::alp::ALPFloat;
+    use vortex::encodings::alp::Exponents;
+    use vortex::encodings::alp::alp_encode;
+    use vortex::encodings::fastlanes::BitPackedArray;
+    use vortex::encodings::fastlanes::FoRArray;
+    use vortex::error::VortexExpect;
+    use vortex::error::VortexResult;
+    use vortex::session::VortexSession;
 
     use super::DynamicDispatchPlan;
     use super::ScalarOp;
@@ -214,21 +214,6 @@ mod tests {
         Ok(unsafe { std::mem::transmute::<Vec<u32>, Vec<f32>>(result) })
     }
 
-    fn copy_to_device(
-        cuda_ctx: &CudaExecutionCtx,
-        bitpacked: &BitPackedArray,
-    ) -> VortexResult<(u64, BufferHandle)> {
-        let packed = bitpacked.packed().clone();
-        let device_input = futures::executor::block_on(cuda_ctx.move_to_device(packed)?)
-            .vortex_expect("move to device");
-        let ptr = device_input
-            .cuda_view::<u32>()
-            .vortex_expect("input view")
-            .device_ptr(cuda_ctx.stream())
-            .0;
-        Ok((ptr, device_input))
-    }
-
     #[test]
     fn test_bitunpack() -> VortexResult<()> {
         let bit_width: u8 = 10;
@@ -241,7 +226,11 @@ mod tests {
 
         let bitpacked = make_bitpacked_array_u32(bit_width, len);
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (input_ptr, _device_input) = copy_to_device(&cuda_ctx, &bitpacked)?;
+        let device_input = block_on(cuda_ctx.ensure_on_device(bitpacked.packed().clone()))?;
+        let input_ptr = device_input
+            .cuda_view::<u32>()?
+            .device_ptr(cuda_ctx.stream())
+            .0;
 
         let plan = DynamicDispatchPlan::new(SourceOp::bitunpack(bit_width), &[]);
 
@@ -264,7 +253,11 @@ mod tests {
 
         let bitpacked = make_bitpacked_array_u32(bit_width, len);
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (input_ptr, _device_input) = copy_to_device(&cuda_ctx, &bitpacked)?;
+        let device_input = block_on(cuda_ctx.ensure_on_device(bitpacked.packed().clone()))?;
+        let input_ptr = device_input
+            .cuda_view::<u32>()?
+            .device_ptr(cuda_ctx.stream())
+            .0;
 
         let plan = DynamicDispatchPlan::new(
             SourceOp::bitunpack(bit_width),
@@ -303,7 +296,11 @@ mod tests {
         let alp_e = <f32 as ALPFloat>::IF10[alp_array.exponents().e as usize];
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (input_ptr, _device_input) = copy_to_device(&cuda_ctx, &bitpacked)?;
+        let device_input = block_on(cuda_ctx.ensure_on_device(bitpacked.packed().clone()))?;
+        let input_ptr = device_input
+            .cuda_view::<u32>()?
+            .device_ptr(cuda_ctx.stream())
+            .0;
 
         let plan = DynamicDispatchPlan::new(
             SourceOp::bitunpack(bit_width),
@@ -333,7 +330,11 @@ mod tests {
 
         let bitpacked = make_bitpacked_array_u32(bit_width, len);
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (input_ptr, _device_input) = copy_to_device(&cuda_ctx, &bitpacked)?;
+        let device_input = block_on(cuda_ctx.ensure_on_device(bitpacked.packed().clone()))?;
+        let input_ptr = device_input
+            .cuda_view::<u32>()?
+            .device_ptr(cuda_ctx.stream())
+            .0;
 
         let scalar_ops: Vec<ScalarOp> = references
             .iter()

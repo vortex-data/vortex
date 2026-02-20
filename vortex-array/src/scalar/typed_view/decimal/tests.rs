@@ -6,15 +6,15 @@
 #![allow(clippy::disallowed_types, clippy::panic)]
 
 use rstest::rstest;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::DecimalType;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::i256;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::DecimalType;
+use crate::dtype::NativeDecimalType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::dtype::i256;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 
@@ -345,7 +345,7 @@ fn test_null_decimal_cast() {
 #[test]
 fn test_decimal_i256_to_primitive() {
     // Create a decimal with i256 value
-    use vortex_dtype::i256;
+    use crate::dtype::i256;
     let large_value = i256::from_i128(1234567890);
     let decimal = Scalar::decimal(
         DecimalValue::I256(large_value),
@@ -485,7 +485,7 @@ fn test_decimal_i8_all_primitive_casts(#[case] ptype: PType, #[case] expected: u
 
 #[test]
 fn test_decimal_cast_f16() {
-    use vortex_dtype::half::f16;
+    use crate::dtype::half::f16;
 
     // Create a decimal with value 12.5 (scale=1, so stored as 125)
     let decimal = Scalar::decimal(
@@ -1077,7 +1077,7 @@ fn test_decimal_value_mixed_types() {
 
 #[test]
 fn test_fits_in_precision_exact_boundary() {
-    use vortex_dtype::DecimalDType;
+    use crate::dtype::DecimalDType;
 
     // Precision 3 means max value is 10^3 - 1 = 999
     let dtype = DecimalDType::new(3, 0);
@@ -1101,7 +1101,7 @@ fn test_fits_in_precision_exact_boundary() {
 
 #[test]
 fn test_fits_in_precision_zero() {
-    use vortex_dtype::DecimalDType;
+    use crate::dtype::DecimalDType;
 
     let dtype = DecimalDType::new(5, 2);
 
@@ -1112,7 +1112,7 @@ fn test_fits_in_precision_zero() {
 
 #[test]
 fn test_fits_in_precision_small_precision() {
-    use vortex_dtype::DecimalDType;
+    use crate::dtype::DecimalDType;
 
     // Precision 1 means max value is 10^1 - 1 = 9
     let dtype = DecimalDType::new(1, 0);
@@ -1136,7 +1136,7 @@ fn test_fits_in_precision_small_precision() {
 
 #[test]
 fn test_fits_in_precision_large_precision() {
-    use vortex_dtype::DecimalDType;
+    use crate::dtype::DecimalDType;
 
     // Precision 38 means max value is 10^38 - 1
     let dtype = DecimalDType::new(38, 0);
@@ -1163,7 +1163,7 @@ fn test_fits_in_precision_large_precision() {
 
 #[test]
 fn test_fits_in_precision_max_precision() {
-    use vortex_dtype::DecimalDType;
+    use crate::dtype::DecimalDType;
 
     // Maximum precision is 76
     let dtype = DecimalDType::new(76, 0);
@@ -1179,7 +1179,7 @@ fn test_fits_in_precision_max_precision() {
 
 #[test]
 fn test_fits_in_precision_different_scales() {
-    use vortex_dtype::DecimalDType;
+    use crate::dtype::DecimalDType;
 
     // Scale doesn't affect the precision check - it's only about the stored value
     let value = DecimalValue::I32(12345);
@@ -1196,7 +1196,7 @@ fn test_fits_in_precision_different_scales() {
 
 #[test]
 fn test_fits_in_precision_negative_values() {
-    use vortex_dtype::DecimalDType;
+    use crate::dtype::DecimalDType;
 
     let dtype = DecimalDType::new(4, 2);
 
@@ -1214,7 +1214,7 @@ fn test_fits_in_precision_negative_values() {
 
 #[test]
 fn test_fits_in_precision_mixed_decimal_value_types() {
-    use vortex_dtype::DecimalDType;
+    use crate::dtype::DecimalDType;
 
     let dtype = DecimalDType::new(5, 0);
 

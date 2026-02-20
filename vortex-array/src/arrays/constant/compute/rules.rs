@@ -12,7 +12,7 @@ use crate::arrays::FilterReduceAdaptor;
 use crate::arrays::FilterVTable;
 use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::TakeReduceAdaptor;
-use crate::compute::CastReduceAdaptor;
+use crate::expr::CastReduceAdaptor;
 use crate::expr::FillNullReduceAdaptor;
 use crate::expr::NotReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;

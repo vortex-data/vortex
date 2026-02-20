@@ -3,9 +3,6 @@
 
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use vortex_dtype::DType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -22,6 +19,9 @@ use crate::arrays::VarBinVTable;
 use crate::arrays::filter::FilterKernel;
 use crate::arrays::varbin::VarBinArray;
 use crate::arrays::varbin::builder::VarBinBuilder;
+use crate::dtype::DType;
+use crate::dtype::IntegerPType;
+use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -196,9 +196,6 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType>(
 mod test {
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::Nullability::Nullable;
 
     use crate::IntoArray;
     use crate::arrays::BoolArray;
@@ -207,6 +204,9 @@ mod test {
     use crate::arrays::varbin::compute::filter::filter_select_var_bin_by_slice;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::Nullability::Nullable;
     use crate::validity::Validity;
 
     #[test]

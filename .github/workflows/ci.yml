@@ -548,20 +548,20 @@ jobs:
       - name: CUDA - memcheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool memcheck --leak-check=full --error-exitcode 1
-        run: cargo test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
+        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
         # TODO(joe): try to re-enable, This is hanging in CI.
         #      - name: CUDA - racecheck
         #        env:
         #          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool racecheck --error-exitcode 1
-        #        run: cargo test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
+        #        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
       - name: CUDA - synccheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool synccheck --error-exitcode 1
-        run: cargo test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
+        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
       - name: CUDA - initcheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool initcheck --error-exitcode 1
-        run: cargo test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
+        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
       - name: Build cudf test library
         run: cargo build --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
       - name: Download and run cudf-test-harness
@@ -666,7 +666,7 @@ jobs:
       matrix:
         include:
           - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-error" }
-          - { shard: 2, name: "Arrays", packages: "vortex-array vortex-dtype", features: "--features _test-harness" }
+          - { shard: 2, name: "Arrays", packages: "vortex-array", features: "--features _test-harness" }
           - { shard: 3, name: "Main library", packages: "vortex" }
           - { shard: 4, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
           - { shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }
@@ -691,7 +691,9 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/system-info
       - name: Install Codspeed
-        run: cargo install --force cargo-codspeed --locked
+        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        with:
+          tool: cargo-codspeed
       - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
@@ -845,3 +847,61 @@ jobs:
         working-directory: vortex-flatbuffers/
         run: |
           find flatbuffers/ -type f -name "*.fbs" | sed 's/^flatbuffers\///' | xargs -I{} -n1 flatc -I flatbuffers.HEAD --conform-includes flatbuffers --conform flatbuffers/{} flatbuffers.HEAD/{}
+
+  check-java-publish-build:
+    runs-on: ${{ matrix.target.runs-on }}
+    container:
+      image: "ubuntu:20.04"
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { os: ubuntu, runs-on: "ubuntu-24.04-arm", target: aarch64-unknown-linux-gnu }
+          - { os: ubuntu, runs-on: "ubuntu-24.04", target: x86_64-unknown-linux-gnu }
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/prepare-java-linux
+      - uses: actions/setup-java@v5
+        with:
+          distribution: "corretto"
+          java-version: "17"
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: ${{ matrix.target.target }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "false"
+      - run: cargo build --package vortex-jni
+
+  rust-publish-dry-run:
+    name: "Rust publish dry-run"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+      - tag=rust-publish-dry-run
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install cargo-edit
+        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        with:
+          tool: cargo-edit
+      - name: Set Version
+        run: |
+          # This is mostly a dummy version, we don't actually publish anything but it cannot exist in crates.io
+          cargo set-version --workspace 0.100000.0
+      - name: Test Release
+        run: |
+          cargo publish --dry-run --no-verify --allow-dirty --workspace

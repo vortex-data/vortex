@@ -7,12 +7,12 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrow::FromArrowArray;
+use vortex_array::dtype::NativePType;
 use vortex_array::scalar::PValue;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;
@@ -70,11 +70,11 @@ mod tests {
     use vortex_array::arrow::ArrowArrayExecutor;
     use vortex_array::arrow::FromArrowArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
     use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 

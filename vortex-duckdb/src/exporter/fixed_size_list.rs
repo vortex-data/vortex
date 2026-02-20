@@ -7,7 +7,7 @@
 //! The ARRAY type in DuckDB corresponds to Vortex's [`DType::FixedSizeList`], where all
 //! lists have the same number of elements.
 //!
-//! [`DType::FixedSizeList`]: vortex_dtype::DType::FixedSizeList
+//! [`DType::FixedSizeList`]: vortex_array::dtype::DType::FixedSizeList
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::error::VortexResult;

@@ -191,9 +191,6 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::PType;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -201,6 +198,9 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrow::ArrowArrayExecutor;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType;
     use crate::executor::VortexSessionExecute;
     use crate::scalar::Scalar;
     use crate::session::ArraySession;

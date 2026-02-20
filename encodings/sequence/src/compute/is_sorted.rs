@@ -4,8 +4,8 @@
 use num_traits::zero;
 use vortex_array::compute::IsSortedKernel;
 use vortex_array::compute::IsSortedKernelAdapter;
+use vortex_array::match_each_native_ptype;
 use vortex_array::register_kernel;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
 use crate::SequenceArray;

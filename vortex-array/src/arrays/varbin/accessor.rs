@@ -3,11 +3,10 @@
 
 use std::iter;
 
-use vortex_dtype::match_each_integer_ptype;
-
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::varbin::VarBinArray;
+use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

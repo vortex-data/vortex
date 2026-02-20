@@ -7,12 +7,12 @@ use std::sync::Arc;
 
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::NativeDType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::NativeDType;
+use crate::dtype::Nullability;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;

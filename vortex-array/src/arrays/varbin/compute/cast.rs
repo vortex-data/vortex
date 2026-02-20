@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
-use crate::compute::CastReduce;
+use crate::dtype::DType;
+use crate::expr::CastReduce;
 use crate::vtable::ValidityHelper;
 
 impl CastReduce for VarBinVTable {
@@ -38,12 +38,12 @@ impl CastReduce for VarBinVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
     use crate::arrays::VarBinArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
 
     #[rstest]
     #[case(

@@ -62,13 +62,6 @@ use vortex_buffer::Alignment;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::NativePType;
-use vortex_dtype::PType;
-use vortex_dtype::datetime::TimeUnit;
-use vortex_dtype::i256;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -89,6 +82,13 @@ use crate::arrays::TemporalArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrow::FromArrowArray;
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::IntegerPType;
+use crate::dtype::NativePType;
+use crate::dtype::PType;
+use crate::dtype::datetime::TimeUnit;
+use crate::dtype::i256;
 use crate::validity::Validity;
 
 impl IntoArray for ArrowBuffer {
@@ -677,11 +677,6 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::Fields;
     use arrow_schema::Schema;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::datetime::TimeUnit;
-    use vortex_dtype::datetime::Timestamp;
 
     use crate::ArrayRef;
     use crate::IntoArray;
@@ -695,6 +690,11 @@ mod tests {
     use crate::arrays::VarBinVTable;
     use crate::arrays::VarBinViewVTable;
     use crate::arrow::FromArrowArray as _;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::datetime::TimeUnit;
+    use crate::dtype::datetime::Timestamp;
 
     // Test primitive array conversions
     #[test]

@@ -7,11 +7,11 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;

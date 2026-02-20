@@ -46,9 +46,6 @@ impl SliceReduce for DictVTable {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::Nullable;
-    use vortex_dtype::PType;
     use vortex_error::VortexResult;
 
     use crate::Array;
@@ -57,6 +54,9 @@ mod tests {
     use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::Nullable;
+    use crate::dtype::PType;
     use crate::scalar::Scalar;
 
     #[test]

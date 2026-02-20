@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ffi::CStr;
 use std::ffi::CString;
 use std::ffi::c_void;
 use std::ptr;
@@ -9,6 +10,8 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
 use crate::cpp;
+use crate::duckdb::Database;
+use crate::duckdb::LogicalType;
 use crate::duckdb::Value;
 use crate::duckdb_try;
 use crate::wrapper;
@@ -70,11 +73,7 @@ impl Config {
             let c_str = unsafe { cpp::duckdb_vx_value_to_string(value.as_ptr()) };
 
             if !c_str.is_null() {
-                let rust_str = unsafe {
-                    std::ffi::CStr::from_ptr(c_str)
-                        .to_string_lossy()
-                        .into_owned()
-                };
+                let rust_str = unsafe { CStr::from_ptr(c_str).to_string_lossy().into_owned() };
 
                 // Free the C string allocated by our function
                 unsafe { cpp::duckdb_free(c_str as *mut c_void) };
@@ -113,16 +112,8 @@ impl Config {
             return Ok(None);
         }
 
-        let name = unsafe {
-            std::ffi::CStr::from_ptr(name_ptr)
-                .to_string_lossy()
-                .into_owned()
-        };
-        let description = unsafe {
-            std::ffi::CStr::from_ptr(desc_ptr)
-                .to_string_lossy()
-                .into_owned()
-        };
+        let name = unsafe { CStr::from_ptr(name_ptr).to_string_lossy().into_owned() };
+        let description = unsafe { CStr::from_ptr(desc_ptr).to_string_lossy().into_owned() };
 
         Ok(Some((name, description)))
     }
@@ -139,6 +130,37 @@ impl Config {
         }
 
         Ok(options)
+    }
+
+    /// Add a new extension option.
+    pub fn add_extension_options(
+        &self,
+        name: &str,
+        description: &str,
+        logical_type: LogicalType,
+        default_value: Value,
+    ) -> VortexResult<()> {
+        let name_cstr =
+            CString::new(name).map_err(|_| vortex_err!("Invalid name: contains null bytes"))?;
+        let desc_cstr = CString::new(description)
+            .map_err(|_| vortex_err!("Invalid description: contains null bytes"))?;
+
+        duckdb_try!(unsafe {
+            cpp::duckdb_vx_add_extension_option(
+                self.as_ptr(),
+                name_cstr.as_ptr(),
+                desc_cstr.as_ptr(),
+                logical_type.as_ptr(),
+                default_value.as_ptr(),
+            )
+        });
+        Ok(())
+    }
+}
+
+impl Database {
+    pub fn config(&self) -> Config {
+        unsafe { Config::borrow(cpp::duckdb_vx_database_get_config(self.as_ptr())) }
     }
 }
 

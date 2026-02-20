@@ -5,10 +5,10 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::dtype::DType;
 use crate::expr::stats::precision::Precision::Exact;
 use crate::expr::stats::precision::Precision::Inexact;
 use crate::scalar::Scalar;

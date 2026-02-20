@@ -9,12 +9,12 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::NativeValue;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::dtype::IntegerPType;
 use vortex_array::expr::stats::Stat;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_buffer::BitBuffer;
-use vortex_dtype::IntegerPType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -90,6 +90,28 @@ impl ErasedStats {
             ErasedStats::I32(x) => (x.max as i64 - x.min as i64) as u64,
             ErasedStats::I64(x) => u64::try_from(x.max as i128 - x.min as i128)
                 .vortex_expect("max minus min result bigger than u64"),
+        }
+    }
+
+    /// Returns the ilog2 of the max value when transmuted to unsigned, or None if zero.
+    ///
+    /// This matches how BitPacking computes bit width: it reinterprets signed values as
+    /// unsigned (preserving bit pattern) and uses leading_zeros. For non-negative signed
+    /// values, the transmuted value equals the original value.
+    ///
+    /// This is used to determine if FOR encoding would reduce bit width compared to
+    /// direct BitPacking. If `max_ilog2() == max_minus_min_ilog2()`, FOR doesn't help.
+    pub fn max_ilog2(&self) -> Option<u32> {
+        match &self {
+            ErasedStats::U8(x) => x.max.checked_ilog2(),
+            ErasedStats::U16(x) => x.max.checked_ilog2(),
+            ErasedStats::U32(x) => x.max.checked_ilog2(),
+            ErasedStats::U64(x) => x.max.checked_ilog2(),
+            // Transmute signed to unsigned (bit pattern preserved) to match BitPacking behavior
+            ErasedStats::I8(x) => (x.max as u8).checked_ilog2(),
+            ErasedStats::I16(x) => (x.max as u16).checked_ilog2(),
+            ErasedStats::I32(x) => (x.max as u32).checked_ilog2(),
+            ErasedStats::I64(x) => (x.max as u64).checked_ilog2(),
         }
     }
 

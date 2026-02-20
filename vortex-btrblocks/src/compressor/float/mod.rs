@@ -21,10 +21,10 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::DictArrayParts;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_sparse::SparseArray;
@@ -567,10 +567,10 @@ mod tests {
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
     use vortex_array::display::DisplayOptions;
+    use vortex_array::dtype::Nullability;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer_mut;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
 
     use super::RLE_FLOAT_SCHEME;
@@ -679,9 +679,9 @@ mod scheme_selection_tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
+    use vortex_array::dtype::Nullability;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
 
     use crate::BtrBlocksCompressor;

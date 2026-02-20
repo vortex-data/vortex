@@ -8,10 +8,10 @@
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::half::f16;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
-use vortex_dtype::half::f16;
 
 use super::stats::ErasedDistinctValues;
 use super::stats::FloatStats;

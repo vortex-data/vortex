@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::Zero;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
 use crate::Array;
@@ -14,7 +12,9 @@ use crate::arrays::ListViewRebuildMode;
 use crate::arrays::ListViewVTable;
 use crate::arrays::TakeExecute;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
+use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
 

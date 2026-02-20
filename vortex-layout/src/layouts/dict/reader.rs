@@ -18,11 +18,11 @@ use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::SharedArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::optimizer::ArrayOptimizer;
-use vortex_dtype::DType;
-use vortex_dtype::FieldMask;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -247,6 +247,10 @@ mod tests {
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldName;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
     use vortex_array::expr::eq;
     use vortex_array::expr::is_null;
     use vortex_array::expr::lit;
@@ -254,10 +258,6 @@ mod tests {
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::validity::Validity;
-    use vortex_dtype::DType;
-    use vortex_dtype::FieldName;
-    use vortex_dtype::FieldNames;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexExpect;
     use vortex_io::runtime::single::block_on;
 

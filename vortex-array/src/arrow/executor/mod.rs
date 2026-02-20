@@ -25,8 +25,6 @@ use arrow_schema::Field;
 use arrow_schema::FieldRef;
 use arrow_schema::Schema;
 use itertools::Itertools;
-use vortex_dtype::DType;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -48,6 +46,8 @@ use crate::arrow::executor::primitive::to_arrow_primitive;
 use crate::arrow::executor::run_end::to_arrow_run_end;
 use crate::arrow::executor::struct_::to_arrow_struct;
 use crate::arrow::executor::temporal::to_arrow_temporal;
+use crate::dtype::DType;
+use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
 
 /// Trait for executing a Vortex array to produce an Arrow array.

@@ -4,18 +4,18 @@
 use std::sync::Arc;
 
 use rstest::rstest;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::StructFields;
-use vortex_dtype::datetime::TimeUnit;
-use vortex_dtype::datetime::Timestamp;
-use vortex_dtype::half::f16;
 use vortex_error::VortexExpect;
 
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::dtype::StructFields;
+use crate::dtype::datetime::TimeUnit;
+use crate::dtype::datetime::Timestamp;
+use crate::dtype::half::f16;
 use crate::scalar::Scalar;
 
 /// Test that `append_zeros` produces the same result as manually appending `Scalar::default_value`.

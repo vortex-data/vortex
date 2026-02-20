@@ -6,7 +6,7 @@ impl vortex_fsst::FSSTArray
 
 pub fn vortex_fsst::FSSTArray::codes(&self) -> &vortex_array::arrays::varbin::array::VarBinArray
 
-pub fn vortex_fsst::FSSTArray::codes_dtype(&self) -> &vortex_dtype::dtype::DType
+pub fn vortex_fsst::FSSTArray::codes_dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_fsst::FSSTArray::compressor(&self) -> &fsst::Compressor
 
@@ -16,11 +16,11 @@ pub fn vortex_fsst::FSSTArray::symbol_lengths(&self) -> &vortex_buffer::buffer::
 
 pub fn vortex_fsst::FSSTArray::symbols(&self) -> &vortex_buffer::buffer::Buffer<fsst::Symbol>
 
-pub fn vortex_fsst::FSSTArray::try_new(dtype: vortex_dtype::dtype::DType, symbols: vortex_buffer::buffer::Buffer<fsst::Symbol>, symbol_lengths: vortex_buffer::buffer::Buffer<u8>, codes: vortex_array::arrays::varbin::array::VarBinArray, uncompressed_lengths: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<Self>
+pub fn vortex_fsst::FSSTArray::try_new(dtype: vortex_array::dtype::DType, symbols: vortex_buffer::buffer::Buffer<fsst::Symbol>, symbol_lengths: vortex_buffer::buffer::Buffer<u8>, codes: vortex_array::arrays::varbin::array::VarBinArray, uncompressed_lengths: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_fsst::FSSTArray::uncompressed_lengths(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_fsst::FSSTArray::uncompressed_lengths_dtype(&self) -> &vortex_dtype::dtype::DType
+pub fn vortex_fsst::FSSTArray::uncompressed_lengths_dtype(&self) -> &vortex_array::dtype::DType
 
 impl core::clone::Clone for vortex_fsst::FSSTArray
 
@@ -52,17 +52,17 @@ pub struct vortex_fsst::FSSTMetadata
 
 impl vortex_fsst::FSSTMetadata
 
-pub fn vortex_fsst::FSSTMetadata::codes_offsets_ptype(&self) -> vortex_dtype::ptype::PType
+pub fn vortex_fsst::FSSTMetadata::codes_offsets_ptype(&self) -> vortex_array::dtype::ptype::PType
 
-pub fn vortex_fsst::FSSTMetadata::set_codes_offsets_ptype(&mut self, value: vortex_dtype::ptype::PType)
+pub fn vortex_fsst::FSSTMetadata::set_codes_offsets_ptype(&mut self, value: vortex_array::dtype::ptype::PType)
 
-pub fn vortex_fsst::FSSTMetadata::set_uncompressed_lengths_ptype(&mut self, value: vortex_dtype::ptype::PType)
+pub fn vortex_fsst::FSSTMetadata::set_uncompressed_lengths_ptype(&mut self, value: vortex_array::dtype::ptype::PType)
 
-pub fn vortex_fsst::FSSTMetadata::uncompressed_lengths_ptype(&self) -> vortex_dtype::ptype::PType
+pub fn vortex_fsst::FSSTMetadata::uncompressed_lengths_ptype(&self) -> vortex_array::dtype::ptype::PType
 
 impl vortex_fsst::FSSTMetadata
 
-pub fn vortex_fsst::FSSTMetadata::get_uncompressed_lengths_ptype(&self) -> vortex_error::VortexResult<vortex_dtype::ptype::PType>
+pub fn vortex_fsst::FSSTMetadata::get_uncompressed_lengths_ptype(&self) -> vortex_error::VortexResult<vortex_array::dtype::ptype::PType>
 
 impl core::clone::Clone for vortex_fsst::FSSTMetadata
 
@@ -110,7 +110,7 @@ pub fn vortex_fsst::FSSTVTable::compare(lhs: &vortex_fsst::FSSTArray, rhs: &dyn 
 
 impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_fsst::FSSTVTable
 
-pub fn vortex_fsst::FSSTVTable::cast(array: &vortex_fsst::FSSTArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fsst::FSSTVTable::cast(array: &vortex_fsst::FSSTArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_fsst::FSSTVTable
 
@@ -128,9 +128,9 @@ pub type vortex_fsst::FSSTVTable::VisitorVTable = vortex_fsst::FSSTVTable
 
 pub fn vortex_fsst::FSSTVTable::append_to_builder(array: &vortex_fsst::FSSTArray, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_fsst::FSSTVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fsst::FSSTArray>
+pub fn vortex_fsst::FSSTVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fsst::FSSTArray>
 
-pub fn vortex_fsst::FSSTVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_fsst::FSSTVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_fsst::FSSTVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
@@ -152,7 +152,7 @@ pub fn vortex_fsst::FSSTVTable::array_eq(array: &vortex_fsst::FSSTArray, other: 
 
 pub fn vortex_fsst::FSSTVTable::array_hash<H: core::hash::Hasher>(array: &vortex_fsst::FSSTArray, state: &mut H, precision: vortex_array::hash::Precision)
 
-pub fn vortex_fsst::FSSTVTable::dtype(array: &vortex_fsst::FSSTArray) -> &vortex_dtype::dtype::DType
+pub fn vortex_fsst::FSSTVTable::dtype(array: &vortex_fsst::FSSTArray) -> &vortex_array::dtype::DType
 
 pub fn vortex_fsst::FSSTVTable::len(array: &vortex_fsst::FSSTArray) -> usize
 
@@ -178,6 +178,6 @@ pub fn vortex_fsst::FSSTVTable::visit_children(array: &vortex_fsst::FSSTArray, v
 
 pub fn vortex_fsst::fsst_compress<A: vortex_array::accessor::ArrayAccessor<[u8]> + core::convert::AsRef<dyn vortex_array::array::Array>>(strings: A, compressor: &fsst::Compressor) -> vortex_fsst::FSSTArray
 
-pub fn vortex_fsst::fsst_compress_iter<'a, I>(iter: I, len: usize, dtype: vortex_dtype::dtype::DType, compressor: &fsst::Compressor) -> vortex_fsst::FSSTArray where I: core::iter::traits::iterator::Iterator<Item = core::option::Option<&'a [u8]>>
+pub fn vortex_fsst::fsst_compress_iter<'a, I>(iter: I, len: usize, dtype: vortex_array::dtype::DType, compressor: &fsst::Compressor) -> vortex_fsst::FSSTArray where I: core::iter::traits::iterator::Iterator<Item = core::option::Option<&'a [u8]>>
 
 pub fn vortex_fsst::fsst_train_compressor<A: vortex_array::accessor::ArrayAccessor<[u8]>>(array: &A) -> fsst::Compressor

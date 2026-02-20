@@ -11,9 +11,10 @@ use vortex_mask::Mask;
 use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
-use crate::compute::zip;
+use crate::builtins::ArrayBuiltins;
 use crate::expr::ZipKernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -38,7 +39,7 @@ impl ZipKernel for StructVTable {
             .unmasked_fields()
             .iter()
             .zip(if_false.unmasked_fields().iter())
-            .map(|(t, f)| zip(t, f, mask))
+            .map(|(t, f)| ArrayBuiltins::zip(t, f.clone(), mask.clone().into_array()))
             .collect::<VortexResult<Vec<_>>>()?;
 
         let validity = match (if_true.validity(), if_false.validity()) {
@@ -67,13 +68,14 @@ impl ZipKernel for StructVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::FieldNames;
     use vortex_mask::Mask;
 
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    #[expect(deprecated)]
     use crate::compute::zip;
+    use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
     #[test]
@@ -97,6 +99,7 @@ mod tests {
 
         let mask = Mask::from_iter([false, false, true, false]);
 
+        #[expect(deprecated)]
         let result = zip(&if_true, &if_false, &mask).unwrap();
 
         insta::assert_snapshot!(result.display_table(), @r"
@@ -134,6 +137,7 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, false, false]);
 
+        #[expect(deprecated)]
         let result = zip(&if_true, &if_false, &mask).unwrap();
 
         insta::assert_snapshot!(result.display_table(), @r"

@@ -10,10 +10,10 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
+use crate::dtype::DType;
 use crate::expr::Root;
 use crate::expr::ScalarFn;
 use crate::expr::StatsCatalog;
@@ -174,9 +174,9 @@ impl Expression {
     /// # Example
     ///
     /// ```rust
+    /// # use vortex_array::dtype::{DType, Nullability, PType};
     /// # use vortex_array::expr::LikeOptions;
     /// # use vortex_array::expr::VTableExt;
-    /// # use vortex_dtype::{DType, Nullability, PType};
     /// # use vortex_array::expr::{and, cast, eq, get_item, gt, lit, not, root, select, Like};
     /// // Build a complex nested expression
     /// let complex_expr = select(

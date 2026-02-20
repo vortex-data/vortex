@@ -27,6 +27,7 @@
 template <typename T>
 __device__ inline void bit_unpack_lane(const T *__restrict packed_chunk,
                                        T *__restrict output_buffer,
+                                       T reference,
                                        unsigned int lane,
                                        uint32_t bit_width);
 
@@ -37,9 +38,10 @@ __device__ inline void bit_unpack_lane(const T *__restrict packed_chunk,
     template <>                                                                                              \
     __device__ inline void bit_unpack_lane<uint##bits##_t>(const uint##bits##_t *in,                         \
                                                            uint##bits##_t *out,                              \
+                                                           uint##bits##_t reference,                         \
                                                            unsigned int lane,                                \
                                                            uint32_t bw) {                                    \
-        bit_unpack_##bits##_lane(in, out, lane, bw);                                                         \
+        bit_unpack_##bits##_lane(in, out, reference, lane, bw);                                              \
     }
 
 BIT_UNPACK_LANE(8)

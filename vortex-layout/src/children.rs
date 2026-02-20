@@ -8,7 +8,7 @@ use std::sync::Arc;
 use flatbuffers::Follow;
 use itertools::Itertools;
 use vortex_array::ArrayContext;
-use vortex_dtype::DType;
+use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;

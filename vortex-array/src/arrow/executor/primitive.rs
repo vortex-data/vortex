@@ -6,9 +6,6 @@ use std::sync::Arc;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::ArrowPrimitiveType;
 use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -16,6 +13,9 @@ use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
+use crate::dtype::Nullability;
 
 /// Convert a canonical PrimitiveArray directly to Arrow.
 pub fn canonical_primitive_to_arrow<T: ArrowPrimitiveType>(

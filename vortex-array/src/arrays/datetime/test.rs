@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: Copyright the Vortex contributorsuse vortex_dtype::Nullability;
+// SPDX-FileCopyrightText: Copyright the Vortex contributorsuse crate::dtype::Nullability;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_dtype::datetime::TemporalMetadata;
-use vortex_dtype::datetime::TimeUnit;
-use vortex_dtype::datetime::Timestamp;
-use vortex_dtype::datetime::TimestampOptions;
 use vortex_error::VortexResult;
 
 use crate::IntoArray;
@@ -15,6 +11,10 @@ use crate::array::Array;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::TemporalArray;
 use crate::assert_arrays_eq;
+use crate::dtype::datetime::TemporalMetadata;
+use crate::dtype::datetime::TimeUnit;
+use crate::dtype::datetime::Timestamp;
+use crate::dtype::datetime::TimestampOptions;
 use crate::expr::root;
 use crate::expr::*;
 use crate::scalar::Scalar;

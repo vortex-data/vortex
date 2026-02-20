@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -19,6 +18,7 @@ use crate::arrays::BinaryView;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::arrays::varbinview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
