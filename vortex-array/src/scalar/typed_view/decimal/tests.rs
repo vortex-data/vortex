@@ -935,43 +935,6 @@ fn test_decimal_scalar_precision_overflow() {
 }
 
 #[test]
-fn test_decimal_scalar_rsub_and_rdiv() {
-    use crate::scalar::NumericOperator;
-
-    let decimal1 = Scalar::decimal(
-        DecimalValue::I64(100),
-        DecimalDType::new(10, 2),
-        Nullability::NonNullable,
-    );
-    let scalar1 = decimal1.as_decimal();
-
-    let decimal2 = Scalar::decimal(
-        DecimalValue::I64(300),
-        DecimalDType::new(10, 2),
-        Nullability::NonNullable,
-    );
-    let scalar2 = decimal2.as_decimal();
-
-    // RSub: 300 - 100 = 200
-    let result = scalar1
-        .checked_binary_numeric(&scalar2, NumericOperator::RSub)
-        .unwrap();
-    assert_eq!(
-        result.decimal_value(),
-        Some(DecimalValue::I256(i256::from_i128(200)))
-    );
-
-    // RDiv: 300 / 100 = 3
-    let result = scalar1
-        .checked_binary_numeric(&scalar2, NumericOperator::RDiv)
-        .unwrap();
-    assert_eq!(
-        result.decimal_value(),
-        Some(DecimalValue::I256(i256::from_i128(3)))
-    );
-}
-
-#[test]
 fn test_decimal_value_from_scalar() {
     let value = DecimalValue::I32(12345);
     let scalar = Scalar::from(value);

@@ -29,15 +29,12 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::Operator;
-use crate::compute::compare;
 use crate::compute::invert;
 use crate::compute::mask;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::expr::and_kleene;
-use crate::expr::or_kleene;
+use crate::expr::Operator;
 
 /// Tests that filter and take operations produce consistent results.
 ///
@@ -712,8 +709,12 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
     // Test Eq vs NotEq
     let const_array = crate::arrays::ConstantArray::new(test_scalar, len);
     if let (Ok(eq_result), Ok(neq_result)) = (
-        compare(array, const_array.as_ref(), Operator::Eq),
-        compare(array, const_array.as_ref(), Operator::NotEq),
+        array
+            .to_array()
+            .binary(const_array.to_array(), Operator::Eq),
+        array
+            .to_array()
+            .binary(const_array.to_array(), Operator::NotEq),
     ) {
         let inverted_eq =
             invert(&eq_result).vortex_expect("invert should succeed in conformance test");
@@ -741,8 +742,12 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
 
     // Test Gt vs Lte
     if let (Ok(gt_result), Ok(lte_result)) = (
-        compare(array, const_array.as_ref(), Operator::Gt),
-        compare(array, const_array.as_ref(), Operator::Lte),
+        array
+            .to_array()
+            .binary(const_array.to_array(), Operator::Gt),
+        array
+            .to_array()
+            .binary(const_array.to_array(), Operator::Lte),
     ) {
         let inverted_gt =
             invert(&gt_result).vortex_expect("invert should succeed in conformance test");
@@ -764,8 +769,12 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
 
     // Test Lt vs Gte
     if let (Ok(lt_result), Ok(gte_result)) = (
-        compare(array, const_array.as_ref(), Operator::Lt),
-        compare(array, const_array.as_ref(), Operator::Gte),
+        array
+            .to_array()
+            .binary(const_array.to_array(), Operator::Lt),
+        array
+            .to_array()
+            .binary(const_array.to_array(), Operator::Gte),
     ) {
         let inverted_lt =
             invert(&lt_result).vortex_expect("invert should succeed in conformance test");
@@ -827,8 +836,12 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
 
     // Test Gt vs Lt symmetry
     if let (Ok(arr_gt_scalar), Ok(scalar_lt_arr)) = (
-        compare(array, const_array.as_ref(), Operator::Gt),
-        compare(const_array.as_ref(), array, Operator::Lt),
+        array
+            .to_array()
+            .binary(const_array.to_array(), Operator::Gt),
+        const_array
+            .to_array()
+            .binary(array.to_array(), Operator::Lt),
     ) {
         assert_eq!(
             arr_gt_scalar.len(),
@@ -853,8 +866,12 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
 
     // Test Eq symmetry
     if let (Ok(arr_eq_scalar), Ok(scalar_eq_arr)) = (
-        compare(array, const_array.as_ref(), Operator::Eq),
-        compare(const_array.as_ref(), array, Operator::Eq),
+        array
+            .to_array()
+            .binary(const_array.to_array(), Operator::Eq),
+        const_array
+            .to_array()
+            .binary(array.to_array(), Operator::Eq),
     ) {
         for i in 0..arr_eq_scalar.len() {
             let arr_eq = arr_eq_scalar
@@ -901,13 +918,16 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
     let mask = mask.as_ref();
 
     // Test first De Morgan's law: NOT(A AND B) = (NOT A) OR (NOT B)
-    if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) =
-        (and_kleene(array, mask), invert(array), invert(mask))
-    {
+    if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) = (
+        array.to_array().binary(mask.to_array(), Operator::And),
+        invert(array),
+        invert(mask),
+    ) {
         let not_a_and_b =
             invert(&a_and_b).vortex_expect("invert should succeed in conformance test");
-        let not_a_or_not_b =
-            or_kleene(&not_a, &not_b).vortex_expect("or should succeed in conformance test");
+        let not_a_or_not_b = not_a
+            .binary(not_b.clone(), Operator::Or)
+            .vortex_expect("or should succeed in conformance test");
 
         assert_eq!(
             not_a_and_b.len(),
@@ -931,12 +951,15 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
     }
 
     // Test second De Morgan's law: NOT(A OR B) = (NOT A) AND (NOT B)
-    if let (Ok(a_or_b), Ok(not_a), Ok(not_b)) =
-        (or_kleene(array, mask), invert(array), invert(mask))
-    {
+    if let (Ok(a_or_b), Ok(not_a), Ok(not_b)) = (
+        array.to_array().binary(mask.to_array(), Operator::Or),
+        invert(array),
+        invert(mask),
+    ) {
         let not_a_or_b = invert(&a_or_b).vortex_expect("invert should succeed in conformance test");
-        let not_a_and_not_b =
-            and_kleene(&not_a, &not_b).vortex_expect("and should succeed in conformance test");
+        let not_a_and_not_b = not_a
+            .binary(not_b.clone(), Operator::And)
+            .vortex_expect("and should succeed in conformance test");
 
         for i in 0..not_a_or_b.len() {
             let left = not_a_or_b
