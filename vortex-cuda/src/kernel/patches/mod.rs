@@ -161,7 +161,7 @@ mod tests {
             ..
         } = values.into_parts();
 
-        let handle = ctx.move_to_device(cuda_buffer).unwrap().await.unwrap();
+        let handle = ctx.ensure_on_device(cuda_buffer).await.unwrap();
         let device_buf = handle
             .as_device()
             .as_any()

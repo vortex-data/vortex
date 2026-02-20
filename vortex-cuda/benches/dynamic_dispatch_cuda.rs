@@ -127,11 +127,7 @@ fn run_dynamic_dispatch_bitpacked_timed(
     let len = bitpacked_array.len();
 
     // Move packed data to device.
-    let device_input = if packed.is_on_device() {
-        packed
-    } else {
-        block_on(cuda_ctx.move_to_device(packed)?).vortex_expect("failed to move to device")
-    };
+    let device_input = block_on(cuda_ctx.ensure_on_device(packed))?;
 
     let input_ptr = device_input
         .cuda_view::<u32>()
