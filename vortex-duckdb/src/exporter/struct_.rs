@@ -58,7 +58,13 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for StructExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         for (idx, child) in self.children.iter().enumerate() {
             child.export(offset, len, vector.struct_vector_get_child_mut(idx), ctx)?;
         }

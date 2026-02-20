@@ -141,7 +141,13 @@ pub(crate) fn new_exporter_with_flatten(
 }
 
 impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         // Create a selection vector from the codes.
         let mut sel_vec = SelectionVector::with_capacity(len);
         let mut_sel_vec = unsafe { sel_vec.as_slice_mut(len) };
@@ -214,7 +220,12 @@ mod tests {
 
         new_exporter(&arr, &ConversionCache::default())
             .unwrap()
-            .export(0, 2, chunk.get_vector_mut(0), &mut SESSION.create_execution_ctx())
+            .export(
+                0,
+                2,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(2);
 
@@ -261,7 +272,12 @@ mod tests {
 
         new_exporter(&arr, &ConversionCache::default())
             .unwrap()
-            .export(0, 3, chunk.get_vector_mut(0), &mut SESSION.create_execution_ctx())
+            .export(
+                0,
+                3,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(3);
 
@@ -303,7 +319,12 @@ mod tests {
 
         new_exporter(&arr, &ConversionCache::default())
             .unwrap()
-            .export(0, 0, chunk.get_vector_mut(0), &mut SESSION.create_execution_ctx())
+            .export(
+                0,
+                0,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(0);
 

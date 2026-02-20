@@ -60,7 +60,13 @@ pub(crate) fn new_exporter(
 impl ColumnExporter for FixedSizeListExporter {
     // TODO(connor): Should `export` be `unsafe` instead? We have no way to verify this without
     // making an assertion.
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         // Verify that offset + len doesn't exceed the validity mask length.
         assert!(
             offset + len <= self.len,

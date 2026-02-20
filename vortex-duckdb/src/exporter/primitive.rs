@@ -52,7 +52,13 @@ pub fn new_exporter(
 }
 
 impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         assert!(self.len >= offset + len);
 
         let pos = unsafe { self.start.add(offset) };

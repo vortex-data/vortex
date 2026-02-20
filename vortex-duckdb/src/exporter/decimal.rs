@@ -84,7 +84,13 @@ where
     D: ToPrimitive,
     N: BigCast,
 {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         // Copy the values from the Vortex array to the DuckDB vector.
         for (src, dst) in self.values[offset..offset + len]
             .iter()
@@ -100,7 +106,13 @@ where
 }
 
 impl<D: NativeDecimalType> ColumnExporter for DecimalZeroCopyExporter<D> {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         assert!(self.values.len() >= offset + len);
 
         let pos = unsafe { self.values.as_ptr().add(offset) };
@@ -129,7 +141,6 @@ mod tests {
     use vortex::array::arrays::DecimalArray;
     use vortex::dtype::DecimalDType;
     use vortex::error::VortexExpect;
-
     use vortex_array::VortexSessionExecute;
 
     use super::*;
@@ -171,7 +182,12 @@ mod tests {
 
         new_zero_copy_exporter(&arr)
             .unwrap()
-            .export(0, 3, chunk.get_vector_mut(0), &mut SESSION.create_execution_ctx())
+            .export(
+                0,
+                3,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(3);
 
@@ -199,7 +215,12 @@ mod tests {
         // Export first 3 elements
         new_zero_copy_exporter(&arr)
             .unwrap()
-            .export(0, 3, chunk.get_vector_mut(0), &mut SESSION.create_execution_ctx())
+            .export(
+                0,
+                3,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(3);
 
@@ -224,7 +245,12 @@ mod tests {
 
         new_zero_copy_exporter(&arr)
             .unwrap()
-            .export(0, 3, chunk.get_vector_mut(0), &mut SESSION.create_execution_ctx())
+            .export(
+                0,
+                3,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(3);
 

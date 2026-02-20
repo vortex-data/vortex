@@ -54,7 +54,13 @@ pub(crate) fn new_exporter(
 }
 
 impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         let ends_slice = self.ends.as_slice::<E>();
 
         // Adjust offset to account for the run-end offset.

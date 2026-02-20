@@ -15,7 +15,13 @@ struct TemporalExporter {
 }
 
 impl ColumnExporter for TemporalExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         self.storage_type_exporter.export(offset, len, vector, ctx)
     }
 }

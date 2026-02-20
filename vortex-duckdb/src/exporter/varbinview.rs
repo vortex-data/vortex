@@ -64,7 +64,13 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for VarBinViewExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         // Copy the views into place.
         for (mut_view, view) in unsafe { vector.as_slice_mut::<PtrBinaryView>(len) }
             .iter_mut()

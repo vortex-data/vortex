@@ -25,7 +25,13 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for ValidityExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         assert!(
             offset + len <= self.mask.len(),
             "cannot access outside of array"

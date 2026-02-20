@@ -26,7 +26,13 @@ pub(crate) fn new_exporter(array: &SequenceArray) -> VortexResult<Box<dyn Column
 }
 
 impl ColumnExporter for SequenceExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         let offset = offset.as_i64();
         let start = (offset * self.step) + self.start;
 
@@ -53,7 +59,12 @@ mod tests {
 
         new_exporter(&arr)
             .unwrap()
-            .export(0, 4, chunk.get_vector_mut(0), &mut SESSION.create_execution_ctx())
+            .export(
+                0,
+                4,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(4);
 

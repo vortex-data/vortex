@@ -23,7 +23,13 @@ pub(crate) fn new_exporter(len: usize, logical_type: &LogicalTypeRef) -> Box<dyn
 }
 
 impl ColumnExporter for AllInvalidExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         vortex_ensure!(
             offset + len <= self.len,
             "invalid exporter: offset + len must be less than or equal to len"
@@ -37,7 +43,6 @@ impl ColumnExporter for AllInvalidExporter {
 #[cfg(test)]
 mod tests {
     use vortex::array::arrays::PrimitiveArray;
-
     use vortex_array::VortexSessionExecute;
 
     use super::*;
@@ -53,7 +58,12 @@ mod tests {
         let mut chunk = DataChunk::new([ltype.clone()]);
 
         new_exporter(arr.len(), &ltype)
-            .export(0, 3, chunk.get_vector_mut(0), &mut SESSION.create_execution_ctx())
+            .export(
+                0,
+                3,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(3);
 

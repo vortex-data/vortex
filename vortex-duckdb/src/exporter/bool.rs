@@ -37,7 +37,13 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for BoolExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         // DuckDB uses byte bools, not bit bools.
         // maybe we can convert into these from a compressed array sometimes?.
         unsafe { vector.as_slice_mut(len) }.copy_from_slice(

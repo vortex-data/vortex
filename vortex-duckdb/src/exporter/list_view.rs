@@ -115,7 +115,13 @@ pub(crate) fn new_exporter(
 }
 
 impl<O: IntegerPType, S: IntegerPType> ColumnExporter for ListViewExporter<O, S> {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef, _ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         // Verify that offset + len doesn't exceed the validity mask length.
         assert!(
             offset + len <= self.validity.len(),
