@@ -11,9 +11,9 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::dtype::NativePType;
-use vortex::array::dtype::Nullability;
 use vortex::array::match_each_native_ptype;
+use vortex::dtype::NativePType;
+use vortex::dtype::Nullability;
 use vortex::encodings::sequence::SequenceArrayParts;
 use vortex::encodings::sequence::SequenceVTable;
 use vortex::error::VortexResult;
@@ -88,10 +88,10 @@ mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
     use vortex::array::assert_arrays_eq;
-    use vortex::array::dtype::NativePType;
-    use vortex::array::dtype::Nullability;
-    use vortex::array::scalar::PValue;
+    use vortex::dtype::NativePType;
+    use vortex::dtype::Nullability;
     use vortex::encodings::sequence::SequenceArray;
+    use vortex::scalar::PValue;
     use vortex::session::VortexSession;
 
     use crate::CanonicalCudaExt;
