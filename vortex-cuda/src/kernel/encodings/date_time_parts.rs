@@ -212,10 +212,10 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
-    use vortex::dtype::datetime::TimeUnit;
     use vortex::encodings::datetime_parts::DateTimePartsArray;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
+    use vortex::extension::datetime::TimeUnit;
     use vortex::session::VortexSession;
 
     use super::*;
