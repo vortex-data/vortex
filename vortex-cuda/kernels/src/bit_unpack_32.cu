@@ -50,69 +50,69 @@ _bit_unpack_32_1bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out,
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 1);
+    tmp = BFE(src, 0, 1);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 1);
+    tmp = BFE(src, 1, 1);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 1);
+    tmp = BFE(src, 2, 1);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 1);
+    tmp = BFE(src, 3, 1);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 1);
+    tmp = BFE(src, 4, 1);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 1);
+    tmp = BFE(src, 5, 1);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 1);
+    tmp = BFE(src, 6, 1);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 1);
+    tmp = BFE(src, 7, 1);
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 1);
+    tmp = BFE(src, 8, 1);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 1);
+    tmp = BFE(src, 9, 1);
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 1);
+    tmp = BFE(src, 10, 1);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 1);
+    tmp = BFE(src, 11, 1);
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 1);
+    tmp = BFE(src, 12, 1);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 1);
+    tmp = BFE(src, 13, 1);
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 1);
+    tmp = BFE(src, 14, 1);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 1);
+    tmp = BFE(src, 15, 1);
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 1);
+    tmp = BFE(src, 16, 1);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 1);
+    tmp = BFE(src, 17, 1);
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 1);
+    tmp = BFE(src, 18, 1);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 1);
+    tmp = BFE(src, 19, 1);
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 1);
+    tmp = BFE(src, 20, 1);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 1);
+    tmp = BFE(src, 21, 1);
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 1);
+    tmp = BFE(src, 22, 1);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 1);
+    tmp = BFE(src, 23, 1);
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 1);
+    tmp = BFE(src, 24, 1);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 1);
+    tmp = BFE(src, 25, 1);
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 1);
+    tmp = BFE(src, 26, 1);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 1);
+    tmp = BFE(src, 27, 1);
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 1);
+    tmp = BFE(src, 28, 1);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 1);
+    tmp = BFE(src, 29, 1);
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 1);
+    tmp = BFE(src, 30, 1);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
+    tmp = BFE(src, 31, 1);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -123,71 +123,70 @@ _bit_unpack_32_2bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out,
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 2);
+    tmp = BFE(src, 0, 2);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 2);
+    tmp = BFE(src, 2, 2);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 2);
+    tmp = BFE(src, 4, 2);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 2);
+    tmp = BFE(src, 6, 2);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 2);
+    tmp = BFE(src, 8, 2);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 2);
+    tmp = BFE(src, 10, 2);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 2);
+    tmp = BFE(src, 12, 2);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 2);
+    tmp = BFE(src, 14, 2);
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 2);
+    tmp = BFE(src, 16, 2);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 2);
+    tmp = BFE(src, 18, 2);
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 2);
+    tmp = BFE(src, 20, 2);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 2);
+    tmp = BFE(src, 22, 2);
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 2);
+    tmp = BFE(src, 24, 2);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 2);
+    tmp = BFE(src, 26, 2);
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 2);
+    tmp = BFE(src, 28, 2);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
+    tmp = BFE(src, 30, 2);
     src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 0)) << 2;
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 2);
+    tmp = BFE(src, 0, 2);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 2);
+    tmp = BFE(src, 2, 2);
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 2);
+    tmp = BFE(src, 4, 2);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 2);
+    tmp = BFE(src, 6, 2);
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 2);
+    tmp = BFE(src, 8, 2);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 2);
+    tmp = BFE(src, 10, 2);
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 2);
+    tmp = BFE(src, 12, 2);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 2);
+    tmp = BFE(src, 14, 2);
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 2);
+    tmp = BFE(src, 16, 2);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 2);
+    tmp = BFE(src, 18, 2);
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 2);
+    tmp = BFE(src, 20, 2);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 2);
+    tmp = BFE(src, 22, 2);
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 2);
+    tmp = BFE(src, 24, 2);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 2);
+    tmp = BFE(src, 26, 2);
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 2);
+    tmp = BFE(src, 28, 2);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
+    tmp = BFE(src, 30, 2);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -198,73 +197,77 @@ _bit_unpack_32_3bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out,
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 3);
+    tmp = BFE(src, 0, 3);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 3);
+    tmp = BFE(src, 3, 3);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 3);
+    tmp = BFE(src, 6, 3);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 3);
+    tmp = BFE(src, 9, 3);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 3);
+    tmp = BFE(src, 12, 3);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 3);
+    tmp = BFE(src, 15, 3);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 3);
+    tmp = BFE(src, 18, 3);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 3);
+    tmp = BFE(src, 21, 3);
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 3);
+    tmp = BFE(src, 24, 3);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 3);
+    tmp = BFE(src, 27, 3);
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 1)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 3);
+        src = next;
+    }
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 3);
+    tmp = BFE(src, 1, 3);
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 3);
+    tmp = BFE(src, 4, 3);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 3);
+    tmp = BFE(src, 7, 3);
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 3);
+    tmp = BFE(src, 10, 3);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 3);
+    tmp = BFE(src, 13, 3);
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 3);
+    tmp = BFE(src, 16, 3);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 3);
+    tmp = BFE(src, 19, 3);
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 3);
+    tmp = BFE(src, 22, 3);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 3);
+    tmp = BFE(src, 25, 3);
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 3);
+    tmp = BFE(src, 28, 3);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 2)) << 1;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 31) & MASK(uint32_t, 3);
+        src = next;
+    }
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 3);
+    tmp = BFE(src, 2, 3);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 3);
+    tmp = BFE(src, 5, 3);
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 3);
+    tmp = BFE(src, 8, 3);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 3);
+    tmp = BFE(src, 11, 3);
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 3);
+    tmp = BFE(src, 14, 3);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 3);
+    tmp = BFE(src, 17, 3);
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 3);
+    tmp = BFE(src, 20, 3);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 3);
+    tmp = BFE(src, 23, 3);
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 3);
+    tmp = BFE(src, 26, 3);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 3);
+    tmp = BFE(src, 29, 3);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -275,75 +278,72 @@ _bit_unpack_32_4bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out,
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 4);
+    tmp = BFE(src, 0, 4);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 4);
+    tmp = BFE(src, 4, 4);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 4);
+    tmp = BFE(src, 8, 4);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 4);
+    tmp = BFE(src, 12, 4);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 4);
+    tmp = BFE(src, 16, 4);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 4);
+    tmp = BFE(src, 20, 4);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 4);
+    tmp = BFE(src, 24, 4);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
+    tmp = BFE(src, 28, 4);
     src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 0)) << 4;
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 4);
+    tmp = BFE(src, 0, 4);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 4);
+    tmp = BFE(src, 4, 4);
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 4);
+    tmp = BFE(src, 8, 4);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 4);
+    tmp = BFE(src, 12, 4);
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 4);
+    tmp = BFE(src, 16, 4);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 4);
+    tmp = BFE(src, 20, 4);
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 4);
+    tmp = BFE(src, 24, 4);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
+    tmp = BFE(src, 28, 4);
     src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 0)) << 4;
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 4);
+    tmp = BFE(src, 0, 4);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 4);
+    tmp = BFE(src, 4, 4);
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 4);
+    tmp = BFE(src, 8, 4);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 4);
+    tmp = BFE(src, 12, 4);
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 4);
+    tmp = BFE(src, 16, 4);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 4);
+    tmp = BFE(src, 20, 4);
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 4);
+    tmp = BFE(src, 24, 4);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
+    tmp = BFE(src, 28, 4);
     src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 0)) << 4;
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 4);
+    tmp = BFE(src, 0, 4);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 4);
+    tmp = BFE(src, 4, 4);
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 4);
+    tmp = BFE(src, 8, 4);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 4);
+    tmp = BFE(src, 12, 4);
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 4);
+    tmp = BFE(src, 16, 4);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 4);
+    tmp = BFE(src, 20, 4);
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 4);
+    tmp = BFE(src, 24, 4);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
+    tmp = BFE(src, 28, 4);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -354,77 +354,85 @@ _bit_unpack_32_5bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out,
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 5);
+    tmp = BFE(src, 0, 5);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 5);
+    tmp = BFE(src, 5, 5);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 5);
+    tmp = BFE(src, 10, 5);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 5);
+    tmp = BFE(src, 15, 5);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 5);
+    tmp = BFE(src, 20, 5);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 5);
+    tmp = BFE(src, 25, 5);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 3)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 5);
+        src = next;
+    }
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 5);
+    tmp = BFE(src, 3, 5);
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 5);
+    tmp = BFE(src, 8, 5);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 5);
+    tmp = BFE(src, 13, 5);
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 5);
+    tmp = BFE(src, 18, 5);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 5);
+    tmp = BFE(src, 23, 5);
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 1)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 5);
+        src = next;
+    }
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 5);
+    tmp = BFE(src, 1, 5);
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 5);
+    tmp = BFE(src, 6, 5);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 5);
+    tmp = BFE(src, 11, 5);
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 5);
+    tmp = BFE(src, 16, 5);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 5);
+    tmp = BFE(src, 21, 5);
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 5);
+    tmp = BFE(src, 26, 5);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 4)) << 1;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 31) & MASK(uint32_t, 5);
+        src = next;
+    }
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 5);
+    tmp = BFE(src, 4, 5);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 5);
+    tmp = BFE(src, 9, 5);
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 5);
+    tmp = BFE(src, 14, 5);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 5);
+    tmp = BFE(src, 19, 5);
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 5);
+    tmp = BFE(src, 24, 5);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 3);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 2)) << 3;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 29) & MASK(uint32_t, 5);
+        src = next;
+    }
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 5);
+    tmp = BFE(src, 2, 5);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 5);
+    tmp = BFE(src, 7, 5);
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 5);
+    tmp = BFE(src, 12, 5);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 5);
+    tmp = BFE(src, 17, 5);
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 5);
+    tmp = BFE(src, 22, 5);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 5);
+    tmp = BFE(src, 27, 5);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -435,79 +443,86 @@ _bit_unpack_32_6bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out,
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 6);
+    tmp = BFE(src, 0, 6);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 6);
+    tmp = BFE(src, 6, 6);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 6);
+    tmp = BFE(src, 12, 6);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 6);
+    tmp = BFE(src, 18, 6);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 6);
+    tmp = BFE(src, 24, 6);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 4)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 6);
+        src = next;
+    }
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 6);
+    tmp = BFE(src, 4, 6);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 6);
+    tmp = BFE(src, 10, 6);
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 6);
+    tmp = BFE(src, 16, 6);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 6);
+    tmp = BFE(src, 22, 6);
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 2)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 6);
+        src = next;
+    }
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 6);
+    tmp = BFE(src, 2, 6);
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 6);
+    tmp = BFE(src, 8, 6);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 6);
+    tmp = BFE(src, 14, 6);
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 6);
+    tmp = BFE(src, 20, 6);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
+    tmp = BFE(src, 26, 6);
     src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 0)) << 6;
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 6);
+    tmp = BFE(src, 0, 6);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 6);
+    tmp = BFE(src, 6, 6);
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 6);
+    tmp = BFE(src, 12, 6);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 6);
+    tmp = BFE(src, 18, 6);
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 6);
+    tmp = BFE(src, 24, 6);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 4)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 6);
+        src = next;
+    }
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 6);
+    tmp = BFE(src, 4, 6);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 6);
+    tmp = BFE(src, 10, 6);
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 6);
+    tmp = BFE(src, 16, 6);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 6);
+    tmp = BFE(src, 22, 6);
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 2)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 6);
+        src = next;
+    }
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 6);
+    tmp = BFE(src, 2, 6);
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 6);
+    tmp = BFE(src, 8, 6);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 6);
+    tmp = BFE(src, 14, 6);
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 6);
+    tmp = BFE(src, 20, 6);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
+    tmp = BFE(src, 26, 6);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -518,81 +533,93 @@ _bit_unpack_32_7bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out,
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 7);
+    tmp = BFE(src, 0, 7);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 7);
+    tmp = BFE(src, 7, 7);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 7);
+    tmp = BFE(src, 14, 7);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 7);
+    tmp = BFE(src, 21, 7);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 3)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 7);
+        src = next;
+    }
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 7);
+    tmp = BFE(src, 3, 7);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 7);
+    tmp = BFE(src, 10, 7);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 7);
+    tmp = BFE(src, 17, 7);
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 7);
+    tmp = BFE(src, 24, 7);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 6)) << 1;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 31) & MASK(uint32_t, 7);
+        src = next;
+    }
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 7);
+    tmp = BFE(src, 6, 7);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 7);
+    tmp = BFE(src, 13, 7);
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 7);
+    tmp = BFE(src, 20, 7);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 5);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 2)) << 5;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 27) & MASK(uint32_t, 7);
+        src = next;
+    }
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 7);
+    tmp = BFE(src, 2, 7);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 7);
+    tmp = BFE(src, 9, 7);
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 7);
+    tmp = BFE(src, 16, 7);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 7);
+    tmp = BFE(src, 23, 7);
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 5)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 7);
+        src = next;
+    }
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 7);
+    tmp = BFE(src, 5, 7);
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 7);
+    tmp = BFE(src, 12, 7);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 7);
+    tmp = BFE(src, 19, 7);
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 1)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 7);
+        src = next;
+    }
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 7);
+    tmp = BFE(src, 1, 7);
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 7);
+    tmp = BFE(src, 8, 7);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 7);
+    tmp = BFE(src, 15, 7);
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 7);
+    tmp = BFE(src, 22, 7);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 3);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 4)) << 3;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 29) & MASK(uint32_t, 7);
+        src = next;
+    }
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 7);
+    tmp = BFE(src, 4, 7);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 7);
+    tmp = BFE(src, 11, 7);
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 7);
+    tmp = BFE(src, 18, 7);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 7);
+    tmp = BFE(src, 25, 7);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -603,83 +630,76 @@ _bit_unpack_32_8bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out,
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 8);
+    tmp = BFE(src, 0, 8);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 8);
+    tmp = BFE(src, 8, 8);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 8);
+    tmp = BFE(src, 16, 8);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
+    tmp = BFE(src, 24, 8);
     src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 0)) << 8;
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 8);
+    tmp = BFE(src, 0, 8);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 8);
+    tmp = BFE(src, 8, 8);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 8);
+    tmp = BFE(src, 16, 8);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
+    tmp = BFE(src, 24, 8);
     src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 0)) << 8;
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 8);
+    tmp = BFE(src, 0, 8);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 8);
+    tmp = BFE(src, 8, 8);
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 8);
+    tmp = BFE(src, 16, 8);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
+    tmp = BFE(src, 24, 8);
     src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 0)) << 8;
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 8);
+    tmp = BFE(src, 0, 8);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 8);
+    tmp = BFE(src, 8, 8);
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 8);
+    tmp = BFE(src, 16, 8);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
+    tmp = BFE(src, 24, 8);
     src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 0)) << 8;
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 8);
+    tmp = BFE(src, 0, 8);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 8);
+    tmp = BFE(src, 8, 8);
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 8);
+    tmp = BFE(src, 16, 8);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
+    tmp = BFE(src, 24, 8);
     src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 0)) << 8;
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 8);
+    tmp = BFE(src, 0, 8);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 8);
+    tmp = BFE(src, 8, 8);
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 8);
+    tmp = BFE(src, 16, 8);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
+    tmp = BFE(src, 24, 8);
     src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 0)) << 8;
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 8);
+    tmp = BFE(src, 0, 8);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 8);
+    tmp = BFE(src, 8, 8);
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 8);
+    tmp = BFE(src, 16, 8);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
+    tmp = BFE(src, 24, 8);
     src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 0)) << 8;
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 8);
+    tmp = BFE(src, 0, 8);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 8);
+    tmp = BFE(src, 8, 8);
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 8);
+    tmp = BFE(src, 16, 8);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
+    tmp = BFE(src, 24, 8);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -690,85 +710,101 @@ _bit_unpack_32_9bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out,
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 9);
+    tmp = BFE(src, 0, 9);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 9);
+    tmp = BFE(src, 9, 9);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 9);
+    tmp = BFE(src, 18, 9);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 5);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 4)) << 5;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 27) & MASK(uint32_t, 9);
+        src = next;
+    }
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 9);
+    tmp = BFE(src, 4, 9);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 9);
+    tmp = BFE(src, 13, 9);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 9);
+    tmp = BFE(src, 22, 9);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 8)) << 1;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 31) & MASK(uint32_t, 9);
+        src = next;
+    }
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 9);
+    tmp = BFE(src, 8, 9);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 9);
+    tmp = BFE(src, 17, 9);
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 3)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 9);
+        src = next;
+    }
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 9);
+    tmp = BFE(src, 3, 9);
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 9);
+    tmp = BFE(src, 12, 9);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 9);
+    tmp = BFE(src, 21, 9);
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 7)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 9);
+        src = next;
+    }
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 9);
+    tmp = BFE(src, 7, 9);
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 9);
+    tmp = BFE(src, 16, 9);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 7);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 2)) << 7;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 25) & MASK(uint32_t, 9);
+        src = next;
+    }
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 9);
+    tmp = BFE(src, 2, 9);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 9);
+    tmp = BFE(src, 11, 9);
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 9);
+    tmp = BFE(src, 20, 9);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 3);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 6)) << 3;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 29) & MASK(uint32_t, 9);
+        src = next;
+    }
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 9);
+    tmp = BFE(src, 6, 9);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 9);
+    tmp = BFE(src, 15, 9);
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 1)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 9);
+        src = next;
+    }
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 9);
+    tmp = BFE(src, 1, 9);
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 9);
+    tmp = BFE(src, 10, 9);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 9);
+    tmp = BFE(src, 19, 9);
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 5)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 9);
+        src = next;
+    }
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 9);
+    tmp = BFE(src, 5, 9);
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 9);
+    tmp = BFE(src, 14, 9);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 9);
+    tmp = BFE(src, 23, 9);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -779,87 +815,102 @@ _bit_unpack_32_10bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 10);
+    tmp = BFE(src, 0, 10);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 10);
+    tmp = BFE(src, 10, 10);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 10);
+    tmp = BFE(src, 20, 10);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 8)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 10);
+        src = next;
+    }
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 10);
+    tmp = BFE(src, 8, 10);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 10);
+    tmp = BFE(src, 18, 10);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 6)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 10);
+        src = next;
+    }
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 10);
+    tmp = BFE(src, 6, 10);
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 10);
+    tmp = BFE(src, 16, 10);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 4)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 10);
+        src = next;
+    }
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 10);
+    tmp = BFE(src, 4, 10);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 10);
+    tmp = BFE(src, 14, 10);
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 2)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 10);
+        src = next;
+    }
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 10);
+    tmp = BFE(src, 2, 10);
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 10);
+    tmp = BFE(src, 12, 10);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
+    tmp = BFE(src, 22, 10);
     src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 0)) << 10;
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 10);
+    tmp = BFE(src, 0, 10);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 10);
+    tmp = BFE(src, 10, 10);
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 10);
+    tmp = BFE(src, 20, 10);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 8)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 10);
+        src = next;
+    }
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 10);
+    tmp = BFE(src, 8, 10);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 10);
+    tmp = BFE(src, 18, 10);
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 6)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 10);
+        src = next;
+    }
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 10);
+    tmp = BFE(src, 6, 10);
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 10);
+    tmp = BFE(src, 16, 10);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 4)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 10);
+        src = next;
+    }
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 10);
+    tmp = BFE(src, 4, 10);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 10);
+    tmp = BFE(src, 14, 10);
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 2)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 10);
+        src = next;
+    }
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 10);
+    tmp = BFE(src, 2, 10);
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 10);
+    tmp = BFE(src, 12, 10);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
+    tmp = BFE(src, 22, 10);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -870,89 +921,109 @@ _bit_unpack_32_11bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 11);
+    tmp = BFE(src, 0, 11);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 11);
+    tmp = BFE(src, 11, 11);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 1)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 11);
+        src = next;
+    }
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 11);
+    tmp = BFE(src, 1, 11);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 11);
+    tmp = BFE(src, 12, 11);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 9);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 2)) << 9;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 23) & MASK(uint32_t, 11);
+        src = next;
+    }
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 11);
+    tmp = BFE(src, 2, 11);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 11);
+    tmp = BFE(src, 13, 11);
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 3)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 11);
+        src = next;
+    }
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 11);
+    tmp = BFE(src, 3, 11);
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 11);
+    tmp = BFE(src, 14, 11);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 7);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 4)) << 7;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 25) & MASK(uint32_t, 11);
+        src = next;
+    }
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 11);
+    tmp = BFE(src, 4, 11);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 11);
+    tmp = BFE(src, 15, 11);
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 5)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 11);
+        src = next;
+    }
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 11);
+    tmp = BFE(src, 5, 11);
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 11);
+    tmp = BFE(src, 16, 11);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 5);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 6)) << 5;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 27) & MASK(uint32_t, 11);
+        src = next;
+    }
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 11);
+    tmp = BFE(src, 6, 11);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 11);
+    tmp = BFE(src, 17, 11);
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 7)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 11);
+        src = next;
+    }
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 11);
+    tmp = BFE(src, 7, 11);
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 11);
+    tmp = BFE(src, 18, 11);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 3);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 8)) << 3;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 29) & MASK(uint32_t, 11);
+        src = next;
+    }
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 11);
+    tmp = BFE(src, 8, 11);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 11);
+    tmp = BFE(src, 19, 11);
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 9)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 11);
+        src = next;
+    }
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 11);
+    tmp = BFE(src, 9, 11);
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 11);
+    tmp = BFE(src, 20, 11);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 10)) << 1;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 31) & MASK(uint32_t, 11);
+        src = next;
+    }
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 11);
+    tmp = BFE(src, 10, 11);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 11);
+    tmp = BFE(src, 21, 11);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -963,91 +1034,104 @@ _bit_unpack_32_12bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 12);
+    tmp = BFE(src, 0, 12);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 12);
+    tmp = BFE(src, 12, 12);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 4)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 12);
+        src = next;
+    }
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 12);
+    tmp = BFE(src, 4, 12);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 12);
+    tmp = BFE(src, 16, 12);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 8)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 12);
+        src = next;
+    }
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 12);
+    tmp = BFE(src, 8, 12);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
+    tmp = BFE(src, 20, 12);
     src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 0)) << 12;
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 12);
+    tmp = BFE(src, 0, 12);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 12);
+    tmp = BFE(src, 12, 12);
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 4)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 12);
+        src = next;
+    }
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 12);
+    tmp = BFE(src, 4, 12);
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 12);
+    tmp = BFE(src, 16, 12);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 8)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 12);
+        src = next;
+    }
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 12);
+    tmp = BFE(src, 8, 12);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
+    tmp = BFE(src, 20, 12);
     src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 0)) << 12;
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 12);
+    tmp = BFE(src, 0, 12);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 12);
+    tmp = BFE(src, 12, 12);
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 4)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 12);
+        src = next;
+    }
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 12);
+    tmp = BFE(src, 4, 12);
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 12);
+    tmp = BFE(src, 16, 12);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 8)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 12);
+        src = next;
+    }
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 12);
+    tmp = BFE(src, 8, 12);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
+    tmp = BFE(src, 20, 12);
     src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 0)) << 12;
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 12);
+    tmp = BFE(src, 0, 12);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 12);
+    tmp = BFE(src, 12, 12);
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 4)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 12);
+        src = next;
+    }
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 12);
+    tmp = BFE(src, 4, 12);
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 12);
+    tmp = BFE(src, 16, 12);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 8)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 12);
+        src = next;
+    }
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 12);
+    tmp = BFE(src, 8, 12);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
+    tmp = BFE(src, 20, 12);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -1058,93 +1142,117 @@ _bit_unpack_32_13bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 13);
+    tmp = BFE(src, 0, 13);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 13);
+    tmp = BFE(src, 13, 13);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 7)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 13);
+        src = next;
+    }
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 13);
+    tmp = BFE(src, 7, 13);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 1)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 13);
+        src = next;
+    }
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 13);
+    tmp = BFE(src, 1, 13);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 13);
+    tmp = BFE(src, 14, 13);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 5);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 8)) << 5;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 27) & MASK(uint32_t, 13);
+        src = next;
+    }
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 13);
+    tmp = BFE(src, 8, 13);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 11);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 2)) << 11;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 21) & MASK(uint32_t, 13);
+        src = next;
+    }
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 13);
+    tmp = BFE(src, 2, 13);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 13);
+    tmp = BFE(src, 15, 13);
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 9)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 13);
+        src = next;
+    }
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 13);
+    tmp = BFE(src, 9, 13);
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 3)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 13);
+        src = next;
+    }
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 13);
+    tmp = BFE(src, 3, 13);
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 13);
+    tmp = BFE(src, 16, 13);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 3);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 10)) << 3;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 29) & MASK(uint32_t, 13);
+        src = next;
+    }
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 13);
+    tmp = BFE(src, 10, 13);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 9);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 4)) << 9;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 23) & MASK(uint32_t, 13);
+        src = next;
+    }
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 13);
+    tmp = BFE(src, 4, 13);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 13);
+    tmp = BFE(src, 17, 13);
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 11)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 13);
+        src = next;
+    }
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 13);
+    tmp = BFE(src, 11, 13);
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 5)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 13);
+        src = next;
+    }
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 13);
+    tmp = BFE(src, 5, 13);
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 13);
+    tmp = BFE(src, 18, 13);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 12)) << 1;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 31) & MASK(uint32_t, 13);
+        src = next;
+    }
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 13);
+    tmp = BFE(src, 12, 13);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 7);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 6)) << 7;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 25) & MASK(uint32_t, 13);
+        src = next;
+    }
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 13);
+    tmp = BFE(src, 6, 13);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 13);
+    tmp = BFE(src, 19, 13);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -1155,95 +1263,118 @@ _bit_unpack_32_14bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 14);
+    tmp = BFE(src, 0, 14);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 14);
+    tmp = BFE(src, 14, 14);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 10)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 14);
+        src = next;
+    }
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 14);
+    tmp = BFE(src, 10, 14);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 6)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 14);
+        src = next;
+    }
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 14);
+    tmp = BFE(src, 6, 14);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 2)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 14);
+        src = next;
+    }
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 14);
+    tmp = BFE(src, 2, 14);
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 14);
+    tmp = BFE(src, 16, 14);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 12)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 14);
+        src = next;
+    }
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 14);
+    tmp = BFE(src, 12, 14);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 8)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 14);
+        src = next;
+    }
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 14);
+    tmp = BFE(src, 8, 14);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 4)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 14);
+        src = next;
+    }
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 14);
+    tmp = BFE(src, 4, 14);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
+    tmp = BFE(src, 18, 14);
     src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 0)) << 14;
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 14);
+    tmp = BFE(src, 0, 14);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 14);
+    tmp = BFE(src, 14, 14);
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 10)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 14);
+        src = next;
+    }
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 14);
+    tmp = BFE(src, 10, 14);
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 6)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 14);
+        src = next;
+    }
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 14);
+    tmp = BFE(src, 6, 14);
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 2)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 14);
+        src = next;
+    }
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 14);
+    tmp = BFE(src, 2, 14);
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 14);
+    tmp = BFE(src, 16, 14);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 12)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 14);
+        src = next;
+    }
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 14);
+    tmp = BFE(src, 12, 14);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 8)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 14);
+        src = next;
+    }
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 14);
+    tmp = BFE(src, 8, 14);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 4)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 14);
+        src = next;
+    }
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 14);
+    tmp = BFE(src, 4, 14);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
+    tmp = BFE(src, 18, 14);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -1254,97 +1385,125 @@ _bit_unpack_32_15bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 15);
+    tmp = BFE(src, 0, 15);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 15);
+    tmp = BFE(src, 15, 15);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 13)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 15);
+        src = next;
+    }
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 15);
+    tmp = BFE(src, 13, 15);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 11)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 15);
+        src = next;
+    }
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 15);
+    tmp = BFE(src, 11, 15);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 9)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 15);
+        src = next;
+    }
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 15);
+    tmp = BFE(src, 9, 15);
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 7)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 15);
+        src = next;
+    }
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 15);
+    tmp = BFE(src, 7, 15);
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 5)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 15);
+        src = next;
+    }
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 15);
+    tmp = BFE(src, 5, 15);
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 3)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 15);
+        src = next;
+    }
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 15);
+    tmp = BFE(src, 3, 15);
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 1)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 15);
+        src = next;
+    }
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 15);
+    tmp = BFE(src, 1, 15);
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 15);
+    tmp = BFE(src, 16, 15);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 14)) << 1;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 31) & MASK(uint32_t, 15);
+        src = next;
+    }
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 15);
+    tmp = BFE(src, 14, 15);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 3);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 12)) << 3;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 29) & MASK(uint32_t, 15);
+        src = next;
+    }
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 15);
+    tmp = BFE(src, 12, 15);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 5);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 10)) << 5;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 27) & MASK(uint32_t, 15);
+        src = next;
+    }
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 15);
+    tmp = BFE(src, 10, 15);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 7);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 8)) << 7;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 25) & MASK(uint32_t, 15);
+        src = next;
+    }
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 15);
+    tmp = BFE(src, 8, 15);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 9);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 6)) << 9;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 23) & MASK(uint32_t, 15);
+        src = next;
+    }
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 15);
+    tmp = BFE(src, 6, 15);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 11);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 4)) << 11;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 21) & MASK(uint32_t, 15);
+        src = next;
+    }
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 15);
+    tmp = BFE(src, 4, 15);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 13);
-    src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 2)) << 13;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 14];
+        tmp = FUNNEL_SHIFT_R(src, next, 19) & MASK(uint32_t, 15);
+        src = next;
+    }
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 15);
+    tmp = BFE(src, 2, 15);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 15);
+    tmp = BFE(src, 17, 15);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -1355,99 +1514,84 @@ _bit_unpack_32_16bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 0)) << 16;
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 0)) << 16;
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 0)) << 16;
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 0)) << 16;
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 0)) << 16;
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 0)) << 16;
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 0)) << 16;
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 0)) << 16;
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 0)) << 16;
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 0)) << 16;
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 0)) << 16;
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 0)) << 16;
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 0)) << 16;
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 0)) << 16;
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 0)) << 16;
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 16);
+    tmp = BFE(src, 0, 16);
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
+    tmp = BFE(src, 16, 16);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -1458,101 +1602,133 @@ _bit_unpack_32_17bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 17);
+    tmp = BFE(src, 0, 17);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 15);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 2)) << 15;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 17) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 17);
+    tmp = BFE(src, 2, 17);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 13);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 4)) << 13;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 19) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 17);
+    tmp = BFE(src, 4, 17);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 11);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 6)) << 11;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 21) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 17);
+    tmp = BFE(src, 6, 17);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 9);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 8)) << 9;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 23) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 17);
+    tmp = BFE(src, 8, 17);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 7);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 10)) << 7;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 25) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 17);
+    tmp = BFE(src, 10, 17);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 5);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 12)) << 5;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 27) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 17);
+    tmp = BFE(src, 12, 17);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 3);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 14)) << 3;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 29) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 17);
+    tmp = BFE(src, 14, 17);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 16)) << 1;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 31) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 1)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 17);
+    tmp = BFE(src, 1, 17);
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 3)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 17);
+    tmp = BFE(src, 3, 17);
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 5)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 17);
+    tmp = BFE(src, 5, 17);
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 7)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 17);
+    tmp = BFE(src, 7, 17);
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 9)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 17);
+    tmp = BFE(src, 9, 17);
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 11)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 14];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 17);
+    tmp = BFE(src, 11, 17);
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 13)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 15];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 17);
+    tmp = BFE(src, 13, 17);
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 16];
-    tmp |= (src & MASK(uint32_t, 15)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 16];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 17);
+        src = next;
+    }
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 17);
+    tmp = BFE(src, 15, 17);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -1563,103 +1739,134 @@ _bit_unpack_32_18bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 18);
+    tmp = BFE(src, 0, 18);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 4)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 18);
+    tmp = BFE(src, 4, 18);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 8)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 18);
+    tmp = BFE(src, 8, 18);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 12)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 18);
+    tmp = BFE(src, 12, 18);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 16)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 2)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 18);
+    tmp = BFE(src, 2, 18);
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 6)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 18);
+    tmp = BFE(src, 6, 18);
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 10)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 18);
+    tmp = BFE(src, 10, 18);
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 14)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 18);
+    tmp = BFE(src, 14, 18);
     src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 0)) << 18;
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 18);
+    tmp = BFE(src, 0, 18);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 4)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 18);
+    tmp = BFE(src, 4, 18);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 8)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 18);
+    tmp = BFE(src, 8, 18);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 12)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 18);
+    tmp = BFE(src, 12, 18);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 16)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 2)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 14];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 18);
+    tmp = BFE(src, 2, 18);
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 6)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 15];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 18);
+    tmp = BFE(src, 6, 18);
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 16];
-    tmp |= (src & MASK(uint32_t, 10)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 16];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 18);
+    tmp = BFE(src, 10, 18);
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 17];
-    tmp |= (src & MASK(uint32_t, 14)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 17];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 18);
+        src = next;
+    }
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 18);
+    tmp = BFE(src, 14, 18);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -1670,105 +1877,141 @@ _bit_unpack_32_19bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 19);
+    tmp = BFE(src, 0, 19);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 13);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 6)) << 13;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 19) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 19);
+    tmp = BFE(src, 6, 19);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 7);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 12)) << 7;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 25) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 19);
+    tmp = BFE(src, 12, 19);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 18)) << 1;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 31) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 5)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 19);
+    tmp = BFE(src, 5, 19);
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 11)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 19);
+    tmp = BFE(src, 11, 19);
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 17)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 15);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 4)) << 15;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 17) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 19);
+    tmp = BFE(src, 4, 19);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 9);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 10)) << 9;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 23) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 19);
+    tmp = BFE(src, 10, 19);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 3);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 16)) << 3;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 29) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 3)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 19);
+    tmp = BFE(src, 3, 19);
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 9)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 19);
+    tmp = BFE(src, 9, 19);
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 15)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 17);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 2)) << 17;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 15) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 19);
+    tmp = BFE(src, 2, 19);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 11);
-    src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 8)) << 11;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 14];
+        tmp = FUNNEL_SHIFT_R(src, next, 21) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 19);
+    tmp = BFE(src, 8, 19);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 5);
-    src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 14)) << 5;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 15];
+        tmp = FUNNEL_SHIFT_R(src, next, 27) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 18);
-    src = in[lane + LANE_COUNT * 16];
-    tmp |= (src & MASK(uint32_t, 1)) << 18;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 16];
+        tmp = FUNNEL_SHIFT_R(src, next, 14) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 19);
+    tmp = BFE(src, 1, 19);
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 17];
-    tmp |= (src & MASK(uint32_t, 7)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 17];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 19);
+    tmp = BFE(src, 7, 19);
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 18];
-    tmp |= (src & MASK(uint32_t, 13)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 18];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 19);
+        src = next;
+    }
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 19);
+    tmp = BFE(src, 13, 19);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -1779,107 +2022,136 @@ _bit_unpack_32_20bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 20);
+    tmp = BFE(src, 0, 20);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 8)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 20);
+    tmp = BFE(src, 8, 20);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 16)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 4)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 20);
+    tmp = BFE(src, 4, 20);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 12)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
+    tmp = BFE(src, 12, 20);
     src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 0)) << 20;
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 20);
+    tmp = BFE(src, 0, 20);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 8)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 20);
+    tmp = BFE(src, 8, 20);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 16)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 4)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 20);
+    tmp = BFE(src, 4, 20);
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 12)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
+    tmp = BFE(src, 12, 20);
     src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 0)) << 20;
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 20);
+    tmp = BFE(src, 0, 20);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 8)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 20);
+    tmp = BFE(src, 8, 20);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 16)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 4)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 20);
+    tmp = BFE(src, 4, 20);
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 12)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 14];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
+    tmp = BFE(src, 12, 20);
     src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 0)) << 20;
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 20);
+    tmp = BFE(src, 0, 20);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 16];
-    tmp |= (src & MASK(uint32_t, 8)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 16];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 20);
+    tmp = BFE(src, 8, 20);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 17];
-    tmp |= (src & MASK(uint32_t, 16)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 17];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 18];
-    tmp |= (src & MASK(uint32_t, 4)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 18];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 20);
+    tmp = BFE(src, 4, 20);
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 19];
-    tmp |= (src & MASK(uint32_t, 12)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 19];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 20);
+        src = next;
+    }
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
+    tmp = BFE(src, 12, 20);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -1890,109 +2162,149 @@ _bit_unpack_32_21bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 21);
+    tmp = BFE(src, 0, 21);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 11);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 10)) << 11;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 21) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 21);
+    tmp = BFE(src, 10, 21);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 20)) << 1;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 31) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 9)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 21);
+    tmp = BFE(src, 9, 21);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 19)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 13);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 8)) << 13;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 19) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 21);
+    tmp = BFE(src, 8, 21);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 3);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 18)) << 3;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 29) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 7)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 21);
+    tmp = BFE(src, 7, 21);
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 17)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 15);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 6)) << 15;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 17) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 21);
+    tmp = BFE(src, 6, 21);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 5);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 16)) << 5;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 27) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 5)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 21);
+    tmp = BFE(src, 5, 21);
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 15)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 17);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 4)) << 17;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 15) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 21);
+    tmp = BFE(src, 4, 21);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 7);
-    src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 14)) << 7;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 14];
+        tmp = FUNNEL_SHIFT_R(src, next, 25) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 18);
-    src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 3)) << 18;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 15];
+        tmp = FUNNEL_SHIFT_R(src, next, 14) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 21);
+    tmp = BFE(src, 3, 21);
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 16];
-    tmp |= (src & MASK(uint32_t, 13)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 16];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 19);
-    src = in[lane + LANE_COUNT * 17];
-    tmp |= (src & MASK(uint32_t, 2)) << 19;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 17];
+        tmp = FUNNEL_SHIFT_R(src, next, 13) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 21);
+    tmp = BFE(src, 2, 21);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 9);
-    src = in[lane + LANE_COUNT * 18];
-    tmp |= (src & MASK(uint32_t, 12)) << 9;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 18];
+        tmp = FUNNEL_SHIFT_R(src, next, 23) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 19];
-    tmp |= (src & MASK(uint32_t, 1)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 19];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 21);
+    tmp = BFE(src, 1, 21);
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 20];
-    tmp |= (src & MASK(uint32_t, 11)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 20];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 21);
+        src = next;
+    }
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 21);
+    tmp = BFE(src, 11, 21);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -2003,111 +2315,150 @@ _bit_unpack_32_22bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 22);
+    tmp = BFE(src, 0, 22);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 12)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 2)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 22);
+    tmp = BFE(src, 2, 22);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 14)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 18);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 4)) << 18;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 14) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 22);
+    tmp = BFE(src, 4, 22);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 16)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 6)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 22);
+    tmp = BFE(src, 6, 22);
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 18)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 8)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 22);
+    tmp = BFE(src, 8, 22);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 20)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 10)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 22);
+    tmp = BFE(src, 10, 22);
     src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 0)) << 22;
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 22);
+    tmp = BFE(src, 0, 22);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 12)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 2)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 22);
+    tmp = BFE(src, 2, 22);
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 14)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 14];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 18);
-    src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 4)) << 18;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 15];
+        tmp = FUNNEL_SHIFT_R(src, next, 14) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 22);
+    tmp = BFE(src, 4, 22);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 16];
-    tmp |= (src & MASK(uint32_t, 16)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 16];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 17];
-    tmp |= (src & MASK(uint32_t, 6)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 17];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 22);
+    tmp = BFE(src, 6, 22);
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 18];
-    tmp |= (src & MASK(uint32_t, 18)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 18];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 19];
-    tmp |= (src & MASK(uint32_t, 8)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 19];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 22);
+    tmp = BFE(src, 8, 22);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 20];
-    tmp |= (src & MASK(uint32_t, 20)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 20];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 21];
-    tmp |= (src & MASK(uint32_t, 10)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 21];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 22);
+        src = next;
+    }
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 22);
+    tmp = BFE(src, 10, 22);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -2118,113 +2469,157 @@ _bit_unpack_32_23bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 23);
+    tmp = BFE(src, 0, 23);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 9);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 14)) << 9;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 23) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 18);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 5)) << 18;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 14) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 23);
+    tmp = BFE(src, 5, 23);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 19)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 13);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 10)) << 13;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 19) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 22);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 1)) << 22;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 10) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 23);
+    tmp = BFE(src, 1, 23);
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 15)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 17);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 6)) << 17;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 15) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 23);
+    tmp = BFE(src, 6, 23);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 3);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 20)) << 3;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 29) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 11)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 21);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 2)) << 21;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 11) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 23);
+    tmp = BFE(src, 2, 23);
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 7);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 16)) << 7;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 25) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 7)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 23);
+    tmp = BFE(src, 7, 23);
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 21)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 11);
-    src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 12)) << 11;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 14];
+        tmp = FUNNEL_SHIFT_R(src, next, 21) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 3)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 15];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 23);
+    tmp = BFE(src, 3, 23);
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 16];
-    tmp |= (src & MASK(uint32_t, 17)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 16];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 15);
-    src = in[lane + LANE_COUNT * 17];
-    tmp |= (src & MASK(uint32_t, 8)) << 15;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 17];
+        tmp = FUNNEL_SHIFT_R(src, next, 17) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 23);
+    tmp = BFE(src, 8, 23);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
-    src = in[lane + LANE_COUNT * 18];
-    tmp |= (src & MASK(uint32_t, 22)) << 1;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 18];
+        tmp = FUNNEL_SHIFT_R(src, next, 31) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 19];
-    tmp |= (src & MASK(uint32_t, 13)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 19];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 19);
-    src = in[lane + LANE_COUNT * 20];
-    tmp |= (src & MASK(uint32_t, 4)) << 19;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 20];
+        tmp = FUNNEL_SHIFT_R(src, next, 13) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 23);
+    tmp = BFE(src, 4, 23);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 5);
-    src = in[lane + LANE_COUNT * 21];
-    tmp |= (src & MASK(uint32_t, 18)) << 5;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 21];
+        tmp = FUNNEL_SHIFT_R(src, next, 27) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 22];
-    tmp |= (src & MASK(uint32_t, 9)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 22];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 23);
+        src = next;
+    }
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 23);
+    tmp = BFE(src, 9, 23);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -2235,115 +2630,140 @@ _bit_unpack_32_24bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 24);
+    tmp = BFE(src, 0, 24);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 16)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 8)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
+    tmp = BFE(src, 8, 24);
     src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 0)) << 24;
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 24);
+    tmp = BFE(src, 0, 24);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 16)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 8)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
+    tmp = BFE(src, 8, 24);
     src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 0)) << 24;
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 24);
+    tmp = BFE(src, 0, 24);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 16)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 8)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
+    tmp = BFE(src, 8, 24);
     src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 0)) << 24;
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 24);
+    tmp = BFE(src, 0, 24);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 16)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 8)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
+    tmp = BFE(src, 8, 24);
     src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 0)) << 24;
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 24);
+    tmp = BFE(src, 0, 24);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 16)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 8)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 14];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
+    tmp = BFE(src, 8, 24);
     src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 0)) << 24;
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 24);
+    tmp = BFE(src, 0, 24);
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 16];
-    tmp |= (src & MASK(uint32_t, 16)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 16];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 17];
-    tmp |= (src & MASK(uint32_t, 8)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 17];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
+    tmp = BFE(src, 8, 24);
     src = in[lane + LANE_COUNT * 18];
-    tmp |= (src & MASK(uint32_t, 0)) << 24;
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 24);
+    tmp = BFE(src, 0, 24);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 19];
-    tmp |= (src & MASK(uint32_t, 16)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 19];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 20];
-    tmp |= (src & MASK(uint32_t, 8)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 20];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
+    tmp = BFE(src, 8, 24);
     src = in[lane + LANE_COUNT * 21];
-    tmp |= (src & MASK(uint32_t, 0)) << 24;
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 24);
+    tmp = BFE(src, 0, 24);
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 22];
-    tmp |= (src & MASK(uint32_t, 16)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 22];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 23];
-    tmp |= (src & MASK(uint32_t, 8)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 23];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 24);
+        src = next;
+    }
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
+    tmp = BFE(src, 8, 24);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -2354,117 +2774,165 @@ _bit_unpack_32_25bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 25);
+    tmp = BFE(src, 0, 25);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 7);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 18)) << 7;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 25) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 11)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 21);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 4)) << 21;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 11) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 25);
+    tmp = BFE(src, 4, 25);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 3);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 22)) << 3;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 29) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 15)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 17);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 8)) << 17;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 15) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 1)) << 24;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 8) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 25);
+    tmp = BFE(src, 1, 25);
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 19)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 13);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 12)) << 13;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 19) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 5)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 25);
+    tmp = BFE(src, 5, 25);
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 23)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 9);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 16)) << 9;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 23) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 9)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 23);
-    src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 2)) << 23;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 14];
+        tmp = FUNNEL_SHIFT_R(src, next, 9) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 25);
+    tmp = BFE(src, 2, 25);
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 5);
-    src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 20)) << 5;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 15];
+        tmp = FUNNEL_SHIFT_R(src, next, 27) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 16];
-    tmp |= (src & MASK(uint32_t, 13)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 16];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 19);
-    src = in[lane + LANE_COUNT * 17];
-    tmp |= (src & MASK(uint32_t, 6)) << 19;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 17];
+        tmp = FUNNEL_SHIFT_R(src, next, 13) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 25);
+    tmp = BFE(src, 6, 25);
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
-    src = in[lane + LANE_COUNT * 18];
-    tmp |= (src & MASK(uint32_t, 24)) << 1;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 18];
+        tmp = FUNNEL_SHIFT_R(src, next, 31) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 19];
-    tmp |= (src & MASK(uint32_t, 17)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 19];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 15);
-    src = in[lane + LANE_COUNT * 20];
-    tmp |= (src & MASK(uint32_t, 10)) << 15;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 20];
+        tmp = FUNNEL_SHIFT_R(src, next, 17) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 22);
-    src = in[lane + LANE_COUNT * 21];
-    tmp |= (src & MASK(uint32_t, 3)) << 22;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 21];
+        tmp = FUNNEL_SHIFT_R(src, next, 10) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 25);
+    tmp = BFE(src, 3, 25);
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 22];
-    tmp |= (src & MASK(uint32_t, 21)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 22];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 11);
-    src = in[lane + LANE_COUNT * 23];
-    tmp |= (src & MASK(uint32_t, 14)) << 11;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 23];
+        tmp = FUNNEL_SHIFT_R(src, next, 21) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 18);
-    src = in[lane + LANE_COUNT * 24];
-    tmp |= (src & MASK(uint32_t, 7)) << 18;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 24];
+        tmp = FUNNEL_SHIFT_R(src, next, 14) & MASK(uint32_t, 25);
+        src = next;
+    }
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 25);
+    tmp = BFE(src, 7, 25);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -2475,119 +2943,166 @@ _bit_unpack_32_26bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 26);
+    tmp = BFE(src, 0, 26);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 20)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 14)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 18);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 8)) << 18;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 14) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 2)) << 24;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 8) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 26);
+    tmp = BFE(src, 2, 26);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 22)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 16)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 10)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 22);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 4)) << 22;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 10) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 26);
+    tmp = BFE(src, 4, 26);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 24)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 18)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 12)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 6)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 26);
+    tmp = BFE(src, 6, 26);
     src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 0)) << 26;
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 26);
+    tmp = BFE(src, 0, 26);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 20)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 14];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 14)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 15];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 18);
-    src = in[lane + LANE_COUNT * 16];
-    tmp |= (src & MASK(uint32_t, 8)) << 18;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 16];
+        tmp = FUNNEL_SHIFT_R(src, next, 14) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
-    src = in[lane + LANE_COUNT * 17];
-    tmp |= (src & MASK(uint32_t, 2)) << 24;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 17];
+        tmp = FUNNEL_SHIFT_R(src, next, 8) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 26);
+    tmp = BFE(src, 2, 26);
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 18];
-    tmp |= (src & MASK(uint32_t, 22)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 18];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 19];
-    tmp |= (src & MASK(uint32_t, 16)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 19];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 20];
-    tmp |= (src & MASK(uint32_t, 10)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 20];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 22);
-    src = in[lane + LANE_COUNT * 21];
-    tmp |= (src & MASK(uint32_t, 4)) << 22;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 21];
+        tmp = FUNNEL_SHIFT_R(src, next, 10) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 26);
+    tmp = BFE(src, 4, 26);
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 22];
-    tmp |= (src & MASK(uint32_t, 24)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 22];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 23];
-    tmp |= (src & MASK(uint32_t, 18)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 23];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 24];
-    tmp |= (src & MASK(uint32_t, 12)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 24];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 25];
-    tmp |= (src & MASK(uint32_t, 6)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 25];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 26);
+        src = next;
+    }
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 26);
+    tmp = BFE(src, 6, 26);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -2598,121 +3113,173 @@ _bit_unpack_32_27bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 27);
+    tmp = BFE(src, 0, 27);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 5);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 22)) << 5;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 27) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 17)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 15);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 12)) << 15;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 17) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 7)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 25);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 2)) << 25;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 7) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 27);
+    tmp = BFE(src, 2, 27);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 3);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 24)) << 3;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 29) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 19)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 13);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 14)) << 13;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 19) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 18);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 9)) << 18;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 14) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 23);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 4)) << 23;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 9) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 27);
+    tmp = BFE(src, 4, 27);
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 26)) << 1;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 31) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 21)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 11);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 16)) << 11;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 21) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 11)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 14];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 21);
-    src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 6)) << 21;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 15];
+        tmp = FUNNEL_SHIFT_R(src, next, 11) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 26);
-    src = in[lane + LANE_COUNT * 16];
-    tmp |= (src & MASK(uint32_t, 1)) << 26;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 16];
+        tmp = FUNNEL_SHIFT_R(src, next, 6) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 27);
+    tmp = BFE(src, 1, 27);
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 17];
-    tmp |= (src & MASK(uint32_t, 23)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 17];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 9);
-    src = in[lane + LANE_COUNT * 18];
-    tmp |= (src & MASK(uint32_t, 18)) << 9;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 18];
+        tmp = FUNNEL_SHIFT_R(src, next, 23) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 19];
-    tmp |= (src & MASK(uint32_t, 13)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 19];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 19);
-    src = in[lane + LANE_COUNT * 20];
-    tmp |= (src & MASK(uint32_t, 8)) << 19;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 20];
+        tmp = FUNNEL_SHIFT_R(src, next, 13) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
-    src = in[lane + LANE_COUNT * 21];
-    tmp |= (src & MASK(uint32_t, 3)) << 24;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 21];
+        tmp = FUNNEL_SHIFT_R(src, next, 8) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 27);
+    tmp = BFE(src, 3, 27);
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 22];
-    tmp |= (src & MASK(uint32_t, 25)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 22];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 7);
-    src = in[lane + LANE_COUNT * 23];
-    tmp |= (src & MASK(uint32_t, 20)) << 7;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 23];
+        tmp = FUNNEL_SHIFT_R(src, next, 25) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 24];
-    tmp |= (src & MASK(uint32_t, 15)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 24];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 17);
-    src = in[lane + LANE_COUNT * 25];
-    tmp |= (src & MASK(uint32_t, 10)) << 17;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 25];
+        tmp = FUNNEL_SHIFT_R(src, next, 15) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 22);
-    src = in[lane + LANE_COUNT * 26];
-    tmp |= (src & MASK(uint32_t, 5)) << 22;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 26];
+        tmp = FUNNEL_SHIFT_R(src, next, 10) & MASK(uint32_t, 27);
+        src = next;
+    }
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 27);
+    tmp = BFE(src, 5, 27);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -2723,123 +3290,168 @@ _bit_unpack_32_28bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 28);
+    tmp = BFE(src, 0, 28);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 24)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 20)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 16)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 12)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 8)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 4)) << 24;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 8) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 28);
+    tmp = BFE(src, 4, 28);
     src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 0)) << 28;
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 28);
+    tmp = BFE(src, 0, 28);
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 24)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 20)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 16)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 12)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 8)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 4)) << 24;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 8) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 28);
+    tmp = BFE(src, 4, 28);
     src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 0)) << 28;
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 28);
+    tmp = BFE(src, 0, 28);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 24)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 15];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 16];
-    tmp |= (src & MASK(uint32_t, 20)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 16];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 17];
-    tmp |= (src & MASK(uint32_t, 16)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 17];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 18];
-    tmp |= (src & MASK(uint32_t, 12)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 18];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 19];
-    tmp |= (src & MASK(uint32_t, 8)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 19];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
-    src = in[lane + LANE_COUNT * 20];
-    tmp |= (src & MASK(uint32_t, 4)) << 24;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 20];
+        tmp = FUNNEL_SHIFT_R(src, next, 8) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 28);
+    tmp = BFE(src, 4, 28);
     src = in[lane + LANE_COUNT * 21];
-    tmp |= (src & MASK(uint32_t, 0)) << 28;
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 28);
+    tmp = BFE(src, 0, 28);
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 22];
-    tmp |= (src & MASK(uint32_t, 24)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 22];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 23];
-    tmp |= (src & MASK(uint32_t, 20)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 23];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 24];
-    tmp |= (src & MASK(uint32_t, 16)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 24];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 25];
-    tmp |= (src & MASK(uint32_t, 12)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 25];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 26];
-    tmp |= (src & MASK(uint32_t, 8)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 26];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
-    src = in[lane + LANE_COUNT * 27];
-    tmp |= (src & MASK(uint32_t, 4)) << 24;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 27];
+        tmp = FUNNEL_SHIFT_R(src, next, 8) & MASK(uint32_t, 28);
+        src = next;
+    }
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 28);
+    tmp = BFE(src, 4, 28);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -2850,125 +3462,181 @@ _bit_unpack_32_29bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 29);
+    tmp = BFE(src, 0, 29);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 3);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 26)) << 3;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 29) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 23)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 9);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 20)) << 9;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 23) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 17)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 15);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 14)) << 15;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 17) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 18);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 11)) << 18;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 14) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 21);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 8)) << 21;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 11) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 5)) << 24;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 8) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 27);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 2)) << 27;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 5) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 29);
+    tmp = BFE(src, 2, 29);
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 28)) << 1;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 31) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 25)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 7);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 22)) << 7;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 25) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 19)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 13);
-    src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 16)) << 13;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 14];
+        tmp = FUNNEL_SHIFT_R(src, next, 19) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 13)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 15];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 19);
-    src = in[lane + LANE_COUNT * 16];
-    tmp |= (src & MASK(uint32_t, 10)) << 19;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 16];
+        tmp = FUNNEL_SHIFT_R(src, next, 13) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 22);
-    src = in[lane + LANE_COUNT * 17];
-    tmp |= (src & MASK(uint32_t, 7)) << 22;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 17];
+        tmp = FUNNEL_SHIFT_R(src, next, 10) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 25);
-    src = in[lane + LANE_COUNT * 18];
-    tmp |= (src & MASK(uint32_t, 4)) << 25;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 18];
+        tmp = FUNNEL_SHIFT_R(src, next, 7) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 28);
-    src = in[lane + LANE_COUNT * 19];
-    tmp |= (src & MASK(uint32_t, 1)) << 28;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 19];
+        tmp = FUNNEL_SHIFT_R(src, next, 4) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 29);
+    tmp = BFE(src, 1, 29);
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 20];
-    tmp |= (src & MASK(uint32_t, 27)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 20];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 5);
-    src = in[lane + LANE_COUNT * 21];
-    tmp |= (src & MASK(uint32_t, 24)) << 5;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 21];
+        tmp = FUNNEL_SHIFT_R(src, next, 27) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 22];
-    tmp |= (src & MASK(uint32_t, 21)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 22];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 11);
-    src = in[lane + LANE_COUNT * 23];
-    tmp |= (src & MASK(uint32_t, 18)) << 11;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 23];
+        tmp = FUNNEL_SHIFT_R(src, next, 21) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 24];
-    tmp |= (src & MASK(uint32_t, 15)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 24];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 17);
-    src = in[lane + LANE_COUNT * 25];
-    tmp |= (src & MASK(uint32_t, 12)) << 17;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 25];
+        tmp = FUNNEL_SHIFT_R(src, next, 15) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 26];
-    tmp |= (src & MASK(uint32_t, 9)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 26];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 23);
-    src = in[lane + LANE_COUNT * 27];
-    tmp |= (src & MASK(uint32_t, 6)) << 23;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 27];
+        tmp = FUNNEL_SHIFT_R(src, next, 9) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 26);
-    src = in[lane + LANE_COUNT * 28];
-    tmp |= (src & MASK(uint32_t, 3)) << 26;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 28];
+        tmp = FUNNEL_SHIFT_R(src, next, 6) & MASK(uint32_t, 29);
+        src = next;
+    }
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 29);
+    tmp = BFE(src, 3, 29);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -2979,127 +3647,182 @@ _bit_unpack_32_30bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 30);
+    tmp = BFE(src, 0, 30);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 28)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 26)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 24)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 22)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 20)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 18)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 16)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 14)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 18);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 12)) << 18;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 14) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 10)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 22);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 8)) << 22;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 10) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 6)) << 24;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 8) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 26);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 4)) << 26;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 6) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 28);
-    src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 2)) << 28;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 14];
+        tmp = FUNNEL_SHIFT_R(src, next, 4) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 30);
+    tmp = BFE(src, 2, 30);
     src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 0)) << 30;
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint32_t, 30);
+    tmp = BFE(src, 0, 30);
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 16];
-    tmp |= (src & MASK(uint32_t, 28)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 16];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 17];
-    tmp |= (src & MASK(uint32_t, 26)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 17];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 18];
-    tmp |= (src & MASK(uint32_t, 24)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 18];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 19];
-    tmp |= (src & MASK(uint32_t, 22)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 19];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 20];
-    tmp |= (src & MASK(uint32_t, 20)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 20];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 21];
-    tmp |= (src & MASK(uint32_t, 18)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 21];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 22];
-    tmp |= (src & MASK(uint32_t, 16)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 22];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 23];
-    tmp |= (src & MASK(uint32_t, 14)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 23];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 18);
-    src = in[lane + LANE_COUNT * 24];
-    tmp |= (src & MASK(uint32_t, 12)) << 18;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 24];
+        tmp = FUNNEL_SHIFT_R(src, next, 14) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 25];
-    tmp |= (src & MASK(uint32_t, 10)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 25];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 22);
-    src = in[lane + LANE_COUNT * 26];
-    tmp |= (src & MASK(uint32_t, 8)) << 22;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 26];
+        tmp = FUNNEL_SHIFT_R(src, next, 10) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
-    src = in[lane + LANE_COUNT * 27];
-    tmp |= (src & MASK(uint32_t, 6)) << 24;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 27];
+        tmp = FUNNEL_SHIFT_R(src, next, 8) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 26);
-    src = in[lane + LANE_COUNT * 28];
-    tmp |= (src & MASK(uint32_t, 4)) << 26;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 28];
+        tmp = FUNNEL_SHIFT_R(src, next, 6) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 28);
-    src = in[lane + LANE_COUNT * 29];
-    tmp |= (src & MASK(uint32_t, 2)) << 28;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 29];
+        tmp = FUNNEL_SHIFT_R(src, next, 4) & MASK(uint32_t, 30);
+        src = next;
+    }
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 30);
+    tmp = BFE(src, 2, 30);
     out[INDEX(31, lane)] = tmp;
 }
 
@@ -3110,129 +3833,189 @@ _bit_unpack_32_31bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out
     uint32_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint32_t, 31);
+    tmp = BFE(src, 0, 31);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 31) & MASK(uint32_t, 1);
-    src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint32_t, 30)) << 1;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 1];
+        tmp = FUNNEL_SHIFT_R(src, next, 31) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 30) & MASK(uint32_t, 2);
-    src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint32_t, 29)) << 2;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 2];
+        tmp = FUNNEL_SHIFT_R(src, next, 30) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 29) & MASK(uint32_t, 3);
-    src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint32_t, 28)) << 3;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 3];
+        tmp = FUNNEL_SHIFT_R(src, next, 29) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 28) & MASK(uint32_t, 4);
-    src = in[lane + LANE_COUNT * 4];
-    tmp |= (src & MASK(uint32_t, 27)) << 4;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 4];
+        tmp = FUNNEL_SHIFT_R(src, next, 28) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 27) & MASK(uint32_t, 5);
-    src = in[lane + LANE_COUNT * 5];
-    tmp |= (src & MASK(uint32_t, 26)) << 5;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 5];
+        tmp = FUNNEL_SHIFT_R(src, next, 27) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 26) & MASK(uint32_t, 6);
-    src = in[lane + LANE_COUNT * 6];
-    tmp |= (src & MASK(uint32_t, 25)) << 6;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 6];
+        tmp = FUNNEL_SHIFT_R(src, next, 26) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 25) & MASK(uint32_t, 7);
-    src = in[lane + LANE_COUNT * 7];
-    tmp |= (src & MASK(uint32_t, 24)) << 7;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 7];
+        tmp = FUNNEL_SHIFT_R(src, next, 25) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(7, lane)] = tmp;
-    tmp = (src >> 24) & MASK(uint32_t, 8);
-    src = in[lane + LANE_COUNT * 8];
-    tmp |= (src & MASK(uint32_t, 23)) << 8;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 8];
+        tmp = FUNNEL_SHIFT_R(src, next, 24) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(8, lane)] = tmp;
-    tmp = (src >> 23) & MASK(uint32_t, 9);
-    src = in[lane + LANE_COUNT * 9];
-    tmp |= (src & MASK(uint32_t, 22)) << 9;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 9];
+        tmp = FUNNEL_SHIFT_R(src, next, 23) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(9, lane)] = tmp;
-    tmp = (src >> 22) & MASK(uint32_t, 10);
-    src = in[lane + LANE_COUNT * 10];
-    tmp |= (src & MASK(uint32_t, 21)) << 10;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 10];
+        tmp = FUNNEL_SHIFT_R(src, next, 22) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(10, lane)] = tmp;
-    tmp = (src >> 21) & MASK(uint32_t, 11);
-    src = in[lane + LANE_COUNT * 11];
-    tmp |= (src & MASK(uint32_t, 20)) << 11;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 11];
+        tmp = FUNNEL_SHIFT_R(src, next, 21) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(11, lane)] = tmp;
-    tmp = (src >> 20) & MASK(uint32_t, 12);
-    src = in[lane + LANE_COUNT * 12];
-    tmp |= (src & MASK(uint32_t, 19)) << 12;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 12];
+        tmp = FUNNEL_SHIFT_R(src, next, 20) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(12, lane)] = tmp;
-    tmp = (src >> 19) & MASK(uint32_t, 13);
-    src = in[lane + LANE_COUNT * 13];
-    tmp |= (src & MASK(uint32_t, 18)) << 13;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 13];
+        tmp = FUNNEL_SHIFT_R(src, next, 19) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(13, lane)] = tmp;
-    tmp = (src >> 18) & MASK(uint32_t, 14);
-    src = in[lane + LANE_COUNT * 14];
-    tmp |= (src & MASK(uint32_t, 17)) << 14;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 14];
+        tmp = FUNNEL_SHIFT_R(src, next, 18) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(14, lane)] = tmp;
-    tmp = (src >> 17) & MASK(uint32_t, 15);
-    src = in[lane + LANE_COUNT * 15];
-    tmp |= (src & MASK(uint32_t, 16)) << 15;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 15];
+        tmp = FUNNEL_SHIFT_R(src, next, 17) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(15, lane)] = tmp;
-    tmp = (src >> 16) & MASK(uint32_t, 16);
-    src = in[lane + LANE_COUNT * 16];
-    tmp |= (src & MASK(uint32_t, 15)) << 16;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 16];
+        tmp = FUNNEL_SHIFT_R(src, next, 16) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(16, lane)] = tmp;
-    tmp = (src >> 15) & MASK(uint32_t, 17);
-    src = in[lane + LANE_COUNT * 17];
-    tmp |= (src & MASK(uint32_t, 14)) << 17;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 17];
+        tmp = FUNNEL_SHIFT_R(src, next, 15) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(17, lane)] = tmp;
-    tmp = (src >> 14) & MASK(uint32_t, 18);
-    src = in[lane + LANE_COUNT * 18];
-    tmp |= (src & MASK(uint32_t, 13)) << 18;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 18];
+        tmp = FUNNEL_SHIFT_R(src, next, 14) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(18, lane)] = tmp;
-    tmp = (src >> 13) & MASK(uint32_t, 19);
-    src = in[lane + LANE_COUNT * 19];
-    tmp |= (src & MASK(uint32_t, 12)) << 19;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 19];
+        tmp = FUNNEL_SHIFT_R(src, next, 13) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(19, lane)] = tmp;
-    tmp = (src >> 12) & MASK(uint32_t, 20);
-    src = in[lane + LANE_COUNT * 20];
-    tmp |= (src & MASK(uint32_t, 11)) << 20;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 20];
+        tmp = FUNNEL_SHIFT_R(src, next, 12) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(20, lane)] = tmp;
-    tmp = (src >> 11) & MASK(uint32_t, 21);
-    src = in[lane + LANE_COUNT * 21];
-    tmp |= (src & MASK(uint32_t, 10)) << 21;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 21];
+        tmp = FUNNEL_SHIFT_R(src, next, 11) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(21, lane)] = tmp;
-    tmp = (src >> 10) & MASK(uint32_t, 22);
-    src = in[lane + LANE_COUNT * 22];
-    tmp |= (src & MASK(uint32_t, 9)) << 22;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 22];
+        tmp = FUNNEL_SHIFT_R(src, next, 10) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(22, lane)] = tmp;
-    tmp = (src >> 9) & MASK(uint32_t, 23);
-    src = in[lane + LANE_COUNT * 23];
-    tmp |= (src & MASK(uint32_t, 8)) << 23;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 23];
+        tmp = FUNNEL_SHIFT_R(src, next, 9) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(23, lane)] = tmp;
-    tmp = (src >> 8) & MASK(uint32_t, 24);
-    src = in[lane + LANE_COUNT * 24];
-    tmp |= (src & MASK(uint32_t, 7)) << 24;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 24];
+        tmp = FUNNEL_SHIFT_R(src, next, 8) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(24, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint32_t, 25);
-    src = in[lane + LANE_COUNT * 25];
-    tmp |= (src & MASK(uint32_t, 6)) << 25;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 25];
+        tmp = FUNNEL_SHIFT_R(src, next, 7) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(25, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint32_t, 26);
-    src = in[lane + LANE_COUNT * 26];
-    tmp |= (src & MASK(uint32_t, 5)) << 26;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 26];
+        tmp = FUNNEL_SHIFT_R(src, next, 6) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(26, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint32_t, 27);
-    src = in[lane + LANE_COUNT * 27];
-    tmp |= (src & MASK(uint32_t, 4)) << 27;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 27];
+        tmp = FUNNEL_SHIFT_R(src, next, 5) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(27, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint32_t, 28);
-    src = in[lane + LANE_COUNT * 28];
-    tmp |= (src & MASK(uint32_t, 3)) << 28;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 28];
+        tmp = FUNNEL_SHIFT_R(src, next, 4) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(28, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint32_t, 29);
-    src = in[lane + LANE_COUNT * 29];
-    tmp |= (src & MASK(uint32_t, 2)) << 29;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 29];
+        tmp = FUNNEL_SHIFT_R(src, next, 3) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(29, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint32_t, 30);
-    src = in[lane + LANE_COUNT * 30];
-    tmp |= (src & MASK(uint32_t, 1)) << 30;
+    {
+        uint32_t next = in[lane + LANE_COUNT * 30];
+        tmp = FUNNEL_SHIFT_R(src, next, 2) & MASK(uint32_t, 31);
+        src = next;
+    }
     out[INDEX(30, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint32_t, 31);
+    tmp = BFE(src, 1, 31);
     out[INDEX(31, lane)] = tmp;
 }
 

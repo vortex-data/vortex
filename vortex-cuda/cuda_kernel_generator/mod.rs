@@ -53,22 +53,34 @@ fn generate_lane_decoder<T: FastLanes, W: Write>(
                 if next_word > curr_word {
                     let remaining_bits = ((row + 1) * bit_width) % bits;
                     let current_bits = bit_width - remaining_bits;
-                    writeln!(
-                        output,
-                        "tmp = (src >> {shift}) & MASK(uint{bits}_t, {current_bits});"
-                    )?;
 
-                    if next_word < bit_width {
-                        writeln!(output, "src = in[lane + LANE_COUNT * {next_word}];")?;
+                    if remaining_bits > 0 && bits == 32 && next_word < bit_width {
+                        // Use funnel shift to extract a value spanning two u32 words
+                        // in a single instruction (shf.r.clamp.b32) plus a mask.
                         writeln!(
                             output,
-                            "tmp |= (src & MASK(uint{bits}_t, {remaining_bits})) << {current_bits};"
+                            "{{ uint{bits}_t next = in[lane + LANE_COUNT * {next_word}]; tmp = FUNNEL_SHIFT_R(src, next, {shift}) & MASK(uint{bits}_t, {bit_width}); src = next; }}"
                         )?;
+                    } else {
+                        writeln!(
+                            output,
+                            "tmp = BFE(src, {shift}, {current_bits});"
+                        )?;
+
+                        if next_word < bit_width {
+                            writeln!(output, "src = in[lane + LANE_COUNT * {next_word}];")?;
+                            if remaining_bits > 0 {
+                                writeln!(
+                                    output,
+                                    "tmp |= (src & MASK(uint{bits}_t, {remaining_bits})) << {current_bits};"
+                                )?;
+                            }
+                        }
                     }
                 } else {
                     writeln!(
                         output,
-                        "tmp = (src >> {shift}) & MASK(uint{bits}_t, {bit_width});"
+                        "tmp = BFE(src, {shift}, {bit_width});"
                     )?;
                 }
 

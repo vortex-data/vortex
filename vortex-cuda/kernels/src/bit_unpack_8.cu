@@ -26,21 +26,21 @@ _bit_unpack_8_1bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, un
     uint8_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint8_t, 1);
+    tmp = BFE(src, 0, 1);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint8_t, 1);
+    tmp = BFE(src, 1, 1);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint8_t, 1);
+    tmp = BFE(src, 2, 1);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint8_t, 1);
+    tmp = BFE(src, 3, 1);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint8_t, 1);
+    tmp = BFE(src, 4, 1);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint8_t, 1);
+    tmp = BFE(src, 5, 1);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint8_t, 1);
+    tmp = BFE(src, 6, 1);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint8_t, 1);
+    tmp = BFE(src, 7, 1);
     out[INDEX(7, lane)] = tmp;
 }
 
@@ -51,23 +51,22 @@ _bit_unpack_8_2bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, un
     uint8_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint8_t, 2);
+    tmp = BFE(src, 0, 2);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint8_t, 2);
+    tmp = BFE(src, 2, 2);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint8_t, 2);
+    tmp = BFE(src, 4, 2);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint8_t, 2);
+    tmp = BFE(src, 6, 2);
     src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint8_t, 0)) << 2;
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint8_t, 2);
+    tmp = BFE(src, 0, 2);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint8_t, 2);
+    tmp = BFE(src, 2, 2);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint8_t, 2);
+    tmp = BFE(src, 4, 2);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint8_t, 2);
+    tmp = BFE(src, 6, 2);
     out[INDEX(7, lane)] = tmp;
 }
 
@@ -78,25 +77,25 @@ _bit_unpack_8_3bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, un
     uint8_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint8_t, 3);
+    tmp = BFE(src, 0, 3);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint8_t, 3);
+    tmp = BFE(src, 3, 3);
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint8_t, 2);
+    tmp = BFE(src, 6, 2);
     src = in[lane + LANE_COUNT * 1];
     tmp |= (src & MASK(uint8_t, 1)) << 2;
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint8_t, 3);
+    tmp = BFE(src, 1, 3);
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint8_t, 3);
+    tmp = BFE(src, 4, 3);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint8_t, 1);
+    tmp = BFE(src, 7, 1);
     src = in[lane + LANE_COUNT * 2];
     tmp |= (src & MASK(uint8_t, 2)) << 1;
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint8_t, 3);
+    tmp = BFE(src, 2, 3);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint8_t, 3);
+    tmp = BFE(src, 5, 3);
     out[INDEX(7, lane)] = tmp;
 }
 
@@ -107,27 +106,24 @@ _bit_unpack_8_4bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, un
     uint8_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint8_t, 4);
+    tmp = BFE(src, 0, 4);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint8_t, 4);
+    tmp = BFE(src, 4, 4);
     src = in[lane + LANE_COUNT * 1];
-    tmp |= (src & MASK(uint8_t, 0)) << 4;
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint8_t, 4);
+    tmp = BFE(src, 0, 4);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint8_t, 4);
+    tmp = BFE(src, 4, 4);
     src = in[lane + LANE_COUNT * 2];
-    tmp |= (src & MASK(uint8_t, 0)) << 4;
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint8_t, 4);
+    tmp = BFE(src, 0, 4);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint8_t, 4);
+    tmp = BFE(src, 4, 4);
     src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint8_t, 0)) << 4;
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint8_t, 4);
+    tmp = BFE(src, 0, 4);
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint8_t, 4);
+    tmp = BFE(src, 4, 4);
     out[INDEX(7, lane)] = tmp;
 }
 
@@ -138,29 +134,29 @@ _bit_unpack_8_5bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, un
     uint8_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint8_t, 5);
+    tmp = BFE(src, 0, 5);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint8_t, 3);
+    tmp = BFE(src, 5, 3);
     src = in[lane + LANE_COUNT * 1];
     tmp |= (src & MASK(uint8_t, 2)) << 3;
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint8_t, 5);
+    tmp = BFE(src, 2, 5);
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint8_t, 1);
+    tmp = BFE(src, 7, 1);
     src = in[lane + LANE_COUNT * 2];
     tmp |= (src & MASK(uint8_t, 4)) << 1;
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint8_t, 4);
+    tmp = BFE(src, 4, 4);
     src = in[lane + LANE_COUNT * 3];
     tmp |= (src & MASK(uint8_t, 1)) << 4;
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint8_t, 5);
+    tmp = BFE(src, 1, 5);
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint8_t, 2);
+    tmp = BFE(src, 6, 2);
     src = in[lane + LANE_COUNT * 4];
     tmp |= (src & MASK(uint8_t, 3)) << 2;
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint8_t, 5);
+    tmp = BFE(src, 3, 5);
     out[INDEX(7, lane)] = tmp;
 }
 
@@ -171,31 +167,30 @@ _bit_unpack_8_6bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, un
     uint8_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint8_t, 6);
+    tmp = BFE(src, 0, 6);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint8_t, 2);
+    tmp = BFE(src, 6, 2);
     src = in[lane + LANE_COUNT * 1];
     tmp |= (src & MASK(uint8_t, 4)) << 2;
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint8_t, 4);
+    tmp = BFE(src, 4, 4);
     src = in[lane + LANE_COUNT * 2];
     tmp |= (src & MASK(uint8_t, 2)) << 4;
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint8_t, 6);
+    tmp = BFE(src, 2, 6);
     src = in[lane + LANE_COUNT * 3];
-    tmp |= (src & MASK(uint8_t, 0)) << 6;
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 0) & MASK(uint8_t, 6);
+    tmp = BFE(src, 0, 6);
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint8_t, 2);
+    tmp = BFE(src, 6, 2);
     src = in[lane + LANE_COUNT * 4];
     tmp |= (src & MASK(uint8_t, 4)) << 2;
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint8_t, 4);
+    tmp = BFE(src, 4, 4);
     src = in[lane + LANE_COUNT * 5];
     tmp |= (src & MASK(uint8_t, 2)) << 4;
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint8_t, 6);
+    tmp = BFE(src, 2, 6);
     out[INDEX(7, lane)] = tmp;
 }
 
@@ -206,33 +201,33 @@ _bit_unpack_8_7bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, un
     uint8_t tmp;
 
     src = in[lane];
-    tmp = (src >> 0) & MASK(uint8_t, 7);
+    tmp = BFE(src, 0, 7);
     out[INDEX(0, lane)] = tmp;
-    tmp = (src >> 7) & MASK(uint8_t, 1);
+    tmp = BFE(src, 7, 1);
     src = in[lane + LANE_COUNT * 1];
     tmp |= (src & MASK(uint8_t, 6)) << 1;
     out[INDEX(1, lane)] = tmp;
-    tmp = (src >> 6) & MASK(uint8_t, 2);
+    tmp = BFE(src, 6, 2);
     src = in[lane + LANE_COUNT * 2];
     tmp |= (src & MASK(uint8_t, 5)) << 2;
     out[INDEX(2, lane)] = tmp;
-    tmp = (src >> 5) & MASK(uint8_t, 3);
+    tmp = BFE(src, 5, 3);
     src = in[lane + LANE_COUNT * 3];
     tmp |= (src & MASK(uint8_t, 4)) << 3;
     out[INDEX(3, lane)] = tmp;
-    tmp = (src >> 4) & MASK(uint8_t, 4);
+    tmp = BFE(src, 4, 4);
     src = in[lane + LANE_COUNT * 4];
     tmp |= (src & MASK(uint8_t, 3)) << 4;
     out[INDEX(4, lane)] = tmp;
-    tmp = (src >> 3) & MASK(uint8_t, 5);
+    tmp = BFE(src, 3, 5);
     src = in[lane + LANE_COUNT * 5];
     tmp |= (src & MASK(uint8_t, 2)) << 5;
     out[INDEX(5, lane)] = tmp;
-    tmp = (src >> 2) & MASK(uint8_t, 6);
+    tmp = BFE(src, 2, 6);
     src = in[lane + LANE_COUNT * 6];
     tmp |= (src & MASK(uint8_t, 1)) << 6;
     out[INDEX(6, lane)] = tmp;
-    tmp = (src >> 1) & MASK(uint8_t, 7);
+    tmp = BFE(src, 1, 7);
     out[INDEX(7, lane)] = tmp;
 }
 
