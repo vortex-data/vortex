@@ -187,9 +187,21 @@ __device__ inline void apply_scalar_op(T *values, const struct ScalarOp &op, T *
     }
 }
 
+/// Store policy for global memory writes.
+enum class StorePolicy {
+    /// Default write-back stores — data stays in L2 cache.
+    WRITEBACK,
+    /// Streaming stores (`__stcs` / `st.cs`) — hint L2 to evict early.
+    /// Use for write-only output data that this kernel will not read again.
+    /// `__stcs` is a regular synchronous store (not async like `cp.async`),
+    /// so the existing `__syncthreads()` barrier after each tile is
+    /// sufficient for ordering.
+    STREAMING,
+};
+
 /// Reads values from `smem_input`, applies scalar ops in registers, and
 /// writes results to `write_dest` at `write_offset`.
-template <typename T>
+template <typename T, StorePolicy S>
 __device__ void apply_scalar_ops(const T *__restrict smem_input,
                                  T *__restrict write_dest,
                                  uint64_t write_offset,
@@ -222,7 +234,11 @@ __device__ void apply_scalar_ops(const T *__restrict smem_input,
         #pragma unroll
         // clang-format on
         for (uint32_t idx = 0; idx < VALUES_PER_LOOP; ++idx) {
-            write_dest[write_offset + tile_base + idx * blockDim.x + threadIdx.x] = values[idx];
+            if constexpr (S == StorePolicy::STREAMING) {
+                __stcs(&write_dest[write_offset + tile_base + idx * blockDim.x + threadIdx.x], values[idx]);
+            } else {
+                write_dest[write_offset + tile_base + idx * blockDim.x + threadIdx.x] = values[idx];
+            }
         }
     }
 
@@ -232,14 +248,18 @@ __device__ void apply_scalar_ops(const T *__restrict smem_input,
         for (uint8_t op_idx = 0; op_idx < num_scalar_ops; ++op_idx) {
             apply_scalar_op<T, 1>(&val, scalar_ops[op_idx], smem_base);
         }
-        write_dest[write_offset + elem_idx] = val;
+        if constexpr (S == StorePolicy::STREAMING) {
+            __stcs(&write_dest[write_offset + elem_idx], val);
+        } else {
+            write_dest[write_offset + elem_idx] = val;
+        }
     }
 }
 
 /// Decodes and transforms a stage's data through shared memory, writing
 /// final results to `write_dest` at `write_offset`. Input stages write
 /// back to smem; the output stage writes to global memory.
-template <typename T>
+template <typename T, StorePolicy S>
 __device__ void execute_stage(const struct Stage &stage,
                               T *__restrict smem_base,
                               uint64_t chunk_start,
@@ -256,13 +276,13 @@ __device__ void execute_stage(const struct Stage &stage,
                          smem_base);
     __syncthreads();
 
-    apply_scalar_ops<T>(smem_output,
-                        write_dest,
-                        write_offset,
-                        chunk_len,
-                        stage.num_scalar_ops,
-                        stage.scalar_ops,
-                        smem_base);
+    apply_scalar_ops<T, S>(smem_output,
+                           write_dest,
+                           write_offset,
+                           chunk_len,
+                           stage.num_scalar_ops,
+                           stage.scalar_ops,
+                           smem_base);
     __syncthreads();
 }
 
@@ -298,7 +318,7 @@ __device__ void dynamic_dispatch_impl(T *__restrict output,
     for (uint8_t i = 0; i < last; ++i) {
         const struct Stage &stage = smem_plan.stages[i];
         T *smem_output = &smem_base[stage.smem_offset];
-        execute_stage<T>(stage, smem_base, 0, stage.len, smem_output, 0);
+        execute_stage<T, StorePolicy::WRITEBACK>(stage, smem_base, 0, stage.len, smem_output, 0);
     }
 
     // Output stage: process in SMEM_TILE_SIZE tiles to reduce smem footprint.
@@ -310,12 +330,12 @@ __device__ void dynamic_dispatch_impl(T *__restrict output,
 
     for (uint32_t tile_off = 0; tile_off < block_len; tile_off += SMEM_TILE_SIZE) {
         const uint32_t tile_len = min(SMEM_TILE_SIZE, block_len - tile_off);
-        execute_stage<T>(output_stage,
-                         smem_base,
-                         block_start + tile_off,
-                         tile_len,
-                         output,
-                         block_start + tile_off);
+        execute_stage<T, StorePolicy::STREAMING>(output_stage,
+                                                 smem_base,
+                                                 block_start + tile_off,
+                                                 tile_len,
+                                                 output,
+                                                 block_start + tile_off);
     }
 }
 
