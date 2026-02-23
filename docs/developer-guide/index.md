@@ -38,3 +38,15 @@ integrations/datafusion
 integrations/duckdb
 integrations/spark
 ```
+
+if-collection:: rfcs
+```{toctree}
+---
+maxdepth: 2
+caption: RFCs
+glob:
+---
+
+../_collections/rfcs/proposals/*
+
+```

@@ -39,11 +39,12 @@ extensions = [
     "sphinxcontrib.bibtex",
     "sphinxcontrib.mermaid",
     "sphinxext.opengraph",
+    "sphinx_collections",
 ]
 
 templates_path = ["_templates"]
 html_show_sourcelink = False
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md"]
+exclude_patterns = ["_build", "_collections/rfcs/README.md", "Thumbs.db", ".DS_Store", "README.md"]
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
@@ -52,6 +53,8 @@ intersphinx_mapping = {
     "numpy": ("https://numpy.org/doc/stable", None),
     "polars": ("https://docs.pola.rs/api/python/stable", "polars.objects.inv"),
 }
+
+collections = {"rfcs": {"driver": "git", "source": "https://github.com/vortex-data/rfcs.git"}}
 
 git_root = Path(__file__).parent.parent
 
