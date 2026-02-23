@@ -29,7 +29,7 @@ static DUCKDB_VERSION: Lazy<DuckDBVersion> = Lazy::new(|| {
         parse_version(&version)
     } else {
         // The default DuckDB version to use when DUCKDB_VERSION env var is not set.
-        DuckDBVersion::Release("1.4.2".to_owned())
+        DuckDBVersion::Commit("7f992e5a96662d66134577cf9d8a5bad9053847e".to_owned())
     }
 });
 
