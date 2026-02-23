@@ -84,11 +84,7 @@ struct Pipeline {
 /// receive a value regardless of whether the input was null. Only arrays with
 /// `NonNullable` or `AllValid` validity produce correct results.
 ///
-/// **Slicing**: sliced arrays (`offset != 0`) on `BitPackedArray` are not yet
-/// supported and will return an error. Sliced `PrimitiveArray` is handled via
-/// `to_canonical()` (a copy). Sliced `RunEndArray` is handled natively via the
-/// offset parameter. Sliced transparent wrappers (FoR, ZigZag, Dict) propagate
-/// the slice to their children.
+/// **Slicing**: Not supported.
 ///
 /// **Patches**: `BitPackedArray` with patches and `ALPArray` with patches are
 /// not supported and will return an error.
@@ -129,7 +125,7 @@ pub fn build_plan(
 /// Internal mutable state for the recursive tree walk.
 struct PlanBuilderState<'a> {
     ctx: &'a CudaExecutionCtx,
-    /// Accumulated input stages (populated before the output stage).
+    /// Stages to process in the dynamic dispatch kernel.
     stages: Vec<Stage>,
     /// Next available element offset in shared memory.
     smem_cursor: u32,

@@ -58,14 +58,16 @@ duckdb_vx_fs_create(duckdb_client_context ctx, const char *path, duckdb_vx_error
 }
 
 extern "C" void duckdb_vx_fs_close(duckdb_vx_file_handle *handle) {
-    if (handle && *handle)
+    if (handle && *handle) {
         delete reinterpret_cast<FileHandle *>(std::exchange(*handle, nullptr));
+    }
 }
 
 extern "C" duckdb_state
 duckdb_vx_fs_get_size(duckdb_vx_file_handle handle, idx_t *size_out, duckdb_vx_error *error_out) {
-    if (!handle || !size_out)
+    if (!handle || !size_out) {
         return SetError(error_out, "Invalid arguments to fs_get_size");
+    }
 
     try {
         *size_out = reinterpret_cast<FileHandle *>(handle)->GetFileSize();
@@ -81,8 +83,9 @@ extern "C" duckdb_state duckdb_vx_fs_read(duckdb_vx_file_handle handle,
                                           uint8_t *buffer,
                                           idx_t *out_len,
                                           duckdb_vx_error *error_out) {
-    if (!handle || !buffer || !out_len)
+    if (!handle || !buffer || !out_len) {
         return SetError(error_out, "Invalid arguments to fs_read");
+    }
 
     try {
         reinterpret_cast<FileHandle *>(handle)->Read(buffer, len, offset);
@@ -99,8 +102,9 @@ extern "C" duckdb_state duckdb_vx_fs_write(duckdb_vx_file_handle handle,
                                            uint8_t *buffer,
                                            idx_t *out_len,
                                            duckdb_vx_error *error_out) {
-    if (!handle || !buffer || !out_len)
+    if (!handle || !buffer || !out_len) {
         return SetError(error_out, "Invalid arguments to fs_write");
+    }
 
     try {
         reinterpret_cast<FileHandle *>(handle)->Write(QueryContext(), buffer, len, offset);
@@ -116,8 +120,9 @@ extern "C" duckdb_state duckdb_vx_fs_list_files(duckdb_client_context ctx,
                                                 duckdb_vx_list_files_callback callback,
                                                 void *user_data,
                                                 duckdb_vx_error *error_out) {
-    if (!ctx || !directory || !callback)
+    if (!ctx || !directory || !callback) {
         return SetError(error_out, "Invalid arguments to fs_list_files");
+    }
 
     auto fn = [&](const string &name, bool is_dir) {
         callback(name.c_str(), is_dir, user_data);
@@ -134,8 +139,9 @@ extern "C" duckdb_state duckdb_vx_fs_list_files(duckdb_client_context ctx,
 }
 
 extern "C" duckdb_state duckdb_vx_fs_sync(duckdb_vx_file_handle handle, duckdb_vx_error *error_out) {
-    if (!handle)
+    if (!handle) {
         return SetError(error_out, "Invalid arguments to fs_sync");
+    }
 
     try {
         reinterpret_cast<FileHandle *>(handle)->Sync();
