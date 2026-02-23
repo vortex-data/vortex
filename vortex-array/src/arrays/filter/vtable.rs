@@ -18,6 +18,7 @@ use crate::ArrayChildVisitor;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::filter::array::FilterArray;
@@ -26,6 +27,7 @@ use crate::arrays::filter::execute::execute_filter_fast_paths;
 use crate::arrays::filter::rules::PARENT_RULES;
 use crate::arrays::filter::rules::RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::scalar::Scalar;
@@ -106,6 +108,18 @@ impl VTable for FilterVTable {
             .into_iter()
             .next()
             .vortex_expect("children length already validated");
+        Ok(())
+    }
+
+    fn append_to_builder(
+        array: &Self::Array,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        // Execute through the full loop so that execute_parent optimizations
+        // can fire before we canonicalize.
+        let canonical = array.to_array().execute::<Canonical>(ctx)?;
+        builder.extend_from_array(canonical.as_ref());
         Ok(())
     }
 
