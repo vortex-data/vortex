@@ -194,7 +194,7 @@ fn fsl_large(bencher: Bencher) {
 
 #[divan::bench]
 fn list_i32_large(bencher: Bencher) {
-    let lv = make_nested_list_lv(100, 512, 8);
+    let lv = make_nested_list_lv(50, 512, 8);
     bencher.with_inputs(|| &lv).bench_refs(|lv| {
         let rebuilt = lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap();
         rebuilt.elements().to_canonical().unwrap()
