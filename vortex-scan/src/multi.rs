@@ -1,24 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! A [`DataSource`] that combines multiple child data sources into a single scannable source.
+//! A [`DataSource`] that combines multiple [`LayoutReaderRef`]s into a single scannable source.
 //!
-//! Splits from all children are interleaved, enabling parallel execution across files.
-//! Children can be pre-opened (eager) or opened lazily via [`DataSourceFactory`] implementations,
-//! with spawned prefetching to overlap file-opening I/O with split execution.
+//! Readers may be pre-opened or deferred via [`LayoutReaderFactory`]. Deferred readers are opened
+//! concurrently during scanning using `buffer_unordered`: up to `concurrency` file opens run in
+//! parallel as spawned tasks on the session runtime. Once opened, each reader yields a single
+//! partition covering its full row range; internal I/O pipelining and chunking are handled by
+//! [`ScanBuilder`][crate::ScanBuilder].
 //!
 //! # Schema Resolution
 //!
 //! Currently, all children must share the exact same [`DType`]. A dtype
-//! mismatch produces an error. Future work could support schema union (allowing missing columns
-//! filled with nulls and compatible type upcasts).
+//! mismatch produces an error.
 //!
 //! # Future Work
-//!
-//! With LayoutV2, this should be rewritten as a `MultiLayoutDataSource` that operates directly
-//! over `LayoutReader`s rather than arbitrary `DataSource` children. This enables shared I/O
-//! scheduling, segment caching, and cross-file resource sharing that are impossible when each
-//! child is an opaque `DataSource`.
 //!
 //! - **Schema union**: Allow missing columns (filled with nulls) and compatible type upcasts
 //!   across sources instead of requiring exact dtype matches.
@@ -28,184 +24,155 @@
 //! - **Per-file statistics**: Merge column statistics across sources for planner hints.
 //! - **Error resilience**: Skip failed sources instead of aborting the entire scan.
 
+use std::any::Any;
 use std::collections::VecDeque;
+use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::FutureExt;
 use futures::StreamExt;
 use futures::stream;
-use parking_lot::Mutex;
 use tracing::Instrument;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
+use vortex_array::expr::Expression;
+use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
 use vortex_array::stats::StatsSet;
+use vortex_array::stream::ArrayStreamAdapter;
+use vortex_array::stream::ArrayStreamExt;
+use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
-use vortex_io::runtime::Handle;
-use vortex_io::runtime::Task;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_layout::LayoutReaderRef;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
+use crate::ScanBuilder;
+use crate::Selection;
 use crate::api::DataSource;
-use crate::api::DataSourceRef;
 use crate::api::DataSourceScan;
 use crate::api::DataSourceScanRef;
+use crate::api::Partition;
 use crate::api::PartitionRef;
 use crate::api::PartitionStream;
 use crate::api::ScanRequest;
 
-/// An async factory that produces a [`DataSource`].
+/// Default concurrency for opening deferred readers.
+const DEFAULT_CONCURRENCY: usize = 8;
+
+/// An async factory that produces a [`LayoutReaderRef`].
 ///
-/// Implementations handle engine-specific concerns like file opening, caching, and
-/// statistics-based pruning. Returns `None` if the source should be skipped (e.g., pruned
-/// based on file-level statistics).
+/// Implementations handle file opening, footer caching, and statistics-based pruning.
+/// Returns `None` if the source should be skipped (e.g., pruned based on file-level
+/// statistics before the reader is fully constructed).
 #[async_trait]
-pub trait DataSourceFactory: 'static + Send + Sync {
-    /// Opens the data source, or returns `None` if it should be skipped.
-    async fn open(&self) -> VortexResult<Option<DataSourceRef>>;
+pub trait LayoutReaderFactory: 'static + Send + Sync {
+    /// Opens the layout reader, or returns `None` if it should be skipped.
+    async fn open(&self) -> VortexResult<Option<LayoutReaderRef>>;
 }
 
-/// Default number of deferred sources to open concurrently during scanning.
-const DEFAULT_PREFETCH: usize = 8;
-
-/// A [`DataSource`] combining multiple children into a single scannable source.
+/// A [`DataSource`] that combines multiple [`LayoutReaderRef`]s into a single scannable source.
 ///
-/// Children may be pre-opened or deferred via [`DataSourceFactory`]. During scanning,
-/// deferred children are opened in the background using spawned tasks on the session's runtime,
-/// keeping the I/O pipeline full while the engine processes splits from already-open sources.
-///
-/// Once a deferred child is successfully opened, it is stored so that subsequent scans reuse the
-/// opened source without re-opening.
-pub struct MultiDataSource {
+/// Readers may be pre-opened or deferred via [`LayoutReaderFactory`]. Deferred readers are opened
+/// concurrently during scanning using `buffer_unordered`, mirroring the DuckDB scan pattern: up
+/// to `concurrency` file opens run in parallel as spawned tasks on the session runtime. Once
+/// opened, each reader yields a single partition covering its full row range; internal I/O
+/// pipelining and chunking are handled by [`ScanBuilder`][crate::ScanBuilder].
+pub struct MultiLayoutDataSource {
     dtype: DType,
-    children: Arc<Mutex<Vec<MultiChild>>>,
-    handle: Handle,
-    prefetch: usize,
+    session: VortexSession,
+    children: Vec<MultiLayoutChild>,
+    concurrency: usize,
 }
 
-enum MultiChild {
-    Opened(DataSourceRef),
-    Deferred(Arc<dyn DataSourceFactory>),
+enum MultiLayoutChild {
+    Opened(LayoutReaderRef),
+    Deferred(Arc<dyn LayoutReaderFactory>),
 }
 
-impl MultiDataSource {
-    /// Creates a multi-source from pre-opened data sources.
+impl MultiLayoutDataSource {
+    /// Creates a multi-layout data source with the first reader pre-opened.
     ///
-    /// Validates that all children share the same dtype.
-    pub fn try_new(children: Vec<DataSourceRef>, session: &VortexSession) -> VortexResult<Self> {
-        let first = children
-            .first()
-            .ok_or_else(|| vortex_err!("MultiDataSource requires at least one child"))?;
-        let dtype = first.dtype().clone();
-
-        for (i, child) in children.iter().enumerate().skip(1) {
-            if child.dtype() != &dtype {
-                vortex_bail!(
-                    "MultiDataSource dtype mismatch in child {}: expected {}, got {}",
-                    i,
-                    dtype,
-                    child.dtype()
-                );
-            }
-        }
-
-        Ok(Self {
-            dtype,
-            children: Arc::new(Mutex::new(
-                children.into_iter().map(MultiChild::Opened).collect(),
-            )),
-            handle: session.handle(),
-            prefetch: std::thread::available_parallelism()
-                .map(|v| v.get())
-                .unwrap_or(DEFAULT_PREFETCH),
-        })
-    }
-
-    /// Creates a multi-source with lazy opening.
-    ///
-    /// The first source must be pre-opened to determine the dtype (required by the sync
-    /// [`DataSource::dtype`] method). Remaining sources are opened lazily during scanning
-    /// via their factories, with dtype validated on open.
-    pub fn lazy(
-        first: DataSourceRef,
-        remaining: Vec<Arc<dyn DataSourceFactory>>,
+    /// The first reader determines the dtype. Remaining readers are opened lazily during
+    /// scanning via their factories.
+    pub fn with_first(
+        first: LayoutReaderRef,
+        remaining: Vec<Arc<dyn LayoutReaderFactory>>,
         session: &VortexSession,
     ) -> Self {
         let dtype = first.dtype().clone();
+        let concurrency = std::thread::available_parallelism()
+            .map(|v| v.get())
+            .unwrap_or(DEFAULT_CONCURRENCY);
+
         let mut children = Vec::with_capacity(1 + remaining.len());
-        children.push(MultiChild::Opened(first));
-        children.extend(remaining.into_iter().map(MultiChild::Deferred));
+        children.push(MultiLayoutChild::Opened(first));
+        children.extend(remaining.into_iter().map(MultiLayoutChild::Deferred));
 
         Self {
             dtype,
-            children: Arc::new(Mutex::new(children)),
-            handle: session.handle(),
-            prefetch: DEFAULT_PREFETCH,
+            session: session.clone(),
+            children,
+            concurrency,
         }
     }
 
-    /// Creates a multi-source where all children are deferred.
+    /// Creates a multi-layout data source where all children are deferred.
     ///
-    /// The dtype must be provided externally since there is no pre-opened source to infer it
+    /// The dtype must be provided externally since there is no pre-opened reader to infer it
     /// from. This avoids eagerly opening any file when the schema is already known (e.g. from
     /// a catalog or a prior scan).
     pub fn all_deferred(
         dtype: DType,
-        factories: Vec<Arc<dyn DataSourceFactory>>,
+        factories: Vec<Arc<dyn LayoutReaderFactory>>,
         session: &VortexSession,
     ) -> Self {
-        let children = factories.into_iter().map(MultiChild::Deferred).collect();
+        let concurrency = std::thread::available_parallelism()
+            .map(|v| v.get())
+            .unwrap_or(DEFAULT_CONCURRENCY);
 
         Self {
             dtype,
-            children: Arc::new(Mutex::new(children)),
-            handle: session.handle(),
-            prefetch: DEFAULT_PREFETCH,
+            session: session.clone(),
+            children: factories
+                .into_iter()
+                .map(MultiLayoutChild::Deferred)
+                .collect(),
+            concurrency,
         }
     }
 
-    /// Sets the number of deferred sources to open concurrently during scanning.
+    /// Sets the concurrency for opening deferred readers.
     ///
-    /// Higher values overlap more file-opening I/O with split execution but use more memory
-    /// for in-flight metadata. Defaults to 8.
-    pub fn with_prefetch(mut self, prefetch: usize) -> Self {
-        self.prefetch = prefetch;
+    /// Controls how many file opens run in parallel via `buffer_unordered`.
+    /// Defaults to the number of available CPU cores.
+    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
+        self.concurrency = concurrency;
         self
     }
 }
 
 #[async_trait]
-impl DataSource for MultiDataSource {
+impl DataSource for MultiLayoutDataSource {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
 
     fn row_count(&self) -> Option<Precision<u64>> {
         let mut sum: u64 = 0;
-        let mut all_exact = true;
         let mut opened_count: u64 = 0;
         let mut deferred_count: u64 = 0;
 
-        let children = self.children.lock();
-        for child in children.iter() {
+        for child in &self.children {
             match child {
-                MultiChild::Opened(ds) => {
+                MultiLayoutChild::Opened(reader) => {
                     opened_count += 1;
-                    match ds.row_count() {
-                        Some(est) => {
-                            if !est.is_exact() {
-                                all_exact = false;
-                            }
-                            sum = sum.saturating_add(est.into_inner());
-                        }
-                        None => {
-                            all_exact = false;
-                        }
-                    }
+                    sum = sum.saturating_add(reader.row_count());
                 }
-                MultiChild::Deferred(_) => {
+                MultiLayoutChild::Deferred(_) => {
                     deferred_count += 1;
                 }
             }
@@ -213,15 +180,11 @@ impl DataSource for MultiDataSource {
 
         let total_count = opened_count + deferred_count;
         if total_count == 0 {
-            return Some(Precision::Exact(0));
+            return Some(Precision::exact(0u64));
         }
 
         if deferred_count == 0 {
-            if all_exact {
-                Some(Precision::exact(sum))
-            } else {
-                Some(Precision::inexact(sum))
-            }
+            Some(Precision::exact(sum))
         } else if opened_count > 0 {
             let avg = sum / opened_count;
             let extrapolated = avg.saturating_mul(total_count);
@@ -236,41 +199,33 @@ impl DataSource for MultiDataSource {
         _data: &[u8],
         _session: &VortexSession,
     ) -> VortexResult<PartitionRef> {
-        vortex_bail!("MultiDataSource splits are not yet serializable")
+        vortex_bail!("MultiLayoutDataSource partitions are not yet serializable")
     }
 
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
         let mut ready = VecDeque::new();
         let mut deferred = VecDeque::new();
 
-        let children = self.children.lock();
-        for (i, child) in children.iter().enumerate() {
+        for child in &self.children {
             match child {
-                MultiChild::Opened(ds) => ready.push_back(ds.clone()),
-                MultiChild::Deferred(factory) => deferred.push_back((i, factory.clone())),
+                MultiLayoutChild::Opened(reader) => ready.push_back(reader.clone()),
+                MultiLayoutChild::Deferred(factory) => deferred.push_back(factory.clone()),
             }
         }
-        drop(children);
 
-        let remaining_limit = scan_request.limit;
+        let projection = scan_request.projection.clone().unwrap_or_else(root);
+        let dtype = projection.return_dtype(&self.dtype)?;
 
-        let mut scan = MultiDataSourceScan {
-            dtype: self.dtype.clone(),
+        Ok(Box::new(MultiLayoutScan {
+            session: self.session.clone(),
+            dtype,
+            projection,
             request: scan_request,
-            current: None,
             ready,
-            opening: VecDeque::new(),
             deferred,
-            children: Arc::clone(&self.children),
-            handle: self.handle.clone(),
-            prefetch: self.prefetch,
-            remaining_limit,
-        };
-
-        // Kick off initial prefetch of deferred sources.
-        scan.fill_pipeline();
-
-        Ok(Box::new(scan))
+            handle: self.session.handle(),
+            concurrency: self.concurrency,
+        }))
     }
 
     async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
@@ -278,151 +233,179 @@ impl DataSource for MultiDataSource {
     }
 }
 
-#[allow(clippy::type_complexity)]
-struct MultiDataSourceScan {
+struct MultiLayoutScan {
+    session: VortexSession,
     dtype: DType,
+    projection: Expression,
     request: ScanRequest,
-    /// Currently active child scan being drained.
-    current: Option<DataSourceScanRef>,
-    /// Pre-opened sources ready to be scanned.
-    ready: VecDeque<DataSourceRef>,
-    /// In-flight spawned opens. Each task yields `(child_index, source)` on success.
-    opening: VecDeque<Task<VortexResult<Option<(usize, DataSourceRef)>>>>,
-    /// Remaining factories not yet spawned, paired with their child index.
-    deferred: VecDeque<(usize, Arc<dyn DataSourceFactory>)>,
-    /// Shared children vec for promoting Deferred → Opened.
-    children: Arc<Mutex<Vec<MultiChild>>>,
-    /// Runtime handle for spawning prefetch tasks.
-    handle: Handle,
-    /// Target number of in-flight + ready sources.
-    prefetch: usize,
-    /// Remaining row limit across all children. Decremented conservatively by each split's
-    /// upper row estimate. The engine enforces the exact limit at the stream level.
-    remaining_limit: Option<u64>,
+    ready: VecDeque<LayoutReaderRef>,
+    deferred: VecDeque<Arc<dyn LayoutReaderFactory>>,
+    handle: vortex_io::runtime::Handle,
+    concurrency: usize,
 }
 
-impl MultiDataSourceScan {
-    /// Spawns open tasks for deferred factories up to the prefetch target.
-    fn fill_pipeline(&mut self) {
-        while self.opening.len() + self.ready.len() < self.prefetch {
-            let Some((idx, factory)) = self.deferred.pop_front() else {
-                break;
-            };
-            self.opening.push_back(self.handle.spawn(async move {
-                let source = factory
-                    .open()
-                    .instrument(tracing::info_span!("DataSourceFactory::open"))
-                    .await?;
-                Ok(source.map(|s| (idx, s)))
-            }));
-        }
-    }
-
-    /// Gets the next ready data source, awaiting in-flight opens if needed.
-    async fn next_source(&mut self) -> VortexResult<Option<DataSourceRef>> {
-        loop {
-            if let Some(source) = self.ready.pop_front() {
-                return Ok(Some(source));
-            }
-
-            if let Some(task) = self.opening.pop_front() {
-                self.fill_pipeline();
-                match task.await? {
-                    Some((idx, source)) => {
-                        // Promote Deferred → Opened so future scans reuse this source.
-                        self.children.lock()[idx] = MultiChild::Opened(source.clone());
-                        return Ok(Some(source));
-                    }
-                    None => continue, // pruned, try next
-                }
-            }
-
-            return Ok(None);
-        }
-    }
-}
-
-impl DataSourceScan for MultiDataSourceScan {
+impl DataSourceScan for MultiLayoutScan {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
 
     fn partition_count(&self) -> Option<Precision<usize>> {
-        let current_estimate = self.current.as_ref().and_then(|s| s.partition_count());
-
-        let remaining_sources = self.ready.len() + self.opening.len() + self.deferred.len();
-        if remaining_sources == 0 {
-            return current_estimate;
+        let count = self.ready.len() + self.deferred.len();
+        if self.deferred.is_empty() {
+            Some(Precision::exact(count))
+        } else {
+            Some(Precision::inexact(count))
         }
-
-        // With remaining sources whose partition counts are unknown, return inexact.
-        let current_count = current_estimate.map(|p| p.into_inner()).unwrap_or(0);
-        Some(Precision::inexact(current_count))
     }
 
     fn partitions(self: Box<Self>) -> PartitionStream {
-        stream::unfold(
-            (Some(*self), None::<PartitionStream>),
-            |(mut state, mut current_stream)| async move {
-                loop {
-                    // Try to pull from the current child's split stream.
-                    if let Some(ref mut child_stream) = current_stream {
-                        match child_stream.next().await {
-                            Some(Ok(split)) => {
-                                if let Some(ref mut s) = state
-                                    && let Some(ref mut limit) = s.remaining_limit
-                                {
-                                    let est =
-                                        split.row_count().map(|p| p.into_inner()).unwrap_or(0);
-                                    *limit = limit.saturating_sub(est);
-                                }
-                                return Some((Ok(split), (state, current_stream)));
-                            }
-                            Some(Err(e)) => {
-                                return Some((Err(e), (None, None)));
-                            }
-                            None => {
-                                // Current child exhausted, move to next.
-                                drop(current_stream.take());
-                            }
-                        }
-                    }
+        let Self {
+            session,
+            dtype: _,
+            projection,
+            request,
+            ready,
+            deferred,
+            handle,
+            concurrency,
+        } = *self;
 
-                    let s = state.as_mut()?;
+        // Pre-opened readers are immediately available.
+        let ready_stream = stream::iter(ready).map(Ok);
 
-                    if s.remaining_limit.is_some_and(|l| l == 0) {
-                        return None;
-                    }
-
-                    // Get the next data source.
-                    let source = match s.next_source().await {
-                        Ok(Some(source)) => source,
-                        Ok(None) => return None,
-                        Err(e) => return Some((Err(e), (None, None))),
-                    };
-
-                    if source.dtype() != &s.dtype {
-                        return Some((
-                            Err(vortex_err!(
-                                "MultiDataSource dtype mismatch: expected {}, got {}",
-                                s.dtype,
-                                source.dtype()
-                            )),
-                            (None, None),
-                        ));
-                    }
-
-                    let mut child_request = s.request.clone();
-                    child_request.limit = s.remaining_limit;
-                    let child_scan = match source.scan(child_request).await {
-                        Ok(scan) => scan,
-                        Err(e) => return Some((Err(e), (None, None))),
-                    };
-
-                    current_stream = Some(child_scan.partitions());
+        // Deferred readers are opened concurrently via spawned tasks, mirroring the DuckDB
+        // scan pattern of `buffer_unordered(num_workers * 2)`.
+        let deferred_stream = stream::iter(deferred)
+            .map(move |factory| {
+                handle.spawn(async move {
+                    factory
+                        .open()
+                        .instrument(tracing::info_span!("LayoutReaderFactory::open"))
+                        .await
+                })
+            })
+            .buffer_unordered(concurrency)
+            .filter_map(|result| async move {
+                match result {
+                    Ok(Some(reader)) => Some(Ok(reader)),
+                    Ok(None) => None,
+                    Err(e) => Some(Err(e)),
                 }
-            },
-        )
-        .boxed()
+            });
+
+        // For each reader (ready or just-opened), generate a partition.
+        // Partition generation is synchronous (just creates structs with row ranges), so
+        // `flat_map` is appropriate here. The real I/O work happens when `execute()` is called.
+        ready_stream
+            .chain(deferred_stream)
+            .flat_map(move |reader_result| match reader_result {
+                Ok(reader) => {
+                    reader_partition(reader, session.clone(), projection.clone(), request.clone())
+                }
+                Err(e) => stream::once(async move { Err(e) }).boxed(),
+            })
+            .boxed()
+    }
+}
+
+/// Generates a partition stream for a single layout reader.
+///
+/// Checks file-level pruning first (via `pruning_evaluation`). If the filter proves no rows
+/// can match, returns an empty stream. Otherwise yields a single partition covering the
+/// reader's full row range.
+fn reader_partition(
+    reader: LayoutReaderRef,
+    session: VortexSession,
+    projection: Expression,
+    request: ScanRequest,
+) -> PartitionStream {
+    let row_count = reader.row_count();
+    let row_range = request.row_range.clone().unwrap_or(0..row_count);
+
+    // Check file-level pruning: if the filter can be proven false for the entire row range
+    // using file-level statistics, skip this reader entirely.
+    if let Some(ref filter) = request.filter {
+        let mask_len = usize::try_from(row_range.end - row_range.start).unwrap_or(usize::MAX);
+        let mask = Mask::new_true(mask_len);
+        if let Ok(pruning_future) = reader.pruning_evaluation(&row_range, filter, mask)
+            && let Some(Ok(result_mask)) = pruning_future.now_or_never()
+            && result_mask.all_false()
+        {
+            return stream::empty().boxed();
+        }
+    }
+
+    stream::once(async move {
+        Ok(Box::new(MultiLayoutPartition {
+            reader,
+            session,
+            projection,
+            filter: request.filter,
+            limit: request.limit,
+            ordered: request.ordered,
+            row_range,
+            selection: request.selection,
+        }) as PartitionRef)
+    })
+    .boxed()
+}
+
+/// A partition backed by a single [`LayoutReaderRef`] and a row range.
+///
+/// On `execute()`, creates a [`ScanBuilder`][crate::ScanBuilder] over the row range, enabling
+/// internal I/O pipelining and split-level parallelism within the reader.
+struct MultiLayoutPartition {
+    reader: LayoutReaderRef,
+    session: VortexSession,
+    projection: Expression,
+    filter: Option<Expression>,
+    limit: Option<u64>,
+    ordered: bool,
+    row_range: Range<u64>,
+    selection: Selection,
+}
+
+impl Partition for MultiLayoutPartition {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn row_count(&self) -> Option<Precision<u64>> {
+        let rows = self.row_range.end - self.row_range.start;
+        let rows = match &self.selection {
+            Selection::All => rows,
+            Selection::IncludeByIndex(idx) => idx.len() as u64,
+            Selection::ExcludeByIndex(idx) => rows - idx.len() as u64,
+            Selection::IncludeRoaring(treemap) => treemap.len(),
+            Selection::ExcludeRoaring(treemap) => rows - treemap.len(),
+        };
+        let rows = self.limit.map_or(rows, |limit| rows.min(limit));
+
+        Some(if self.filter.is_some() {
+            Precision::inexact(rows)
+        } else {
+            Precision::exact(rows)
+        })
+    }
+
+    fn byte_size(&self) -> Option<Precision<u64>> {
+        None
+    }
+
+    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
+        let builder = ScanBuilder::new(self.session, self.reader)
+            .with_row_range(self.row_range)
+            .with_selection(self.selection)
+            .with_projection(self.projection)
+            .with_some_filter(self.filter)
+            .with_some_limit(self.limit)
+            .with_ordered(self.ordered);
+
+        let dtype = builder.dtype()?;
+        let stream = builder.into_stream()?;
+
+        Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+            dtype, stream,
+        )))
     }
 }

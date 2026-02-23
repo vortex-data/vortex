@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Builder for constructing a [`MultiDataSource`] from multiple Vortex files.
+//! Builder for constructing a [`MultiLayoutDataSource`] from multiple Vortex files.
 
 mod session;
 
@@ -16,17 +16,18 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_io::filesystem::FileListing;
 use vortex_io::filesystem::FileSystemRef;
+use vortex_layout::LayoutReaderRef;
 use vortex_scan::api::DataSource;
-use vortex_scan::api::DataSourceRef;
-use vortex_scan::multi::DataSourceFactory;
-use vortex_scan::multi::MultiDataSource;
+use vortex_scan::multi::LayoutReaderFactory;
+use vortex_scan::multi::MultiLayoutDataSource;
 use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
 use crate::VortexOpenOptions;
+use crate::v2::FileStatsLayoutReader;
 
 /// A builder that discovers multiple Vortex files from a glob pattern and constructs a
-/// [`MultiDataSource`] to scan them as a single data source.
+/// [`MultiLayoutDataSource`] to scan them as a single data source.
 ///
 /// The primary interface is [`Self::with_glob`], which accepts a glob
 /// pattern (optionally prefixed with `file://`). For non-local filesystems (S3, GCS, etc.),
@@ -94,11 +95,11 @@ impl MultiFileDataSource {
         self
     }
 
-    /// Build the [`MultiDataSource`].
+    /// Build the [`DataSource`].
     ///
     /// Discovers files via glob, opens the first file eagerly to determine the schema,
     /// and creates lazy factories for the remaining files.
-    pub async fn build(mut self) -> VortexResult<MultiDataSource> {
+    pub async fn build(mut self) -> VortexResult<impl DataSource> {
         let glob = self
             .glob
             .take()
@@ -120,21 +121,21 @@ impl MultiFileDataSource {
         // Open first file eagerly for dtype.
         let first_file =
             open_file(&fs, &files[0], &self.session, self.open_options_fn.as_ref()).await?;
-        let first_ds = first_file.data_source()?;
+        let first_reader = layout_reader_with_stats(&first_file)?;
 
-        let factories: Vec<Arc<dyn DataSourceFactory>> = files[1..]
+        let factories: Vec<Arc<dyn LayoutReaderFactory>> = files[1..]
             .iter()
             .map(|f| {
-                Arc::new(VortexFileFactory {
+                Arc::new(VortexFileReaderFactory {
                     fs: fs.clone(),
                     file: f.clone(),
                     session: self.session.clone(),
                     open_options_fn: self.open_options_fn.clone(),
-                }) as Arc<dyn DataSourceFactory>
+                }) as Arc<dyn LayoutReaderFactory>
             })
             .collect();
 
-        let inner = MultiDataSource::lazy(first_ds, factories, &self.session);
+        let inner = MultiLayoutDataSource::with_first(first_reader, factories, &self.session);
 
         debug!(file_count, dtype = %inner.dtype(), "built MultiFileDataSource");
 
@@ -204,8 +205,22 @@ async fn open_file(
     Ok(vortex_file)
 }
 
-/// A [`DataSourceFactory`] that lazily opens a single Vortex file.
-struct VortexFileFactory {
+/// Creates a layout reader from a VortexFile, wrapping with `FileStatsLayoutReader` when
+/// file-level statistics are available.
+fn layout_reader_with_stats(file: &crate::VortexFile) -> VortexResult<LayoutReaderRef> {
+    let mut reader = file.layout_reader()?;
+    if let Some(stats) = file.file_stats().cloned() {
+        reader = Arc::new(FileStatsLayoutReader::new(
+            reader,
+            stats,
+            file.session.clone(),
+        ));
+    }
+    Ok(reader)
+}
+
+/// A [`LayoutReaderFactory`] that lazily opens a single Vortex file and returns its layout reader.
+struct VortexFileReaderFactory {
     fs: FileSystemRef,
     file: FileListing,
     session: VortexSession,
@@ -213,8 +228,8 @@ struct VortexFileFactory {
 }
 
 #[async_trait]
-impl DataSourceFactory for VortexFileFactory {
-    async fn open(&self) -> VortexResult<Option<DataSourceRef>> {
+impl LayoutReaderFactory for VortexFileReaderFactory {
+    async fn open(&self) -> VortexResult<Option<LayoutReaderRef>> {
         let file = open_file(
             &self.fs,
             &self.file,
@@ -222,6 +237,6 @@ impl DataSourceFactory for VortexFileFactory {
             self.open_options_fn.as_ref(),
         )
         .await?;
-        Ok(Some(file.data_source()?))
+        Ok(Some(layout_reader_with_stats(&file)?))
     }
 }
