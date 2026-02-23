@@ -25,6 +25,7 @@ use crate::Precision;
 use crate::arrays::slice::array::SliceArray;
 use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::scalar::Scalar;
@@ -105,6 +106,18 @@ impl VTable for SliceVTable {
             .into_iter()
             .next()
             .vortex_expect("children length already validated");
+        Ok(())
+    }
+
+    fn append_to_builder(
+        array: &Self::Array,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        // Execute through the full loop so that execute_parent optimizations (e.g.
+        // SliceExecuteAdaptor for ChunkedArray) can fire before we canonicalize.
+        let canonical = array.to_array().execute::<Canonical>(ctx)?;
+        builder.extend_from_array(canonical.as_ref());
         Ok(())
     }
 
