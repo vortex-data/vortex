@@ -107,7 +107,7 @@ fn make_nested_list_lv(
 
 #[divan::bench]
 fn i32_small(bencher: Bencher) {
-    let lv = make_primitive_lv(100, 32, 32);
+    let lv = make_primitive_lv(50, 32, 32);
     bencher.with_inputs(|| &lv).bench_refs(|lv| {
         let rebuilt = lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap();
         rebuilt.elements().to_canonical().unwrap()
@@ -116,7 +116,7 @@ fn i32_small(bencher: Bencher) {
 
 #[divan::bench]
 fn i32_small_overlapping(bencher: Bencher) {
-    let lv = make_primitive_lv(100, 8, 1);
+    let lv = make_primitive_lv(50, 8, 1);
     bencher.with_inputs(|| &lv).bench_refs(|lv| {
         let rebuilt = lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap();
         rebuilt.elements().to_canonical().unwrap()
@@ -125,7 +125,7 @@ fn i32_small_overlapping(bencher: Bencher) {
 
 #[divan::bench]
 fn varbinview_small(bencher: Bencher) {
-    let lv = make_varbinview_lv(100, 32, 32);
+    let lv = make_varbinview_lv(50, 32, 32);
     bencher.with_inputs(|| &lv).bench_refs(|lv| {
         let rebuilt = lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap();
         rebuilt.elements().to_canonical().unwrap()
@@ -134,7 +134,7 @@ fn varbinview_small(bencher: Bencher) {
 
 #[divan::bench]
 fn struct_small(bencher: Bencher) {
-    let lv = make_struct_lv(100, 32, 32);
+    let lv = make_struct_lv(50, 32, 32);
     bencher.with_inputs(|| &lv).bench_refs(|lv| {
         let rebuilt = lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap();
         rebuilt.elements().to_canonical().unwrap()
@@ -145,7 +145,7 @@ fn struct_small(bencher: Bencher) {
 
 #[divan::bench]
 fn i32_large(bencher: Bencher) {
-    let lv = make_primitive_lv(100, 1_024, 1_024);
+    let lv = make_primitive_lv(50, 1_024, 1_024);
     bencher.with_inputs(|| &lv).bench_refs(|lv| {
         let rebuilt = lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap();
         rebuilt.elements().to_canonical().unwrap()
@@ -154,7 +154,7 @@ fn i32_large(bencher: Bencher) {
 
 #[divan::bench]
 fn varbinview_large(bencher: Bencher) {
-    let lv = make_varbinview_lv(10, 1_024, 1_024);
+    let lv = make_varbinview_lv(5, 1_024, 1_024);
     bencher.with_inputs(|| &lv).bench_refs(|lv| {
         let rebuilt = lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap();
         rebuilt.elements().to_canonical().unwrap()
@@ -163,7 +163,7 @@ fn varbinview_large(bencher: Bencher) {
 
 #[divan::bench]
 fn struct_large(bencher: Bencher) {
-    let lv = make_struct_lv(50, 1_024, 1_024);
+    let lv = make_struct_lv(25, 1_024, 1_024);
     bencher.with_inputs(|| &lv).bench_refs(|lv| {
         let rebuilt = lv.rebuild(ListViewRebuildMode::MakeZeroCopyToList).unwrap();
         rebuilt.elements().to_canonical().unwrap()
@@ -172,7 +172,7 @@ fn struct_large(bencher: Bencher) {
 
 #[divan::bench]
 fn fsl_large(bencher: Bencher) {
-    let num_lists = 10;
+    let num_lists = 5;
     let list_size = 256;
     let fsl_count = num_lists * list_size + list_size;
     let inner = PrimitiveArray::from_iter((0..fsl_count * 64).map(|i| i as i32)).into_array();
