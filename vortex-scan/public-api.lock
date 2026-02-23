@@ -198,6 +198,10 @@ pub vortex_scan::Selection::IncludeByIndex(vortex_buffer::buffer::Buffer<u64>)
 
 pub vortex_scan::Selection::IncludeRoaring(roaring::treemap::RoaringTreemap)
 
+impl vortex_scan::Selection
+
+pub fn vortex_scan::Selection::row_count(&self, total_rows: u64) -> u64
+
 impl core::clone::Clone for vortex_scan::Selection
 
 pub fn vortex_scan::Selection::clone(&self) -> vortex_scan::Selection
