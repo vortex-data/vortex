@@ -174,8 +174,9 @@ impl VortexDataSourceBuilder {
             filter: None,
             limit: None,
             ordered: false,
-            num_partitions: std::thread::available_parallelism()
-                .unwrap_or(NonZero::new(1).vortex_expect("available parallelism must be non-zero")),
+            num_partitions: std::thread::available_parallelism().unwrap_or_else(|_| {
+                NonZero::new(1).vortex_expect("available parallelism must be non-zero")
+            }),
         })
     }
 }
