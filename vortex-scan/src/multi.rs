@@ -7,7 +7,7 @@
 //! concurrently during scanning using `buffer_unordered`: up to `concurrency` file opens run in
 //! parallel as spawned tasks on the session runtime. Once opened, each reader yields a single
 //! partition covering its full row range; internal I/O pipelining and chunking are handled by
-//! [`ScanBuilder`][crate::ScanBuilder].
+//! [`ScanBuilder`].
 //!
 //! # Schema Resolution
 //!
@@ -80,7 +80,7 @@ pub trait LayoutReaderFactory: 'static + Send + Sync {
 /// concurrently during scanning using `buffer_unordered`, mirroring the DuckDB scan pattern: up
 /// to `concurrency` file opens run in parallel as spawned tasks on the session runtime. Once
 /// opened, each reader yields a single partition covering its full row range; internal I/O
-/// pipelining and chunking are handled by [`ScanBuilder`][crate::ScanBuilder].
+/// pipelining and chunking are handled by [`ScanBuilder`].
 pub struct MultiLayoutDataSource {
     dtype: DType,
     session: VortexSession,

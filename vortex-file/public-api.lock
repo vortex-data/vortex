@@ -6,7 +6,7 @@ pub struct vortex_file::multi::MultiFileDataSource
 
 impl vortex_file::multi::MultiFileDataSource
 
-pub async fn vortex_file::multi::MultiFileDataSource::build(self) -> vortex_error::VortexResult<vortex_scan::multi::MultiDataSource>
+pub async fn vortex_file::multi::MultiFileDataSource::build(self) -> vortex_error::VortexResult<impl vortex_scan::api::DataSource>
 
 pub fn vortex_file::multi::MultiFileDataSource::new(session: vortex_session::VortexSession) -> Self
 
