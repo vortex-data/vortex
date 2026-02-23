@@ -3152,6 +3152,8 @@ pub type vortex_array::arrays::SliceVTable::ValidityVTable = vortex_array::array
 
 pub type vortex_array::arrays::SliceVTable::VisitorVTable = vortex_array::arrays::SliceVTable
 
+pub fn vortex_array::arrays::SliceVTable::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
 pub fn vortex_array::arrays::SliceVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &vortex_array::arrays::SliceMetadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<Self::Array>
 
 pub fn vortex_array::arrays::SliceVTable::deserialize(_bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
@@ -16487,6 +16489,8 @@ pub type vortex_array::arrays::SliceVTable::OperationsVTable = vortex_array::arr
 pub type vortex_array::arrays::SliceVTable::ValidityVTable = vortex_array::arrays::SliceVTable
 
 pub type vortex_array::arrays::SliceVTable::VisitorVTable = vortex_array::arrays::SliceVTable
+
+pub fn vortex_array::arrays::SliceVTable::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::arrays::SliceVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &vortex_array::arrays::SliceMetadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<Self::Array>
 
