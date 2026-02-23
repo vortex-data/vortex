@@ -144,29 +144,17 @@ pub fn vortex_io::object_store::ObjectStoreFileSystem::list(&self, prefix: &str)
 
 pub fn vortex_io::object_store::ObjectStoreFileSystem::open_read<'life0, 'life1, 'async_trait>(&'life0 self, path: &'life1 str) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_io::VortexReadAt>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
 
-pub struct vortex_io::object_store::ObjectStoreReadAt
+pub struct vortex_io::object_store::ObjectStoreReader
 
-impl vortex_io::object_store::ObjectStoreReadAt
+impl vortex_io::object_store::ObjectStoreReader
 
-pub fn vortex_io::object_store::ObjectStoreReadAt::new(store: alloc::sync::Arc<dyn object_store::ObjectStore>, path: object_store::path::Path, handle: vortex_io::runtime::Handle) -> Self
+pub fn vortex_io::object_store::ObjectStoreReader::new(store: alloc::sync::Arc<dyn object_store::ObjectStore>, path: object_store::path::Path, handle: vortex_io::runtime::Handle) -> Self
 
-pub fn vortex_io::object_store::ObjectStoreReadAt::with_coalesce_config(self, config: vortex_io::CoalesceConfig) -> Self
+impl vortex_io::ReadInto for vortex_io::object_store::ObjectStoreReader
 
-pub fn vortex_io::object_store::ObjectStoreReadAt::with_concurrency(self, concurrency: usize) -> Self
+pub fn vortex_io::object_store::ObjectStoreReader::read_into(&self, target: alloc::boxed::Box<dyn vortex_io::WriteTarget>, offset: u64) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<alloc::boxed::Box<dyn vortex_io::WriteTarget>>>
 
-pub fn vortex_io::object_store::ObjectStoreReadAt::with_some_coalesce_config(self, config: core::option::Option<vortex_io::CoalesceConfig>) -> Self
-
-impl vortex_io::VortexReadAt for vortex_io::object_store::ObjectStoreReadAt
-
-pub fn vortex_io::object_store::ObjectStoreReadAt::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
-
-pub fn vortex_io::object_store::ObjectStoreReadAt::concurrency(&self) -> usize
-
-pub fn vortex_io::object_store::ObjectStoreReadAt::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
-
-pub fn vortex_io::object_store::ObjectStoreReadAt::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
-
-pub fn vortex_io::object_store::ObjectStoreReadAt::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+pub fn vortex_io::object_store::ObjectStoreReader::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
 
 pub struct vortex_io::object_store::ObjectStoreWrite
 
@@ -185,6 +173,8 @@ pub async fn vortex_io::object_store::ObjectStoreWrite::shutdown(&mut self) -> s
 pub async fn vortex_io::object_store::ObjectStoreWrite::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> std::io::error::Result<B>
 
 pub const vortex_io::object_store::DEFAULT_CONCURRENCY: usize
+
+pub type vortex_io::object_store::ObjectStoreReadAt = vortex_io::AllocatingReader<vortex_io::object_store::ObjectStoreReader>
 
 pub mod vortex_io::runtime
 
@@ -456,25 +446,59 @@ impl<S: vortex_session::SessionExt> vortex_io::session::RuntimeSessionExt for S
 
 pub mod vortex_io::std_file
 
-pub struct vortex_io::std_file::FileReadAt
+pub struct vortex_io::std_file::FileReader
 
-impl vortex_io::std_file::FileReadAt
+impl vortex_io::std_file::FileReader
 
-pub fn vortex_io::std_file::FileReadAt::open(path: impl core::convert::AsRef<std::path::Path>, handle: vortex_io::runtime::Handle) -> vortex_error::VortexResult<Self>
+pub fn vortex_io::std_file::FileReader::open(path: impl core::convert::AsRef<std::path::Path>, handle: vortex_io::runtime::Handle) -> vortex_error::VortexResult<Self>
 
-impl vortex_io::VortexReadAt for vortex_io::std_file::FileReadAt
+impl vortex_io::ReadInto for vortex_io::std_file::FileReader
 
-pub fn vortex_io::std_file::FileReadAt::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+pub fn vortex_io::std_file::FileReader::read_into(&self, target: alloc::boxed::Box<dyn vortex_io::WriteTarget>, offset: u64) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<alloc::boxed::Box<dyn vortex_io::WriteTarget>>>
 
-pub fn vortex_io::std_file::FileReadAt::concurrency(&self) -> usize
-
-pub fn vortex_io::std_file::FileReadAt::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
-
-pub fn vortex_io::std_file::FileReadAt::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
-
-pub fn vortex_io::std_file::FileReadAt::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+pub fn vortex_io::std_file::FileReader::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
 
 pub const vortex_io::std_file::DEFAULT_CONCURRENCY: usize
+
+pub type vortex_io::std_file::FileReadAt = vortex_io::AllocatingReader<vortex_io::std_file::FileReader>
+
+pub struct vortex_io::AllocatingReader<R: vortex_io::ReadInto>
+
+pub vortex_io::AllocatingReader::reader: R
+
+impl vortex_io::AllocatingReader<vortex_io::object_store::ObjectStoreReader>
+
+pub fn vortex_io::AllocatingReader<vortex_io::object_store::ObjectStoreReader>::new(store: alloc::sync::Arc<dyn object_store::ObjectStore>, path: object_store::path::Path, handle: vortex_io::runtime::Handle) -> Self
+
+impl vortex_io::AllocatingReader<vortex_io::std_file::FileReader>
+
+pub fn vortex_io::AllocatingReader<vortex_io::std_file::FileReader>::open(path: impl core::convert::AsRef<std::path::Path>, handle: vortex_io::runtime::Handle) -> vortex_error::VortexResult<Self>
+
+impl<R: vortex_io::ReadInto> vortex_io::AllocatingReader<R>
+
+pub fn vortex_io::AllocatingReader<R>::with_allocator(reader: R, allocator: alloc::sync::Arc<dyn vortex_io::BufferAllocator>, concurrency: usize) -> Self
+
+pub fn vortex_io::AllocatingReader<R>::with_coalesce_config(self, config: vortex_io::CoalesceConfig) -> Self
+
+pub fn vortex_io::AllocatingReader<R>::with_concurrency(self, concurrency: usize) -> Self
+
+pub fn vortex_io::AllocatingReader<R>::with_default_allocator(reader: R, concurrency: usize) -> Self
+
+pub fn vortex_io::AllocatingReader<R>::with_some_coalesce_config(self, config: core::option::Option<vortex_io::CoalesceConfig>) -> Self
+
+pub fn vortex_io::AllocatingReader<R>::with_uri(self, uri: alloc::sync::Arc<str>) -> Self
+
+impl<R: vortex_io::ReadInto> vortex_io::VortexReadAt for vortex_io::AllocatingReader<R>
+
+pub fn vortex_io::AllocatingReader<R>::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+
+pub fn vortex_io::AllocatingReader<R>::concurrency(&self) -> usize
+
+pub fn vortex_io::AllocatingReader<R>::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
+pub fn vortex_io::AllocatingReader<R>::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
+pub fn vortex_io::AllocatingReader<R>::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
 
 pub struct vortex_io::AsyncWriteAdapter<W: futures_io::if_std::AsyncWrite>(pub W)
 
@@ -509,6 +533,48 @@ impl core::fmt::Debug for vortex_io::CoalesceConfig
 pub fn vortex_io::CoalesceConfig::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl core::marker::Copy for vortex_io::CoalesceConfig
+
+pub struct vortex_io::DefaultAllocator
+
+impl vortex_io::BufferAllocator for vortex_io::DefaultAllocator
+
+pub fn vortex_io::DefaultAllocator::allocate(&self, len: usize, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<alloc::boxed::Box<dyn vortex_io::WriteTarget>>
+
+pub struct vortex_io::HostByteBufferPool
+
+impl vortex_io::HostByteBufferPool
+
+pub fn vortex_io::HostByteBufferPool::get(self: &alloc::sync::Arc<Self>, len: usize) -> vortex_error::VortexResult<vortex_io::PooledHostBuffer>
+
+pub fn vortex_io::HostByteBufferPool::stats(&self) -> vortex_io::HostPoolStats
+
+pub fn vortex_io::HostByteBufferPool::with_max_buffers_per_bucket(max_buffers_per_bucket: usize) -> Self
+
+impl core::default::Default for vortex_io::HostByteBufferPool
+
+pub fn vortex_io::HostByteBufferPool::default() -> Self
+
+pub struct vortex_io::HostPoolStats
+
+pub vortex_io::HostPoolStats::hits: u64
+
+pub vortex_io::HostPoolStats::misses: u64
+
+pub vortex_io::HostPoolStats::returns: u64
+
+impl core::clone::Clone for vortex_io::HostPoolStats
+
+pub fn vortex_io::HostPoolStats::clone(&self) -> vortex_io::HostPoolStats
+
+impl core::default::Default for vortex_io::HostPoolStats
+
+pub fn vortex_io::HostPoolStats::default() -> vortex_io::HostPoolStats
+
+impl core::fmt::Debug for vortex_io::HostPoolStats
+
+pub fn vortex_io::HostPoolStats::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_io::HostPoolStats
 
 pub struct vortex_io::InstrumentedReadAt<T: vortex_io::VortexReadAt + core::clone::Clone>
 
@@ -548,6 +614,26 @@ pub fn vortex_io::OwnedSlice<T>::bytes_init(&self) -> usize
 
 pub fn vortex_io::OwnedSlice<T>::read_ptr(&self) -> *const u8
 
+pub struct vortex_io::PooledHostAllocator
+
+impl vortex_io::PooledHostAllocator
+
+pub fn vortex_io::PooledHostAllocator::new(pool: alloc::sync::Arc<vortex_io::HostByteBufferPool>) -> Self
+
+impl vortex_io::BufferAllocator for vortex_io::PooledHostAllocator
+
+pub fn vortex_io::PooledHostAllocator::allocate(&self, len: usize, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<alloc::boxed::Box<dyn vortex_io::WriteTarget>>
+
+pub struct vortex_io::PooledHostBuffer
+
+impl vortex_io::WriteTarget for vortex_io::PooledHostBuffer
+
+pub fn vortex_io::PooledHostBuffer::as_mut_slice(&mut self) -> &mut [u8]
+
+pub fn vortex_io::PooledHostBuffer::into_handle(self: alloc::boxed::Box<Self>) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
+pub fn vortex_io::PooledHostBuffer::len(&self) -> usize
+
 pub struct vortex_io::SizeLimitedStream<Fut>
 
 impl<Fut> vortex_io::SizeLimitedStream<Fut> where Fut: core::future::future::Future
@@ -569,6 +655,18 @@ impl<Fut> futures_core::stream::Stream for vortex_io::SizeLimitedStream<Fut> whe
 pub type vortex_io::SizeLimitedStream<Fut>::Item = <Fut as core::future::future::Future>::Output
 
 pub fn vortex_io::SizeLimitedStream<Fut>::poll_next(self: core::pin::Pin<&mut Self>, cx: &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<core::option::Option<Self::Item>>
+
+pub trait vortex_io::BufferAllocator: core::marker::Send + core::marker::Sync + 'static
+
+pub fn vortex_io::BufferAllocator::allocate(&self, len: usize, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<alloc::boxed::Box<dyn vortex_io::WriteTarget>>
+
+impl vortex_io::BufferAllocator for vortex_io::DefaultAllocator
+
+pub fn vortex_io::DefaultAllocator::allocate(&self, len: usize, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<alloc::boxed::Box<dyn vortex_io::WriteTarget>>
+
+impl vortex_io::BufferAllocator for vortex_io::PooledHostAllocator
+
+pub fn vortex_io::PooledHostAllocator::allocate(&self, len: usize, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<alloc::boxed::Box<dyn vortex_io::WriteTarget>>
 
 pub unsafe trait vortex_io::IoBuf: core::marker::Unpin + core::marker::Send + 'static
 
@@ -636,6 +734,24 @@ pub fn [u8; N]::bytes_init(&self) -> usize
 
 pub fn [u8; N]::read_ptr(&self) -> *const u8
 
+pub trait vortex_io::ReadInto: core::marker::Send + core::marker::Sync + 'static
+
+pub fn vortex_io::ReadInto::read_into(&self, target: alloc::boxed::Box<dyn vortex_io::WriteTarget>, offset: u64) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<alloc::boxed::Box<dyn vortex_io::WriteTarget>>>
+
+pub fn vortex_io::ReadInto::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
+impl vortex_io::ReadInto for vortex_io::object_store::ObjectStoreReader
+
+pub fn vortex_io::object_store::ObjectStoreReader::read_into(&self, target: alloc::boxed::Box<dyn vortex_io::WriteTarget>, offset: u64) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<alloc::boxed::Box<dyn vortex_io::WriteTarget>>>
+
+pub fn vortex_io::object_store::ObjectStoreReader::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
+impl vortex_io::ReadInto for vortex_io::std_file::FileReader
+
+pub fn vortex_io::std_file::FileReader::read_into(&self, target: alloc::boxed::Box<dyn vortex_io::WriteTarget>, offset: u64) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<alloc::boxed::Box<dyn vortex_io::WriteTarget>>>
+
+pub fn vortex_io::std_file::FileReader::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
 pub trait vortex_io::VortexReadAt: core::marker::Send + core::marker::Sync + 'static
 
 pub fn vortex_io::VortexReadAt::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
@@ -668,29 +784,17 @@ pub fn vortex_buffer::ByteBuffer::read_at(&self, offset: u64, length: usize, ali
 
 pub fn vortex_buffer::ByteBuffer::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
 
-impl vortex_io::VortexReadAt for vortex_io::object_store::ObjectStoreReadAt
+impl<R: vortex_io::ReadInto> vortex_io::VortexReadAt for vortex_io::AllocatingReader<R>
 
-pub fn vortex_io::object_store::ObjectStoreReadAt::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+pub fn vortex_io::AllocatingReader<R>::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
 
-pub fn vortex_io::object_store::ObjectStoreReadAt::concurrency(&self) -> usize
+pub fn vortex_io::AllocatingReader<R>::concurrency(&self) -> usize
 
-pub fn vortex_io::object_store::ObjectStoreReadAt::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+pub fn vortex_io::AllocatingReader<R>::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
 
-pub fn vortex_io::object_store::ObjectStoreReadAt::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+pub fn vortex_io::AllocatingReader<R>::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
 
-pub fn vortex_io::object_store::ObjectStoreReadAt::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
-
-impl vortex_io::VortexReadAt for vortex_io::std_file::FileReadAt
-
-pub fn vortex_io::std_file::FileReadAt::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
-
-pub fn vortex_io::std_file::FileReadAt::concurrency(&self) -> usize
-
-pub fn vortex_io::std_file::FileReadAt::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
-
-pub fn vortex_io::std_file::FileReadAt::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
-
-pub fn vortex_io::std_file::FileReadAt::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+pub fn vortex_io::AllocatingReader<R>::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
 
 impl<R: vortex_io::VortexReadAt> vortex_io::VortexReadAt for alloc::sync::Arc<R>
 
@@ -815,3 +919,29 @@ pub fn vortex_io::compat::Compat<W>::flush(&mut self) -> impl core::future::futu
 pub fn vortex_io::compat::Compat<W>::shutdown(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
 
 pub fn vortex_io::compat::Compat<W>::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> impl core::future::future::Future<Output = std::io::error::Result<B>>
+
+pub trait vortex_io::WriteTarget: core::marker::Send + 'static
+
+pub fn vortex_io::WriteTarget::as_mut_slice(&mut self) -> &mut [u8]
+
+pub fn vortex_io::WriteTarget::into_handle(self: alloc::boxed::Box<Self>) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
+pub fn vortex_io::WriteTarget::is_empty(&self) -> bool
+
+pub fn vortex_io::WriteTarget::len(&self) -> usize
+
+impl vortex_io::WriteTarget for vortex_buffer::ByteBufferMut
+
+pub fn vortex_buffer::ByteBufferMut::as_mut_slice(&mut self) -> &mut [u8]
+
+pub fn vortex_buffer::ByteBufferMut::into_handle(self: alloc::boxed::Box<Self>) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
+pub fn vortex_buffer::ByteBufferMut::len(&self) -> usize
+
+impl vortex_io::WriteTarget for vortex_io::PooledHostBuffer
+
+pub fn vortex_io::PooledHostBuffer::as_mut_slice(&mut self) -> &mut [u8]
+
+pub fn vortex_io::PooledHostBuffer::into_handle(self: alloc::boxed::Box<Self>) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
+pub fn vortex_io::PooledHostBuffer::len(&self) -> usize
