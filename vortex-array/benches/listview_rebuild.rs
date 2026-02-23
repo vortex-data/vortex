@@ -103,8 +103,6 @@ fn make_nested_list_lv(
     )
 }
 
-// ── Small lists: heuristic picks take (avg < 128) ────────────────────────────
-
 #[divan::bench]
 fn i32_small(bencher: Bencher) {
     let lv = make_primitive_lv(50, 32, 32);
@@ -140,8 +138,6 @@ fn struct_small(bencher: Bencher) {
         rebuilt.elements().to_canonical().unwrap()
     });
 }
-
-// ── Large lists: heuristic picks LBL (avg >= 128) ───────────────────────────
 
 #[divan::bench]
 fn i32_large(bencher: Bencher) {
