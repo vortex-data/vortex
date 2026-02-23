@@ -24,6 +24,12 @@ void duckdb_vx_fs_close(duckdb_vx_file_handle *handle);
 duckdb_state duckdb_vx_fs_get_size(duckdb_vx_file_handle handle, idx_t *size_out, duckdb_vx_error *error_out);
 
 // Read up to len bytes at the given offset into buffer. Returns bytes read via out_len.
+// TODO(myrrc) Here we use duckdb's positional read which returns nothing,
+//  and thus we 1. don't know whether this read succeeded in the function itself,
+//  only when out-of-bounds exception is thrown
+//  2. Always have out_len=len.
+//  Maybe the issue is in past-the-end reads which propagate an Error
+//  in rust code, but here we throw an exception
 duckdb_state duckdb_vx_fs_read(duckdb_vx_file_handle handle,
                                idx_t offset,
                                idx_t len,

@@ -33,25 +33,23 @@ std::string IntoErrString(duckdb_vx_error error) {
     return *reinterpret_cast<std::string *>(error);
 }
 
-void SetError(duckdb_vx_error *error_out, std::string_view message) {
+duckdb_state SetError(duckdb_vx_error *error_out, std::string_view message) {
     assert(error_out != nullptr && "SetError called with null error_out");
     *error_out = duckdb_vx_error_create(message.data(), message.size());
+    return DuckDBError;
 }
 
 duckdb_state HandleException(std::exception_ptr ex, duckdb_vx_error *error_out) {
     if (!ex) {
-        SetError(error_out, "Unknown error");
-        return DuckDBError;
+        return SetError(error_out, "Unknown error");
     }
 
     try {
         std::rethrow_exception(ex);
     } catch (const std::exception &caught) {
-        SetError(error_out, caught.what());
+        return SetError(error_out, caught.what());
     } catch (...) {
-        SetError(error_out, "Unknown error");
+        return SetError(error_out, "Unknown error");
     }
-    return DuckDBError;
 }
-
 } // namespace vortex
