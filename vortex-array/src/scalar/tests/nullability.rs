@@ -12,9 +12,9 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::dtype::datetime::Date;
-    use crate::dtype::datetime::TimeUnit;
-    use crate::dtype::datetime::Timestamp;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;

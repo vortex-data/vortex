@@ -3,12 +3,12 @@
 
 use crate::cpp;
 use crate::duckdb::drop_boxed;
-use crate::wrapper;
+use crate::lifetime_wrapper;
 
 // This data wrapper is used to create an external data object that can be passed to and
 // freed by DuckDB.
 
-wrapper!(Data, cpp::duckdb_vx_data, |_| {});
+lifetime_wrapper!(Data, cpp::duckdb_vx_data, |_| {});
 
 impl<T> From<Box<T>> for Data {
     fn from(value: Box<T>) -> Self {

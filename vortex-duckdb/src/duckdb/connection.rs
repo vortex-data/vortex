@@ -10,12 +10,13 @@ use vortex::error::vortex_err;
 
 use crate::cpp;
 use crate::duckdb::ClientContext;
-use crate::duckdb::Database;
+use crate::duckdb::ClientContextRef;
+use crate::duckdb::DatabaseRef;
 use crate::duckdb::QueryResult;
 use crate::duckdb_try;
-use crate::wrapper;
+use crate::lifetime_wrapper;
 
-wrapper!(
+lifetime_wrapper!(
     /// A DuckDB connection.
     Connection,
     cpp::duckdb_connection,
@@ -23,7 +24,7 @@ wrapper!(
 );
 
 impl Connection {
-    pub fn connect(db: &Database) -> VortexResult<Self> {
+    pub fn connect(db: &DatabaseRef) -> VortexResult<Self> {
         let mut ptr: cpp::duckdb_connection = ptr::null_mut();
         duckdb_try!(
             unsafe { cpp::duckdb_connect(db.as_ptr(), &raw mut ptr) },
@@ -31,7 +32,9 @@ impl Connection {
         );
         Ok(unsafe { Self::own(ptr) })
     }
+}
 
+impl ConnectionRef {
     /// Execute SQL query and return the result.
     pub fn query(&self, query: &str) -> VortexResult<QueryResult> {
         let mut result: cpp::duckdb_result = unsafe { std::mem::zeroed() };
@@ -58,8 +61,8 @@ impl Connection {
         Ok(unsafe { QueryResult::new(result) })
     }
 
-    /// Get the object cache for this connection.
-    pub fn client_context(&self) -> VortexResult<ClientContext> {
+    /// Get the client context for this connection.
+    pub fn client_context(&self) -> VortexResult<&ClientContextRef> {
         unsafe {
             let client_context = cpp::duckdb_vx_connection_get_client_context(self.as_ptr());
             if client_context.is_null() {
@@ -79,6 +82,7 @@ mod tests {
 
     use super::*;
     use crate::cpp::duckdb_string_t;
+    use crate::duckdb::Database;
 
     fn test_connection() -> VortexResult<Connection> {
         let db = Database::open_in_memory()?;
@@ -176,15 +180,15 @@ mod tests {
         assert_eq!(result.column_name(0).unwrap(), "num");
         assert_eq!(result.column_name(1).unwrap(), "text");
 
-        let chunk = result.into_iter().next().unwrap();
-        let vec = chunk.get_vector(0);
-        let slice = vec.as_slice_with_len::<i32>(chunk.len().as_());
+        let mut chunk = result.into_iter().next().unwrap();
+        let len = chunk.len().as_();
+        assert_eq!(len, 1);
 
-        let mut vec_str = chunk.get_vector(1);
-        let slice_str = unsafe { vec_str.as_slice_mut::<duckdb_string_t>(chunk.len().as_()) };
+        let int_val = chunk.get_vector(0).as_slice_with_len::<i32>(len)[0];
+        assert_eq!(int_val, 1);
 
-        assert_eq!(chunk.len(), 1);
-        assert_eq!(slice[0], 1);
+        let vec_str = chunk.get_vector_mut(1);
+        let slice_str = unsafe { vec_str.as_slice_mut::<duckdb_string_t>(len) };
         assert_eq!(
             unsafe {
                 CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut slice_str[0])).to_string_lossy()

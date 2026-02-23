@@ -1324,7 +1324,7 @@ impl vortex_array::arrays::ExtensionArray
 
 pub fn vortex_array::arrays::ExtensionArray::ext_dtype(&self) -> &vortex_array::dtype::extension::ExtDTypeRef
 
-pub fn vortex_array::arrays::ExtensionArray::id(&self) -> vortex_array::dtype::extension::ExtID
+pub fn vortex_array::arrays::ExtensionArray::id(&self) -> vortex_array::dtype::extension::ExtId
 
 pub fn vortex_array::arrays::ExtensionArray::new(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, storage: vortex_array::ArrayRef) -> Self
 
@@ -3410,17 +3410,17 @@ pub fn vortex_array::arrays::TemporalArray::dtype(&self) -> &vortex_array::dtype
 
 pub fn vortex_array::arrays::TemporalArray::ext_dtype(&self) -> vortex_array::dtype::extension::ExtDTypeRef
 
-pub fn vortex_array::arrays::TemporalArray::temporal_metadata(&self) -> vortex_array::dtype::datetime::TemporalMetadata<'_>
+pub fn vortex_array::arrays::TemporalArray::temporal_metadata(&self) -> vortex_array::extension::datetime::TemporalMetadata<'_>
 
 pub fn vortex_array::arrays::TemporalArray::temporal_values(&self) -> &vortex_array::ArrayRef
 
 impl vortex_array::arrays::TemporalArray
 
-pub fn vortex_array::arrays::TemporalArray::new_date(array: vortex_array::ArrayRef, time_unit: vortex_array::dtype::datetime::TimeUnit) -> Self
+pub fn vortex_array::arrays::TemporalArray::new_date(array: vortex_array::ArrayRef, time_unit: vortex_array::extension::datetime::TimeUnit) -> Self
 
-pub fn vortex_array::arrays::TemporalArray::new_time(array: vortex_array::ArrayRef, time_unit: vortex_array::dtype::datetime::TimeUnit) -> Self
+pub fn vortex_array::arrays::TemporalArray::new_time(array: vortex_array::ArrayRef, time_unit: vortex_array::extension::datetime::TimeUnit) -> Self
 
-pub fn vortex_array::arrays::TemporalArray::new_timestamp(array: vortex_array::ArrayRef, time_unit: vortex_array::dtype::datetime::TimeUnit, time_zone: core::option::Option<alloc::sync::Arc<str>>) -> Self
+pub fn vortex_array::arrays::TemporalArray::new_timestamp(array: vortex_array::ArrayRef, time_unit: vortex_array::extension::datetime::TimeUnit, time_zone: core::option::Option<alloc::sync::Arc<str>>) -> Self
 
 impl core::clone::Clone for vortex_array::arrays::TemporalArray
 
@@ -6254,361 +6254,47 @@ impl vortex_array::dtype::arrow::TryFromArrowType<&arrow_schema::datatype::DataT
 
 pub fn vortex_array::dtype::PType::try_from_arrow(value: &arrow_schema::datatype::DataType) -> vortex_error::VortexResult<Self>
 
-pub mod vortex_array::dtype::datetime
-
-pub enum vortex_array::dtype::datetime::TemporalJiff
-
-pub vortex_array::dtype::datetime::TemporalJiff::Date(jiff::civil::date::Date)
-
-pub vortex_array::dtype::datetime::TemporalJiff::Time(jiff::civil::time::Time)
-
-pub vortex_array::dtype::datetime::TemporalJiff::Unzoned(jiff::civil::datetime::DateTime)
-
-pub vortex_array::dtype::datetime::TemporalJiff::Zoned(jiff::zoned::Zoned)
-
-impl core::fmt::Display for vortex_array::dtype::datetime::TemporalJiff
-
-pub fn vortex_array::dtype::datetime::TemporalJiff::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-pub enum vortex_array::dtype::datetime::TemporalMetadata<'a>
-
-pub vortex_array::dtype::datetime::TemporalMetadata::Date(&'a <vortex_array::dtype::datetime::Date as vortex_array::dtype::extension::ExtDTypeVTable>::Metadata)
-
-pub vortex_array::dtype::datetime::TemporalMetadata::Time(&'a <vortex_array::dtype::datetime::Time as vortex_array::dtype::extension::ExtDTypeVTable>::Metadata)
-
-pub vortex_array::dtype::datetime::TemporalMetadata::Timestamp(&'a vortex_array::dtype::datetime::TimeUnit, &'a core::option::Option<alloc::sync::Arc<str>>)
-
-impl vortex_array::dtype::datetime::TemporalMetadata<'_>
-
-pub fn vortex_array::dtype::datetime::TemporalMetadata<'_>::time_unit(&self) -> vortex_array::dtype::datetime::TimeUnit
-
-pub fn vortex_array::dtype::datetime::TemporalMetadata<'_>::to_jiff(&self, v: i64) -> vortex_error::VortexResult<vortex_array::dtype::datetime::TemporalJiff>
-
-impl<'a> core::cmp::Eq for vortex_array::dtype::datetime::TemporalMetadata<'a>
-
-impl<'a> core::cmp::PartialEq for vortex_array::dtype::datetime::TemporalMetadata<'a>
-
-pub fn vortex_array::dtype::datetime::TemporalMetadata<'a>::eq(&self, other: &vortex_array::dtype::datetime::TemporalMetadata<'a>) -> bool
-
-impl<'a> core::fmt::Debug for vortex_array::dtype::datetime::TemporalMetadata<'a>
-
-pub fn vortex_array::dtype::datetime::TemporalMetadata<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl<'a> core::marker::StructuralPartialEq for vortex_array::dtype::datetime::TemporalMetadata<'a>
-
-#[repr(u8)] pub enum vortex_array::dtype::datetime::TimeUnit
-
-pub vortex_array::dtype::datetime::TimeUnit::Days = 4
-
-pub vortex_array::dtype::datetime::TimeUnit::Microseconds = 1
-
-pub vortex_array::dtype::datetime::TimeUnit::Milliseconds = 2
-
-pub vortex_array::dtype::datetime::TimeUnit::Nanoseconds = 0
-
-pub vortex_array::dtype::datetime::TimeUnit::Seconds = 3
-
-impl vortex_array::dtype::datetime::TimeUnit
-
-pub fn vortex_array::dtype::datetime::TimeUnit::to_jiff_span(&self, v: i64) -> vortex_error::VortexResult<jiff::span::Span>
-
-impl core::clone::Clone for vortex_array::dtype::datetime::TimeUnit
-
-pub fn vortex_array::dtype::datetime::TimeUnit::clone(&self) -> vortex_array::dtype::datetime::TimeUnit
-
-impl core::cmp::Eq for vortex_array::dtype::datetime::TimeUnit
-
-impl core::cmp::Ord for vortex_array::dtype::datetime::TimeUnit
-
-pub fn vortex_array::dtype::datetime::TimeUnit::cmp(&self, other: &vortex_array::dtype::datetime::TimeUnit) -> core::cmp::Ordering
-
-impl core::cmp::PartialEq for vortex_array::dtype::datetime::TimeUnit
-
-pub fn vortex_array::dtype::datetime::TimeUnit::eq(&self, other: &vortex_array::dtype::datetime::TimeUnit) -> bool
-
-impl core::cmp::PartialOrd for vortex_array::dtype::datetime::TimeUnit
-
-pub fn vortex_array::dtype::datetime::TimeUnit::partial_cmp(&self, other: &vortex_array::dtype::datetime::TimeUnit) -> core::option::Option<core::cmp::Ordering>
-
-impl core::convert::From<&arrow_schema::datatype::TimeUnit> for vortex_array::dtype::datetime::TimeUnit
-
-pub fn vortex_array::dtype::datetime::TimeUnit::from(value: &arrow_schema::datatype::TimeUnit) -> Self
-
-impl core::convert::From<arrow_schema::datatype::TimeUnit> for vortex_array::dtype::datetime::TimeUnit
-
-pub fn vortex_array::dtype::datetime::TimeUnit::from(value: arrow_schema::datatype::TimeUnit) -> Self
-
-impl core::convert::From<vortex_array::dtype::datetime::TimeUnit> for u8
-
-pub fn u8::from(enum_value: vortex_array::dtype::datetime::TimeUnit) -> Self
-
-impl core::convert::TryFrom<u8> for vortex_array::dtype::datetime::TimeUnit
-
-pub type vortex_array::dtype::datetime::TimeUnit::Error = vortex_error::VortexError
-
-pub fn vortex_array::dtype::datetime::TimeUnit::try_from(value: u8) -> core::result::Result<Self, Self::Error>
-
-impl core::convert::TryFrom<vortex_array::dtype::datetime::TimeUnit> for arrow_schema::datatype::TimeUnit
-
-pub type arrow_schema::datatype::TimeUnit::Error = vortex_error::VortexError
-
-pub fn arrow_schema::datatype::TimeUnit::try_from(value: vortex_array::dtype::datetime::TimeUnit) -> vortex_error::VortexResult<Self>
-
-impl core::fmt::Debug for vortex_array::dtype::datetime::TimeUnit
-
-pub fn vortex_array::dtype::datetime::TimeUnit::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::fmt::Display for vortex_array::dtype::datetime::TimeUnit
-
-pub fn vortex_array::dtype::datetime::TimeUnit::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::dtype::datetime::TimeUnit
-
-pub fn vortex_array::dtype::datetime::TimeUnit::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::Copy for vortex_array::dtype::datetime::TimeUnit
-
-impl core::marker::StructuralPartialEq for vortex_array::dtype::datetime::TimeUnit
-
-pub struct vortex_array::dtype::datetime::AnyTemporal
-
-impl vortex_array::dtype::extension::Matcher for vortex_array::dtype::datetime::AnyTemporal
-
-pub type vortex_array::dtype::datetime::AnyTemporal::Match<'a> = vortex_array::dtype::datetime::TemporalMetadata<'a>
-
-pub fn vortex_array::dtype::datetime::AnyTemporal::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<Self::Match>
-
-pub struct vortex_array::dtype::datetime::Date
-
-impl vortex_array::dtype::datetime::Date
-
-pub fn vortex_array::dtype::datetime::Date::new(time_unit: vortex_array::dtype::datetime::TimeUnit, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
-
-pub fn vortex_array::dtype::datetime::Date::try_new(time_unit: vortex_array::dtype::datetime::TimeUnit, nullability: vortex_array::dtype::Nullability) -> vortex_error::VortexResult<vortex_array::dtype::extension::ExtDType<Self>>
-
-impl core::clone::Clone for vortex_array::dtype::datetime::Date
-
-pub fn vortex_array::dtype::datetime::Date::clone(&self) -> vortex_array::dtype::datetime::Date
-
-impl core::cmp::Eq for vortex_array::dtype::datetime::Date
-
-impl core::cmp::PartialEq for vortex_array::dtype::datetime::Date
-
-pub fn vortex_array::dtype::datetime::Date::eq(&self, other: &vortex_array::dtype::datetime::Date) -> bool
-
-impl core::default::Default for vortex_array::dtype::datetime::Date
-
-pub fn vortex_array::dtype::datetime::Date::default() -> vortex_array::dtype::datetime::Date
-
-impl core::fmt::Debug for vortex_array::dtype::datetime::Date
-
-pub fn vortex_array::dtype::datetime::Date::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::dtype::datetime::Date
-
-pub fn vortex_array::dtype::datetime::Date::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::StructuralPartialEq for vortex_array::dtype::datetime::Date
-
-impl vortex_array::dtype::extension::ExtDTypeVTable for vortex_array::dtype::datetime::Date
-
-pub type vortex_array::dtype::datetime::Date::Metadata = vortex_array::dtype::datetime::TimeUnit
-
-pub fn vortex_array::dtype::datetime::Date::deserialize(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_array::dtype::datetime::Date::id(&self) -> vortex_array::dtype::extension::ExtID
-
-pub fn vortex_array::dtype::datetime::Date::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
-
-pub fn vortex_array::dtype::datetime::Date::validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
-
-pub struct vortex_array::dtype::datetime::Time
-
-impl vortex_array::dtype::datetime::Time
-
-pub fn vortex_array::dtype::datetime::Time::new(time_unit: vortex_array::dtype::datetime::TimeUnit, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
-
-pub fn vortex_array::dtype::datetime::Time::try_new(time_unit: vortex_array::dtype::datetime::TimeUnit, nullability: vortex_array::dtype::Nullability) -> vortex_error::VortexResult<vortex_array::dtype::extension::ExtDType<Self>>
-
-impl core::clone::Clone for vortex_array::dtype::datetime::Time
-
-pub fn vortex_array::dtype::datetime::Time::clone(&self) -> vortex_array::dtype::datetime::Time
-
-impl core::cmp::Eq for vortex_array::dtype::datetime::Time
-
-impl core::cmp::PartialEq for vortex_array::dtype::datetime::Time
-
-pub fn vortex_array::dtype::datetime::Time::eq(&self, other: &vortex_array::dtype::datetime::Time) -> bool
-
-impl core::default::Default for vortex_array::dtype::datetime::Time
-
-pub fn vortex_array::dtype::datetime::Time::default() -> vortex_array::dtype::datetime::Time
-
-impl core::fmt::Debug for vortex_array::dtype::datetime::Time
-
-pub fn vortex_array::dtype::datetime::Time::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::dtype::datetime::Time
-
-pub fn vortex_array::dtype::datetime::Time::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::StructuralPartialEq for vortex_array::dtype::datetime::Time
-
-impl vortex_array::dtype::extension::ExtDTypeVTable for vortex_array::dtype::datetime::Time
-
-pub type vortex_array::dtype::datetime::Time::Metadata = vortex_array::dtype::datetime::TimeUnit
-
-pub fn vortex_array::dtype::datetime::Time::deserialize(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_array::dtype::datetime::Time::id(&self) -> vortex_array::dtype::extension::ExtID
-
-pub fn vortex_array::dtype::datetime::Time::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
-
-pub fn vortex_array::dtype::datetime::Time::validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
-
-pub struct vortex_array::dtype::datetime::Timestamp
-
-impl vortex_array::dtype::datetime::Timestamp
-
-pub fn vortex_array::dtype::datetime::Timestamp::new(time_unit: vortex_array::dtype::datetime::TimeUnit, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
-
-pub fn vortex_array::dtype::datetime::Timestamp::new_with_options(options: vortex_array::dtype::datetime::TimestampOptions, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
-
-pub fn vortex_array::dtype::datetime::Timestamp::new_with_tz(time_unit: vortex_array::dtype::datetime::TimeUnit, timezone: core::option::Option<alloc::sync::Arc<str>>, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
-
-impl core::clone::Clone for vortex_array::dtype::datetime::Timestamp
-
-pub fn vortex_array::dtype::datetime::Timestamp::clone(&self) -> vortex_array::dtype::datetime::Timestamp
-
-impl core::cmp::Eq for vortex_array::dtype::datetime::Timestamp
-
-impl core::cmp::PartialEq for vortex_array::dtype::datetime::Timestamp
-
-pub fn vortex_array::dtype::datetime::Timestamp::eq(&self, other: &vortex_array::dtype::datetime::Timestamp) -> bool
-
-impl core::default::Default for vortex_array::dtype::datetime::Timestamp
-
-pub fn vortex_array::dtype::datetime::Timestamp::default() -> vortex_array::dtype::datetime::Timestamp
-
-impl core::fmt::Debug for vortex_array::dtype::datetime::Timestamp
-
-pub fn vortex_array::dtype::datetime::Timestamp::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::dtype::datetime::Timestamp
-
-pub fn vortex_array::dtype::datetime::Timestamp::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::StructuralPartialEq for vortex_array::dtype::datetime::Timestamp
-
-impl vortex_array::dtype::extension::ExtDTypeVTable for vortex_array::dtype::datetime::Timestamp
-
-pub type vortex_array::dtype::datetime::Timestamp::Metadata = vortex_array::dtype::datetime::TimestampOptions
-
-pub fn vortex_array::dtype::datetime::Timestamp::deserialize(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_array::dtype::datetime::Timestamp::id(&self) -> vortex_array::dtype::extension::ExtID
-
-pub fn vortex_array::dtype::datetime::Timestamp::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
-
-pub fn vortex_array::dtype::datetime::Timestamp::validate_dtype(&self, _metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
-
-pub struct vortex_array::dtype::datetime::TimestampOptions
-
-pub vortex_array::dtype::datetime::TimestampOptions::tz: core::option::Option<alloc::sync::Arc<str>>
-
-pub vortex_array::dtype::datetime::TimestampOptions::unit: vortex_array::dtype::datetime::TimeUnit
-
-impl core::clone::Clone for vortex_array::dtype::datetime::TimestampOptions
-
-pub fn vortex_array::dtype::datetime::TimestampOptions::clone(&self) -> vortex_array::dtype::datetime::TimestampOptions
-
-impl core::cmp::Eq for vortex_array::dtype::datetime::TimestampOptions
-
-impl core::cmp::PartialEq for vortex_array::dtype::datetime::TimestampOptions
-
-pub fn vortex_array::dtype::datetime::TimestampOptions::eq(&self, other: &vortex_array::dtype::datetime::TimestampOptions) -> bool
-
-impl core::fmt::Debug for vortex_array::dtype::datetime::TimestampOptions
-
-pub fn vortex_array::dtype::datetime::TimestampOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::fmt::Display for vortex_array::dtype::datetime::TimestampOptions
-
-pub fn vortex_array::dtype::datetime::TimestampOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::dtype::datetime::TimestampOptions
-
-pub fn vortex_array::dtype::datetime::TimestampOptions::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::StructuralPartialEq for vortex_array::dtype::datetime::TimestampOptions
-
 pub mod vortex_array::dtype::extension
 
-pub struct vortex_array::dtype::extension::EmptyMetadata
+pub struct vortex_array::dtype::extension::ExtDType<V: vortex_array::dtype::extension::ExtVTable>(_)
 
-impl core::clone::Clone for vortex_array::dtype::extension::EmptyMetadata
+impl<V: vortex_array::dtype::extension::ExtVTable + core::default::Default> vortex_array::dtype::extension::ExtDType<V>
 
-pub fn vortex_array::dtype::extension::EmptyMetadata::clone(&self) -> vortex_array::dtype::extension::EmptyMetadata
+pub fn vortex_array::dtype::extension::ExtDType<V>::try_new(metadata: <V as vortex_array::dtype::extension::ExtVTable>::Metadata, storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
 
-impl core::cmp::Eq for vortex_array::dtype::extension::EmptyMetadata
-
-impl core::cmp::PartialEq for vortex_array::dtype::extension::EmptyMetadata
-
-pub fn vortex_array::dtype::extension::EmptyMetadata::eq(&self, other: &vortex_array::dtype::extension::EmptyMetadata) -> bool
-
-impl core::fmt::Debug for vortex_array::dtype::extension::EmptyMetadata
-
-pub fn vortex_array::dtype::extension::EmptyMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::fmt::Display for vortex_array::dtype::extension::EmptyMetadata
-
-pub fn vortex_array::dtype::extension::EmptyMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::dtype::extension::EmptyMetadata
-
-pub fn vortex_array::dtype::extension::EmptyMetadata::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::StructuralPartialEq for vortex_array::dtype::extension::EmptyMetadata
-
-pub struct vortex_array::dtype::extension::ExtDType<V: vortex_array::dtype::extension::ExtDTypeVTable>(_)
-
-impl<V: vortex_array::dtype::extension::ExtDTypeVTable + core::default::Default> vortex_array::dtype::extension::ExtDType<V>
-
-pub fn vortex_array::dtype::extension::ExtDType<V>::try_new(metadata: <V as vortex_array::dtype::extension::ExtDTypeVTable>::Metadata, storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
-
-impl<V: vortex_array::dtype::extension::ExtDTypeVTable> vortex_array::dtype::extension::ExtDType<V>
+impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::dtype::extension::ExtDType<V>
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::erased(self) -> vortex_array::dtype::extension::ExtDTypeRef
 
-pub fn vortex_array::dtype::extension::ExtDType<V>::id(&self) -> vortex_array::dtype::extension::ExtID
+pub fn vortex_array::dtype::extension::ExtDType<V>::id(&self) -> vortex_array::dtype::extension::ExtId
 
-pub fn vortex_array::dtype::extension::ExtDType<V>::metadata(&self) -> &<V as vortex_array::dtype::extension::ExtDTypeVTable>::Metadata
+pub fn vortex_array::dtype::extension::ExtDType<V>::metadata(&self) -> &<V as vortex_array::dtype::extension::ExtVTable>::Metadata
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::storage_dtype(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::dtype::extension::ExtDType<V>::try_with_vtable(vtable: V, metadata: <V as vortex_array::dtype::extension::ExtDTypeVTable>::Metadata, storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::dtype::extension::ExtDType<V>::try_with_vtable(vtable: V, metadata: <V as vortex_array::dtype::extension::ExtVTable>::Metadata, storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::vtable(&self) -> &V
 
-impl<V: core::clone::Clone + vortex_array::dtype::extension::ExtDTypeVTable> core::clone::Clone for vortex_array::dtype::extension::ExtDType<V>
+impl<V: core::clone::Clone + vortex_array::dtype::extension::ExtVTable> core::clone::Clone for vortex_array::dtype::extension::ExtDType<V>
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::clone(&self) -> vortex_array::dtype::extension::ExtDType<V>
 
-impl<V: core::cmp::Eq + vortex_array::dtype::extension::ExtDTypeVTable> core::cmp::Eq for vortex_array::dtype::extension::ExtDType<V>
+impl<V: core::cmp::Eq + vortex_array::dtype::extension::ExtVTable> core::cmp::Eq for vortex_array::dtype::extension::ExtDType<V>
 
-impl<V: core::cmp::PartialEq + vortex_array::dtype::extension::ExtDTypeVTable> core::cmp::PartialEq for vortex_array::dtype::extension::ExtDType<V>
+impl<V: core::cmp::PartialEq + vortex_array::dtype::extension::ExtVTable> core::cmp::PartialEq for vortex_array::dtype::extension::ExtDType<V>
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::eq(&self, other: &vortex_array::dtype::extension::ExtDType<V>) -> bool
 
-impl<V: core::fmt::Debug + vortex_array::dtype::extension::ExtDTypeVTable> core::fmt::Debug for vortex_array::dtype::extension::ExtDType<V>
+impl<V: core::fmt::Debug + vortex_array::dtype::extension::ExtVTable> core::fmt::Debug for vortex_array::dtype::extension::ExtDType<V>
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl<V: core::hash::Hash + vortex_array::dtype::extension::ExtDTypeVTable> core::hash::Hash for vortex_array::dtype::extension::ExtDType<V>
+impl<V: core::hash::Hash + vortex_array::dtype::extension::ExtVTable> core::hash::Hash for vortex_array::dtype::extension::ExtDType<V>
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 
-impl<V: vortex_array::dtype::extension::ExtDTypeVTable> core::marker::StructuralPartialEq for vortex_array::dtype::extension::ExtDType<V>
+impl<V: vortex_array::dtype::extension::ExtVTable> core::marker::StructuralPartialEq for vortex_array::dtype::extension::ExtDType<V>
 
 pub struct vortex_array::dtype::extension::ExtDTypeMetadata<'a>
 
@@ -6638,7 +6324,7 @@ pub struct vortex_array::dtype::extension::ExtDTypeRef(_)
 
 impl vortex_array::dtype::extension::ExtDTypeRef
 
-pub fn vortex_array::dtype::extension::ExtDTypeRef::downcast<V: vortex_array::dtype::extension::ExtDTypeVTable>(self) -> vortex_array::dtype::extension::ExtDType<V>
+pub fn vortex_array::dtype::extension::ExtDTypeRef::downcast<V: vortex_array::dtype::extension::ExtVTable>(self) -> vortex_array::dtype::extension::ExtDType<V>
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::is<M: vortex_array::dtype::extension::Matcher>(&self) -> bool
 
@@ -6646,13 +6332,13 @@ pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata<M: vortex_array::dt
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata_opt<M: vortex_array::dtype::extension::Matcher>(&self) -> core::option::Option<<M as vortex_array::dtype::extension::Matcher>::Match>
 
-pub fn vortex_array::dtype::extension::ExtDTypeRef::try_downcast<V: vortex_array::dtype::extension::ExtDTypeVTable>(self) -> core::result::Result<vortex_array::dtype::extension::ExtDType<V>, vortex_array::dtype::extension::ExtDTypeRef>
+pub fn vortex_array::dtype::extension::ExtDTypeRef::try_downcast<V: vortex_array::dtype::extension::ExtVTable>(self) -> core::result::Result<vortex_array::dtype::extension::ExtDType<V>, vortex_array::dtype::extension::ExtDTypeRef>
 
 impl vortex_array::dtype::extension::ExtDTypeRef
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::eq_ignore_nullability(&self, other: &Self) -> bool
 
-pub fn vortex_array::dtype::extension::ExtDTypeRef::id(&self) -> vortex_array::dtype::extension::ExtID
+pub fn vortex_array::dtype::extension::ExtDTypeRef::id(&self) -> vortex_array::dtype::extension::ExtId
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::is_nullable(&self) -> bool
 
@@ -6686,65 +6372,65 @@ impl core::hash::Hash for vortex_array::dtype::extension::ExtDTypeRef
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::hash<H: core::hash::Hasher>(&self, state: &mut H)
 
-pub trait vortex_array::dtype::extension::DynExtDTypeVTable: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+pub trait vortex_array::dtype::extension::DynExtVTable: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
 
-pub fn vortex_array::dtype::extension::DynExtDTypeVTable::deserialize(&self, data: &[u8], storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::extension::ExtDTypeRef>
+pub fn vortex_array::dtype::extension::DynExtVTable::deserialize(&self, data: &[u8], storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::extension::ExtDTypeRef>
 
-pub fn vortex_array::dtype::extension::DynExtDTypeVTable::id(&self) -> vortex_array::dtype::extension::ExtID
+pub fn vortex_array::dtype::extension::DynExtVTable::id(&self) -> vortex_array::dtype::extension::ExtId
 
-impl<V: vortex_array::dtype::extension::ExtDTypeVTable> vortex_array::dtype::extension::DynExtDTypeVTable for V
+impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::dtype::extension::DynExtVTable for V
 
-pub fn V::deserialize(&self, data: &[u8], storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::extension::ExtDTypeRef>
+pub fn V::deserialize(&self, data: &[u8], storage_dtype: vortex_array::dtype::DType) -> core::result::Result<vortex_array::dtype::extension::ExtDTypeRef, vortex_error::VortexError>
 
-pub fn V::id(&self) -> vortex_array::dtype::extension::ExtID
+pub fn V::id(&self) -> arcref::ArcRef<str>
 
-pub trait vortex_array::dtype::extension::ExtDTypeVTable: 'static + core::marker::Sized + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + core::cmp::Eq + core::hash::Hash
+pub trait vortex_array::dtype::extension::ExtVTable: 'static + core::marker::Sized + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + core::cmp::Eq + core::hash::Hash
 
-pub type vortex_array::dtype::extension::ExtDTypeVTable::Metadata: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + core::fmt::Display + core::cmp::Eq + core::hash::Hash
+pub type vortex_array::dtype::extension::ExtVTable::Metadata: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + core::fmt::Display + core::cmp::Eq + core::hash::Hash
 
-pub fn vortex_array::dtype::extension::ExtDTypeVTable::deserialize(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::dtype::extension::ExtVTable::deserialize(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_array::dtype::extension::ExtDTypeVTable::id(&self) -> vortex_array::dtype::extension::ExtID
+pub fn vortex_array::dtype::extension::ExtVTable::id(&self) -> vortex_array::dtype::extension::ExtId
 
-pub fn vortex_array::dtype::extension::ExtDTypeVTable::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+pub fn vortex_array::dtype::extension::ExtVTable::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_array::dtype::extension::ExtDTypeVTable::validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+pub fn vortex_array::dtype::extension::ExtVTable::validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
 
-impl vortex_array::dtype::extension::ExtDTypeVTable for vortex_array::dtype::datetime::Date
+impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::datetime::Date
 
-pub type vortex_array::dtype::datetime::Date::Metadata = vortex_array::dtype::datetime::TimeUnit
+pub type vortex_array::extension::datetime::Date::Metadata = vortex_array::extension::datetime::TimeUnit
 
-pub fn vortex_array::dtype::datetime::Date::deserialize(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::extension::datetime::Date::deserialize(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_array::dtype::datetime::Date::id(&self) -> vortex_array::dtype::extension::ExtID
+pub fn vortex_array::extension::datetime::Date::id(&self) -> vortex_array::dtype::extension::ExtId
 
-pub fn vortex_array::dtype::datetime::Date::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+pub fn vortex_array::extension::datetime::Date::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_array::dtype::datetime::Date::validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::datetime::Date::validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
 
-impl vortex_array::dtype::extension::ExtDTypeVTable for vortex_array::dtype::datetime::Time
+impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::datetime::Time
 
-pub type vortex_array::dtype::datetime::Time::Metadata = vortex_array::dtype::datetime::TimeUnit
+pub type vortex_array::extension::datetime::Time::Metadata = vortex_array::extension::datetime::TimeUnit
 
-pub fn vortex_array::dtype::datetime::Time::deserialize(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::extension::datetime::Time::deserialize(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_array::dtype::datetime::Time::id(&self) -> vortex_array::dtype::extension::ExtID
+pub fn vortex_array::extension::datetime::Time::id(&self) -> vortex_array::dtype::extension::ExtId
 
-pub fn vortex_array::dtype::datetime::Time::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+pub fn vortex_array::extension::datetime::Time::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_array::dtype::datetime::Time::validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::datetime::Time::validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
 
-impl vortex_array::dtype::extension::ExtDTypeVTable for vortex_array::dtype::datetime::Timestamp
+impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::datetime::Timestamp
 
-pub type vortex_array::dtype::datetime::Timestamp::Metadata = vortex_array::dtype::datetime::TimestampOptions
+pub type vortex_array::extension::datetime::Timestamp::Metadata = vortex_array::extension::datetime::TimestampOptions
 
-pub fn vortex_array::dtype::datetime::Timestamp::deserialize(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::extension::datetime::Timestamp::deserialize(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_array::dtype::datetime::Timestamp::id(&self) -> vortex_array::dtype::extension::ExtID
+pub fn vortex_array::extension::datetime::Timestamp::id(&self) -> vortex_array::dtype::extension::ExtId
 
-pub fn vortex_array::dtype::datetime::Timestamp::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+pub fn vortex_array::extension::datetime::Timestamp::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_array::dtype::datetime::Timestamp::validate_dtype(&self, _metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+pub fn vortex_array::extension::datetime::Timestamp::validate_dtype(&self, _metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
 
 pub trait vortex_array::dtype::extension::Matcher
 
@@ -6754,21 +6440,21 @@ pub fn vortex_array::dtype::extension::Matcher::matches(item: &vortex_array::dty
 
 pub fn vortex_array::dtype::extension::Matcher::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<Self::Match>
 
-impl vortex_array::dtype::extension::Matcher for vortex_array::dtype::datetime::AnyTemporal
+impl vortex_array::dtype::extension::Matcher for vortex_array::extension::datetime::AnyTemporal
 
-pub type vortex_array::dtype::datetime::AnyTemporal::Match<'a> = vortex_array::dtype::datetime::TemporalMetadata<'a>
+pub type vortex_array::extension::datetime::AnyTemporal::Match<'a> = vortex_array::extension::datetime::TemporalMetadata<'a>
 
-pub fn vortex_array::dtype::datetime::AnyTemporal::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<Self::Match>
+pub fn vortex_array::extension::datetime::AnyTemporal::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<Self::Match>
 
-impl<V: vortex_array::dtype::extension::ExtDTypeVTable> vortex_array::dtype::extension::Matcher for V
+impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::dtype::extension::Matcher for V
 
-pub type V::Match<'a> = &'a <V as vortex_array::dtype::extension::ExtDTypeVTable>::Metadata
+pub type V::Match<'a> = &'a <V as vortex_array::dtype::extension::ExtVTable>::Metadata
 
 pub fn V::matches(item: &vortex_array::dtype::extension::ExtDTypeRef) -> bool
 
-pub fn V::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<Self::Match>
+pub fn V::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<<V as vortex_array::dtype::extension::Matcher>::Match>
 
-pub type vortex_array::dtype::extension::ExtID = arcref::ArcRef<str>
+pub type vortex_array::dtype::extension::ExtId = arcref::ArcRef<str>
 
 pub mod vortex_array::dtype::flatbuffers
 
@@ -6786,7 +6472,7 @@ pub struct vortex_array::dtype::session::DTypeSession
 
 impl vortex_array::dtype::session::DTypeSession
 
-pub fn vortex_array::dtype::session::DTypeSession::register<V: vortex_array::dtype::extension::ExtDTypeVTable>(&self, vtable: V)
+pub fn vortex_array::dtype::session::DTypeSession::register<V: vortex_array::dtype::extension::ExtVTable>(&self, vtable: V)
 
 pub fn vortex_array::dtype::session::DTypeSession::registry(&self) -> &vortex_array::dtype::session::ExtDTypeRegistry
 
@@ -6806,7 +6492,7 @@ impl<S: vortex_session::SessionExt> vortex_array::dtype::session::DTypeSessionEx
 
 pub fn S::dtypes(&self) -> vortex_session::Ref<'_, vortex_array::dtype::session::DTypeSession>
 
-pub type vortex_array::dtype::session::ExtDTypeRegistry = vortex_session::registry::Registry<alloc::sync::Arc<dyn vortex_array::dtype::extension::DynExtDTypeVTable>>
+pub type vortex_array::dtype::session::ExtDTypeRegistry = vortex_session::registry::Registry<alloc::sync::Arc<dyn vortex_array::dtype::extension::DynExtVTable>>
 
 pub enum vortex_array::dtype::DType
 
@@ -7469,98 +7155,6 @@ impl<D: vortex_array::dtype::NativeDecimalType> core::convert::TryFrom<&vortex_a
 pub type vortex_array::dtype::PrecisionScale<D>::Error = vortex_error::VortexError
 
 pub fn vortex_array::dtype::PrecisionScale<D>::try_from(value: &vortex_array::dtype::DecimalDType) -> vortex_error::VortexResult<Self>
-
-pub struct vortex_array::dtype::ExtDType<V: vortex_array::dtype::extension::ExtDTypeVTable>(_)
-
-impl<V: vortex_array::dtype::extension::ExtDTypeVTable + core::default::Default> vortex_array::dtype::extension::ExtDType<V>
-
-pub fn vortex_array::dtype::extension::ExtDType<V>::try_new(metadata: <V as vortex_array::dtype::extension::ExtDTypeVTable>::Metadata, storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
-
-impl<V: vortex_array::dtype::extension::ExtDTypeVTable> vortex_array::dtype::extension::ExtDType<V>
-
-pub fn vortex_array::dtype::extension::ExtDType<V>::erased(self) -> vortex_array::dtype::extension::ExtDTypeRef
-
-pub fn vortex_array::dtype::extension::ExtDType<V>::id(&self) -> vortex_array::dtype::extension::ExtID
-
-pub fn vortex_array::dtype::extension::ExtDType<V>::metadata(&self) -> &<V as vortex_array::dtype::extension::ExtDTypeVTable>::Metadata
-
-pub fn vortex_array::dtype::extension::ExtDType<V>::storage_dtype(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_array::dtype::extension::ExtDType<V>::try_with_vtable(vtable: V, metadata: <V as vortex_array::dtype::extension::ExtDTypeVTable>::Metadata, storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_array::dtype::extension::ExtDType<V>::vtable(&self) -> &V
-
-impl<V: core::clone::Clone + vortex_array::dtype::extension::ExtDTypeVTable> core::clone::Clone for vortex_array::dtype::extension::ExtDType<V>
-
-pub fn vortex_array::dtype::extension::ExtDType<V>::clone(&self) -> vortex_array::dtype::extension::ExtDType<V>
-
-impl<V: core::cmp::Eq + vortex_array::dtype::extension::ExtDTypeVTable> core::cmp::Eq for vortex_array::dtype::extension::ExtDType<V>
-
-impl<V: core::cmp::PartialEq + vortex_array::dtype::extension::ExtDTypeVTable> core::cmp::PartialEq for vortex_array::dtype::extension::ExtDType<V>
-
-pub fn vortex_array::dtype::extension::ExtDType<V>::eq(&self, other: &vortex_array::dtype::extension::ExtDType<V>) -> bool
-
-impl<V: core::fmt::Debug + vortex_array::dtype::extension::ExtDTypeVTable> core::fmt::Debug for vortex_array::dtype::extension::ExtDType<V>
-
-pub fn vortex_array::dtype::extension::ExtDType<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl<V: core::hash::Hash + vortex_array::dtype::extension::ExtDTypeVTable> core::hash::Hash for vortex_array::dtype::extension::ExtDType<V>
-
-pub fn vortex_array::dtype::extension::ExtDType<V>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl<V: vortex_array::dtype::extension::ExtDTypeVTable> core::marker::StructuralPartialEq for vortex_array::dtype::extension::ExtDType<V>
-
-pub struct vortex_array::dtype::ExtDTypeRef(_)
-
-impl vortex_array::dtype::extension::ExtDTypeRef
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::downcast<V: vortex_array::dtype::extension::ExtDTypeVTable>(self) -> vortex_array::dtype::extension::ExtDType<V>
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::is<M: vortex_array::dtype::extension::Matcher>(&self) -> bool
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata<M: vortex_array::dtype::extension::Matcher>(&self) -> <M as vortex_array::dtype::extension::Matcher>::Match
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata_opt<M: vortex_array::dtype::extension::Matcher>(&self) -> core::option::Option<<M as vortex_array::dtype::extension::Matcher>::Match>
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::try_downcast<V: vortex_array::dtype::extension::ExtDTypeVTable>(self) -> core::result::Result<vortex_array::dtype::extension::ExtDType<V>, vortex_array::dtype::extension::ExtDTypeRef>
-
-impl vortex_array::dtype::extension::ExtDTypeRef
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::eq_ignore_nullability(&self, other: &Self) -> bool
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::id(&self) -> vortex_array::dtype::extension::ExtID
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::is_nullable(&self) -> bool
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata_erased(&self) -> vortex_array::dtype::extension::ExtDTypeMetadata<'_>
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::nullability(&self) -> vortex_array::dtype::Nullability
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::storage_dtype(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::with_nullability(&self, nullability: vortex_array::dtype::Nullability) -> Self
-
-impl core::clone::Clone for vortex_array::dtype::extension::ExtDTypeRef
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::clone(&self) -> vortex_array::dtype::extension::ExtDTypeRef
-
-impl core::cmp::Eq for vortex_array::dtype::extension::ExtDTypeRef
-
-impl core::cmp::PartialEq for vortex_array::dtype::extension::ExtDTypeRef
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::eq(&self, other: &Self) -> bool
-
-impl core::fmt::Debug for vortex_array::dtype::extension::ExtDTypeRef
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::fmt::Display for vortex_array::dtype::extension::ExtDTypeRef
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::dtype::extension::ExtDTypeRef
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::hash<H: core::hash::Hasher>(&self, state: &mut H)
 
 pub struct vortex_array::dtype::FieldDType
 
@@ -9101,8 +8695,6 @@ pub fn u8::try_from_le_bytes(bytes: &[u8]) -> vortex_error::VortexResult<Self>
 pub trait vortex_array::dtype::UnsignedPType: vortex_array::dtype::IntegerPType + num_traits::sign::Unsigned
 
 impl<T> vortex_array::dtype::UnsignedPType for T where T: vortex_array::dtype::IntegerPType + num_traits::sign::Unsigned
-
-pub type vortex_array::dtype::ExtID = arcref::ArcRef<str>
 
 pub mod vortex_array::expr
 
@@ -12618,6 +12210,322 @@ pub type vortex_array::expr::FieldAccesses<'a> = vortex_array::expr::Annotations
 
 pub type vortex_array::expr::ReduceNodeRef = alloc::sync::Arc<dyn vortex_array::expr::ReduceNode>
 
+pub mod vortex_array::extension
+
+pub mod vortex_array::extension::datetime
+
+pub enum vortex_array::extension::datetime::TemporalJiff
+
+pub vortex_array::extension::datetime::TemporalJiff::Date(jiff::civil::date::Date)
+
+pub vortex_array::extension::datetime::TemporalJiff::Time(jiff::civil::time::Time)
+
+pub vortex_array::extension::datetime::TemporalJiff::Unzoned(jiff::civil::datetime::DateTime)
+
+pub vortex_array::extension::datetime::TemporalJiff::Zoned(jiff::zoned::Zoned)
+
+impl core::fmt::Display for vortex_array::extension::datetime::TemporalJiff
+
+pub fn vortex_array::extension::datetime::TemporalJiff::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub enum vortex_array::extension::datetime::TemporalMetadata<'a>
+
+pub vortex_array::extension::datetime::TemporalMetadata::Date(&'a <vortex_array::extension::datetime::Date as vortex_array::dtype::extension::ExtVTable>::Metadata)
+
+pub vortex_array::extension::datetime::TemporalMetadata::Time(&'a <vortex_array::extension::datetime::Time as vortex_array::dtype::extension::ExtVTable>::Metadata)
+
+pub vortex_array::extension::datetime::TemporalMetadata::Timestamp(&'a vortex_array::extension::datetime::TimeUnit, &'a core::option::Option<alloc::sync::Arc<str>>)
+
+impl vortex_array::extension::datetime::TemporalMetadata<'_>
+
+pub fn vortex_array::extension::datetime::TemporalMetadata<'_>::time_unit(&self) -> vortex_array::extension::datetime::TimeUnit
+
+pub fn vortex_array::extension::datetime::TemporalMetadata<'_>::to_jiff(&self, v: i64) -> vortex_error::VortexResult<vortex_array::extension::datetime::TemporalJiff>
+
+impl<'a> core::cmp::Eq for vortex_array::extension::datetime::TemporalMetadata<'a>
+
+impl<'a> core::cmp::PartialEq for vortex_array::extension::datetime::TemporalMetadata<'a>
+
+pub fn vortex_array::extension::datetime::TemporalMetadata<'a>::eq(&self, other: &vortex_array::extension::datetime::TemporalMetadata<'a>) -> bool
+
+impl<'a> core::fmt::Debug for vortex_array::extension::datetime::TemporalMetadata<'a>
+
+pub fn vortex_array::extension::datetime::TemporalMetadata<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<'a> core::marker::StructuralPartialEq for vortex_array::extension::datetime::TemporalMetadata<'a>
+
+#[repr(u8)] pub enum vortex_array::extension::datetime::TimeUnit
+
+pub vortex_array::extension::datetime::TimeUnit::Days = 4
+
+pub vortex_array::extension::datetime::TimeUnit::Microseconds = 1
+
+pub vortex_array::extension::datetime::TimeUnit::Milliseconds = 2
+
+pub vortex_array::extension::datetime::TimeUnit::Nanoseconds = 0
+
+pub vortex_array::extension::datetime::TimeUnit::Seconds = 3
+
+impl vortex_array::extension::datetime::TimeUnit
+
+pub fn vortex_array::extension::datetime::TimeUnit::to_jiff_span(&self, v: i64) -> vortex_error::VortexResult<jiff::span::Span>
+
+impl core::clone::Clone for vortex_array::extension::datetime::TimeUnit
+
+pub fn vortex_array::extension::datetime::TimeUnit::clone(&self) -> vortex_array::extension::datetime::TimeUnit
+
+impl core::cmp::Eq for vortex_array::extension::datetime::TimeUnit
+
+impl core::cmp::Ord for vortex_array::extension::datetime::TimeUnit
+
+pub fn vortex_array::extension::datetime::TimeUnit::cmp(&self, other: &vortex_array::extension::datetime::TimeUnit) -> core::cmp::Ordering
+
+impl core::cmp::PartialEq for vortex_array::extension::datetime::TimeUnit
+
+pub fn vortex_array::extension::datetime::TimeUnit::eq(&self, other: &vortex_array::extension::datetime::TimeUnit) -> bool
+
+impl core::cmp::PartialOrd for vortex_array::extension::datetime::TimeUnit
+
+pub fn vortex_array::extension::datetime::TimeUnit::partial_cmp(&self, other: &vortex_array::extension::datetime::TimeUnit) -> core::option::Option<core::cmp::Ordering>
+
+impl core::convert::From<&arrow_schema::datatype::TimeUnit> for vortex_array::extension::datetime::TimeUnit
+
+pub fn vortex_array::extension::datetime::TimeUnit::from(value: &arrow_schema::datatype::TimeUnit) -> Self
+
+impl core::convert::From<arrow_schema::datatype::TimeUnit> for vortex_array::extension::datetime::TimeUnit
+
+pub fn vortex_array::extension::datetime::TimeUnit::from(value: arrow_schema::datatype::TimeUnit) -> Self
+
+impl core::convert::From<vortex_array::extension::datetime::TimeUnit> for u8
+
+pub fn u8::from(enum_value: vortex_array::extension::datetime::TimeUnit) -> Self
+
+impl core::convert::TryFrom<u8> for vortex_array::extension::datetime::TimeUnit
+
+pub type vortex_array::extension::datetime::TimeUnit::Error = vortex_error::VortexError
+
+pub fn vortex_array::extension::datetime::TimeUnit::try_from(value: u8) -> core::result::Result<Self, Self::Error>
+
+impl core::convert::TryFrom<vortex_array::extension::datetime::TimeUnit> for arrow_schema::datatype::TimeUnit
+
+pub type arrow_schema::datatype::TimeUnit::Error = vortex_error::VortexError
+
+pub fn arrow_schema::datatype::TimeUnit::try_from(value: vortex_array::extension::datetime::TimeUnit) -> vortex_error::VortexResult<Self>
+
+impl core::fmt::Debug for vortex_array::extension::datetime::TimeUnit
+
+pub fn vortex_array::extension::datetime::TimeUnit::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::extension::datetime::TimeUnit
+
+pub fn vortex_array::extension::datetime::TimeUnit::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::extension::datetime::TimeUnit
+
+pub fn vortex_array::extension::datetime::TimeUnit::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_array::extension::datetime::TimeUnit
+
+impl core::marker::StructuralPartialEq for vortex_array::extension::datetime::TimeUnit
+
+pub struct vortex_array::extension::datetime::AnyTemporal
+
+impl vortex_array::dtype::extension::Matcher for vortex_array::extension::datetime::AnyTemporal
+
+pub type vortex_array::extension::datetime::AnyTemporal::Match<'a> = vortex_array::extension::datetime::TemporalMetadata<'a>
+
+pub fn vortex_array::extension::datetime::AnyTemporal::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<Self::Match>
+
+pub struct vortex_array::extension::datetime::Date
+
+impl vortex_array::extension::datetime::Date
+
+pub fn vortex_array::extension::datetime::Date::new(time_unit: vortex_array::extension::datetime::TimeUnit, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
+
+pub fn vortex_array::extension::datetime::Date::try_new(time_unit: vortex_array::extension::datetime::TimeUnit, nullability: vortex_array::dtype::Nullability) -> vortex_error::VortexResult<vortex_array::dtype::extension::ExtDType<Self>>
+
+impl core::clone::Clone for vortex_array::extension::datetime::Date
+
+pub fn vortex_array::extension::datetime::Date::clone(&self) -> vortex_array::extension::datetime::Date
+
+impl core::cmp::Eq for vortex_array::extension::datetime::Date
+
+impl core::cmp::PartialEq for vortex_array::extension::datetime::Date
+
+pub fn vortex_array::extension::datetime::Date::eq(&self, other: &vortex_array::extension::datetime::Date) -> bool
+
+impl core::default::Default for vortex_array::extension::datetime::Date
+
+pub fn vortex_array::extension::datetime::Date::default() -> vortex_array::extension::datetime::Date
+
+impl core::fmt::Debug for vortex_array::extension::datetime::Date
+
+pub fn vortex_array::extension::datetime::Date::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::extension::datetime::Date
+
+pub fn vortex_array::extension::datetime::Date::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_array::extension::datetime::Date
+
+impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::datetime::Date
+
+pub type vortex_array::extension::datetime::Date::Metadata = vortex_array::extension::datetime::TimeUnit
+
+pub fn vortex_array::extension::datetime::Date::deserialize(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_array::extension::datetime::Date::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::Date::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::extension::datetime::Date::validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+
+pub struct vortex_array::extension::datetime::Time
+
+impl vortex_array::extension::datetime::Time
+
+pub fn vortex_array::extension::datetime::Time::new(time_unit: vortex_array::extension::datetime::TimeUnit, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
+
+pub fn vortex_array::extension::datetime::Time::try_new(time_unit: vortex_array::extension::datetime::TimeUnit, nullability: vortex_array::dtype::Nullability) -> vortex_error::VortexResult<vortex_array::dtype::extension::ExtDType<Self>>
+
+impl core::clone::Clone for vortex_array::extension::datetime::Time
+
+pub fn vortex_array::extension::datetime::Time::clone(&self) -> vortex_array::extension::datetime::Time
+
+impl core::cmp::Eq for vortex_array::extension::datetime::Time
+
+impl core::cmp::PartialEq for vortex_array::extension::datetime::Time
+
+pub fn vortex_array::extension::datetime::Time::eq(&self, other: &vortex_array::extension::datetime::Time) -> bool
+
+impl core::default::Default for vortex_array::extension::datetime::Time
+
+pub fn vortex_array::extension::datetime::Time::default() -> vortex_array::extension::datetime::Time
+
+impl core::fmt::Debug for vortex_array::extension::datetime::Time
+
+pub fn vortex_array::extension::datetime::Time::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::extension::datetime::Time
+
+pub fn vortex_array::extension::datetime::Time::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_array::extension::datetime::Time
+
+impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::datetime::Time
+
+pub type vortex_array::extension::datetime::Time::Metadata = vortex_array::extension::datetime::TimeUnit
+
+pub fn vortex_array::extension::datetime::Time::deserialize(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_array::extension::datetime::Time::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::Time::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::extension::datetime::Time::validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+
+pub struct vortex_array::extension::datetime::Timestamp
+
+impl vortex_array::extension::datetime::Timestamp
+
+pub fn vortex_array::extension::datetime::Timestamp::new(time_unit: vortex_array::extension::datetime::TimeUnit, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
+
+pub fn vortex_array::extension::datetime::Timestamp::new_with_options(options: vortex_array::extension::datetime::TimestampOptions, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
+
+pub fn vortex_array::extension::datetime::Timestamp::new_with_tz(time_unit: vortex_array::extension::datetime::TimeUnit, timezone: core::option::Option<alloc::sync::Arc<str>>, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
+
+impl core::clone::Clone for vortex_array::extension::datetime::Timestamp
+
+pub fn vortex_array::extension::datetime::Timestamp::clone(&self) -> vortex_array::extension::datetime::Timestamp
+
+impl core::cmp::Eq for vortex_array::extension::datetime::Timestamp
+
+impl core::cmp::PartialEq for vortex_array::extension::datetime::Timestamp
+
+pub fn vortex_array::extension::datetime::Timestamp::eq(&self, other: &vortex_array::extension::datetime::Timestamp) -> bool
+
+impl core::default::Default for vortex_array::extension::datetime::Timestamp
+
+pub fn vortex_array::extension::datetime::Timestamp::default() -> vortex_array::extension::datetime::Timestamp
+
+impl core::fmt::Debug for vortex_array::extension::datetime::Timestamp
+
+pub fn vortex_array::extension::datetime::Timestamp::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::extension::datetime::Timestamp
+
+pub fn vortex_array::extension::datetime::Timestamp::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_array::extension::datetime::Timestamp
+
+impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::datetime::Timestamp
+
+pub type vortex_array::extension::datetime::Timestamp::Metadata = vortex_array::extension::datetime::TimestampOptions
+
+pub fn vortex_array::extension::datetime::Timestamp::deserialize(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_array::extension::datetime::Timestamp::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::Timestamp::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::extension::datetime::Timestamp::validate_dtype(&self, _metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
+
+pub struct vortex_array::extension::datetime::TimestampOptions
+
+pub vortex_array::extension::datetime::TimestampOptions::tz: core::option::Option<alloc::sync::Arc<str>>
+
+pub vortex_array::extension::datetime::TimestampOptions::unit: vortex_array::extension::datetime::TimeUnit
+
+impl core::clone::Clone for vortex_array::extension::datetime::TimestampOptions
+
+pub fn vortex_array::extension::datetime::TimestampOptions::clone(&self) -> vortex_array::extension::datetime::TimestampOptions
+
+impl core::cmp::Eq for vortex_array::extension::datetime::TimestampOptions
+
+impl core::cmp::PartialEq for vortex_array::extension::datetime::TimestampOptions
+
+pub fn vortex_array::extension::datetime::TimestampOptions::eq(&self, other: &vortex_array::extension::datetime::TimestampOptions) -> bool
+
+impl core::fmt::Debug for vortex_array::extension::datetime::TimestampOptions
+
+pub fn vortex_array::extension::datetime::TimestampOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::extension::datetime::TimestampOptions
+
+pub fn vortex_array::extension::datetime::TimestampOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::extension::datetime::TimestampOptions
+
+pub fn vortex_array::extension::datetime::TimestampOptions::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_array::extension::datetime::TimestampOptions
+
+pub struct vortex_array::extension::EmptyMetadata
+
+impl core::clone::Clone for vortex_array::extension::EmptyMetadata
+
+pub fn vortex_array::extension::EmptyMetadata::clone(&self) -> vortex_array::extension::EmptyMetadata
+
+impl core::cmp::Eq for vortex_array::extension::EmptyMetadata
+
+impl core::cmp::PartialEq for vortex_array::extension::EmptyMetadata
+
+pub fn vortex_array::extension::EmptyMetadata::eq(&self, other: &vortex_array::extension::EmptyMetadata) -> bool
+
+impl core::fmt::Debug for vortex_array::extension::EmptyMetadata
+
+pub fn vortex_array::extension::EmptyMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::extension::EmptyMetadata
+
+pub fn vortex_array::extension::EmptyMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::extension::EmptyMetadata
+
+pub fn vortex_array::extension::EmptyMetadata::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_array::extension::EmptyMetadata
+
 pub mod vortex_array::flatbuffers
 
 pub use vortex_array::flatbuffers::<<vortex_flatbuffers::array::*>>
@@ -14238,7 +14146,7 @@ pub fn vortex_array::scalar::Scalar::bool(value: bool, nullability: vortex_array
 
 pub fn vortex_array::scalar::Scalar::decimal(value: vortex_array::scalar::DecimalValue, decimal_type: vortex_array::dtype::DecimalDType, nullability: vortex_array::dtype::Nullability) -> Self
 
-pub fn vortex_array::scalar::Scalar::extension<V: vortex_array::dtype::extension::ExtDTypeVTable + core::default::Default>(options: <V as vortex_array::dtype::extension::ExtDTypeVTable>::Metadata, value: vortex_array::scalar::Scalar) -> Self
+pub fn vortex_array::scalar::Scalar::extension<V: vortex_array::dtype::extension::ExtVTable + core::default::Default>(options: <V as vortex_array::dtype::extension::ExtVTable>::Metadata, value: vortex_array::scalar::Scalar) -> Self
 
 pub fn vortex_array::scalar::Scalar::extension_ref(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, value: vortex_array::scalar::Scalar) -> Self
 

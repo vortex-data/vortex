@@ -17,7 +17,7 @@ use vortex::error::VortexResult;
 
 use crate::convert::ToDuckDBScalar;
 use crate::duckdb::SelectionVector;
-use crate::duckdb::Vector;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::cache::ConversionCache;
 use crate::exporter::new_array_exporter;
@@ -54,7 +54,7 @@ pub(crate) fn new_exporter(
 }
 
 impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         let ends_slice = self.ends.as_slice::<E>();
 
         // Adjust offset to account for the run-end offset.

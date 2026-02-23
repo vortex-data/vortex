@@ -87,8 +87,8 @@ use crate::dtype::DecimalDType;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
-use crate::dtype::datetime::TimeUnit;
 use crate::dtype::i256;
+use crate::extension::datetime::TimeUnit;
 use crate::validity::Validity;
 
 impl IntoArray for ArrowBuffer {
@@ -693,8 +693,8 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::dtype::datetime::TimeUnit;
-    use crate::dtype::datetime::Timestamp;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
 
     // Test primitive array conversions
     #[test]

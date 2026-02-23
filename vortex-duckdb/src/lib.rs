@@ -17,6 +17,7 @@ use vortex::session::VortexSession;
 
 use crate::copy::VortexCopyFunction;
 use crate::duckdb::Database;
+use crate::duckdb::DatabaseRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::Value;
 use crate::scan::VortexTableFunction;
@@ -45,7 +46,7 @@ static SESSION: LazyLock<VortexSession> =
 /// Initialize the Vortex extension by registering the extension functions.
 /// Note: This also registers extension options. If you want to register options
 /// separately (e.g., before creating connections), call `register_extension_options` first.
-pub fn initialize(db: &Database) -> VortexResult<()> {
+pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
     db.config().add_extension_options(
         "vortex_filesystem",
         "Whether to use Vortex's filesystem ('vortex') or DuckDB's filesystems ('duckdb').",
@@ -73,7 +74,7 @@ pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
     database
         .register_vortex_scan_replacement()
         .vortex_expect("failed to register vortex scan replacement");
-    initialize(&database).vortex_expect("Failed to initialize Vortex extension");
+    initialize(database).vortex_expect("Failed to initialize Vortex extension");
 }
 
 /// The DuckDB extension ABI version function.

@@ -127,8 +127,8 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::dtype::Nullability;
-    use crate::dtype::datetime::Date;
-    use crate::dtype::datetime::TimeUnit;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::TimeUnit;
     use crate::scalar::Scalar;
 
     #[test]

@@ -21,12 +21,12 @@ use vortex::dtype::DType;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
-use vortex::dtype::datetime::TimeUnit;
-use vortex::dtype::datetime::Timestamp;
 use vortex::encodings::datetime_parts::DateTimePartsVTable;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
+use vortex::extension::datetime::TimeUnit;
+use vortex::extension::datetime::Timestamp;
 use vortex::scalar::Scalar;
 use vortex_cuda_macros::cuda_tests;
 
@@ -212,10 +212,10 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
-    use vortex::dtype::datetime::TimeUnit;
     use vortex::encodings::datetime_parts::DateTimePartsArray;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
+    use vortex::extension::datetime::TimeUnit;
     use vortex::session::VortexSession;
 
     use super::*;

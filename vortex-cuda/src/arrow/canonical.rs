@@ -14,10 +14,10 @@ use vortex::array::arrays::StructArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::vtable::ValidityHelper;
 use vortex::dtype::DecimalType;
-use vortex::dtype::datetime::AnyTemporal;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
+use vortex::extension::datetime::AnyTemporal;
 use vortex_cuda_macros::cuda_tests;
 
 use crate::CudaExecutionCtx;
@@ -289,9 +289,9 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::dtype::DecimalDType;
     use vortex::dtype::FieldNames;
-    use vortex::dtype::datetime::TimeUnit;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
+    use vortex::extension::datetime::TimeUnit;
     use vortex::session::VortexSession;
 
     use super::release_array;

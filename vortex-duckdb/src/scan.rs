@@ -57,17 +57,17 @@ use crate::RUNTIME;
 use crate::SESSION;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_table_filter;
-use crate::duckdb::BindInput;
-use crate::duckdb::BindResult;
+use crate::duckdb::BindInputRef;
+use crate::duckdb::BindResultRef;
 use crate::duckdb::Cardinality;
-use crate::duckdb::ClientContext;
-use crate::duckdb::DataChunk;
-use crate::duckdb::Expression;
+use crate::duckdb::ClientContextRef;
+use crate::duckdb::DataChunkRef;
+use crate::duckdb::ExpressionRef;
 use crate::duckdb::ExtractedValue;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
-use crate::duckdb::VirtualColumnsResult;
+use crate::duckdb::VirtualColumnsResultRef;
 use crate::duckdb::footer_cache::FooterCache;
 use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
@@ -189,29 +189,26 @@ fn extract_table_filter_expr(
     init: &TableInitInput<VortexTableFunction>,
     column_ids: &[u64],
 ) -> VortexResult<Option<VortexExpression>> {
-    let mut table_filter_exprs: HashSet<VortexExpression> =
-        if let Some(filter) = init.table_filter_set() {
-            filter
-                .into_iter()
-                .map(|(idx, ex)| {
-                    let idx_u: usize = idx.as_();
-                    let col_idx: usize = column_ids[idx_u].as_();
-                    let name = init
-                        .bind_data()
-                        .column_names
-                        .get(col_idx)
-                        .vortex_expect("exists");
-                    try_from_table_filter(
-                        &ex,
-                        &col(name.as_str()),
-                        init.bind_data().first_file.dtype(),
-                    )
-                })
-                .collect::<VortexResult<Option<HashSet<_>>>>()?
-                .unwrap_or_else(HashSet::new)
-        } else {
-            HashSet::new()
-        };
+    let mut table_filter_exprs: HashSet<VortexExpression> = if let Some(filter) =
+        init.table_filter_set()
+    {
+        filter
+            .into_iter()
+            .map(|(idx, ex)| {
+                let idx_u: usize = idx.as_();
+                let col_idx: usize = column_ids[idx_u].as_();
+                let name = init
+                    .bind_data()
+                    .column_names
+                    .get(col_idx)
+                    .vortex_expect("exists");
+                try_from_table_filter(ex, &col(name.as_str()), init.bind_data().first_file.dtype())
+            })
+            .collect::<VortexResult<Option<HashSet<_>>>>()?
+            .unwrap_or_else(HashSet::new)
+    } else {
+        HashSet::new()
+    };
 
     table_filter_exprs.extend(init.bind_data().filter_exprs.clone());
     Ok(and_collect(table_filter_exprs.into_iter().collect_vec()))
@@ -241,24 +238,22 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn bind(
-        ctx: &ClientContext,
-        input: &BindInput,
-        result: &mut BindResult,
+        ctx: &ClientContextRef,
+        input: &BindInputRef,
+        result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData> {
         let glob_url_parameter = input
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
         // Parse the URL and separate the base URL (keep scheme, host, etc.) from the path.
-        let glob_url_str = glob_url_parameter.as_ref().as_string();
+        let glob_url_str = glob_url_parameter.as_string();
         let glob_url = match Url::parse(glob_url_str.as_str()) {
             Ok(url) => url,
             Err(_) => {
                 // Otherwise, we assume it's a file path.
                 let path = if !glob_url_str.as_str().starts_with("/") {
-                    // We cannot use Path::canonicalize to resolve relative paths since it
-                    // requires the file to exist, and the glob may contain wildcards. Instead,
-                    // we resolve relative paths against the current working directory.
+                    // We cannot use Path::canonicalize to resolve relative paths since it requires the file to exist, and the glob may contain wildcards. Instead, we resolve relative paths against the current working directory.
                     let current_dir = std::env::current_dir().map_err(|e| {
                         vortex_err!(
                             "Cannot get current working directory to resolve relative path {}: {}",
@@ -287,7 +282,7 @@ impl TableFunction for VortexTableFunction {
             .map_err(|e| vortex_err!("Invalid setting name: {}", e))?;
         let max_threads = ctx
             .try_get_current_setting(&max_threads_cstr)
-            .and_then(|v| match v.as_ref().extract() {
+            .and_then(|v| match v.extract() {
                 ExtractedValue::UBigInt(val) => usize::try_from(val).ok(),
                 ExtractedValue::BigInt(val) if val > 0 => usize::try_from(val as u64).ok(),
                 _ => None,
@@ -344,11 +339,11 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn scan(
-        _client_context: &ClientContext,
+        _client_context: &ClientContextRef,
         _bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
         global_state: &mut Self::GlobalState,
-        chunk: &mut DataChunk,
+        chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
         loop {
             if local_state.exporter.is_none() {
@@ -422,7 +417,9 @@ impl TableFunction for VortexTableFunction {
         );
 
         let client_context = init_input.client_context()?;
-        let object_cache = client_context.object_cache();
+        // SAFETY: The ObjectCache is owned by the DatabaseInstance and lives as long as the
+        // database. DuckDB keeps the database alive for the duration of any query execution.
+        let object_cache = unsafe { client_context.object_cache().erase_lifetime() };
 
         let num_workers = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -530,7 +527,7 @@ impl TableFunction for VortexTableFunction {
     }
 
     fn table_scan_progress(
-        _client_context: &ClientContext,
+        _client_context: &ClientContextRef,
         _bind_data: &mut Self::BindData,
         global_state: &mut Self::GlobalState,
     ) -> f64 {
@@ -539,7 +536,7 @@ impl TableFunction for VortexTableFunction {
 
     fn pushdown_complex_filter(
         bind_data: &mut Self::BindData,
-        expr: &Expression,
+        expr: &ExpressionRef,
     ) -> VortexResult<bool> {
         let Some(expr) = try_from_bound_expression(expr)? else {
             return Ok(false);
@@ -593,7 +590,7 @@ impl TableFunction for VortexTableFunction {
         Some(result)
     }
 
-    fn virtual_columns(_bind_data: &Self::BindData, result: &mut VirtualColumnsResult) {
+    fn virtual_columns(_bind_data: &Self::BindData, result: &mut VirtualColumnsResultRef) {
         result.register(EMPTY_COLUMN_IDX, EMPTY_COLUMN_NAME, &LogicalType::bool());
     }
 }

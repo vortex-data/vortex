@@ -64,25 +64,25 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFnArrayExt;
     use crate::dtype::DType;
-    use crate::dtype::ExtDType;
-    use crate::dtype::ExtDTypeRef;
-    use crate::dtype::ExtID;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::dtype::extension::EmptyMetadata;
-    use crate::dtype::extension::ExtDTypeVTable;
+    use crate::dtype::extension::ExtDType;
+    use crate::dtype::extension::ExtDTypeRef;
+    use crate::dtype::extension::ExtId;
+    use crate::dtype::extension::ExtVTable;
     use crate::expr::Binary;
     use crate::expr::Operator;
+    use crate::extension::EmptyMetadata;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
 
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct TestExt;
-    impl ExtDTypeVTable for TestExt {
+    impl ExtVTable for TestExt {
         type Metadata = EmptyMetadata;
 
-        fn id(&self) -> ExtID {
-            ExtID::new_ref("test_ext")
+        fn id(&self) -> ExtId {
+            ExtId::new_ref("test_ext")
         }
 
         fn validate_dtype(
@@ -162,11 +162,11 @@ mod tests {
     fn test_scalar_fn_no_pushdown_different_ext_types() {
         #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct TestExt2;
-        impl ExtDTypeVTable for TestExt2 {
+        impl ExtVTable for TestExt2 {
             type Metadata = EmptyMetadata;
 
-            fn id(&self) -> ExtID {
-                ExtID::new_ref("test_ext_2")
+            fn id(&self) -> ExtId {
+                ExtId::new_ref("test_ext_2")
             }
 
             fn validate_dtype(

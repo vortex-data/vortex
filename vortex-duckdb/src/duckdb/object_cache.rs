@@ -6,6 +6,7 @@ use std::os::raw::c_void;
 
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
+use vortex::error::vortex_panic;
 
 use crate::cpp;
 use crate::lifetime_wrapper;
@@ -19,12 +20,22 @@ unsafe extern "C-unwind" fn rust_box_deleter<T>(ptr: *mut c_void) {
     }
 }
 
-// ObjectCache is a wrapper around a DuckDB object cache.
-// We only implement ObjectCacheRef since duckdb only has a single object cache per client,
-// context which is never owned.
-lifetime_wrapper!(ObjectCache, cpp::duckdb_vx_object_cache, |_| {}, [ref]);
+lifetime_wrapper!(ObjectCache, cpp::duckdb_vx_object_cache, |_| {
+    vortex_panic!("ObjectCache is owned by the DatabaseInstance, not by Rust")
+});
 
-impl ObjectCacheRef<'_> {
+impl ObjectCacheRef {
+    /// Erases the lifetime of this reference, returning a `&'static ObjectCacheRef`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the underlying `ObjectCache` outlives all uses of the
+    /// returned reference. In practice, the `ObjectCache` is owned by the `DatabaseInstance`
+    /// and lives as long as the database, so this is safe as long as the database is kept alive.
+    pub unsafe fn erase_lifetime(&self) -> &'static Self {
+        unsafe { &*(self as *const Self) }
+    }
+
     /// Store an entry in the object cache with the given key.
     /// The entry will be converted to an opaque pointer and stored.
     /// Uses a proper deleter to ensure memory is freed when the cache entry is removed.
@@ -60,6 +71,7 @@ impl ObjectCacheRef<'_> {
         }
     }
 }
-// This is Send + Sync since the cache has a mutex wrapper.
-unsafe impl Send for ObjectCacheRef<'_> {}
-unsafe impl Sync for ObjectCacheRef<'_> {}
+
+// SAFETY: Send + Sync since the cache has a mutex wrapper on the C++ side.
+unsafe impl Send for ObjectCacheRef {}
+unsafe impl Sync for ObjectCacheRef {}

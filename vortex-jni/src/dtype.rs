@@ -23,12 +23,12 @@ use vortex::dtype::DecimalDType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::dtype::StructFields;
-use vortex::dtype::datetime::AnyTemporal;
-use vortex::dtype::datetime::Date;
-use vortex::dtype::datetime::Time;
-use vortex::dtype::datetime::TimeUnit;
-use vortex::dtype::datetime::Timestamp;
 use vortex::error::vortex_err;
+use vortex::extension::datetime::AnyTemporal;
+use vortex::extension::datetime::Date;
+use vortex::extension::datetime::Time;
+use vortex::extension::datetime::TimeUnit;
+use vortex::extension::datetime::Timestamp;
 
 use crate::errors::JNIError;
 use crate::errors::try_or_throw;

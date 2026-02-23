@@ -15,9 +15,9 @@ use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::LogicalType;
-use crate::duckdb::Vector;
+use crate::duckdb::LogicalType;
 use crate::duckdb::VectorBuffer;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::validity;
@@ -41,10 +41,8 @@ pub(crate) fn new_exporter(
     } = array.into_parts();
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;
     if validity.all_false() {
-        return Ok(all_invalid::new_exporter(
-            len,
-            &LogicalType::try_from(dtype)?,
-        ));
+        let ltype = LogicalType::try_from(dtype)?;
+        return Ok(all_invalid::new_exporter(len, &ltype));
     }
 
     let buffers = buffers
@@ -66,7 +64,7 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for VarBinViewExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         // Copy the views into place.
         for (mut_view, view) in unsafe { vector.as_slice_mut::<PtrBinaryView>(len) }
             .iter_mut()
@@ -147,9 +145,9 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinViewArray;
 
-    use crate::LogicalType;
     use crate::SESSION;
     use crate::duckdb::DataChunk;
+    use crate::duckdb::LogicalType;
     use crate::exporter::varbinview::new_exporter;
 
     #[test]
@@ -161,12 +159,12 @@ mod tests {
         new_exporter(arr, &mut SESSION.create_execution_ctx())?.export(
             0,
             3,
-            &mut chunk.get_vector(0),
+            chunk.get_vector_mut(0),
         )?;
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - CONSTANT VARCHAR: 3 = [ NULL]
 "#
@@ -184,12 +182,12 @@ mod tests {
         new_exporter(arr, &mut SESSION.create_execution_ctx())?.export(
             0,
             3,
-            &mut chunk.get_vector(0),
+            chunk.get_vector_mut(0),
         )?;
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - CONSTANT VARCHAR: 3 = [ NULL]
 "#
@@ -209,12 +207,12 @@ mod tests {
         new_exporter(arr, &mut SESSION.create_execution_ctx())?.export(
             0,
             3,
-            &mut chunk.get_vector(0),
+            chunk.get_vector_mut(0),
         )?;
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT VARCHAR: 3 = [ NULL, NULL, Hi]
 "#

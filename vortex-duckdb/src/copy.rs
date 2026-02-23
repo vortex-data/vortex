@@ -29,11 +29,11 @@ use crate::RUNTIME;
 use crate::SESSION;
 use crate::convert::data_chunk_to_vortex;
 use crate::convert::from_duckdb_table;
-use crate::duckdb::ClientContext;
+use crate::duckdb::ClientContextRef;
 use crate::duckdb::CopyFunction;
-use crate::duckdb::DataChunk;
-use crate::duckdb::LogicalType;
-use crate::duckdb::duckdb_fs_create_writer;
+use crate::duckdb::DataChunkRef;
+use crate::duckdb::DuckDbFsWriter;
+use crate::duckdb::LogicalTypeRef;
 
 #[derive(Debug)]
 pub struct VortexCopyFunction;
@@ -65,7 +65,7 @@ impl CopyFunction for VortexCopyFunction {
 
     fn bind(
         column_names: Vec<String>,
-        column_types: Vec<LogicalType>,
+        column_types: Vec<&LogicalTypeRef>,
     ) -> VortexResult<Self::BindData> {
         let fields = from_duckdb_table(
             column_names
@@ -85,7 +85,7 @@ impl CopyFunction for VortexCopyFunction {
         bind_data: &Self::BindData,
         init_global: &mut Self::GlobalState,
         _init_local: &mut Self::LocalState,
-        chunk: &mut DataChunk,
+        chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
         let chunk = data_chunk_to_vortex(bind_data.fields.names(), chunk);
         RUNTIME.block_on(async {
@@ -120,7 +120,7 @@ impl CopyFunction for VortexCopyFunction {
     }
 
     fn init_global(
-        client_context: ClientContext,
+        client_context: &ClientContextRef,
         bind_data: &Self::BindData,
         file_path: String,
     ) -> VortexResult<Self::GlobalState> {
@@ -129,12 +129,14 @@ impl CopyFunction for VortexCopyFunction {
         let array_stream = ArrayStreamAdapter::new(bind_data.dtype.clone(), rx.into_stream());
 
         let handle = SESSION.handle();
+        // SAFETY: The ClientContext is owned by the Connection and lives for the duration of
+        // query execution. DuckDB keeps the connection alive while this copy function runs.
+        let ctx = unsafe { client_context.erase_lifetime() };
         let write_task = handle.spawn(async move {
             // Use DuckDB FS exclusively to match the DuckDB client context configuration.
-            let writer = unsafe { duckdb_fs_create_writer(client_context.as_ptr(), &file_path) }
-                .map_err(|e| {
-                    vortex_err!("Failed to create DuckDB FS writer for {file_path}: {e}")
-                })?;
+            let writer = DuckDbFsWriter::new(ctx, &file_path).map_err(|e| {
+                vortex_err!("Failed to create DuckDB FS writer for {file_path}: {e}")
+            })?;
             SESSION.write_options().write(writer, array_stream).await
         });
 

@@ -82,6 +82,10 @@ pub mod vortex::error
 
 pub use vortex::error::<<vortex_error::*>>
 
+pub mod vortex::extension
+
+pub use vortex::extension::<<vortex_array::extension::*>>
+
 pub mod vortex::file
 
 pub use vortex::file::<<vortex_file::*>>

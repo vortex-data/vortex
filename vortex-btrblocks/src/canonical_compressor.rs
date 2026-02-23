@@ -21,7 +21,7 @@ use vortex_array::compute::IsConstantOpts;
 use vortex_array::compute::is_constant_opts;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::datetime::TemporalMetadata;
+use vortex_array::extension::datetime::TemporalMetadata;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
