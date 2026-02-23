@@ -14,14 +14,6 @@
 #include <utility>
 
 using namespace duckdb;
-
-struct FileHandleWrapper {
-    explicit FileHandleWrapper(unique_ptr<FileHandle> handle_p) : handle(std::move(handle_p)) {
-    }
-
-    unique_ptr<FileHandle> handle;
-};
-
 using vortex::HandleException;
 using vortex::SetError;
 
@@ -32,13 +24,14 @@ duckdb_vx_fs_open(duckdb_client_context ctx, const char *path, duckdb_vx_error *
         return nullptr;
     }
 
+    auto *client_context = reinterpret_cast<ClientContext *>(ctx);
+
     try {
-        auto client_context = reinterpret_cast<ClientContext *>(ctx);
         auto &fs = FileSystem::GetFileSystem(*client_context);
         auto handle = fs.OpenFile(path, FileFlags::FILE_FLAGS_READ | FileFlags::FILE_FLAGS_PARALLEL_ACCESS);
-        return reinterpret_cast<duckdb_vx_file_handle>(new FileHandleWrapper(std::move(handle)));
-    } catch (...) {
-        HandleException(std::current_exception(), error_out);
+        return reinterpret_cast<duckdb_vx_file_handle>(handle.release());
+    } catch (const std::exception &e) {
+        SetError(error_out, e.what());
         return nullptr;
     }
 }
@@ -50,43 +43,36 @@ duckdb_vx_fs_create(duckdb_client_context ctx, const char *path, duckdb_vx_error
         return nullptr;
     }
 
+    constexpr auto flags = FileFlags::FILE_FLAGS_WRITE | FileFlags::FILE_FLAGS_FILE_CREATE_NEW |
+                           FileFlags::FILE_FLAGS_PARALLEL_ACCESS;
+    auto *client_context = reinterpret_cast<ClientContext *>(ctx);
+
     try {
-        auto client_context = reinterpret_cast<ClientContext *>(ctx);
         auto &fs = FileSystem::GetFileSystem(*client_context);
-        auto handle = fs.OpenFile(path,
-                                  FileFlags::FILE_FLAGS_WRITE | FileFlags::FILE_FLAGS_FILE_CREATE |
-                                      FileFlags::FILE_FLAGS_PARALLEL_ACCESS);
-        handle->Truncate(0);
-        return reinterpret_cast<duckdb_vx_file_handle>(new FileHandleWrapper(std::move(handle)));
-    } catch (...) {
-        HandleException(std::current_exception(), error_out);
+        auto handle = fs.OpenFile(path, flags);
+        return reinterpret_cast<duckdb_vx_file_handle>(handle.release());
+    } catch (const std::exception &e) {
+        SetError(error_out, e.what());
         return nullptr;
     }
 }
 
 extern "C" void duckdb_vx_fs_close(duckdb_vx_file_handle *handle) {
-    if (!handle || !*handle) {
-        return;
-    }
-    auto wrapper = reinterpret_cast<FileHandleWrapper *>(*handle);
-    delete wrapper;
-    *handle = nullptr;
+    if (handle && *handle)
+        delete reinterpret_cast<FileHandle *>(std::exchange(*handle, nullptr));
 }
 
 extern "C" duckdb_state
 duckdb_vx_fs_get_size(duckdb_vx_file_handle handle, idx_t *size_out, duckdb_vx_error *error_out) {
-    if (!handle || !size_out) {
-        SetError(error_out, "Invalid arguments to fs_get_size");
-        return DuckDBError;
-    }
+    if (!handle || !size_out)
+        return SetError(error_out, "Invalid arguments to fs_get_size");
 
     try {
-        auto *wrapper = reinterpret_cast<FileHandleWrapper *>(handle);
-        *size_out = wrapper->handle->GetFileSize();
-        return DuckDBSuccess;
-    } catch (...) {
-        return HandleException(std::current_exception(), error_out);
+        *size_out = reinterpret_cast<FileHandle *>(handle)->GetFileSize();
+    } catch (const std::exception &e) {
+        return SetError(error_out, e.what());
     }
+    return DuckDBSuccess;
 }
 
 extern "C" duckdb_state duckdb_vx_fs_read(duckdb_vx_file_handle handle,
@@ -95,19 +81,16 @@ extern "C" duckdb_state duckdb_vx_fs_read(duckdb_vx_file_handle handle,
                                           uint8_t *buffer,
                                           idx_t *out_len,
                                           duckdb_vx_error *error_out) {
-    if (!handle || !buffer || !out_len) {
-        SetError(error_out, "Invalid arguments to fs_read");
-        return DuckDBError;
-    }
+    if (!handle || !buffer || !out_len)
+        return SetError(error_out, "Invalid arguments to fs_read");
 
     try {
-        auto *wrapper = reinterpret_cast<FileHandleWrapper *>(handle);
-        wrapper->handle->Read(buffer, len, offset);
+        reinterpret_cast<FileHandle *>(handle)->Read(buffer, len, offset);
         *out_len = len;
-        return DuckDBSuccess;
-    } catch (...) {
-        return HandleException(std::current_exception(), error_out);
+    } catch (const std::exception &e) {
+        return SetError(error_out, e.what());
     }
+    return DuckDBSuccess;
 }
 
 extern "C" duckdb_state duckdb_vx_fs_write(duckdb_vx_file_handle handle,
@@ -116,19 +99,16 @@ extern "C" duckdb_state duckdb_vx_fs_write(duckdb_vx_file_handle handle,
                                            uint8_t *buffer,
                                            idx_t *out_len,
                                            duckdb_vx_error *error_out) {
-    if (!handle || !buffer || !out_len) {
-        SetError(error_out, "Invalid arguments to fs_write");
-        return DuckDBError;
-    }
+    if (!handle || !buffer || !out_len)
+        return SetError(error_out, "Invalid arguments to fs_write");
 
     try {
-        auto *wrapper = reinterpret_cast<FileHandleWrapper *>(handle);
-        wrapper->handle->Write(QueryContext(), buffer, len, offset);
+        reinterpret_cast<FileHandle *>(handle)->Write(QueryContext(), buffer, len, offset);
         *out_len = len;
-        return DuckDBSuccess;
-    } catch (...) {
-        return HandleException(std::current_exception(), error_out);
+    } catch (const std::exception &e) {
+        return SetError(error_out, e.what());
     }
+    return DuckDBSuccess;
 }
 
 extern "C" duckdb_state duckdb_vx_fs_list_files(duckdb_client_context ctx,
@@ -136,35 +116,31 @@ extern "C" duckdb_state duckdb_vx_fs_list_files(duckdb_client_context ctx,
                                                 duckdb_vx_list_files_callback callback,
                                                 void *user_data,
                                                 duckdb_vx_error *error_out) {
-    if (!ctx || !directory || !callback) {
-        SetError(error_out, "Invalid arguments to fs_list_files");
-        return DuckDBError;
-    }
+    if (!ctx || !directory || !callback)
+        return SetError(error_out, "Invalid arguments to fs_list_files");
+
+    auto fn = [&](const string &name, bool is_dir) {
+        callback(name.c_str(), is_dir, user_data);
+    };
+    auto *client_context = reinterpret_cast<ClientContext *>(ctx);
 
     try {
-        auto client_context = reinterpret_cast<ClientContext *>(ctx);
-        auto &fs = FileSystem::GetFileSystem(*client_context);
-
-        fs.ListFiles(directory,
-                     [&](const string &name, bool is_dir) { callback(name.c_str(), is_dir, user_data); });
-
+        FileSystem::GetFileSystem(*client_context).ListFiles(directory, fn);
         return DuckDBSuccess;
-    } catch (...) {
-        return HandleException(std::current_exception(), error_out);
+    } catch (const std::exception &e) {
+        return SetError(error_out, e.what());
     }
+    return DuckDBSuccess;
 }
 
 extern "C" duckdb_state duckdb_vx_fs_sync(duckdb_vx_file_handle handle, duckdb_vx_error *error_out) {
-    if (!handle) {
-        SetError(error_out, "Invalid arguments to fs_sync");
-        return DuckDBError;
-    }
+    if (!handle)
+        return SetError(error_out, "Invalid arguments to fs_sync");
 
     try {
-        auto *wrapper = reinterpret_cast<FileHandleWrapper *>(handle);
-        wrapper->handle->Sync();
-        return DuckDBSuccess;
-    } catch (...) {
-        return HandleException(std::current_exception(), error_out);
+        reinterpret_cast<FileHandle *>(handle)->Sync();
+    } catch (const std::exception &e) {
+        return SetError(error_out, e.what());
     }
+    return DuckDBSuccess;
 }
