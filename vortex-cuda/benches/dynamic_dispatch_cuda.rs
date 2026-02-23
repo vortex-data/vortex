@@ -16,22 +16,24 @@ use cudarc::driver::DevicePtr;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags;
-use futures::executor::block_on;
+use vortex::array::IntoArray;
+use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
 use vortex::encodings::fastlanes::BitPackedArray;
+use vortex::encodings::fastlanes::FoRArray;
+use vortex::encodings::runend::RunEndArray;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::session::VortexSession;
-use vortex_cuda::CudaBufferExt;
 use vortex_cuda::CudaDeviceBuffer;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
+use vortex_cuda::dynamic_dispatch;
 use vortex_cuda::dynamic_dispatch::DynamicDispatchPlan;
-use vortex_cuda::dynamic_dispatch::ScalarOp;
-use vortex_cuda::dynamic_dispatch::SourceOp;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
@@ -41,33 +43,13 @@ const BENCH_ARGS: &[(usize, &str)] = &[
     (100_000_000, "100M"),
 ];
 
-const REFERENCE_VALUE: u32 = 100_000;
-
-/// Bit width used for the bitpack+FoR benchmarks.
-const BIT_WIDTH: u8 = 6;
-
-/// ALP decode factors for the ALP benchmarks.
-const ALP_F: f32 = 10.0;
-const ALP_E: f32 = 1.0;
-
-/// Create a BitPackedArray of u32 values with the given bit width and length.
-fn make_bitpacked_array_u32(bit_width: u8, len: usize) -> BitPackedArray {
-    let max_val = (1u64 << bit_width).saturating_sub(1);
-    let values: Vec<u32> = (0..len)
-        .map(|i| (i as u64 % (max_val + 1)) as u32)
-        .collect();
-    let primitive = PrimitiveArray::new(Buffer::from(values), NonNullable);
-    BitPackedArray::encode(primitive.as_ref(), bit_width)
-        .vortex_expect("failed to create BitPacked array")
-}
-
 /// Launch the dynamic_dispatch kernel and return GPU-timed duration.
-fn run_dynamic_dispatch_timed(
+fn run_timed(
     cuda_ctx: &mut CudaExecutionCtx,
-    input_ptr: u64,
     output_ptr: u64,
     array_len: usize,
     device_plan: &Arc<cudarc::driver::CudaSlice<DynamicDispatchPlan>>,
+    shared_mem_bytes: u32,
 ) -> VortexResult<Duration> {
     let cuda_function = cuda_ctx.load_function("dynamic_dispatch", &["u32"])?;
     let array_len_u64 = array_len as u64;
@@ -77,13 +59,12 @@ fn run_dynamic_dispatch_timed(
     let ctx = stream.context();
     let start_event = ctx
         .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
-        .map_err(|e| vortex_err!("failed to create start event: {:?}", e))?;
+        .map_err(|e| vortex_err!("{e:?}"))?;
     start_event
         .record(stream)
-        .map_err(|e| vortex_err!("failed to record start event: {:?}", e))?;
+        .map_err(|e| vortex_err!("{e:?}"))?;
 
     let mut launch_builder = cuda_ctx.stream().launch_builder(&cuda_function);
-    launch_builder.arg(&input_ptr);
     launch_builder.arg(&output_ptr);
     launch_builder.arg(&array_len_u64);
     launch_builder.arg(&plan_ptr);
@@ -92,106 +73,122 @@ fn run_dynamic_dispatch_timed(
     let config = LaunchConfig {
         grid_dim: (num_blocks, 1, 1),
         block_dim: (64, 1, 1),
-        shared_mem_bytes: 0,
+        shared_mem_bytes,
     };
 
     unsafe {
         launch_builder
             .launch(config)
-            .map_err(|e| vortex_err!("dynamic_dispatch kernel launch failed: {}", e))?;
+            .map_err(|e| vortex_err!("kernel launch failed: {e}"))?;
     }
 
     let stream = cuda_ctx.stream();
     let ctx = stream.context();
     let end_event = ctx
         .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
-        .map_err(|e| vortex_err!("failed to create end event: {:?}", e))?;
-    end_event
-        .record(stream)
-        .map_err(|e| vortex_err!("failed to record end event: {:?}", e))?;
+        .map_err(|e| vortex_err!("{e:?}"))?;
+    end_event.record(stream).map_err(|e| vortex_err!("{e:?}"))?;
 
     let elapsed_ms = start_event
         .elapsed_ms(&end_event)
-        .map_err(|e| vortex_err!("failed to get elapsed time: {:?}", e))?;
+        .map_err(|e| vortex_err!("{e:?}"))?;
 
     Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
 }
 
-/// Run a fused dynamic_dispatch launch on a bitpacked array, returning GPU time.
-fn run_dynamic_dispatch_bitpacked_timed(
-    cuda_ctx: &mut CudaExecutionCtx,
-    bitpacked_array: &BitPackedArray,
-    device_plan: &Arc<cudarc::driver::CudaSlice<DynamicDispatchPlan>>,
-) -> VortexResult<Duration> {
-    let packed = bitpacked_array.packed().clone();
-    let len = bitpacked_array.len();
-
-    // Move packed data to device.
-    let device_input = block_on(cuda_ctx.ensure_on_device(packed))?;
-
-    let input_ptr = device_input
-        .cuda_view::<u32>()
-        .vortex_expect("failed to get input view")
-        .device_ptr(cuda_ctx.stream())
-        .0;
-
-    // Allocate output buffer (padded to 1024-element chunks).
-    let output_slice = cuda_ctx
-        .device_alloc::<u32>(len.next_multiple_of(1024))
-        .vortex_expect("failed to allocate output");
-    let output_buf = CudaDeviceBuffer::new(output_slice);
-    let output_ptr = output_buf.as_view::<u32>().device_ptr(cuda_ctx.stream()).0;
-
-    // Ensure all previous works on the stream completed.
-    cuda_ctx
-        .stream()
-        .synchronize()
-        .map_err(|e| vortex_err!("failed to synchronize stream: {:?}", e))?;
-
-    run_dynamic_dispatch_timed(cuda_ctx, input_ptr, output_ptr, len, device_plan)
+/// Benchmark runner: builds a dynamic plan and launches the kernel.
+struct BenchRunner {
+    _plan: DynamicDispatchPlan,
+    smem_bytes: u32,
+    output_ptr: u64,
+    len: usize,
+    // Keep alive
+    _device_plan: Arc<cudarc::driver::CudaSlice<DynamicDispatchPlan>>,
+    _output_buf: CudaDeviceBuffer,
+    _plan_buffers: Vec<vortex::array::buffer::BufferHandle>,
 }
 
-fn bench_bitunpack_for_dynamic_dispatch(c: &mut Criterion) {
-    let mut group = c.benchmark_group("bitunpack_for");
+impl BenchRunner {
+    fn new(array: &vortex::array::ArrayRef, len: usize, cuda_ctx: &CudaExecutionCtx) -> Self {
+        let (plan, plan_buffers) =
+            dynamic_dispatch::build_plan(array, cuda_ctx).vortex_expect("build_plan");
+        let smem_bytes = plan.shared_mem_bytes::<u32>();
+
+        let device_plan = Arc::new(
+            cuda_ctx
+                .stream()
+                .clone_htod(std::slice::from_ref(&plan))
+                .expect("htod plan"),
+        );
+
+        let output_slice = cuda_ctx
+            .device_alloc::<u32>(len.next_multiple_of(1024))
+            .expect("alloc output");
+        let output_buf = CudaDeviceBuffer::new(output_slice);
+        let output_ptr = output_buf.as_view::<u32>().device_ptr(cuda_ctx.stream()).0;
+
+        Self {
+            _plan: plan,
+            smem_bytes,
+            output_ptr,
+            len,
+            _device_plan: device_plan,
+            _output_buf: output_buf,
+            _plan_buffers: plan_buffers,
+        }
+    }
+
+    fn run(&self, cuda_ctx: &mut CudaExecutionCtx) -> Duration {
+        cuda_ctx.stream().synchronize().unwrap();
+        run_timed(
+            cuda_ctx,
+            self.output_ptr,
+            self.len,
+            &self._device_plan,
+            self.smem_bytes,
+        )
+        .unwrap()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Benchmark: FoR(BitPacked)
+// ---------------------------------------------------------------------------
+fn bench_for_bitpacked(c: &mut Criterion) {
+    let mut group = c.benchmark_group("for_bitpacked_6bw");
     group.sample_size(10);
 
-    let plan = DynamicDispatchPlan::new(
-        SourceOp::bitunpack(BIT_WIDTH),
-        &[ScalarOp::frame_of_ref(REFERENCE_VALUE as u64)],
-    );
+    let bit_width: u8 = 6;
+    let reference = 100_000u32;
 
     for (len, len_str) in BENCH_ARGS {
         group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
 
-        let bitpacked = make_bitpacked_array_u32(BIT_WIDTH, *len);
+        // FoR(BitPacked): residuals 0..max_val, reference adds 100_000
+        let max_val = (1u64 << bit_width).saturating_sub(1);
+        let residuals: Vec<u32> = (0..*len)
+            .map(|i| (i as u64 % (max_val + 1)) as u32)
+            .collect();
+        let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
+        let bp = BitPackedArray::encode(prim.as_ref(), bit_width).vortex_expect("bitpack");
+        let for_arr =
+            FoRArray::try_new(bp.into_array(), Scalar::from(reference)).vortex_expect("for");
+        let array = for_arr.to_array();
 
         group.bench_with_input(
             BenchmarkId::new("dynamic_dispatch_u32", len_str),
-            &bitpacked,
-            |b, array| {
-                let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                    .vortex_expect("failed to create execution context");
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-                let device_plan = Arc::new(
-                    cuda_ctx
-                        .stream()
-                        .clone_htod(std::slice::from_ref(&plan))
-                        .expect("failed to copy plan to device"),
-                );
+                let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;
-
                     for _ in 0..iters {
-                        let kernel_time = run_dynamic_dispatch_bitpacked_timed(
-                            &mut cuda_ctx,
-                            array,
-                            &device_plan,
-                        )
-                        .vortex_expect("bitunpack+for dynamic_dispatch failed");
-                        total_time += kernel_time;
+                        total_time += bench_runner.run(&mut cuda_ctx);
                     }
-
                     total_time
                 });
             },
@@ -201,51 +198,42 @@ fn bench_bitunpack_for_dynamic_dispatch(c: &mut Criterion) {
     group.finish();
 }
 
-// Benchmark: BitUnpack + FoR + ALP — single fused dynamic dispatch launch
-fn bench_bitunpack_for_alp_dynamic_dispatch(c: &mut Criterion) {
-    let mut group = c.benchmark_group("bitunpack_for_alp");
+// ---------------------------------------------------------------------------
+// Benchmark: Dict(codes=BitPacked, values=Primitive)
+// ---------------------------------------------------------------------------
+fn bench_dict_bp_codes(c: &mut Criterion) {
+    let mut group = c.benchmark_group("dict_256vals_bp8bw_codes");
     group.sample_size(10);
 
-    let plan = DynamicDispatchPlan::new(
-        SourceOp::bitunpack(BIT_WIDTH),
-        &[
-            ScalarOp::frame_of_ref(REFERENCE_VALUE as u64),
-            ScalarOp::alp(ALP_F, ALP_E),
-        ],
-    );
+    let dict_size: usize = 256;
+    let dict_bit_width: u8 = 8;
+    let dict_values: Vec<u32> = (0..dict_size as u32).map(|i| i * 1000 + 42).collect();
 
     for (len, len_str) in BENCH_ARGS {
         group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
 
-        let bitpacked = make_bitpacked_array_u32(BIT_WIDTH, *len);
+        let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
+        let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+        let codes_bp = BitPackedArray::encode(codes_prim.as_ref(), dict_bit_width)
+            .vortex_expect("bitpack codes");
+        let values_prim = PrimitiveArray::new(Buffer::from(dict_values.clone()), NonNullable);
+        let dict = DictArray::new(codes_bp.into_array(), values_prim.into_array());
+        let array = dict.to_array();
 
         group.bench_with_input(
             BenchmarkId::new("dynamic_dispatch_u32", len_str),
-            &bitpacked,
-            |b, array| {
-                let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                    .vortex_expect("failed to create execution context");
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-                let device_plan = Arc::new(
-                    cuda_ctx
-                        .stream()
-                        .clone_htod(std::slice::from_ref(&plan))
-                        .expect("failed to copy plan to device"),
-                );
+                let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
 
                 b.iter_custom(|iters| {
                     let mut total_time = Duration::ZERO;
-
                     for _ in 0..iters {
-                        let kernel_time = run_dynamic_dispatch_bitpacked_timed(
-                            &mut cuda_ctx,
-                            array,
-                            &device_plan,
-                        )
-                        .vortex_expect("bitunpack+for+alp dynamic_dispatch failed");
-                        total_time += kernel_time;
+                        total_time += bench_runner.run(&mut cuda_ctx);
                     }
-
                     total_time
                 });
             },
@@ -255,12 +243,112 @@ fn bench_bitunpack_for_alp_dynamic_dispatch(c: &mut Criterion) {
     group.finish();
 }
 
-fn benchmark_nested_decode(c: &mut Criterion) {
-    bench_bitunpack_for_dynamic_dispatch(c);
-    bench_bitunpack_for_alp_dynamic_dispatch(c);
+// ---------------------------------------------------------------------------
+// Benchmark: RunEnd(ends=Prim, values=Prim)
+// ---------------------------------------------------------------------------
+fn bench_runend(c: &mut Criterion) {
+    let mut group = c.benchmark_group("runend_100runs");
+    group.sample_size(10);
+
+    let num_runs: usize = 100;
+
+    for (len, len_str) in BENCH_ARGS {
+        group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
+
+        let run_len = *len / num_runs;
+        let ends: Vec<u32> = (1..=num_runs).map(|i| (i * run_len) as u32).collect();
+        let values: Vec<u32> = (0..num_runs).map(|i| (i * 7 + 42) as u32).collect();
+
+        let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
+        let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
+        let re = RunEndArray::new(ends_arr, values_arr);
+        let array = re.to_array();
+
+        group.bench_with_input(
+            BenchmarkId::new("dynamic_dispatch_u32", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+
+                let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
+
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
+    }
+
+    group.finish();
 }
 
-criterion::criterion_group!(benches, benchmark_nested_decode);
+// ---------------------------------------------------------------------------
+// Benchmark: Dict(codes=BitPacked, values=FoR(BitPacked))
+// ---------------------------------------------------------------------------
+fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
+    let mut group = c.benchmark_group("dict_64vals_bp6bw_codes_for_bp6bw_values");
+    group.sample_size(10);
+
+    let dict_size: usize = 64;
+    let dict_bit_width: u8 = 6;
+    let dict_reference = 1_000_000u32;
+    let codes_bit_width: u8 = 6;
+
+    // Dict values: residuals 0..63 bitpacked, FoR adds 1_000_000
+    let dict_residuals: Vec<u32> = (0..dict_size as u32).collect();
+    let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
+    let dict_bp =
+        BitPackedArray::encode(dict_prim.as_ref(), dict_bit_width).vortex_expect("bitpack dict");
+    let dict_for = FoRArray::try_new(dict_bp.into_array(), Scalar::from(dict_reference))
+        .vortex_expect("for dict");
+
+    for (len, len_str) in BENCH_ARGS {
+        group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
+
+        let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
+        let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+        let codes_bp = BitPackedArray::encode(codes_prim.as_ref(), codes_bit_width)
+            .vortex_expect("bitpack codes");
+
+        let dict = DictArray::new(codes_bp.into_array(), dict_for.to_array());
+        let array = dict.to_array();
+
+        group.bench_with_input(
+            BenchmarkId::new("dynamic_dispatch_u32", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+
+                let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
+
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+fn benchmark_dynamic_dispatch(c: &mut Criterion) {
+    bench_for_bitpacked(c);
+    bench_dict_bp_codes(c);
+    bench_runend(c);
+    bench_dict_bp_codes_bp_for_values(c);
+}
+
+criterion::criterion_group!(benches, benchmark_dynamic_dispatch);
 
 #[cuda_available]
 criterion::criterion_main!(benches);
