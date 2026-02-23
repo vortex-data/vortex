@@ -1,42 +1,55 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-/// Dynamic dispatch kernel: decodes an array by applying a sequence of operations
-/// in a single kernel launch. The source op fills shared memory (e.g. bitunpack),
-/// then scalar ops are applied element-wise in registers (e.g. FoR, zigzag, ALP).
+/// GPU kernel that decompresses a Vortex encoding tree in a single launch via dynamic dispatch.
+///
+/// Stages communicate through shared memory: early input stages populate
+/// persistent smem regions (e.g., dictionary values, run-end endpoints) that
+/// later stages reference via smem offsets.
+///
+/// The final output stage writes directly to global memory instead of back
+/// to shared memory. Shared memory is dynamically sized at launch time to
+/// fit all intermediate buffers that must coexist simultaneously.
 
 #include <assert.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <stdint.h>
+#include <thrust/binary_search.h>
+#include <thrust/execution_policy.h>
 
 #include "bit_unpack.cuh"
 #include "dynamic_dispatch.h"
 #include "types.cuh"
 
-constexpr uint32_t ELEMENTS_PER_BLOCK = 2048;
+/// Binary search for first element strictly greater than value.
+template <typename T>
+__device__ inline uint64_t upper_bound(const T *data, uint64_t len, uint64_t value) {
+    auto it = thrust::upper_bound(thrust::seq, data, data + len, value);
+    return it - data;
+}
 
-/// Executes the source operation (e.g., bitunpack) to fill shared memory with unpacked data.
+/// Executes a source operation to fill a shared memory region with decoded data.
 ///
-/// This function handles the first phase of the dynamic dispatch pipeline. It reads compressed
-/// data from global memory and decompresses it into shared memory, preparing it for subsequent
-/// scalar operations.
+/// This function handles the first phase of each stage's pipeline. It reads
+/// compressed or raw data from global memory and writes decoded elements into
+/// the stage's shared memory region.
 ///
-/// # Parameters
-///
-/// * `input` - Pointer to the compressed input data in global memory
-/// * `smem` - Pointer to shared memory buffer where unpacked data is written (size: ELEMENTS_PER_BLOCK)
-/// * `chunk_start` - Starting index of the data chunk to process in the input array
-/// * `chunk_len` - Number of elements in this chunk (may be less than ELEMENTS_PER_BLOCK for tail blocks)
-/// * `source_op` - The source operation descriptor containing the operation type and parameters
+/// @param input      Global memory pointer to the stage's encoded input data
+/// @param smem_output  Shared memory pointer where decoded elements are written
+/// @param chunk_start  Starting index of the chunk to process (block-relative for output stage)
+/// @param chunk_len    Number of elements to produce (may be < ELEMENTS_PER_BLOCK for tail blocks)
+/// @param source_op    Source operation descriptor (BITUNPACK, LOAD, or RUNEND)
+/// @param smem_base    Base of the entire dynamic shared memory pool, used by RUNEND
+///                     to resolve offsets to ends/values decoded by earlier stages
 template <typename T>
 __device__ inline void dynamic_source_op(const T *__restrict input,
-                                         T *__restrict smem,
+                                         T *__restrict smem_output,
                                          uint64_t chunk_start,
                                          uint32_t chunk_len,
-                                         const struct SourceOp &source_op) {
+                                         const struct SourceOp &source_op,
+                                         T *__restrict smem_base) {
     constexpr uint32_t T_BITS = sizeof(T) * 8;
-    constexpr uint32_t FL_LANES = ELEMENTS_PER_BLOCK / T_BITS;
 
     switch (source_op.op_code) {
     case SourceOp::BITUNPACK: {
@@ -46,7 +59,7 @@ __device__ inline void dynamic_source_op(const T *__restrict input,
         const uint32_t packed_words_per_fl_block = LANES_PER_FL_BLOCK * bit_width;
         const uint64_t first_fl_block = chunk_start / FL_CHUNK_SIZE;
 
-        // FL blocks must divide evenly. Otherwise, the last unpack would overflow `smem`.
+        // FL blocks must divide evenly. Otherwise, the last unpack would overflow smem.
         static_assert((ELEMENTS_PER_BLOCK % FL_CHUNK_SIZE) == 0);
 
         const auto div_ceil = [](auto a, auto b) {
@@ -56,7 +69,7 @@ __device__ inline void dynamic_source_op(const T *__restrict input,
 
         for (uint32_t chunk_idx = 0; chunk_idx < num_fl_chunks; ++chunk_idx) {
             const T *packed_chunk = input + (first_fl_block + chunk_idx) * packed_words_per_fl_block;
-            T *smem_lane = smem + chunk_idx * FL_CHUNK_SIZE;
+            T *smem_lane = smem_output + chunk_idx * FL_CHUNK_SIZE;
             // Distribute unpacking across threads via lane-wise decomposition.
             for (uint32_t lane = threadIdx.x; lane < LANES_PER_FL_BLOCK; lane += blockDim.x) {
                 bit_unpack_lane<T>(packed_chunk, smem_lane, 0, lane, bit_width);
@@ -64,134 +77,276 @@ __device__ inline void dynamic_source_op(const T *__restrict input,
         }
         break;
     }
+
+    case SourceOp::LOAD: {
+        // Copy elements verbatim from global memory into shared memory.
+        for (uint32_t i = threadIdx.x; i < chunk_len; i += blockDim.x) {
+            smem_output[i] = input[chunk_start + i];
+        }
+        break;
+    }
+
+    case SourceOp::RUNEND: {
+        // Ends and values were decoded into shared memory by earlier stages.
+        const T *ends = &smem_base[source_op.params.runend.ends_smem_offset];
+        const T *values = &smem_base[source_op.params.runend.values_smem_offset];
+        const uint64_t num_runs = source_op.params.runend.num_runs;
+        const uint64_t offset = source_op.params.runend.offset;
+
+        // Thread 0 narrows the search to runs overlapping this chunk.
+        // Stash results in smem_output[0..1] — overwritten by decode below.
+        if (threadIdx.x == 0) {
+            uint64_t first_pos = chunk_start + offset;
+            uint64_t last_pos = chunk_start + (chunk_len - 1) + offset;
+            smem_output[0] = static_cast<T>(upper_bound(ends, num_runs, first_pos));
+            smem_output[1] = static_cast<T>(upper_bound(ends, num_runs, last_pos));
+        }
+        __syncthreads();
+
+        const uint32_t block_first_run = static_cast<uint32_t>(smem_output[0]);
+        const uint32_t block_num_runs = static_cast<uint32_t>(smem_output[1]) - block_first_run + 1;
+
+        // Forward scan: each thread's strided positions are monotonically
+        // increasing, so current_run only advances forward.
+        uint32_t current_run = 0;
+        for (uint32_t i = threadIdx.x; i < chunk_len; i += blockDim.x) {
+            uint64_t pos = chunk_start + i + offset;
+
+            while (current_run < block_num_runs && (block_first_run + current_run) < num_runs &&
+                   static_cast<uint64_t>(ends[block_first_run + current_run]) <= pos) {
+                current_run++;
+            }
+
+            uint64_t run_idx = block_first_run + current_run;
+            // The last run covers all remaining positions.
+            if (run_idx >= num_runs)
+                run_idx = num_runs - 1;
+            smem_output[i] = values[run_idx];
+        }
+        break;
+    }
+
     default:
         __builtin_unreachable();
     }
 }
 
-/// Applies a single scalar operation to a value.
+/// Applies a single scalar operation to N values in registers.
 ///
-/// Scalar operations are applied element-wise after unpacking, operating on
-/// values in registers.
+/// Scalar operations are applied element-wise after the source op fills shared
+/// memory. All ops compose fluently in any order: FoR adds a constant, ZigZag
+/// decodes signed integers, ALP decodes floats, and DICT gathers from a
+/// dictionary in shared memory.
 ///
-/// # Parameters
-///
-/// * `value` - The input value to be transformed
-/// * `op` - The scalar operation descriptor containing the operation and parameters
-///
-/// # Returns
-///
-/// The transformed value after applying the scalar operation.
-template <typename T>
-__device__ inline T dynamic_scalar_op(T value, const struct ScalarOp &op) {
+/// @param values    Array of N values to transform in-place
+/// @param op        The scalar operation descriptor
+/// @param smem_base Base of dynamic shared memory pool (used by DICT to resolve offsets)
+template <typename T, uint32_t N>
+__device__ inline void apply_scalar_op(T *values, const struct ScalarOp &op, T *__restrict smem_base) {
     switch (op.op_code) {
     case ScalarOp::FOR: {
-        return value + static_cast<T>(op.params.frame_of_ref.reference);
+        const T ref = static_cast<T>(op.params.frame_of_ref.reference);
+        // clang-format off
+        #pragma unroll
+        // clang-format on
+        for (uint32_t i = 0; i < N; ++i)
+            values[i] += ref;
+        break;
     }
     case ScalarOp::ZIGZAG: {
-        return (value >> 1) ^ static_cast<T>(-(value & 1));
+        // clang-format off
+        #pragma unroll
+        // clang-format on
+        for (uint32_t i = 0; i < N; ++i)
+            values[i] = (values[i] >> 1) ^ static_cast<T>(-(values[i] & 1));
+        break;
     }
     case ScalarOp::ALP: {
-        float result = static_cast<float>(static_cast<int32_t>(value)) * op.params.alp.f * op.params.alp.e;
-        return static_cast<T>(__float_as_uint(result));
+        const float f = op.params.alp.f;
+        const float e = op.params.alp.e;
+        // clang-format off
+        #pragma unroll
+        // clang-format on
+        for (uint32_t i = 0; i < N; ++i) {
+            float result = static_cast<float>(static_cast<int32_t>(values[i])) * f * e;
+            values[i] = static_cast<T>(__float_as_uint(result));
+        }
+        break;
+    }
+    case ScalarOp::DICT: {
+        const T *dict_values = &smem_base[op.params.dict.values_smem_offset];
+        // clang-format off
+        #pragma unroll
+        // clang-format on
+        for (uint32_t i = 0; i < N; ++i)
+            values[i] = dict_values[static_cast<uint32_t>(values[i])];
+        break;
     }
     default:
         __builtin_unreachable();
     }
 }
 
-/// Entry point of the dynamic dispatch kernel.
-///
-/// Unpacks compressed data from global memory into shared memory, applies a
-/// sequence of scalar operations (e.g., FoR, zigzag, ALP) to each element while
-/// holding values in registers, and writes decoded results back to global memory.
-///
-/// # Parameters
-///
-/// * `input` - Compressed input data
-/// * `output` - Output buffer
-/// * `array_len` - Total number of elements
-/// * `plan` - Operation sequence to apply
-template <typename T>
-__device__ void dynamic_dispatch_impl(const T *__restrict input,
-                                      T *__restrict output,
-                                      uint64_t array_len,
-                                      const struct DynamicDispatchPlan *__restrict plan) {
-    constexpr uint32_t VALUES_PER_LOOP = 32 / sizeof(T);
+/// Store policy for global memory writes.
+enum class StorePolicy {
+    /// Default write-back stores — data stays in L2 cache.
+    WRITEBACK,
+    /// Streaming stores (`__stcs` / `st.cs`) — hint L2 to evict early.
+    /// Use for write-only output data that this kernel will not read again.
+    /// `__stcs` is a regular synchronous store (not async like `cp.async`),
+    /// so the existing `__syncthreads()` barrier after each tile is
+    /// sufficient for ordering.
+    STREAMING,
+};
 
-    __shared__ struct DynamicDispatchPlan smem_plan;
-    __shared__ T smem_values[ELEMENTS_PER_BLOCK];
-
-    // Cache the plan in shared memory.
-    if (threadIdx.x == 0)
-        smem_plan = *plan;
-    __syncthreads();
-
-    const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * ELEMENTS_PER_BLOCK;
-    const uint64_t block_end = min(block_start + ELEMENTS_PER_BLOCK, array_len);
-    const uint32_t block_len = static_cast<uint32_t>(block_end - block_start);
-
-    dynamic_source_op<T>(input, smem_values, block_start, block_len, smem_plan.source);
-    __syncthreads();
-
+/// Reads values from `smem_input`, applies scalar ops in registers, and
+/// writes results to `write_dest` at `write_offset`.
+template <typename T, StorePolicy S>
+__device__ void apply_scalar_ops(const T *__restrict smem_input,
+                                 T *__restrict write_dest,
+                                 uint64_t write_offset,
+                                 uint32_t chunk_len,
+                                 uint8_t num_scalar_ops,
+                                 const struct ScalarOp *scalar_ops,
+                                 T *__restrict smem_base) {
+    constexpr uint32_t VALUES_PER_LOOP = 64 / sizeof(T);
     const uint32_t tile_size = blockDim.x * VALUES_PER_LOOP;
-    const uint32_t num_full_tiles = block_len / tile_size;
+    const uint32_t num_full_tiles = chunk_len / tile_size;
 
+    // Each thread holds multiple values in registers for instruction-level
+    // parallelism, hiding pipeline latency between independent operations.
     for (uint32_t tile = 0; tile < num_full_tiles; ++tile) {
         const uint32_t tile_base = tile * tile_size;
-
-        // Operate on values in registers. This is faster than a coalesced
-        // one-element-per-thread loop as it enables better instruction-level
-        // parallelism.
         T values[VALUES_PER_LOOP];
 
         // clang-format off
         #pragma unroll
         // clang-format on
         for (uint32_t idx = 0; idx < VALUES_PER_LOOP; ++idx) {
-            values[idx] = smem_values[tile_base + idx * blockDim.x + threadIdx.x];
+            values[idx] = smem_input[tile_base + idx * blockDim.x + threadIdx.x];
         }
 
-        for (uint8_t op_idx = 0; op_idx < smem_plan.num_scalar_ops; ++op_idx) {
-            const struct ScalarOp &scalar_op = smem_plan.scalar_ops[op_idx];
-
-            // clang-format off
-            #pragma unroll
-            // clang-format on
-            for (uint32_t idx = 0; idx < VALUES_PER_LOOP; ++idx) {
-                values[idx] = dynamic_scalar_op(values[idx], scalar_op);
-            }
+        for (uint8_t op_idx = 0; op_idx < num_scalar_ops; ++op_idx) {
+            apply_scalar_op<T, VALUES_PER_LOOP>(values, scalar_ops[op_idx], smem_base);
         }
 
         // clang-format off
         #pragma unroll
         // clang-format on
         for (uint32_t idx = 0; idx < VALUES_PER_LOOP; ++idx) {
-            output[block_start + tile_base + idx * blockDim.x + threadIdx.x] = values[idx];
+            if constexpr (S == StorePolicy::STREAMING) {
+                __stcs(&write_dest[write_offset + tile_base + idx * blockDim.x + threadIdx.x], values[idx]);
+            } else {
+                write_dest[write_offset + tile_base + idx * blockDim.x + threadIdx.x] = values[idx];
+            }
         }
     }
 
-    // Handle remaining elements that were not part of a full tile.
     const uint32_t rem_start = num_full_tiles * tile_size;
-    for (uint32_t elem_idx = rem_start + threadIdx.x; elem_idx < block_len; elem_idx += blockDim.x) {
-        T val = smem_values[elem_idx];
-        for (uint8_t op_idx = 0; op_idx < smem_plan.num_scalar_ops; ++op_idx) {
-            val = dynamic_scalar_op(val, smem_plan.scalar_ops[op_idx]);
+    for (uint32_t elem_idx = rem_start + threadIdx.x; elem_idx < chunk_len; elem_idx += blockDim.x) {
+        T val = smem_input[elem_idx];
+        for (uint8_t op_idx = 0; op_idx < num_scalar_ops; ++op_idx) {
+            apply_scalar_op<T, 1>(&val, scalar_ops[op_idx], smem_base);
         }
-        output[block_start + elem_idx] = val;
+        if constexpr (S == StorePolicy::STREAMING) {
+            __stcs(&write_dest[write_offset + elem_idx], val);
+        } else {
+            write_dest[write_offset + elem_idx] = val;
+        }
     }
 }
 
-/// Generates a dynamic dispatch kernel for the specific type.
+/// Decodes and transforms a stage's data through shared memory, writing
+/// final results to `write_dest` at `write_offset`. Input stages write
+/// back to smem; the output stage writes to global memory.
+template <typename T, StorePolicy S>
+__device__ void execute_stage(const struct Stage &stage,
+                              T *__restrict smem_base,
+                              uint64_t chunk_start,
+                              uint32_t chunk_len,
+                              T *__restrict write_dest,
+                              uint64_t write_offset) {
+    T *smem_output = &smem_base[stage.smem_offset];
+
+    dynamic_source_op<T>(reinterpret_cast<const T *>(stage.input_ptr),
+                         smem_output,
+                         chunk_start,
+                         chunk_len,
+                         stage.source,
+                         smem_base);
+    __syncthreads();
+
+    apply_scalar_ops<T, S>(smem_output,
+                           write_dest,
+                           write_offset,
+                           chunk_len,
+                           stage.num_scalar_ops,
+                           stage.scalar_ops,
+                           smem_base);
+    __syncthreads();
+}
+
+/// Entry point of the dynamic dispatch kernel.
 ///
-/// Creates a CUDA kernel entry point by instantiating `dynamic_dispatch_impl` for the given type.
+/// Executes the plan's stages in order:
+///   1. Input stages populate shared memory with intermediate data
+///      for the output stage to reference.
+///   2. The output stage decodes the root array and writes directly to
+///      global memory.
+///
+/// @param output    Global memory output buffer
+/// @param array_len Total number of elements to produce
+/// @param plan      Device pointer to the dispatch plan
+template <typename T>
+__device__ void dynamic_dispatch_impl(T *__restrict output,
+                                      uint64_t array_len,
+                                      const struct DynamicDispatchPlan *__restrict plan) {
+
+    // Dynamically-sized shared memory: The host computes the exact byte count
+    // needed to hold all stage outputs that must coexist simultaneously, and
+    // passes the count at kernel launch (see DynamicDispatchPlan::shared_mem_bytes).
+    extern __shared__ char smem_bytes[];
+    T *smem_base = reinterpret_cast<T *>(smem_bytes);
+
+    __shared__ struct DynamicDispatchPlan smem_plan;
+    if (threadIdx.x == 0)
+        smem_plan = *plan;
+    __syncthreads();
+
+    const uint8_t last = smem_plan.num_stages - 1;
+
+    // Input stages: Decode inputs into smem regions.
+    for (uint8_t i = 0; i < last; ++i) {
+        const struct Stage &stage = smem_plan.stages[i];
+        T *smem_output = &smem_base[stage.smem_offset];
+        execute_stage<T, StorePolicy::WRITEBACK>(stage, smem_base, 0, stage.len, smem_output, 0);
+    }
+
+    // Output stage: process in SMEM_TILE_SIZE tiles to reduce smem footprint.
+    // Each tile decodes into the same smem region and writes to global memory.
+    const struct Stage &output_stage = smem_plan.stages[last];
+    const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * ELEMENTS_PER_BLOCK;
+    const uint64_t block_end = min(block_start + ELEMENTS_PER_BLOCK, array_len);
+    const uint32_t block_len = static_cast<uint32_t>(block_end - block_start);
+
+    for (uint32_t tile_off = 0; tile_off < block_len; tile_off += SMEM_TILE_SIZE) {
+        const uint32_t tile_len = min(SMEM_TILE_SIZE, block_len - tile_off);
+        execute_stage<T, StorePolicy::STREAMING>(output_stage,
+                                                 smem_base,
+                                                 block_start + tile_off,
+                                                 tile_len,
+                                                 output,
+                                                 block_start + tile_off);
+    }
+}
+
+/// Generates a dynamic dispatch kernel entry point for each unsigned integer type.
 #define GENERATE_DYNAMIC_DISPATCH_KERNEL(suffix, Type)                                                       \
     extern "C" __global__ void dynamic_dispatch_##suffix(                                                    \
-        const Type *__restrict input,                                                                        \
         Type *__restrict output,                                                                             \
         uint64_t array_len,                                                                                  \
         const struct DynamicDispatchPlan *__restrict plan) {                                                 \
-        dynamic_dispatch_impl<Type>(input, output, array_len, plan);                                         \
+        dynamic_dispatch_impl<Type>(output, array_len, plan);                                                \
     }
 
 FOR_EACH_UNSIGNED_INT(GENERATE_DYNAMIC_DISPATCH_KERNEL)
