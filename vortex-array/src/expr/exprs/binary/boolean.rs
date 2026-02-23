@@ -8,40 +8,25 @@ use vortex_error::vortex_err;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
-use crate::arrays::ScalarFnArray;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
+use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::expr::Binary;
-use crate::expr::ScalarFn;
 use crate::expr::operators::Operator;
 use crate::scalar::Scalar;
 
 /// Point-wise Kleene logical _and_ between two Boolean arrays.
-///
-/// Returns a lazy [`ScalarFnArray`] wrapping the [`Binary`] expression.
+#[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn and_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    Ok(ScalarFnArray::try_new(
-        ScalarFn::new(Binary, Operator::And),
-        vec![lhs.to_array(), rhs.to_array()],
-        lhs.len(),
-    )?
-    .into_array())
+    lhs.to_array().binary(rhs.to_array(), Operator::And)
 }
 
 /// Point-wise Kleene logical _or_ between two Boolean arrays.
-///
-/// Returns a lazy [`ScalarFnArray`] wrapping the [`Binary`] expression.
+#[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn or_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    Ok(ScalarFnArray::try_new(
-        ScalarFn::new(Binary, Operator::Or),
-        vec![lhs.to_array(), rhs.to_array()],
-        lhs.len(),
-    )?
-    .into_array())
+    lhs.to_array().binary(rhs.to_array(), Operator::Or)
 }
 
 /// Execute a Kleene boolean operation between two arrays.
@@ -115,19 +100,19 @@ fn constant_boolean(
         .map(|b| Scalar::bool(b, nullable.into()))
         .unwrap_or_else(|| Scalar::null(DType::Bool(nullable.into())));
 
-    Ok(Some(ConstantArray::new(scalar, length).into_array()))
+    Ok(Some(ConstantArray::new(scalar, length).to_array()))
 }
 
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
 
-    use super::and_kleene;
-    use super::or_kleene;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::arrays::BoolArray;
+    use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
+    use crate::expr::operators::Operator;
 
     #[rstest]
     #[case(
@@ -139,7 +124,7 @@ mod tests {
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
     )]
     fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
-        let r = or_kleene(&lhs, &rhs).unwrap();
+        let r = lhs.binary(rhs, Operator::Or).unwrap();
         let r = r.to_bool().into_array();
 
         let v0 = r.scalar_at(0).unwrap().as_bool().value();
@@ -163,7 +148,11 @@ mod tests {
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)]).into_array(),
     )]
     fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
-        let r = and_kleene(&lhs, &rhs).unwrap().to_bool().into_array();
+        let r = lhs
+            .binary(rhs, Operator::And)
+            .unwrap()
+            .to_bool()
+            .into_array();
 
         let v0 = r.scalar_at(0).unwrap().as_bool().value();
         let v1 = r.scalar_at(1).unwrap().as_bool().value();

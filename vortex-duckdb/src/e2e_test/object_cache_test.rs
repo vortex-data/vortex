@@ -9,10 +9,10 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
 use crate::cpp::DUCKDB_TYPE;
-use crate::duckdb::BindInput;
-use crate::duckdb::BindResult;
-use crate::duckdb::ClientContext;
-use crate::duckdb::DataChunk;
+use crate::duckdb::BindInputRef;
+use crate::duckdb::BindResultRef;
+use crate::duckdb::ClientContextRef;
+use crate::duckdb::DataChunkRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
@@ -43,9 +43,9 @@ impl TableFunction for TestTableFunction {
     type LocalState = TestLocalState;
 
     fn bind(
-        client_context: &ClientContext,
-        _input: &BindInput,
-        result: &mut BindResult,
+        client_context: &ClientContextRef,
+        _input: &BindInputRef,
+        result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData> {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT);
         result.add_result_column("test_value", &logical_type);
@@ -65,7 +65,7 @@ impl TableFunction for TestTableFunction {
     }
 
     fn table_scan_progress(
-        _client_context: &ClientContext,
+        _client_context: &ClientContextRef,
         _bind_data: &mut Self::BindData,
         _global_state: &mut Self::GlobalState,
     ) -> f64 {
@@ -73,11 +73,11 @@ impl TableFunction for TestTableFunction {
     }
 
     fn scan(
-        _client_context: &ClientContext,
+        _client_context: &ClientContextRef,
         _bind_data: &Self::BindData,
         _local_state: &mut Self::LocalState,
         _global_state: &mut Self::GlobalState,
-        chunk: &mut DataChunk,
+        chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
         chunk.set_len(0);
 

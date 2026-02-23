@@ -50,8 +50,8 @@ mod tests {
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::Nullability;
-    use crate::dtype::datetime::TimeUnit;
-    use crate::dtype::datetime::Timestamp;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
 
     #[test]
     fn cast_same_ext_dtype() {

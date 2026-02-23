@@ -4,12 +4,12 @@ concurrency:
   group: publish
   cancel-in-progress: true
 
+env:
+  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+
 on:
   release:
     types: [published]
-
-env:
-  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
 
 jobs:
   package:

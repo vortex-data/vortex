@@ -4,9 +4,9 @@
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 
-use crate::duckdb::LogicalType;
+use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::Value;
-use crate::duckdb::Vector;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 
 struct AllInvalidExporter {
@@ -14,7 +14,7 @@ struct AllInvalidExporter {
     null_value: Value,
 }
 
-pub(crate) fn new_exporter(len: usize, logical_type: &LogicalType) -> Box<dyn ColumnExporter> {
+pub(crate) fn new_exporter(len: usize, logical_type: &LogicalTypeRef) -> Box<dyn ColumnExporter> {
     Box::new(AllInvalidExporter {
         len,
         null_value: Value::null(logical_type),
@@ -22,7 +22,7 @@ pub(crate) fn new_exporter(len: usize, logical_type: &LogicalType) -> Box<dyn Co
 }
 
 impl ColumnExporter for AllInvalidExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         vortex_ensure!(
             offset + len <= self.len,
             "invalid exporter: offset + len must be less than or equal to len"
@@ -49,12 +49,12 @@ mod tests {
         let mut chunk = DataChunk::new([ltype.clone()]);
 
         new_exporter(arr.len(), &ltype)
-            .export(0, 3, &mut chunk.get_vector(0))
+            .export(0, 3, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - CONSTANT INTEGER: 3 = [ NULL]
 "#

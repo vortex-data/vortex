@@ -14,12 +14,12 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
-use crate::dtype::ExtDType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::dtype::datetime::TimeUnit;
-use crate::dtype::extension::ExtDTypeVTable;
-use crate::dtype::extension::ExtID;
+use crate::dtype::extension::ExtDType;
+use crate::dtype::extension::ExtId;
+use crate::dtype::extension::ExtVTable;
+use crate::extension::datetime::TimeUnit;
 
 /// Timestamp DType.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -46,6 +46,12 @@ impl Timestamp {
         )
         .vortex_expect("failed to create timestamp dtype")
     }
+
+    /// Creates a new `Timestamp` extension dtype with the given options and nullability.
+    pub fn new_with_options(options: TimestampOptions, nullability: Nullability) -> ExtDType<Self> {
+        ExtDType::try_new(options, DType::Primitive(PType::I64, nullability))
+            .vortex_expect("failed to create timestamp dtype")
+    }
 }
 
 /// Options for the Timestamp DType.
@@ -66,11 +72,11 @@ impl Display for TimestampOptions {
     }
 }
 
-impl ExtDTypeVTable for Timestamp {
+impl ExtVTable for Timestamp {
     type Metadata = TimestampOptions;
 
-    fn id(&self) -> ExtID {
-        ExtID::new_ref("vortex.timestamp")
+    fn id(&self) -> ExtId {
+        ExtId::new_ref("vortex.timestamp")
     }
 
     // NOTE(ngates): unfortunately we're stuck with this hand-rolled serialization format for

@@ -34,6 +34,7 @@ pub use copy_function::*;
 pub use data::*;
 pub use data_chunk::*;
 pub use database::*;
+pub use ddb_string::*;
 pub use expr::*;
 pub use file_system::*;
 pub use logical_type::*;

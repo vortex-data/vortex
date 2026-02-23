@@ -6,7 +6,7 @@ use vortex::encodings::sequence::SequenceArray;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
-use crate::duckdb::Vector;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 
 struct SequenceExporter {
@@ -25,7 +25,7 @@ pub(crate) fn new_exporter(array: &SequenceArray) -> VortexResult<Box<dyn Column
 }
 
 impl ColumnExporter for SequenceExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         let offset = offset.as_i64();
         let start = (offset * self.step) + self.start;
 
@@ -50,12 +50,12 @@ mod tests {
 
         new_exporter(&arr)
             .unwrap()
-            .export(0, 4, &mut chunk.get_vector(0))
+            .export(0, 4, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(4);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - SEQUENCE INTEGER: 4 = [ 2, 7, 12, 17]
 "#

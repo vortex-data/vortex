@@ -7,12 +7,12 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::dtype::DType;
-use crate::dtype::ExtDType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::dtype::datetime::TimeUnit;
-use crate::dtype::extension::ExtDTypeVTable;
-use crate::dtype::extension::ExtID;
+use crate::dtype::extension::ExtDType;
+use crate::dtype::extension::ExtId;
+use crate::dtype::extension::ExtVTable;
+use crate::extension::datetime::TimeUnit;
 
 /// Time DType.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -34,11 +34,11 @@ impl Time {
     }
 }
 
-impl ExtDTypeVTable for Time {
+impl ExtVTable for Time {
     type Metadata = TimeUnit;
 
-    fn id(&self) -> ExtID {
-        ExtID::new_ref("vortex.time")
+    fn id(&self) -> ExtId {
+        ExtId::new_ref("vortex.time")
     }
 
     fn serialize(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

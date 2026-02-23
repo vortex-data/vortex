@@ -3,7 +3,7 @@
 
 use vortex_array::Array;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::datetime::Timestamp;
+use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;

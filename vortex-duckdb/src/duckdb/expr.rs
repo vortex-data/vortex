@@ -9,15 +9,16 @@ use std::ptr;
 
 use crate::cpp;
 use crate::cpp::duckdb_vx_expr_class;
+use crate::duckdb::DDBString;
 use crate::duckdb::ScalarFunction;
+use crate::duckdb::ScalarFunctionRef;
+use crate::duckdb::Value;
 use crate::duckdb::ValueRef;
-use crate::duckdb::ddb_string::DDBString;
-use crate::wrapper;
+use crate::lifetime_wrapper;
 
-// TODO(joe): replace with lifetime_wrapper!
-wrapper!(Expression, cpp::duckdb_vx_expr, cpp::duckdb_vx_destroy_expr);
+lifetime_wrapper!(Expression, cpp::duckdb_vx_expr, cpp::duckdb_vx_destroy_expr);
 
-impl Display for Expression {
+impl Display for ExpressionRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let ptr = unsafe { cpp::duckdb_vx_expr_to_string(self.as_ptr()) };
         let cstr = unsafe { CStr::from_ptr(ptr) };
@@ -27,7 +28,7 @@ impl Display for Expression {
     }
 }
 
-impl Expression {
+impl ExpressionRef {
     pub fn as_class_id(&self) -> duckdb_vx_expr_class {
         unsafe { cpp::duckdb_vx_expr_get_class(self.as_ptr()) }
     }
@@ -46,9 +47,7 @@ impl Expression {
                 }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_CONSTANT => {
                     let value = unsafe {
-                        ValueRef::borrow(cpp::duckdb_vx_expr_bound_constant_get_value(
-                            self.as_ptr(),
-                        ))
+                        Value::borrow(cpp::duckdb_vx_expr_bound_constant_get_value(self.as_ptr()))
                     };
                     ExpressionClass::BoundConstant(BoundConstant { value })
                 }
@@ -151,9 +150,9 @@ impl Expression {
 pub enum ExpressionClass<'a> {
     BoundColumnRef(BoundColumnRef),
     BoundConstant(BoundConstant<'a>),
-    BoundComparison(BoundComparison),
+    BoundComparison(BoundComparison<'a>),
     BoundConjunction(BoundConjunction<'a>),
-    BoundBetween(BoundBetween),
+    BoundBetween(BoundBetween<'a>),
     BoundOperator(BoundOperator<'a>),
     BoundFunction(BoundFunction<'a>),
 }
@@ -163,19 +162,19 @@ pub struct BoundColumnRef {
 }
 
 pub struct BoundConstant<'a> {
-    pub value: ValueRef<'a>,
+    pub value: &'a ValueRef,
 }
 
-pub struct BoundComparison {
-    pub left: Expression,
-    pub right: Expression,
+pub struct BoundComparison<'a> {
+    pub left: &'a ExpressionRef,
+    pub right: &'a ExpressionRef,
     pub op: cpp::DUCKDB_VX_EXPR_TYPE,
 }
 
-pub struct BoundBetween {
-    pub input: Expression,
-    pub lower: Expression,
-    pub upper: Expression,
+pub struct BoundBetween<'a> {
+    pub input: &'a ExpressionRef,
+    pub lower: &'a ExpressionRef,
+    pub upper: &'a ExpressionRef,
     pub lower_inclusive: bool,
     pub upper_inclusive: bool,
 }
@@ -185,9 +184,9 @@ pub struct BoundConjunction<'a> {
     pub op: cpp::DUCKDB_VX_EXPR_TYPE,
 }
 
-impl BoundConjunction<'_> {
-    /// Returns the children expressions of the bound operator.
-    pub fn children(&self) -> impl Iterator<Item = Expression> {
+impl<'a> BoundConjunction<'a> {
+    /// Returns the children expressions of the bound conjunction.
+    pub fn children(&self) -> impl Iterator<Item = &'a ExpressionRef> + 'a {
         self.children
             .iter()
             .map(|&child| unsafe { Expression::borrow(child) })
@@ -199,9 +198,9 @@ pub struct BoundOperator<'a> {
     pub op: cpp::DUCKDB_VX_EXPR_TYPE,
 }
 
-impl BoundOperator<'_> {
+impl<'a> BoundOperator<'a> {
     /// Returns the children expressions of the bound operator.
-    pub fn children(&self) -> impl Iterator<Item = Expression> {
+    pub fn children(&self) -> impl Iterator<Item = &'a ExpressionRef> + 'a {
         self.children
             .iter()
             .map(|&child| unsafe { Expression::borrow(child) })
@@ -210,13 +209,13 @@ impl BoundOperator<'_> {
 
 pub struct BoundFunction<'a> {
     children: &'a [cpp::duckdb_vx_expr],
-    pub scalar_function: ScalarFunction,
+    pub scalar_function: &'a ScalarFunctionRef,
     pub bind_info: *const c_void,
 }
 
-impl BoundFunction<'_> {
+impl<'a> BoundFunction<'a> {
     /// Returns the children expressions of the bound function.
-    pub fn children(&self) -> impl Iterator<Item = Expression> {
+    pub fn children(&self) -> impl Iterator<Item = &'a ExpressionRef> + 'a {
         self.children
             .iter()
             .map(|&child| unsafe { Expression::borrow(child) })

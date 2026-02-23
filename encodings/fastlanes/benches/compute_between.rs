@@ -72,12 +72,10 @@ mod primitive {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::Operator;
-    use vortex_array::compute::compare;
     use vortex_array::dtype::NativePType;
     use vortex_array::expr::BetweenOptions;
+    use vortex_array::expr::Operator;
     use vortex_array::expr::StrictComparison::NonStrict;
-    use vortex_array::expr::and_kleene;
     use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
@@ -100,22 +98,23 @@ mod primitive {
         bencher
             .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
             .bench_refs(|(arr, ctx)| {
-                and_kleene(
-                    &compare(
-                        arr.as_ref(),
-                        ConstantArray::new(min, arr.len()).as_ref(),
+                let gte = arr
+                    .to_array()
+                    .binary(
+                        ConstantArray::new(min, arr.len()).into_array(),
                         Operator::Gte,
                     )
-                    .vortex_expect(""),
-                    &compare(
-                        arr.as_ref(),
-                        ConstantArray::new(max, arr.len()).as_ref(),
+                    .vortex_expect("");
+                let lt = arr
+                    .to_array()
+                    .binary(
+                        ConstantArray::new(max, arr.len()).into_array(),
                         Operator::Lt,
                     )
-                    .vortex_expect(""),
-                )
-                .vortex_expect("")
-                .execute::<RecursiveCanonical>(ctx)
+                    .vortex_expect("");
+                gte.binary(lt, Operator::And)
+                    .vortex_expect("")
+                    .execute::<RecursiveCanonical>(ctx)
             })
     }
 
@@ -163,12 +162,10 @@ mod bitpack {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::Operator;
-    use vortex_array::compute::compare;
     use vortex_array::dtype::NativePType;
     use vortex_array::expr::BetweenOptions;
+    use vortex_array::expr::Operator;
     use vortex_array::expr::StrictComparison::NonStrict;
-    use vortex_array::expr::and_kleene;
     use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
@@ -191,23 +188,24 @@ mod bitpack {
         bencher
             .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
             .bench_refs(|(arr, ctx)| {
-                and_kleene(
-                    &compare(
-                        arr.as_ref(),
-                        ConstantArray::new(min, arr.len()).as_ref(),
+                let gte = arr
+                    .to_array()
+                    .binary(
+                        ConstantArray::new(min, arr.len()).into_array(),
                         Operator::Gte,
                     )
-                    .vortex_expect(""),
-                    &compare(
-                        arr.as_ref(),
-                        ConstantArray::new(max, arr.len()).as_ref(),
+                    .vortex_expect("");
+                let lt = arr
+                    .to_array()
+                    .binary(
+                        ConstantArray::new(max, arr.len()).into_array(),
                         Operator::Lt,
                     )
-                    .vortex_expect(""),
-                )
-                .unwrap()
-                .execute::<RecursiveCanonical>(ctx)
-                .unwrap()
+                    .vortex_expect("");
+                gte.binary(lt, Operator::And)
+                    .unwrap()
+                    .execute::<RecursiveCanonical>(ctx)
+                    .unwrap()
             })
     }
 
@@ -255,12 +253,10 @@ mod alp {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::Operator;
-    use vortex_array::compute::compare;
     use vortex_array::dtype::NativePType;
     use vortex_array::expr::BetweenOptions;
+    use vortex_array::expr::Operator;
     use vortex_array::expr::StrictComparison::NonStrict;
-    use vortex_array::expr::and_kleene;
     use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
@@ -283,23 +279,24 @@ mod alp {
         bencher
             .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
             .bench_refs(|(arr, ctx)| {
-                and_kleene(
-                    &compare(
-                        arr.as_ref(),
-                        ConstantArray::new(min, arr.len()).as_ref(),
+                let gte = arr
+                    .to_array()
+                    .binary(
+                        ConstantArray::new(min, arr.len()).into_array(),
                         Operator::Gte,
                     )
-                    .vortex_expect(""),
-                    &compare(
-                        arr.as_ref(),
-                        ConstantArray::new(max, arr.len()).as_ref(),
+                    .vortex_expect("");
+                let lt = arr
+                    .to_array()
+                    .binary(
+                        ConstantArray::new(max, arr.len()).into_array(),
                         Operator::Lt,
                     )
-                    .vortex_expect(""),
-                )
-                .unwrap()
-                .execute::<RecursiveCanonical>(ctx)
-                .unwrap()
+                    .vortex_expect("");
+                gte.binary(lt, Operator::And)
+                    .unwrap()
+                    .execute::<RecursiveCanonical>(ctx)
+                    .unwrap()
             })
     }
 

@@ -471,11 +471,11 @@ mod tests {
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
-    use crate::dtype::datetime::Date;
-    use crate::dtype::datetime::Time;
-    use crate::dtype::datetime::TimeUnit;
-    use crate::dtype::datetime::Timestamp;
     use crate::dtype::decimal::DecimalDType;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::Time;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
 
     #[test]
     fn test_ext_dtype_eq_ignore_nullability() {

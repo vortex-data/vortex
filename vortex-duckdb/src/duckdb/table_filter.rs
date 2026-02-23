@@ -14,14 +14,15 @@ use vortex::error::vortex_panic;
 use crate::cpp;
 use crate::cpp::idx_t;
 use crate::duckdb::Expression;
+use crate::duckdb::ExpressionRef;
 use crate::duckdb::Value;
 use crate::duckdb::ValueRef;
-use crate::wrapper;
+use crate::lifetime_wrapper;
 
-wrapper!(TableFilterSet, cpp::duckdb_vx_table_filter_set, |_| {});
+lifetime_wrapper!(TableFilterSet, cpp::duckdb_vx_table_filter_set, |_| {});
 
-impl TableFilterSet {
-    pub fn get(&self, index: u64) -> Option<(idx_t, TableFilter)> {
+impl TableFilterSetRef {
+    pub fn get(&self, index: u64) -> Option<(idx_t, &TableFilterRef)> {
         let mut filter_set: duckdb_vx_table_filter = ptr::null_mut();
 
         let column_index = unsafe {
@@ -44,8 +45,8 @@ impl TableFilterSet {
     }
 }
 
-impl<'a> IntoIterator for &'a TableFilterSet {
-    type Item = (idx_t, TableFilter);
+impl<'a> IntoIterator for &'a TableFilterSetRef {
+    type Item = (idx_t, &'a TableFilterRef);
     type IntoIter = Box<dyn Iterator<Item = Self::Item> + 'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -56,15 +57,15 @@ impl<'a> IntoIterator for &'a TableFilterSet {
     }
 }
 
-impl Debug for TableFilterSet {
+impl Debug for TableFilterSetRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_map().entries(self).finish()
     }
 }
 
-wrapper!(TableFilter, duckdb_vx_table_filter, |_| {});
+lifetime_wrapper!(TableFilter, duckdb_vx_table_filter, |_| {});
 
-impl TableFilter {
+impl TableFilterRef {
     pub fn as_class(&self) -> TableFilterClass<'_> {
         match unsafe { cpp::duckdb_vx_table_filter_get_type(self.as_ptr()) } {
             cpp::DUCKDB_VX_TABLE_FILTER_TYPE::DUCKDB_VX_TABLE_FILTER_TYPE_CONSTANT_COMPARISON => {
@@ -75,7 +76,7 @@ impl TableFilter {
                 unsafe { cpp::duckdb_vx_table_filter_get_constant(self.as_ptr(), &raw mut out) };
 
                 TableFilterClass::ConstantComparison(ConstantComparison {
-                    value: unsafe { ValueRef::borrow(out.value) },
+                    value: unsafe { Value::borrow(out.value) },
                     operator: out.comparison_type,
                 })
             }
@@ -170,13 +171,13 @@ impl TableFilter {
                 let expr = unsafe {
                     Expression::borrow(cpp::duckdb_vx_table_filter_get_expression(self.as_ptr()))
                 };
-                TableFilterClass::Expression(expr)
+                TableFilterClass::ExpressionRef(expr)
             }
         }
     }
 }
 
-impl Debug for TableFilter {
+impl Debug for TableFilterRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let ptr = unsafe { cpp::duckdb_vx_table_filter_to_debug_string(self.as_ptr()) };
         let cstr = unsafe { CStr::from_ptr(ptr) };
@@ -192,15 +193,15 @@ pub enum TableFilterClass<'a> {
     IsNotNull,
     ConjunctionOr(Conjunction<'a>),
     ConjunctionAnd(Conjunction<'a>),
-    StructExtract(&'a str, TableFilter),
-    Optional(TableFilter),
+    StructExtract(&'a str, &'a TableFilterRef),
+    Optional(&'a TableFilterRef),
     InFilter(Values<'a>),
     Dynamic(DynamicFilter),
-    Expression(Expression),
+    ExpressionRef(&'a ExpressionRef),
 }
 
 pub struct ConstantComparison<'a> {
-    pub value: ValueRef<'a>,
+    pub value: &'a ValueRef,
     pub operator: cpp::DUCKDB_VX_EXPR_TYPE,
 }
 
@@ -208,8 +209,8 @@ pub struct Conjunction<'a> {
     children: &'a [duckdb_vx_table_filter],
 }
 
-impl Conjunction<'_> {
-    pub fn children(&self) -> impl Iterator<Item = TableFilter> {
+impl<'a> Conjunction<'a> {
+    pub fn children(&self) -> impl Iterator<Item = &'a TableFilterRef> + 'a {
         self.children
             .iter()
             .map(|&child| unsafe { TableFilter::borrow(child) })
@@ -231,12 +232,12 @@ struct ValuesIterator<'a> {
 }
 
 impl<'a> Iterator for ValuesIterator<'a> {
-    type Item = ValueRef<'a>;
+    type Item = &'a ValueRef;
 
     fn next(&mut self) -> Option<Self::Item> {
         (self.index < self.values_count).then(|| {
             let value = unsafe {
-                ValueRef::borrow(cpp::duckdb_vx_values_vec_get(self.values, self.index as _))
+                Value::borrow(cpp::duckdb_vx_values_vec_get(self.values, self.index as _))
             };
             self.index += 1;
             value
@@ -245,7 +246,7 @@ impl<'a> Iterator for ValuesIterator<'a> {
 }
 
 impl<'a> Values<'a> {
-    pub fn iter(&self) -> impl Iterator<Item = ValueRef<'a>> {
+    pub fn iter(&self) -> impl Iterator<Item = &'a ValueRef> {
         ValuesIterator {
             values: self.values,
             values_count: self.values_count,
@@ -260,7 +261,7 @@ pub struct DynamicFilter {
     pub operator: cpp::DUCKDB_VX_EXPR_TYPE,
 }
 
-wrapper!(
+lifetime_wrapper!(
     /// A handle to mutable dynamic filter data.
     DynamicFilterData,
     cpp::duckdb_vx_dynamic_filter_data,
@@ -271,7 +272,7 @@ wrapper!(
 unsafe impl Send for DynamicFilterData {}
 unsafe impl Sync for DynamicFilterData {}
 
-impl DynamicFilterData {
+impl DynamicFilterDataRef {
     /// Fetches the latest value from the dynamic filter data, if it has been initialized.
     pub fn latest(&self) -> Option<Value> {
         let ptr = unsafe { cpp::duckdb_vx_dynamic_filter_data_get_value(self.as_ptr()) };

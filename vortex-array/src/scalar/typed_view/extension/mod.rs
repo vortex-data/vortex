@@ -12,8 +12,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::dtype::DType;
-use crate::dtype::datetime::AnyTemporal;
 use crate::dtype::extension::ExtDTypeRef;
+use crate::extension::datetime::AnyTemporal;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 

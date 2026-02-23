@@ -43,7 +43,7 @@ pub(crate) unsafe extern "C-unwind" fn bind_callback<T: CopyFunction>(
 
     let column_types = unsafe { std::slice::from_raw_parts(column_types, column_type_count.as_()) }
         .iter()
-        .map(|c| unsafe { LogicalType::borrow(c.cast()) })
+        .map(|c| unsafe { LogicalType::borrow(*c) })
         .collect_vec();
 
     try_or_null(error_out, || {
@@ -97,8 +97,8 @@ pub(crate) unsafe extern "C-unwind" fn copy_to_sink_callback<T: CopyFunction>(
         .vortex_expect("bind_data null pointer");
 
     try_or(error_out, || {
-        T::copy_to_sink(bind_data, global_data, local_data, &mut unsafe {
-            DataChunk::borrow(data_chunk)
+        T::copy_to_sink(bind_data, global_data, local_data, unsafe {
+            DataChunk::borrow_mut(data_chunk)
         })?;
         Ok(())
     })

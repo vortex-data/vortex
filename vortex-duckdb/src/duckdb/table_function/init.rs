@@ -12,9 +12,11 @@ use vortex::error::vortex_bail;
 
 use crate::cpp;
 use crate::duckdb::ClientContext;
+use crate::duckdb::ClientContextRef;
+use crate::duckdb::Data;
 use crate::duckdb::TableFilterSet;
+use crate::duckdb::TableFilterSetRef;
 use crate::duckdb::TableFunction;
-use crate::duckdb::data::Data;
 
 /// Native callback for the global initialization of a table function.
 pub(crate) unsafe extern "C-unwind" fn init_global_callback<T: TableFunction>(
@@ -107,7 +109,7 @@ impl<'a, T: TableFunction> TableInitInput<'a, T> {
     }
 
     /// Returns the table filter set for the table function.
-    pub fn table_filter_set(&self) -> Option<TableFilterSet> {
+    pub fn table_filter_set(&self) -> Option<&TableFilterSetRef> {
         let ptr = self.input.filters;
         if ptr.is_null() {
             None
@@ -117,7 +119,7 @@ impl<'a, T: TableFunction> TableInitInput<'a, T> {
     }
 
     /// Returns the object cache from the client context for the table function.
-    pub fn client_context(&self) -> VortexResult<ClientContext> {
+    pub fn client_context(&self) -> VortexResult<&ClientContextRef> {
         unsafe {
             if self.input.client_context.is_null() {
                 vortex_bail!("Client context is null");

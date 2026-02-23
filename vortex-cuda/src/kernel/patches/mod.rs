@@ -5,10 +5,10 @@ use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::arrays::PrimitiveArrayParts;
-use vortex::array::dtype::NativePType;
 use vortex::array::patches::Patches;
 use vortex::array::validity::Validity;
 use vortex::array::vtable::ValidityHelper;
+use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex_cuda_macros::cuda_tests;
@@ -102,12 +102,12 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::array::buffer::BufferHandle;
     use vortex::array::builtins::ArrayBuiltins;
-    use vortex::array::dtype::DType;
-    use vortex::array::dtype::NativePType;
-    use vortex::array::dtype::Nullability;
     use vortex::array::patches::Patches;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
+    use vortex::dtype::DType;
+    use vortex::dtype::NativePType;
+    use vortex::dtype::Nullability;
     use vortex::session::VortexSession;
 
     use crate::CanonicalCudaExt;

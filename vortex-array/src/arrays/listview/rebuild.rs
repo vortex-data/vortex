@@ -9,11 +9,14 @@ use vortex_error::VortexResult;
 use crate::Array;
 use crate::IntoArray;
 use crate::ToCanonical;
+use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::builders::builder_with_capacity;
+use crate::builtins::ArrayBuiltins;
 use crate::compute;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
+use crate::expr::Operator;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
@@ -291,7 +294,10 @@ impl ListViewArray {
             last_offset + last_size
         } else {
             let min_max = compute::min_max(
-                &compute::add(self.offsets(), self.sizes())
+                &self
+                    .offsets()
+                    .clone()
+                    .binary(self.sizes().clone(), Operator::Add)
                     .vortex_expect("`offsets + sizes` somehow overflowed"),
             )
             .vortex_expect("Something went wrong while computing min and max")
@@ -309,7 +315,12 @@ impl ListViewArray {
                 .vortex_expect("unable to convert the min offset `start` into a `usize`");
             let scalar = Scalar::primitive(offset, Nullability::NonNullable);
 
-            compute::sub_scalar(self.offsets(), scalar)
+            self.offsets()
+                .to_array()
+                .binary(
+                    ConstantArray::new(scalar, self.offsets().len()).into_array(),
+                    Operator::Sub,
+                )
                 .vortex_expect("was somehow unable to adjust offsets down by their minimum")
         });
 
