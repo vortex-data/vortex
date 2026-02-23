@@ -21,7 +21,6 @@ use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::Statistics;
 use datafusion_common::stats::Precision as DFPrecision;
-use datafusion_common::tree_node::TreeNodeRecursion;
 use datafusion_datasource::source::DataSource;
 use datafusion_execution::SendableRecordBatchStream;
 use datafusion_execution::TaskContext;
@@ -29,9 +28,9 @@ use datafusion_physical_expr::EquivalenceProperties;
 use datafusion_physical_expr::Partitioning;
 use datafusion_physical_expr::PhysicalExpr;
 use datafusion_physical_expr::projection::ProjectionExprs;
+use datafusion_physical_expr::utils::reassign_expr_columns;
 use datafusion_physical_expr_common::sort_expr::LexOrdering;
 use datafusion_physical_plan::DisplayFormatType;
-use datafusion_physical_plan::expressions as df_expr;
 use datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation;
 use datafusion_physical_plan::filter_pushdown::PushedDown;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
@@ -43,10 +42,8 @@ use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and as vx_and;
 use vortex::expr::get_item;
@@ -61,6 +58,7 @@ use vortex::session::VortexSession;
 
 use crate::convert::exprs::DefaultExpressionConvertor;
 use crate::convert::exprs::ExpressionConvertor;
+use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::make_vortex_predicate;
 use crate::convert::stats::stats_set_to_df;
 
@@ -152,7 +150,7 @@ impl VortexDataSourceBuilder {
         let statistics = try_join_all(
             field_paths
                 .iter()
-                .map(|path| self.data_source.field_statistics(&path)),
+                .map(|path| self.data_source.field_statistics(path)),
         )
         .await?
         .iter()
@@ -166,9 +164,12 @@ impl VortexDataSourceBuilder {
             initial_schema: arrow_schema.clone(),
             initial_projection: projection.clone(),
             initial_statistics: statistics.clone(),
-            final_projection: projection,
-            final_schema: arrow_schema,
-            final_statistics: statistics,
+            projected_projection: projection.clone(),
+            projected_schema: arrow_schema.clone(),
+            projected_statistics: statistics.clone(),
+            leftover_projection: None,
+            leftover_schema: arrow_schema,
+            leftover_statistics: statistics,
             filter: None,
             limit: None,
             ordered: false,
@@ -203,17 +204,34 @@ pub struct VortexDataSource {
     /// Vortex session handle.
     session: VortexSession,
 
-    /// The initial Arrow schema of the scan.
+    // --- Phase 1: Initial (from the builder, before any optimizer pushdown) ---
+    /// The Arrow schema of the data source before any DataFusion projection pushdown.
     initial_schema: SchemaRef,
+    /// The initial Vortex projection expression (e.g. column selection from the builder).
     initial_projection: Expression,
+    /// Column statistics for the initial projection columns.
     #[allow(dead_code)]
     initial_statistics: Vec<ColumnStatistics>,
 
-    /// The projection expression pushed down by [`DataSource::try_swapping_with_projection`]
-    /// This projection has already been evaluated against the initial_projection.
-    final_projection: Expression,
-    final_schema: SchemaRef,
-    final_statistics: Vec<ColumnStatistics>,
+    // --- Phase 2: Projected (pushed into the Vortex scan) ---
+    /// The Vortex projection expression sent in the [`ScanRequest`].
+    /// Composed with `initial_projection` so it operates on the original source columns.
+    projected_projection: Expression,
+    /// The Arrow schema of the Vortex scan output (before any leftover projection).
+    projected_schema: SchemaRef,
+    /// Column statistics for the projected (scan output) columns.
+    projected_statistics: Vec<ColumnStatistics>,
+
+    // --- Phase 3: Leftover (applied by DataFusion after the scan) ---
+    /// DataFusion projection expressions that could not be pushed into the Vortex scan.
+    /// Applied after converting arrays to record batches in [`DataSource::open`].
+    /// `None` when all projection expressions were successfully pushed down.
+    leftover_projection: Option<ProjectionExprs>,
+    /// The Arrow schema after applying the leftover projection.
+    /// This is the output schema seen by DataFusion.
+    leftover_schema: SchemaRef,
+    /// Column statistics matching `leftover_schema`.
+    leftover_statistics: Vec<ColumnStatistics>,
 
     /// An optional filter expression.
     /// Populated by [`DataSource::try_pushdown_filters`] when DataFusion pushes filters down.
@@ -233,8 +251,8 @@ pub struct VortexDataSource {
 impl fmt::Debug for VortexDataSource {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("VortexScanSource")
-            .field("schema", &self.final_schema)
-            .field("projection", &format!("{}", &self.final_projection))
+            .field("schema", &self.leftover_schema)
+            .field("projection", &format!("{}", &self.projected_projection))
             .field("filter", &self.filter.as_ref().map(|e| format!("{}", e)))
             .field("limit", &self.limit)
             .finish()
@@ -258,7 +276,7 @@ impl DataSource for VortexDataSource {
         // Build the scan request with pushed-down projection, filter, and limit.
         // The projection is included so the scan can prune columns at the I/O level.
         let scan_request = ScanRequest {
-            projection: Some(self.final_projection.clone()),
+            projection: Some(self.projected_projection.clone()),
             filter: self.filter.clone(),
             limit: self.limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
             ordered: self.ordered,
@@ -266,9 +284,16 @@ impl DataSource for VortexDataSource {
         };
 
         let data_source = self.data_source.clone();
-        let output_schema = self.final_schema.clone();
+        let projected_schema = self.projected_schema.clone();
         let session = self.session.clone();
         let num_partitions = self.num_partitions;
+
+        // Pre-build the leftover projector (if any) so we can apply it after batch conversion.
+        let leftover_projector = self
+            .leftover_projection
+            .as_ref()
+            .map(|proj| proj.make_projector(&self.projected_schema))
+            .transpose()?;
 
         // Defer the async DataSource::scan() call to the first poll of the stream.
         let stream = futures::stream::once(async move {
@@ -291,22 +316,32 @@ impl DataSource for VortexDataSource {
                 .try_flatten_unordered(Some(num_partitions.get() * 2))
                 .map(move |result| {
                     let session = session.clone();
-                    let schema = output_schema.clone();
+                    let schema = projected_schema.clone();
                     handle.spawn_cpu(move || {
                         let mut ctx = session.create_execution_ctx();
                         result.and_then(|chunk| chunk.execute_record_batch(&schema, &mut ctx))
                     })
                 })
                 .buffered(num_partitions.get())
-                .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))))
-                .boxed();
+                .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
+
+            // Apply leftover projection (expressions that couldn't be pushed into Vortex).
+            let stream = if let Some(projector) = leftover_projector {
+                stream
+                    .map(move |batch_result| {
+                        batch_result.and_then(|batch| projector.project_batch(&batch))
+                    })
+                    .boxed()
+            } else {
+                stream.boxed()
+            };
 
             Ok::<_, DataFusionError>(stream)
         })
         .try_flatten();
 
         Ok(Box::pin(RecordBatchStreamAdapter::new(
-            self.final_schema.clone(),
+            self.leftover_schema.clone(),
             stream,
         )))
     }
@@ -316,7 +351,11 @@ impl DataSource for VortexDataSource {
     }
 
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut Formatter) -> fmt::Result {
-        write!(f, "VortexScanSource: projection={}", self.final_projection)?;
+        write!(
+            f,
+            "VortexScanSource: projection={}",
+            self.projected_projection
+        )?;
         if let Some(ref filter) = self.filter {
             write!(f, ", filter={filter}")?;
         }
@@ -336,7 +375,7 @@ impl DataSource for VortexDataSource {
         let mut this = self.clone();
         this.num_partitions = NonZero::new(target_partitions)
             .ok_or_else(|| DataFusionError::Internal("non-zero partitions".to_string()))?;
-        this.ordered = this.ordered | output_ordering.is_some();
+        this.ordered |= output_ordering.is_some();
         Ok(Some(Arc::new(this)))
     }
 
@@ -345,7 +384,7 @@ impl DataSource for VortexDataSource {
     }
 
     fn eq_properties(&self) -> EquivalenceProperties {
-        EquivalenceProperties::new(self.final_schema.clone())
+        EquivalenceProperties::new(self.leftover_schema.clone())
     }
 
     fn partition_statistics(&self, _partition: Option<usize>) -> DFResult<Statistics> {
@@ -356,9 +395,9 @@ impl DataSource for VortexDataSource {
         // FIXME(ngates): byte size should be adjusted for the initial projection...
         let total_byte_size = estimate_to_df_precision(&self.data_source.byte_size_estimate());
 
-        // Column statistics must match the output schema (final_schema), which may differ
+        // Column statistics must match the output schema (leftover_schema), which may differ
         // from the initial schema after try_swapping_with_projection adds computed columns.
-        let column_statistics = self.final_statistics.clone();
+        let column_statistics = self.leftover_statistics.clone();
 
         Ok(Statistics {
             num_rows,
@@ -390,48 +429,49 @@ impl DataSource for VortexDataSource {
 
         let convertor = DefaultExpressionConvertor::default();
         let input_schema = self.initial_schema.as_ref();
+        let projected_schema = projection.project_schema(input_schema)?;
 
-        // Check if all expressions can be pushed down. If any cannot, bail out entirely
-        // since DataSource::try_swapping_with_projection replaces the ProjectionExec,
-        // requiring the output schema to match the projection output exactly.
-        for proj_expr in projection {
-            if !convertor.can_be_pushed_down(&proj_expr.expr, input_schema)
-                || has_decimal_binary(&proj_expr.expr, input_schema)
-            {
-                return Ok(None);
-            }
-        }
+        // Use the shared ExpressionConvertor to split the projection into a Vortex
+        // scan_projection and a leftover DataFusion projection for expressions that
+        // can't be pushed down (e.g., unsupported scalar functions, decimal binary).
+        let ProcessedProjection {
+            scan_projection,
+            leftover_projection,
+        } = convertor.split_projection(projection.clone(), input_schema, &projected_schema)?;
 
-        tracing::debug!("Swapping DataFusion projection {:?}", projection);
+        // Compose with the initial projection so the scan operates on the original
+        // source columns, not the initial projection's output columns.
+        let scan_projection = replace(scan_projection, &root(), self.initial_projection.clone());
 
-        // Convert all projection expressions to Vortex.
-        let mut scan_columns: Vec<(String, Expression)> = Vec::new();
-        let mut scan_fields: Vec<arrow_schema::Field> = Vec::new();
-
-        for proj_expr in projection {
-            // We convert the expression, and then swap out the root node
-            // for the initial_projection.
-            let vx_expr = convertor.convert(proj_expr.expr.as_ref())?;
-            let vx_expr = replace(vx_expr, &root(), self.initial_projection.clone());
-
-            let dt = proj_expr.expr.data_type(input_schema)?;
-            let nullable = proj_expr.expr.nullable(input_schema)?;
-
-            scan_fields.push(arrow_schema::Field::new(&proj_expr.alias, dt, nullable));
-            scan_columns.push((proj_expr.alias.clone(), vx_expr));
-        }
-
-        let scan_projection = pack(scan_columns, Nullability::NonNullable);
+        // Compute the scan output schema from the Vortex expression's return dtype.
+        let scan_dtype = scan_projection
+            .return_dtype(self.data_source.dtype())
+            .map_err(|e| DataFusionError::External(Box::new(e)))?;
+        let scan_arrow_type = scan_dtype
+            .to_arrow_dtype()
+            .map_err(|e| DataFusionError::External(Box::new(e)))?;
+        let DataType::Struct(scan_fields) = scan_arrow_type else {
+            return Err(DataFusionError::Internal(
+                "Scan projection must produce a struct type".to_string(),
+            ));
+        };
         let scan_output_schema = Arc::new(Schema::new(scan_fields));
 
-        // TODO(ngates): we need a way to evaluate an expression over a stats set.
-        let scan_statistics =
-            vec![ColumnStatistics::new_unknown(); scan_output_schema.fields().len()];
+        // Remap the leftover column references to match the scan output schema.
+        let leftover_projection = leftover_projection
+            .try_map_exprs(|expr| reassign_expr_columns(expr, &scan_output_schema))?;
+
+        let final_schema = Arc::new(projected_schema);
 
         let mut this = self.clone();
-        this.final_projection = scan_projection;
-        this.final_schema = scan_output_schema;
-        this.final_statistics = scan_statistics;
+        this.projected_projection = scan_projection;
+        this.projected_schema = scan_output_schema.clone();
+        this.projected_statistics =
+            vec![ColumnStatistics::new_unknown(); scan_output_schema.fields().len()];
+        this.leftover_projection = Some(leftover_projection);
+        this.leftover_schema = final_schema.clone();
+        this.leftover_statistics =
+            vec![ColumnStatistics::new_unknown(); final_schema.fields().len()];
 
         Ok(Some(Arc::new(this)))
     }
@@ -455,9 +495,7 @@ impl DataSource for VortexDataSource {
         let pushdown_results: Vec<PushedDown> = filters
             .iter()
             .map(|expr| {
-                if convertor.can_be_pushed_down(expr, input_schema)
-                    && !has_decimal_binary(expr, input_schema)
-                {
+                if convertor.can_be_pushed_down(expr, input_schema) {
                     PushedDown::Yes
                 } else {
                     PushedDown::No
@@ -500,44 +538,6 @@ impl DataSource for VortexDataSource {
                 .with_updated_node(Arc::new(this) as _),
         )
     }
-}
-
-/// Check if an expression tree contains decimal binary arithmetic that Vortex cannot handle.
-///
-/// DataFusion assumes different decimal types can be coerced, but Vortex expects exact type
-/// matches for binary operations. We avoid pushing these down.
-fn has_decimal_binary(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> bool {
-    use datafusion_common::tree_node::TreeNode;
-
-    let mut found = false;
-    expr.apply(|node| {
-        if let Some(binary) = node.as_any().downcast_ref::<df_expr::BinaryExpr>()
-            && binary.op().is_numerical_operators()
-            && let (Ok(l), Ok(r)) = (
-                binary.left().data_type(schema),
-                binary.right().data_type(schema),
-            )
-            && is_decimal(&l)
-            && is_decimal(&r)
-        {
-            found = true;
-            return Ok(TreeNodeRecursion::Stop);
-        }
-        Ok(TreeNodeRecursion::Continue)
-    })
-    .map_err(|_| vortex_err!("Impossible traversal error"))
-    .vortex_expect("Impossible traversal error");
-    found
-}
-
-fn is_decimal(dt: &DataType) -> bool {
-    matches!(
-        dt,
-        DataType::Decimal32(_, _)
-            | DataType::Decimal64(_, _)
-            | DataType::Decimal128(_, _)
-            | DataType::Decimal256(_, _)
-    )
 }
 
 /// Convert a Vortex [`Option<Precision>`] to a DataFusion [`Precision`](DFPrecision).
