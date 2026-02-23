@@ -17,11 +17,16 @@ use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags;
 use vortex::array::IntoArray;
+use vortex::array::ToCanonical;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
+use vortex::encodings::alp::ALPArray;
+use vortex::encodings::alp::ALPFloat;
+use vortex::encodings::alp::Exponents;
+use vortex::encodings::alp::alp_encode;
 use vortex::encodings::fastlanes::BitPackedArray;
 use vortex::encodings::fastlanes::FoRArray;
 use vortex::encodings::runend::RunEndArray;
@@ -341,11 +346,70 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
     group.finish();
 }
 
+// ---------------------------------------------------------------------------
+// Benchmark: ALP(FoR(BitPacked)) for f32
+// ---------------------------------------------------------------------------
+fn bench_alp_for_bitpacked(c: &mut Criterion) {
+    let mut group = c.benchmark_group("alp_for_bp_6bw_f32");
+    group.sample_size(10);
+
+    let exponents = Exponents { e: 2, f: 0 };
+    let bit_width: u8 = 6;
+
+    for (len, len_str) in BENCH_ARGS {
+        group.throughput(Throughput::Bytes((len * size_of::<f32>()) as u64));
+
+        // Generate f32 values that ALP-encode without patches.
+        let floats: Vec<f32> = (0..*len)
+            .map(|i| <f32 as ALPFloat>::decode_single(10 + (i as i32 % 64), exponents))
+            .collect();
+        let float_prim = PrimitiveArray::new(Buffer::from(floats), NonNullable);
+
+        // Encode: ALP → FoR → BitPacked
+        let alp = alp_encode(&float_prim, Some(exponents)).vortex_expect("alp_encode");
+        assert!(alp.patches().is_none());
+        let for_arr = FoRArray::encode(alp.encoded().to_primitive()).vortex_expect("for encode");
+        let bp =
+            BitPackedArray::encode(for_arr.encoded(), bit_width).vortex_expect("bitpack encode");
+
+        let tree = ALPArray::new(
+            FoRArray::try_new(bp.into_array(), for_arr.reference_scalar().clone())
+                .vortex_expect("for_new")
+                .into_array(),
+            exponents,
+            None,
+        );
+        let array = tree.to_array();
+
+        group.bench_with_input(
+            BenchmarkId::new("dynamic_dispatch_f32", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+
+                let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
+
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
 fn benchmark_dynamic_dispatch(c: &mut Criterion) {
     bench_for_bitpacked(c);
     bench_dict_bp_codes(c);
     bench_runend(c);
     bench_dict_bp_codes_bp_for_values(c);
+    bench_alp_for_bitpacked(c);
 }
 
 criterion::criterion_group!(benches, benchmark_dynamic_dispatch);
