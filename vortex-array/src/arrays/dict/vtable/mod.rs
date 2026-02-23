@@ -2,9 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use kernel::PARENT_KERNELS;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -24,6 +21,9 @@ use crate::SerializeMetadata;
 use crate::arrays::ConstantArray;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;

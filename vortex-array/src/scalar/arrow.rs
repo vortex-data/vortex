@@ -7,15 +7,15 @@ use std::sync::Arc;
 
 use arrow_array::Scalar as ArrowScalar;
 use arrow_array::*;
-use vortex_dtype::DType;
-use vortex_dtype::PType;
-use vortex_dtype::datetime::AnyTemporal;
-use vortex_dtype::datetime::TemporalMetadata;
-use vortex_dtype::datetime::TimeUnit;
 use vortex_error::VortexError;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use crate::dtype::DType;
+use crate::dtype::PType;
+use crate::extension::datetime::AnyTemporal;
+use crate::extension::datetime::TemporalMetadata;
+use crate::extension::datetime::TimeUnit;
 use crate::scalar::BinaryScalar;
 use crate::scalar::BoolScalar;
 use crate::scalar::DecimalScalar;
@@ -192,20 +192,24 @@ mod tests {
 
     use arrow_array::Datum;
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::DecimalDType;
-    use vortex_dtype::NativeDType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::datetime::Date;
-    use vortex_dtype::datetime::Time;
-    use vortex_dtype::datetime::TimeUnit;
-    use vortex_dtype::datetime::Timestamp;
-    use vortex_dtype::datetime::TimestampOptions;
-    use vortex_dtype::extension::ExtDTypeVTable;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
 
+    use crate::dtype::DType;
+    use crate::dtype::DecimalDType;
+    use crate::dtype::FieldDType;
+    use crate::dtype::NativeDType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
+    use crate::dtype::extension::ExtId;
+    use crate::dtype::extension::ExtVTable;
+    use crate::dtype::i256;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::Time;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
+    use crate::extension::datetime::TimestampOptions;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
 
@@ -288,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_primitive_f16_to_arrow() {
-        use vortex_dtype::half::f16;
+        use crate::dtype::half::f16;
 
         let scalar = Scalar::primitive(f16::from_f32(1.234), Nullability::NonNullable);
         let result = Arc::<dyn Datum>::try_from(&scalar);
@@ -386,7 +390,7 @@ mod tests {
         assert!(Arc::<dyn Datum>::try_from(&scalar_i128).is_ok());
 
         // Test i256
-        use vortex_dtype::i256;
+
         let value_i256 = i256::from_i128(99999);
         let scalar_i256 = Scalar::decimal(
             DecimalValue::I256(value_i256),
@@ -398,8 +402,6 @@ mod tests {
 
     #[test]
     fn test_null_decimal_to_arrow() {
-        use vortex_dtype::DecimalDType;
-
         let decimal_dtype = DecimalDType::new(10, 2);
         let scalar = Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable));
         let result = Arc::<dyn Datum>::try_from(&scalar);
@@ -409,9 +411,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "struct scalar conversion")]
     fn test_struct_scalar_to_arrow_todo() {
-        use vortex_dtype::FieldDType;
-        use vortex_dtype::StructFields;
-
         let struct_dtype = DType::Struct(
             StructFields::from_iter([(
                 "field1",
@@ -446,15 +445,13 @@ mod tests {
     #[test]
     #[should_panic(expected = "Cannot convert extension scalar")]
     fn test_non_temporal_extension_to_arrow_todo() {
-        use vortex_dtype::ExtID;
-
         #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct SomeExt;
-        impl ExtDTypeVTable for SomeExt {
+        impl ExtVTable for SomeExt {
             type Metadata = String;
 
-            fn id(&self) -> ExtID {
-                ExtID::new_ref("some_ext")
+            fn id(&self) -> ExtId {
+                ExtId::new_ref("some_ext")
             }
 
             fn serialize(&self, _options: &Self::Metadata) -> VortexResult<Vec<u8>> {

@@ -7,12 +7,11 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
-use crate::LogicalType;
 use crate::cpp;
 use crate::duckdb::DataChunk;
-use crate::wrapper;
+use crate::lifetime_wrapper;
 
-wrapper! {
+lifetime_wrapper! {
     /// A wrapper around a DuckDB query result.
     #[derive(Debug)]
     QueryResult,
@@ -35,7 +34,9 @@ impl QueryResult {
         let boxed = Box::new(result);
         unsafe { Self::own(Box::into_raw(boxed)) }
     }
+}
 
+impl QueryResultRef {
     /// Get the number of columns in the result.
     pub fn column_count(&self) -> u64 {
         unsafe { cpp::duckdb_column_count(self.as_ptr()) }
@@ -73,6 +74,8 @@ impl QueryResult {
         LogicalType::new(dtype)
     }
 }
+
+use crate::duckdb::LogicalType;
 
 impl IntoIterator for QueryResult {
     type Item = DataChunk;

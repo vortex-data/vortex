@@ -12,8 +12,8 @@ use arbitrary::Unstructured;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ArbitraryDictArray;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_error::vortex_err;
 
 use crate::SESSION;
@@ -63,7 +63,7 @@ impl<'a> Arbitrary<'a> for FuzzCompressGpu {
 }
 
 /// Generate a random primitive DType suitable for GPU operations.
-fn arbitrary_gpu_primitive_dtype(u: &mut Unstructured) -> Result<vortex_dtype::DType> {
+fn arbitrary_gpu_primitive_dtype(u: &mut Unstructured) -> Result<vortex_array::dtype::DType> {
     let nullability: Nullability = u.arbitrary()?;
     let ptype = match u.int_in_range(0..=9)? {
         0 => PType::U8,
@@ -78,7 +78,7 @@ fn arbitrary_gpu_primitive_dtype(u: &mut Unstructured) -> Result<vortex_dtype::D
         9 => PType::F64,
         _ => unreachable!(),
     };
-    Ok(vortex_dtype::DType::Primitive(ptype, nullability))
+    Ok(vortex_array::dtype::DType::Primitive(ptype, nullability))
 }
 
 /// Run the GPU decompression fuzzer.

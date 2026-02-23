@@ -8,11 +8,11 @@ use num_traits::AsPrimitive;
 use vortex_array::Array;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::NativePType;
+use vortex_array::match_each_native_ptype;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_native_ptype;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 

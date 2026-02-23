@@ -9,7 +9,6 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -18,13 +17,15 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::compute::Operator;
+use crate::dtype::DType;
 use crate::expr::Arity;
 use crate::expr::Binary;
 use crate::expr::ChildName;
+use crate::expr::CompareOperator;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::Expression;
+use crate::expr::Operator;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
@@ -98,11 +99,13 @@ impl VTable for DynamicComparison {
                 .map_err(|_| vortex_error::vortex_err!("Wrong arg count for DynamicComparison"))?;
             let rhs = ConstantArray::new(scalar, args.row_count).into_array();
 
-            return Binary.bind(data.operator.into()).execute(ExecutionArgs {
-                inputs: vec![lhs, rhs],
-                row_count: args.row_count,
-                ctx: args.ctx,
-            });
+            return Binary
+                .bind(Operator::from(data.operator))
+                .execute(ExecutionArgs {
+                    inputs: vec![lhs, rhs],
+                    row_count: args.row_count,
+                    ctx: args.ctx,
+                });
         }
         let ret_dtype =
             DType::Bool(args.inputs[0].dtype().nullability() | data.rhs.dtype.nullability());
@@ -122,39 +125,39 @@ impl VTable for DynamicComparison {
     ) -> Option<Expression> {
         let lhs = expr.child(0);
         match dynamic.operator {
-            Operator::Gt => Some(DynamicComparison.new_expr(
+            CompareOperator::Eq | CompareOperator::NotEq => None,
+            CompareOperator::Gt => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
-                    operator: Operator::Lte,
+                    operator: CompareOperator::Lte,
                     rhs: dynamic.rhs.clone(),
                     default: !dynamic.default,
                 },
                 vec![lhs.stat_max(catalog)?],
             )),
-            Operator::Gte => Some(DynamicComparison.new_expr(
+            CompareOperator::Gte => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
-                    operator: Operator::Lt,
+                    operator: CompareOperator::Lt,
                     rhs: dynamic.rhs.clone(),
                     default: !dynamic.default,
                 },
                 vec![lhs.stat_max(catalog)?],
             )),
-            Operator::Lt => Some(DynamicComparison.new_expr(
+            CompareOperator::Lt => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
-                    operator: Operator::Gte,
+                    operator: CompareOperator::Gte,
                     rhs: dynamic.rhs.clone(),
                     default: !dynamic.default,
                 },
                 vec![lhs.stat_min(catalog)?],
             )),
-            Operator::Lte => Some(DynamicComparison.new_expr(
+            CompareOperator::Lte => Some(DynamicComparison.new_expr(
                 DynamicComparisonExpr {
-                    operator: Operator::Gt,
+                    operator: CompareOperator::Gt,
                     rhs: dynamic.rhs.clone(),
                     default: !dynamic.default,
                 },
                 vec![lhs.stat_min(catalog)?],
             )),
-            _ => None,
         }
     }
 
@@ -165,7 +168,7 @@ impl VTable for DynamicComparison {
 }
 
 pub fn dynamic(
-    operator: Operator,
+    operator: CompareOperator,
     rhs_value: impl Fn() -> Option<ScalarValue> + Send + Sync + 'static,
     rhs_dtype: DType,
     default: bool,
@@ -186,7 +189,7 @@ pub fn dynamic(
 
 #[derive(Clone, Debug)]
 pub struct DynamicComparisonExpr {
-    operator: Operator,
+    operator: CompareOperator,
     rhs: Arc<Rhs>,
     // Default value for the dynamic comparison.
     default: bool,
@@ -332,21 +335,21 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexResult;
 
     use super::*;
     use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::expr::exprs::root::root;
 
     #[test]
     fn return_dtype_bool() -> VortexResult<()> {
         let expr = dynamic(
-            Operator::Lt,
+            CompareOperator::Lt,
             || Some(5i32.into()),
             DType::Primitive(PType::I32, Nullability::NonNullable),
             true,
@@ -364,7 +367,7 @@ mod tests {
     fn execute_with_value() -> VortexResult<()> {
         let input = buffer![1i32, 5, 10].into_array();
         let expr = dynamic(
-            Operator::Lt,
+            CompareOperator::Lt,
             || Some(5i32.into()),
             DType::Primitive(PType::I32, Nullability::NonNullable),
             true,
@@ -379,7 +382,7 @@ mod tests {
     fn execute_without_value_default_true() -> VortexResult<()> {
         let input = buffer![1i32, 5, 10].into_array();
         let expr = dynamic(
-            Operator::Lt,
+            CompareOperator::Lt,
             || None,
             DType::Primitive(PType::I32, Nullability::NonNullable),
             true,
@@ -394,7 +397,7 @@ mod tests {
     fn execute_without_value_default_false() -> VortexResult<()> {
         let input = buffer![1i32, 5, 10].into_array();
         let expr = dynamic(
-            Operator::Lt,
+            CompareOperator::Lt,
             || None,
             DType::Primitive(PType::I32, Nullability::NonNullable),
             false,
@@ -410,7 +413,7 @@ mod tests {
         let threshold = Arc::new(AtomicI32::new(5));
         let threshold_clone = threshold.clone();
         let expr = dynamic(
-            Operator::Lt,
+            CompareOperator::Lt,
             move || Some(threshold_clone.load(Ordering::SeqCst).into()),
             DType::Primitive(PType::I32, Nullability::NonNullable),
             true,

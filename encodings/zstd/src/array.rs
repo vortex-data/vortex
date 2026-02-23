@@ -25,6 +25,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::build_views::BinaryView;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::compute::filter;
+use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
@@ -45,7 +46,6 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -648,11 +648,10 @@ impl ZstdArray {
 
         // then we actually decompress those frames
         let mut decompressor = if let Some(dictionary) = &self.dictionary {
-            zstd::bulk::Decompressor::with_dictionary(dictionary)
+            zstd::bulk::Decompressor::with_dictionary(dictionary)?
         } else {
-            zstd::bulk::Decompressor::new()
-        }
-        .vortex_expect("Decompressor encountered io error");
+            zstd::bulk::Decompressor::new()?
+        };
         let mut decompressed = ByteBufferMut::with_capacity_aligned(
             uncompressed_size_to_decompress,
             Alignment::new(byte_width),
@@ -665,8 +664,7 @@ impl ZstdArray {
         let mut uncompressed_start = 0;
         for frame in frames_to_decompress {
             let uncompressed_written = decompressor
-                .decompress_to_buffer(frame.as_slice(), &mut decompressed[uncompressed_start..])
-                .vortex_expect("error while decompressing zstd array");
+                .decompress_to_buffer(frame.as_slice(), &mut decompressed[uncompressed_start..])?;
             uncompressed_start += uncompressed_written;
         }
         if uncompressed_start != uncompressed_size_to_decompress {

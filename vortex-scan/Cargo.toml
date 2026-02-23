@@ -21,7 +21,6 @@ arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }

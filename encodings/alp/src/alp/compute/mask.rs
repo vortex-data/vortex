@@ -4,8 +4,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::compute::MaskKernel;
-use vortex_array::compute::MaskReduce;
+use vortex_array::expr::MaskKernel;
+use vortex_array::expr::MaskReduce;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 

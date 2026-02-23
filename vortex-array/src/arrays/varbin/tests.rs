@@ -5,8 +5,6 @@ use rstest::fixture;
 use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
-use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -14,6 +12,8 @@ use crate::IntoArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbin::VarBinArray;
 use crate::assert_arrays_eq;
+use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::validity::Validity;
 
 #[fixture]
@@ -50,9 +50,8 @@ pub fn slice_array(binary_array: ArrayRef) {
 
 #[test]
 fn test_zero_offsets() -> vortex_error::VortexResult<()> {
-    use vortex_dtype::Nullability::NonNullable;
-
     use crate::arrays::VarBinVTable;
+    use crate::dtype::Nullability::NonNullable;
 
     let items = VarBinArray::from_iter_nonnull(["abc", "def", "ghi"], DType::Utf8(NonNullable));
     let sliced = items.slice(1..3)?.as_::<VarBinVTable>().clone();

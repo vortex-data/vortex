@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::cpp;
-use crate::wrapper;
+use crate::lifetime_wrapper;
 
-wrapper!(
+lifetime_wrapper!(
     SelectionVector,
     cpp::duckdb_selection_vector,
     |ptr: &mut cpp::duckdb_selection_vector| {
@@ -16,7 +16,9 @@ impl SelectionVector {
     pub fn with_capacity(len: usize) -> Self {
         unsafe { Self::own(cpp::duckdb_create_selection_vector(len as _)) }
     }
+}
 
+impl SelectionVectorRef {
     // NOTE(ngates): selection vector doesn't hold its own length. Which makes writing a safe
     //  Rust API annoying...
     pub unsafe fn as_slice_mut(&mut self, length: usize) -> &mut [u32] {

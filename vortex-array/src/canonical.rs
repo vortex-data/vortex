@@ -6,8 +6,6 @@
 use std::sync::Arc;
 
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -46,6 +44,8 @@ use crate::arrays::VarBinViewArrayParts;
 use crate::arrays::VarBinViewVTable;
 use crate::arrays::constant_canonicalize;
 use crate::builders::builder_with_capacity;
+use crate::dtype::DType;
+use crate::dtype::NativePType;
 use crate::matcher::Matcher;
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).

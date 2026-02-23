@@ -5,17 +5,17 @@ use std::cmp::Ordering;
 
 use num_traits::CheckedSub;
 use rstest::rstest;
-use vortex_dtype::DType;
-use vortex_dtype::FromPrimitiveOrF16;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::ToBytes;
-use vortex_dtype::half::f16;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::pvalue::CoercePValue;
 use super::*;
+use crate::dtype::DType;
+use crate::dtype::FromPrimitiveOrF16;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::dtype::ToBytes;
+use crate::dtype::half::f16;
 use crate::scalar::PValue;
 use crate::scalar::PrimitiveScalar;
 use crate::scalar::ScalarValue;
@@ -196,16 +196,6 @@ fn test_as_conversion_null() {
 }
 
 #[test]
-fn test_numeric_operator_swap() {
-    assert_eq!(NumericOperator::Add.swap(), NumericOperator::Add);
-    assert_eq!(NumericOperator::Sub.swap(), NumericOperator::RSub);
-    assert_eq!(NumericOperator::RSub.swap(), NumericOperator::Sub);
-    assert_eq!(NumericOperator::Mul.swap(), NumericOperator::Mul);
-    assert_eq!(NumericOperator::Div.swap(), NumericOperator::RDiv);
-    assert_eq!(NumericOperator::RDiv.swap(), NumericOperator::Div);
-}
-
-#[test]
 fn test_checked_binary_numeric_add() {
     let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
     let value1 = ScalarValue::Primitive(PValue::I32(10));
@@ -270,21 +260,6 @@ fn test_checked_binary_numeric_div() {
 
     let result = scalar1
         .checked_binary_numeric(&scalar2, NumericOperator::Div)
-        .unwrap();
-    assert_eq!(result.typed_value::<i32>(), Some(5));
-}
-
-#[test]
-fn test_checked_binary_numeric_rdiv() {
-    let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-    let value1 = ScalarValue::Primitive(PValue::I32(4));
-    let value2 = ScalarValue::Primitive(PValue::I32(20));
-    let scalar1 = PrimitiveScalar::try_new(&dtype, Some(&value1)).unwrap();
-    let scalar2 = PrimitiveScalar::try_new(&dtype, Some(&value2)).unwrap();
-
-    // RDiv means right / left, so 20 / 4 = 5
-    let result = scalar1
-        .checked_binary_numeric(&scalar2, NumericOperator::RDiv)
         .unwrap();
     assert_eq!(result.typed_value::<i32>(), Some(5));
 }

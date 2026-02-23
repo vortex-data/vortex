@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -9,7 +8,8 @@ use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::CastReduce;
+use crate::dtype::DType;
+use crate::expr::CastReduce;
 use crate::vtable::ValidityHelper;
 
 /// Cast implementation for [`FixedSizeListArray`].

@@ -7,15 +7,15 @@ use std::cmp::Ordering;
 use std::fmt;
 
 use num_traits::ToPrimitive as NumToPrimitive;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::PType;
-use vortex_dtype::match_each_decimal_value;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::PType;
+use crate::match_each_decimal_value;
 use crate::scalar::DecimalValue;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
@@ -170,7 +170,7 @@ impl<'a> DecimalScalar<'a> {
                             Scalar::primitive(v, *nullability)
                         }
                         PType::F16 => {
-                            use vortex_dtype::half::f16;
+                            use crate::dtype::half::f16;
                             Scalar::primitive(f16::from_f64(actual_value), *nullability)
                         }
                         PType::F32 => Scalar::primitive(actual_value as f32, *nullability),
@@ -227,10 +227,8 @@ impl<'a> DecimalScalar<'a> {
                 let operation_result = match op {
                     NumericOperator::Add => lhs.checked_add(&rhs),
                     NumericOperator::Sub => lhs.checked_sub(&rhs),
-                    NumericOperator::RSub => rhs.checked_sub(&lhs),
                     NumericOperator::Mul => lhs.checked_mul(&rhs),
                     NumericOperator::Div => lhs.checked_div(&rhs),
-                    NumericOperator::RDiv => rhs.checked_div(&lhs),
                 }?;
 
                 // Check if the result fits within the precision constraints

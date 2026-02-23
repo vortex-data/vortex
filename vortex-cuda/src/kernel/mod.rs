@@ -17,10 +17,10 @@ use cudarc::driver::LaunchConfig;
 use cudarc::driver::sys::CUevent_flags;
 use cudarc::nvrtc::Ptx;
 use tracing::trace;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
+use vortex::utils::aliases::dash_map::DashMap;
 use vortex_cuda_macros::cuda_tests;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
-use vortex_utils::aliases::dash_map::DashMap;
 
 mod arrays;
 mod encodings;
@@ -287,7 +287,7 @@ mod tests {
 
     use cudarc::driver::CudaContext;
     use cudarc::driver::PushKernelArg;
-    use vortex_error::VortexExpect;
+    use vortex::error::VortexExpect;
 
     use super::KernelLoader;
 

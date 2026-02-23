@@ -26,14 +26,14 @@ pub use invert::invert;
 pub use is_constant::*;
 pub use is_sorted::*;
 use itertools::Itertools;
-pub use list_contains::*;
+#[expect(deprecated)]
+pub use list_contains::list_contains;
 pub use mask::*;
 pub use min_max::*;
 pub use nan_count::*;
 pub use numeric::*;
 use parking_lot::RwLock;
 pub use sum::*;
-use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -44,26 +44,7 @@ pub use zip::*;
 use crate::Array;
 use crate::ArrayRef;
 use crate::builders::ArrayBuilder;
-pub use crate::expr::BetweenExecuteAdaptor;
-pub use crate::expr::BetweenKernel;
-pub use crate::expr::BetweenReduce;
-pub use crate::expr::BetweenReduceAdaptor;
-pub use crate::expr::CastExecuteAdaptor;
-pub use crate::expr::CastKernel;
-pub use crate::expr::CastReduce;
-pub use crate::expr::CastReduceAdaptor;
-pub use crate::expr::FillNullExecuteAdaptor;
-pub use crate::expr::FillNullKernel;
-pub use crate::expr::FillNullReduce;
-pub use crate::expr::FillNullReduceAdaptor;
-pub use crate::expr::MaskExecuteAdaptor;
-pub use crate::expr::MaskKernel;
-pub use crate::expr::MaskReduce;
-pub use crate::expr::MaskReduceAdaptor;
-pub use crate::expr::NotExecuteAdaptor;
-pub use crate::expr::NotKernel;
-pub use crate::expr::NotReduce;
-pub use crate::expr::NotReduceAdaptor;
+use crate::dtype::DType;
 use crate::scalar::Scalar;
 
 #[cfg(feature = "arbitrary")]
@@ -101,7 +82,6 @@ pub fn warm_up_vtables() {
     #[allow(unused_qualifications)]
     is_constant::warm_up_vtable();
     is_sorted::warm_up_vtable();
-    list_contains::warm_up_vtable();
     min_max::warm_up_vtable();
     nan_count::warm_up_vtable();
     sum::warm_up_vtable();

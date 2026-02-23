@@ -6,12 +6,12 @@
 
 // vortex::compute is deprecated and will be ported over to expressions.
 pub use vortex_array::compute;
+use vortex_array::dtype::session::DTypeSession;
 // vortex::expr is in the process of having its dependencies inverted, and will eventually be
 // pulled back out into a vortex_expr crate.
 pub use vortex_array::expr;
 use vortex_array::expr::session::ExprSession;
 use vortex_array::session::ArraySession;
-use vortex_dtype::session::DTypeSession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -20,6 +20,10 @@ use vortex_session::VortexSession;
 
 pub mod array {
     pub use vortex_array::*;
+
+    // TODO(connor): We should probably manually pull up everything we need besides these 3 modules.
+    // Note that there `vortex::dtype`, `vortex::extension`, and `vortex::scalar` are all exported
+    // twice.
 }
 
 pub mod buffer {
@@ -35,11 +39,15 @@ pub mod compressor {
 }
 
 pub mod dtype {
-    pub use vortex_dtype::*;
+    pub use vortex_array::dtype::*;
 }
 
 pub mod error {
     pub use vortex_error::*;
+}
+
+pub mod extension {
+    pub use vortex_array::extension::*;
 }
 
 #[cfg(feature = "files")]
@@ -177,6 +185,7 @@ mod test {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::dtype::FieldNames;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
@@ -185,7 +194,6 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldNames;
     use vortex_error::VortexResult;
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;

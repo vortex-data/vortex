@@ -14,13 +14,13 @@ mod take;
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_dtype::half::f16;
 
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
+    use crate::dtype::half::f16;
     use crate::scalar::Scalar;
 
     #[test]
@@ -48,9 +48,9 @@ mod test {
     #[case::constant_i32(ConstantArray::new(Scalar::from(42i32), 5))]
     #[case::constant_str(ConstantArray::new(Scalar::from("constant"), 5))]
     #[case::constant_null(ConstantArray::new(
-        Scalar::null(vortex_dtype::DType::Primitive(
-            vortex_dtype::PType::I32,
-            vortex_dtype::Nullability::Nullable
+        Scalar::null(crate::dtype::DType::Primitive(
+            crate::dtype::PType::I32,
+            crate::dtype::Nullability::Nullable
         )),
         5
     ))]

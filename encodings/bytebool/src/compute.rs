@@ -8,12 +8,12 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::compute::CastReduce;
-use vortex_array::compute::MaskReduce;
+use vortex_array::dtype::DType;
+use vortex_array::expr::CastReduce;
+use vortex_array::expr::MaskReduce;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_dtype::DType;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
 use super::ByteBoolArray;
@@ -91,15 +91,14 @@ mod tests {
     use rstest::rstest;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::compute::Operator;
-    use vortex_array::compute::compare;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::expr::Operator;
 
     use super::*;
 
@@ -119,7 +118,7 @@ mod tests {
         let lhs = ByteBoolArray::from(vec![true; 5]);
         let rhs = ByteBoolArray::from(vec![true; 5]);
 
-        let arr = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
+        let arr = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
 
         let expected = ByteBoolArray::from(vec![true; 5]);
         assert_arrays_eq!(arr, expected.to_array());
@@ -130,7 +129,7 @@ mod tests {
         let lhs = ByteBoolArray::from(vec![false; 5]);
         let rhs = ByteBoolArray::from(vec![true; 5]);
 
-        let arr = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
+        let arr = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
 
         let expected = ByteBoolArray::from(vec![false; 5]);
         assert_arrays_eq!(arr, expected.to_array());
@@ -141,7 +140,7 @@ mod tests {
         let lhs = ByteBoolArray::from(vec![true; 5]);
         let rhs = ByteBoolArray::from(vec![Some(true), Some(true), Some(true), Some(false), None]);
 
-        let arr = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
+        let arr = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
 
         let expected =
             ByteBoolArray::from(vec![Some(true), Some(true), Some(true), Some(false), None]);

@@ -14,22 +14,27 @@ mod cardinality;
 mod init;
 mod partition;
 mod pushdown_complex_filter;
+mod table_scan_progress;
 mod virtual_columns;
 
 pub use bind::*;
 pub use init::*;
 pub use virtual_columns::VirtualColumnsResult;
+pub use virtual_columns::VirtualColumnsResultRef;
 
 use crate::cpp;
 use crate::cpp::duckdb_client_context;
-use crate::duckdb::Database;
+use crate::duckdb::ClientContext;
+use crate::duckdb::DataChunk;
+use crate::duckdb::DatabaseRef;
 use crate::duckdb::LogicalType;
-use crate::duckdb::client_context::ClientContext;
-use crate::duckdb::data_chunk::DataChunk;
-use crate::duckdb::expr::Expression;
+use crate::duckdb::client_context::ClientContextRef;
+use crate::duckdb::data_chunk::DataChunkRef;
+use crate::duckdb::expr::ExpressionRef;
 use crate::duckdb::table_function::cardinality::cardinality_callback;
 use crate::duckdb::table_function::partition::get_partition_data_callback;
 use crate::duckdb::table_function::pushdown_complex_filter::pushdown_complex_filter_callback;
+use crate::duckdb::table_function::table_scan_progress::table_scan_progress_callback;
 use crate::duckdb::table_function::virtual_columns::get_virtual_columns_callback;
 use crate::duckdb_try;
 
@@ -74,18 +79,18 @@ pub trait TableFunction: Sized + Debug {
     /// This function is used for determining the schema of a table producing function and
     /// returning bind data.
     fn bind(
-        client_context: &ClientContext,
-        input: &BindInput,
-        result: &mut BindResult,
+        client_context: &ClientContextRef,
+        input: &BindInputRef,
+        result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData>;
 
     /// The function is called during query execution and is responsible for producing the output
     fn scan(
-        client_context: &ClientContext,
+        client_context: &ClientContextRef,
         bind_data: &Self::BindData,
         init_local: &mut Self::LocalState,
         init_global: &mut Self::GlobalState,
-        chunk: &mut DataChunk,
+        chunk: &mut DataChunkRef,
     ) -> VortexResult<()>;
 
     /// Initialize the global operator state of the function.
@@ -103,6 +108,13 @@ pub trait TableFunction: Sized + Debug {
         global: &mut Self::GlobalState,
     ) -> VortexResult<Self::LocalState>;
 
+    /// Return table scanning progress from 0. to 100.
+    fn table_scan_progress(
+        client_context: &ClientContextRef,
+        bind_data: &mut Self::BindData,
+        global_state: &mut Self::GlobalState,
+    ) -> f64;
+
     /// Pushes down a filter expression to the table function.
     ///
     /// Returns `true` if the filter was successfully pushed down (and stored on the bind data),
@@ -110,7 +122,7 @@ pub trait TableFunction: Sized + Debug {
     /// applied later in the query plan.
     fn pushdown_complex_filter(
         _bind_data: &mut Self::BindData,
-        _expr: &Expression,
+        _expr: &ExpressionRef,
     ) -> VortexResult<bool> {
         Ok(false)
     }
@@ -129,7 +141,7 @@ pub trait TableFunction: Sized + Debug {
     ) -> VortexResult<u64>;
 
     /// Returns the virtual columns of the table function.
-    fn virtual_columns(_bind_data: &Self::BindData, _result: &mut VirtualColumnsResult) {}
+    fn virtual_columns(_bind_data: &Self::BindData, _result: &mut VirtualColumnsResultRef) {}
 
     /// Returns a vector of key-value pairs for EXPLAIN output
     fn to_string(_bind_data: &Self::BindData) -> Option<Vec<(String, String)>> {
@@ -148,7 +160,7 @@ pub enum Cardinality {
     Maximum(u64),
 }
 
-impl Database {
+impl DatabaseRef {
     pub fn register_table_function<T: TableFunction>(&self, name: &CStr) -> VortexResult<()> {
         // Set up the parameters.
         let parameters = T::parameters();
@@ -181,7 +193,7 @@ impl Database {
             pushdown_expression: ptr::null_mut::<c_void>(),
             get_virtual_columns: Some(get_virtual_columns_callback::<T>),
             to_string: Some(to_string_callback::<T>),
-            table_scan_progress: ptr::null_mut::<c_void>(),
+            table_scan_progress: Some(table_scan_progress_callback::<T>),
             get_partition_data: Some(get_partition_data_callback::<T>),
             projection_pushdown: T::PROJECTION_PUSHDOWN,
             filter_pushdown: T::FILTER_PUSHDOWN,
@@ -247,14 +259,14 @@ unsafe extern "C-unwind" fn function<T: TableFunction>(
         .vortex_expect("global_init_data null pointer");
     let local_init_data = unsafe { local_init_data.cast::<T::LocalState>().as_mut() }
         .vortex_expect("local_init_data null pointer");
-    let mut data_chunk = unsafe { DataChunk::borrow(output) };
+    let data_chunk = unsafe { DataChunk::borrow_mut(output) };
 
     match T::scan(
-        &client_context,
+        client_context,
         bind_data,
         local_init_data,
         global_init_data,
-        &mut data_chunk,
+        data_chunk,
     ) {
         Ok(()) => {
             // The data chunk is already filled by the function.

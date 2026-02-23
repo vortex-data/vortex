@@ -3,8 +3,11 @@
 
 use std::fmt::Formatter;
 
+#[expect(deprecated)]
+pub use boolean::and_kleene;
+#[expect(deprecated)]
+pub use boolean::or_kleene;
 use prost::Message;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -12,8 +15,7 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::compute;
-use crate::compute::BooleanOperator;
+use crate::dtype::DType;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -23,10 +25,11 @@ use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
 use crate::expr::exprs::literal::lit;
+use crate::expr::exprs::operators::CompareOperator;
 use crate::expr::exprs::operators::Operator;
 use crate::expr::stats::Stat;
 
-mod boolean;
+pub(crate) mod boolean;
 pub(crate) use boolean::*;
 mod compare;
 pub use compare::*;
@@ -117,14 +120,14 @@ impl VTable for Binary {
         };
 
         match op {
-            Operator::Eq => execute_compare(lhs, rhs, compute::Operator::Eq),
-            Operator::NotEq => execute_compare(lhs, rhs, compute::Operator::NotEq),
-            Operator::Lt => execute_compare(lhs, rhs, compute::Operator::Lt),
-            Operator::Lte => execute_compare(lhs, rhs, compute::Operator::Lte),
-            Operator::Gt => execute_compare(lhs, rhs, compute::Operator::Gt),
-            Operator::Gte => execute_compare(lhs, rhs, compute::Operator::Gte),
-            Operator::And => execute_boolean(lhs, rhs, BooleanOperator::AndKleene),
-            Operator::Or => execute_boolean(lhs, rhs, BooleanOperator::OrKleene),
+            Operator::Eq => execute_compare(lhs, rhs, CompareOperator::Eq),
+            Operator::NotEq => execute_compare(lhs, rhs, CompareOperator::NotEq),
+            Operator::Lt => execute_compare(lhs, rhs, CompareOperator::Lt),
+            Operator::Lte => execute_compare(lhs, rhs, CompareOperator::Lte),
+            Operator::Gt => execute_compare(lhs, rhs, CompareOperator::Gt),
+            Operator::Gte => execute_compare(lhs, rhs, CompareOperator::Gte),
+            Operator::And => execute_boolean(lhs, rhs, Operator::And),
+            Operator::Or => execute_boolean(lhs, rhs, Operator::Or),
             Operator::Add => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Add),
             Operator::Sub => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Sub),
             Operator::Mul => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Mul),
@@ -158,12 +161,12 @@ impl VTable for Binary {
             value_predicate: Expression,
             catalog: &dyn StatsCatalog,
         ) -> Expression {
-            let nan_predicate = lhs
-                .stat_expression(Stat::NaNCount, catalog)
-                .into_iter()
-                .chain(rhs.stat_expression(Stat::NaNCount, catalog))
-                .map(|nans| eq(nans, lit(0u64)))
-                .reduce(and);
+            let nan_predicate = and_collect(
+                lhs.stat_expression(Stat::NaNCount, catalog)
+                    .into_iter()
+                    .chain(rhs.stat_expression(Stat::NaNCount, catalog))
+                    .map(|nans| eq(nans, lit(0u64))),
+            );
 
             if let Some(nan_check) = nan_predicate {
                 and(nan_check, value_predicate)
@@ -185,7 +188,7 @@ impl VTable for Binary {
                 let left = min_lhs.zip(max_rhs).map(|(a, b)| gt(a, b));
                 let right = min_rhs.zip(max_lhs).map(|(a, b)| gt(a, b));
 
-                let min_max_check = left.into_iter().chain(right).reduce(or)?;
+                let min_max_check = or_collect(left.into_iter().chain(right))?;
 
                 // NaN is not captured by the min/max stat, so we must check NaNCount before pruning
                 Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
@@ -224,11 +227,11 @@ impl VTable for Binary {
 
                 Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
             }
-            Operator::And => lhs
-                .stat_falsification(catalog)
-                .into_iter()
-                .chain(rhs.stat_falsification(catalog))
-                .reduce(or),
+            Operator::And => or_collect(
+                lhs.stat_falsification(catalog)
+                    .into_iter()
+                    .chain(rhs.stat_falsification(catalog)),
+            ),
             Operator::Or => Some(and(
                 lhs.stat_falsification(catalog)?,
                 rhs.stat_falsification(catalog)?,
@@ -557,12 +560,11 @@ pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-
     use super::*;
     use crate::assert_arrays_eq;
-    use crate::compute::compare;
+    use crate::builtins::ArrayBuiltins;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
     use crate::expr::Expression;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
@@ -732,16 +734,17 @@ mod tests {
         .unwrap()
         .into_array();
 
-        // Test using compare compute function directly
-        let result_equal = compare(&lhs_struct, &rhs_struct_equal, compute::Operator::Eq).unwrap();
+        // Test using binary method directly
+        let result_equal = lhs_struct.binary(rhs_struct_equal, Operator::Eq).unwrap();
         assert_eq!(
             result_equal.scalar_at(0).vortex_expect("value"),
             Scalar::bool(true, Nullability::NonNullable),
             "Equal structs should be equal"
         );
 
-        let result_different =
-            compare(&lhs_struct, &rhs_struct_different, compute::Operator::Eq).unwrap();
+        let result_different = lhs_struct
+            .binary(rhs_struct_different, Operator::Eq)
+            .unwrap();
         assert_eq!(
             result_different.scalar_at(0).vortex_expect("value"),
             Scalar::bool(false, Nullability::NonNullable),

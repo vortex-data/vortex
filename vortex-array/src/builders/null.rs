@@ -3,7 +3,6 @@
 
 use std::any::Any;
 
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
@@ -14,6 +13,7 @@ use crate::IntoArray;
 use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
 use crate::canonical::Canonical;
+use crate::dtype::DType;
 use crate::scalar::Scalar;
 
 /// The builder for building a [`NullArray`].
@@ -89,10 +89,9 @@ impl ArrayBuilder for NullBuilder {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-
     use super::*;
     use crate::builders::ArrayBuilder;
+    use crate::dtype::DType;
     use crate::scalar::Scalar;
 
     #[test]

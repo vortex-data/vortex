@@ -10,15 +10,16 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::compute::Operator;
-use crate::compute::compare;
+use crate::builtins::ArrayBuiltins;
 use crate::expr::CompareKernel;
+use crate::expr::CompareOperator;
+use crate::expr::Operator;
 
 impl CompareKernel for DictVTable {
     fn compare(
         lhs: &DictArray,
         rhs: &dyn Array,
-        operator: Operator,
+        operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // if we have more values than codes, it is faster to canonicalise first.
@@ -28,10 +29,9 @@ impl CompareKernel for DictVTable {
 
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(rhs) = rhs.as_constant() {
-            let compare_result = compare(
-                lhs.values(),
-                ConstantArray::new(rhs, lhs.values().len()).as_ref(),
-                operator,
+            let compare_result = lhs.values().to_array().binary(
+                ConstantArray::new(rhs, lhs.values().len()).to_array(),
+                Operator::from(operator),
             )?;
 
             // SAFETY: values len preserved, codes all still point to valid values

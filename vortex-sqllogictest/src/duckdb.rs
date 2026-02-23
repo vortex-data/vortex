@@ -14,6 +14,7 @@ use vortex::error::VortexError;
 use vortex_duckdb::duckdb::Connection;
 use vortex_duckdb::duckdb::Database;
 use vortex_duckdb::duckdb::LogicalType;
+use vortex_duckdb::duckdb::LogicalTypeRef;
 use vortex_duckdb::duckdb::Value;
 use vortex_duckdb::initialize;
 
@@ -62,7 +63,7 @@ impl DuckDB {
     /// Turn the DuckDB logical type into a `DFColumnType`, which
     /// tells the runner what types they are. We use the one from DataFusion
     /// as its richer than the default one.
-    fn normalize_column_type(logical_type: LogicalType) -> DFColumnType {
+    fn normalize_column_type(logical_type: &LogicalTypeRef) -> DFColumnType {
         let type_id = logical_type.as_type_id();
 
         if type_id == LogicalType::int32().as_type_id()
@@ -108,7 +109,7 @@ impl AsyncDB for DuckDB {
                 for col_idx in 0..r.column_count() {
                     let col_idx = usize::try_from(col_idx).map_err(VortexError::from)?;
                     let dtype = r.column_type(col_idx);
-                    types.push(Self::normalize_column_type(dtype));
+                    types.push(Self::normalize_column_type(&dtype));
                 }
 
                 for chunk in r.into_iter() {

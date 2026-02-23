@@ -4,7 +4,6 @@
 use rstest::rstest;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
-use vortex_dtype::Nullability;
 use vortex_mask::Mask;
 
 use crate::Array;
@@ -18,6 +17,7 @@ use crate::compute::conformance::filter::LARGE_SIZE;
 use crate::compute::conformance::filter::MEDIUM_SIZE;
 use crate::compute::conformance::filter::SMALL_SIZE;
 use crate::compute::conformance::filter::test_filter_conformance;
+use crate::dtype::Nullability;
 use crate::validity::Validity;
 
 // Consolidated parameterized test for degenerate (list_size=0) cases.

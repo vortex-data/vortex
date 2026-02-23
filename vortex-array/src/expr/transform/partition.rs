@@ -5,15 +5,15 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use itertools::Itertools;
-use vortex_dtype::DType;
-use vortex_dtype::FieldName;
-use vortex_dtype::FieldNames;
-use vortex_dtype::Nullability;
-use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::dtype::DType;
+use crate::dtype::FieldName;
+use crate::dtype::FieldNames;
+use crate::dtype::Nullability;
+use crate::dtype::StructFields;
 use crate::expr::Expression;
 use crate::expr::analysis::Annotation;
 use crate::expr::analysis::AnnotationFn;
@@ -205,12 +205,12 @@ where
 mod tests {
     use rstest::fixture;
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::PType::I32;
-    use vortex_dtype::StructFields;
 
     use super::*;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::NonNullable;
+    use crate::dtype::PType::I32;
+    use crate::dtype::StructFields;
     use crate::expr::analysis::make_free_field_annotator;
     use crate::expr::exprs::binary::and;
     use crate::expr::exprs::get_item::col;

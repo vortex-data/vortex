@@ -8,22 +8,22 @@ use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
-use vortex_alp::ALPArray;
-use vortex_alp::ALPFloat;
-use vortex_alp::ALPVTable;
-use vortex_alp::match_each_alp_float_ptype;
-use vortex_array::Array;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::PrimitiveArrayParts;
-use vortex_array::buffer::BufferHandle;
+use vortex::array::Array;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::PrimitiveArrayParts;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::match_each_unsigned_integer_ptype;
+use vortex::dtype::NativePType;
+use vortex::encodings::alp::ALPArray;
+use vortex::encodings::alp::ALPFloat;
+use vortex::encodings::alp::ALPVTable;
+use vortex::encodings::alp::match_each_alp_float_ptype;
+use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
+use vortex::error::vortex_err;
 use vortex_cuda_macros::cuda_tests;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_unsigned_integer_ptype;
-use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -118,17 +118,17 @@ where
 
 #[cuda_tests]
 mod tests {
-    use vortex_alp::ALPArray;
-    use vortex_alp::Exponents;
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::patches::Patches;
-    use vortex_array::validity::Validity;
-    use vortex_buffer::Buffer;
-    use vortex_buffer::buffer;
-    use vortex_error::VortexExpect;
-    use vortex_session::VortexSession;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::array::patches::Patches;
+    use vortex::array::validity::Validity;
+    use vortex::buffer::Buffer;
+    use vortex::buffer::buffer;
+    use vortex::encodings::alp::ALPArray;
+    use vortex::encodings::alp::Exponents;
+    use vortex::error::VortexExpect;
+    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;

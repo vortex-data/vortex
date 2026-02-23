@@ -24,7 +24,7 @@
 //!
 //! A layout, alone, is _not_ a standalone Vortex file because layouts are not self-describing. They
 //! neither contain a description of the kind of layout (e.g. flat, column of flat, chunked of
-//! column of flat) nor a data type ([`DType`](vortex_dtype::DType)).
+//! column of flat) nor a data type ([`DType`](vortex_array::dtype::DType)).
 //!
 //! # Reading
 //!

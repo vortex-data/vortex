@@ -11,7 +11,7 @@ use crate::arrays::FilterArray;
 use crate::arrays::FilterReduceAdaptor;
 use crate::arrays::FilterVTable;
 use crate::arrays::SliceReduceAdaptor;
-use crate::compute::CastReduceAdaptor;
+use crate::expr::CastReduceAdaptor;
 use crate::expr::MaskReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -51,14 +51,6 @@ impl ArrayParentReduceRule<ExtensionVTable> for ExtensionFilterPushDownRule {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::ExtDTypeRef;
-    use vortex_dtype::ExtID;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::extension::EmptyMetadata;
-    use vortex_dtype::extension::ExtDTypeVTable;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
@@ -71,18 +63,26 @@ mod tests {
     use crate::arrays::FilterArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::ScalarFnArrayExt;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::extension::ExtDType;
+    use crate::dtype::extension::ExtDTypeRef;
+    use crate::dtype::extension::ExtId;
+    use crate::dtype::extension::ExtVTable;
     use crate::expr::Binary;
     use crate::expr::Operator;
+    use crate::extension::EmptyMetadata;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
 
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct TestExt;
-    impl ExtDTypeVTable for TestExt {
+    impl ExtVTable for TestExt {
         type Metadata = EmptyMetadata;
 
-        fn id(&self) -> ExtID {
-            ExtID::new_ref("test_ext")
+        fn id(&self) -> ExtId {
+            ExtId::new_ref("test_ext")
         }
 
         fn validate_dtype(
@@ -162,11 +162,11 @@ mod tests {
     fn test_scalar_fn_no_pushdown_different_ext_types() {
         #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct TestExt2;
-        impl ExtDTypeVTable for TestExt2 {
+        impl ExtVTable for TestExt2 {
             type Metadata = EmptyMetadata;
 
-            fn id(&self) -> ExtID {
-                ExtID::new_ref("test_ext_2")
+            fn id(&self) -> ExtId {
+                ExtId::new_ref("test_ext_2")
             }
 
             fn validate_dtype(

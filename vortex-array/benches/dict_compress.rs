@@ -12,7 +12,7 @@ use vortex_array::arrays::dict_test::gen_primitive_for_dict;
 use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::compute::warm_up_vtables;
-use vortex_dtype::NativePType;
+use vortex_array::dtype::NativePType;
 
 fn main() {
     warm_up_vtables();
@@ -25,13 +25,11 @@ const BENCH_ARGS: &[(usize, usize)] = &[
     (1_000, 4),
     (1_000, 8),
     (1_000, 32),
-    (1_000, 128),
     (1_000, 512),
     (10_000, 2),
     (10_000, 4),
     (10_000, 8),
     (10_000, 32),
-    (10_000, 128),
     (10_000, 512),
 ];
 

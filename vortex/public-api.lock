@@ -26,7 +26,7 @@ pub use vortex::compressor::StringCode
 
 pub mod vortex::dtype
 
-pub use vortex::dtype::<<vortex_dtype::*>>
+pub use vortex::dtype::<<vortex_array::dtype::*>>
 
 pub mod vortex::encodings
 
@@ -81,6 +81,10 @@ pub use vortex::encodings::zstd::<<vortex_zstd::*>>
 pub mod vortex::error
 
 pub use vortex::error::<<vortex_error::*>>
+
+pub mod vortex::extension
+
+pub use vortex::extension::<<vortex_array::extension::*>>
 
 pub mod vortex::file
 

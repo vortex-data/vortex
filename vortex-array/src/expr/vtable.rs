@@ -11,7 +11,6 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use arcref::ArcRef;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -19,6 +18,7 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::dtype::DType;
 use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::expression::Expression;
@@ -735,7 +735,7 @@ mod tests {
     // Type casting expressions
     #[case(cast(
         col("a"),
-        DType::Primitive(vortex_dtype::PType::I64, vortex_dtype::Nullability::NonNullable)
+        DType::Primitive(crate::dtype::PType::I64, crate::dtype::Nullability::NonNullable)
     ))]
     // Between expressions
     #[case(between(
@@ -747,7 +747,7 @@ mod tests {
     // List contains expressions
     #[case(list_contains(col("list_col"), lit("item")))]
     // Pack expressions - creating struct from fields
-    #[case(pack([("field1", col("a")), ("field2", col("b"))], vortex_dtype::Nullability::NonNullable
+    #[case(pack([("field1", col("a")), ("field2", col("b"))], crate::dtype::Nullability::NonNullable
     ))]
     // Merge expressions - merging struct expressions
     #[case(merge([col("struct1"), col("struct2")]))]

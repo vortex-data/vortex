@@ -4,8 +4,6 @@
 use std::fmt::Formatter;
 
 use prost::Message;
-use vortex_dtype::DType;
-use vortex_dtype::match_each_float_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
@@ -14,6 +12,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::dtype::DType;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -23,6 +22,7 @@ use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::stats::Stat;
+use crate::match_each_float_ptype;
 use crate::scalar::Scalar;
 
 /// Expression that represents a literal scalar value.
@@ -151,7 +151,7 @@ impl VTable for Literal {
 ///
 /// ```
 /// use vortex_array::arrays::PrimitiveArray;
-/// use vortex_dtype::Nullability;
+/// use vortex_array::dtype::Nullability;
 /// use vortex_array::expr::{lit, Literal};
 /// use vortex_array::scalar::Scalar;
 ///
@@ -166,12 +166,11 @@ pub fn lit(value: impl Into<Scalar>) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::StructFields;
-
     use super::lit;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
 

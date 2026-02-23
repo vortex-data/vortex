@@ -185,8 +185,6 @@ impl BufferUtilization {
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -194,6 +192,8 @@ mod tests {
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
     #[test]
     fn test_optimize_compacts_buffers() {
         // Create a VarBinViewArray with some long strings that will create multiple buffers

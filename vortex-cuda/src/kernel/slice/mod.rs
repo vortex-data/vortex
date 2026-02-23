@@ -3,13 +3,13 @@
 
 use async_trait::async_trait;
 use tracing::instrument;
-use vortex_array::Array;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::arrays::SliceArrayParts;
-use vortex_array::arrays::SliceVTable;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
+use vortex::array::Array;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::arrays::SliceArrayParts;
+use vortex::array::arrays::SliceVTable;
+use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 
 use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;

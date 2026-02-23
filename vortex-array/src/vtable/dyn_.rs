@@ -8,7 +8,6 @@ use std::fmt::Formatter;
 use std::marker::PhantomData;
 
 use arcref::ArcRef;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -18,6 +17,7 @@ use crate::Array;
 use crate::ArrayAdapter;
 use crate::ArrayRef;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable::VTable;

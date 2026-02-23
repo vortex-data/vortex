@@ -13,15 +13,15 @@ use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::compute::CastReduceAdaptor;
-use vortex_array::compute::MaskReduceAdaptor;
+use vortex_array::dtype::DType;
 use vortex_array::expr::Between;
 use vortex_array::expr::Binary;
+use vortex_array::expr::CastReduceAdaptor;
+use vortex_array::expr::MaskReduceAdaptor;
+use vortex_array::extension::datetime::Timestamp;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_dtype::DType;
-use vortex_dtype::datetime::Timestamp;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -102,7 +102,7 @@ impl ArrayParentReduceRule<DateTimePartsVTable> for DTPComparisonPushDownRule {
         if parent
             .scalar_fn()
             .as_opt::<Binary>()
-            .is_none_or(|c| c.maybe_cmp_operator().is_none())
+            .is_none_or(|c| !c.is_comparison())
             && !parent.scalar_fn().is::<Between>()
         {
             return Ok(None);
@@ -186,12 +186,12 @@ mod tests {
     use vortex_array::expr::BetweenOptions;
     use vortex_array::expr::Operator;
     use vortex_array::expr::StrictComparison;
+    use vortex_array::extension::datetime::TimeUnit;
+    use vortex_array::extension::datetime::TimestampOptions;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_dtype::datetime::TimeUnit;
-    use vortex_dtype::datetime::TimestampOptions;
 
     use super::*;
 

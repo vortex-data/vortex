@@ -100,17 +100,6 @@ impl DuckClient {
     }
 
     pub fn reopen(&mut self) -> Result<()> {
-        // take ownership of the connection & database
-        let mut connection = unsafe { Connection::borrow(self.connection.as_ptr()) };
-        std::mem::swap(&mut self.connection, &mut connection);
-        let mut db = unsafe { Database::borrow(self.db.as_ptr()) };
-        std::mem::swap(&mut self.db, &mut db);
-
-        // drop the connection, then the database (order might be important?)
-        // NB: self.db and self.connection will be dangling pointers, which we'll fix below
-        drop(connection);
-        drop(db);
-
         let (mut db, mut connection) =
             Self::open_and_setup_database(Some(self.db_path.clone()), self.threads)?;
 

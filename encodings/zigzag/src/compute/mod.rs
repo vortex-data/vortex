@@ -10,9 +10,9 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::FilterReduce;
 use vortex_array::arrays::ScalarFnArrayExt;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::compute::MaskReduce;
 use vortex_array::expr::EmptyOptions;
 use vortex_array::expr::Mask as MaskExpr;
+use vortex_array::expr::MaskReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -79,11 +79,11 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
+    use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
 
     use crate::ZigZagArray;

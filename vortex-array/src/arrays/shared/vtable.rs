@@ -3,7 +3,6 @@
 
 use std::hash::Hash;
 
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -18,6 +17,7 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::shared::SharedArray;
 use crate::buffer::BufferHandle;
+use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::scalar::Scalar;

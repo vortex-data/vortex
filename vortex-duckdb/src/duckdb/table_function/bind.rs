@@ -7,12 +7,12 @@ use vortex::error::vortex_err;
 
 use crate::cpp;
 use crate::duckdb::ClientContext;
-use crate::duckdb::LogicalType;
+use crate::duckdb::Data;
+use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableFunction;
 use crate::duckdb::Value;
-use crate::duckdb::data::Data;
 use crate::duckdb::try_or_null;
-use crate::wrapper;
+use crate::lifetime_wrapper;
 
 /// The native bind callback for a table function.
 pub(crate) unsafe extern "C-unwind" fn bind_callback<T: TableFunction>(
@@ -26,7 +26,7 @@ pub(crate) unsafe extern "C-unwind" fn bind_callback<T: TableFunction>(
     let mut bind_result = unsafe { BindResult::own(bind_result) };
 
     try_or_null(error_out, || {
-        let bind_data = T::bind(&client_context, &bind_input, &mut bind_result)?;
+        let bind_data = T::bind(client_context, &bind_input, &mut bind_result)?;
         Ok(Data::from(Box::new(bind_data)).as_ptr())
     })
 }
@@ -47,9 +47,9 @@ pub(crate) unsafe extern "C-unwind" fn bind_data_clone_callback<T: TableFunction
     })
 }
 
-wrapper!(BindInput, cpp::duckdb_vx_tfunc_bind_input, |_| {});
+lifetime_wrapper!(BindInput, cpp::duckdb_vx_tfunc_bind_input, |_| {});
 
-impl BindInput {
+impl BindInputRef {
     /// Returns the parameter at the given index.
     pub fn get_parameter(&self, index: usize) -> Option<Value> {
         let value_ptr =
@@ -79,10 +79,10 @@ impl BindInput {
     }
 }
 
-wrapper!(BindResult, cpp::duckdb_vx_tfunc_bind_result, |_| {});
+lifetime_wrapper!(BindResult, cpp::duckdb_vx_tfunc_bind_result, |_| {});
 
-impl BindResult {
-    pub fn add_result_column(&self, name: &str, logical_type: &LogicalType) {
+impl BindResultRef {
+    pub fn add_result_column(&self, name: &str, logical_type: &LogicalTypeRef) {
         unsafe {
             cpp::duckdb_vx_tfunc_bind_result_add_column(
                 self.as_ptr(),

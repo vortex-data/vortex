@@ -4,7 +4,6 @@
 // TODO(connor): REMOVE THIS FILE!
 
 use arrow_array::BooleanArray;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -16,6 +15,7 @@ use crate::ToCanonical;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
 use crate::scalar::Scalar;
 
 /// Keep only the elements for which the corresponding mask value is true.

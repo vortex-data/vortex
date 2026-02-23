@@ -109,8 +109,9 @@ extern "C" duckdb_value duckdb_vx_dynamic_filter_data_get_value(duckdb_vx_dynami
         return nullptr;
     }
     auto data_wrapper = reinterpret_cast<DynamicFilterDataWrapper *>(ffi_data);
-    if (!data_wrapper->data)
+    if (!data_wrapper->data) {
         return nullptr;
+    }
 
     // Hold the lock while accessing the filter data.
     std::lock_guard<std::mutex> lock(data_wrapper->data->lock);

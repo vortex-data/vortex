@@ -8,8 +8,8 @@ use vortex::buffer::BitBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::LogicalType;
-use crate::duckdb::Vector;
+use crate::duckdb::LogicalType;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::validity;
@@ -37,7 +37,7 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for BoolExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         // DuckDB uses byte bools, not bit bools.
         // maybe we can convert into these from a compressed array sometimes?.
         unsafe { vector.as_slice_mut(len) }.copy_from_slice(
@@ -71,12 +71,12 @@ mod tests {
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
-            .export(1, 2, &mut chunk.get_vector(0))
+            .export(1, 2, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 2 = [ false, true]
 "#
@@ -91,12 +91,12 @@ mod tests {
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
-            .export(1, 66, &mut chunk.get_vector(0))
+            .export(1, 66, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(65);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             format!(
                 r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 65 = [ {}]
@@ -114,12 +114,12 @@ mod tests {
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
-            .export(1, 2, &mut chunk.get_vector(0))
+            .export(1, 2, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT BOOLEAN: 2 = [ NULL, false]
 "#
@@ -134,12 +134,12 @@ mod tests {
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
-            .export(1, 2, &mut chunk.get_vector(0))
+            .export(1, 2, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(2);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - CONSTANT BOOLEAN: 2 = [ NULL]
 "#

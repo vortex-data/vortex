@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 
 pub use kernel::*;
 use prost::Message;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -32,6 +31,7 @@ use crate::arrays::PrimitiveVTable;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinViewVTable;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -227,7 +227,7 @@ fn cast_constant(array: &ConstantArray, dtype: &DType) -> VortexResult<Option<Ar
 /// Converts the input expression's values to the specified target type.
 ///
 /// ```rust
-/// # use vortex_dtype::{DType, Nullability, PType};
+/// # use vortex_array::dtype::{DType, Nullability, PType};
 /// # use vortex_array::expr::{cast, root};
 /// let expr = cast(root(), DType::Primitive(PType::I64, Nullability::NonNullable));
 /// ```
@@ -239,14 +239,14 @@ pub fn cast(child: Expression, target: DType) -> Expression {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexExpect as _;
 
     use super::cast;
     use crate::IntoArray;
     use crate::arrays::StructArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::expr::Expression;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::root::root;

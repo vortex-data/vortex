@@ -3,11 +3,10 @@
 
 use std::iter;
 
-use vortex_dtype::NativePType;
-
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::primitive::PrimitiveArray;
+use crate::dtype::NativePType;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

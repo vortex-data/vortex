@@ -6,7 +6,6 @@ mod kernel;
 use std::fmt::Formatter;
 
 pub use kernel::*;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -19,6 +18,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -128,12 +128,11 @@ pub fn not(operand: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-
     use super::not;
     use crate::ToCanonical;
     use crate::arrays::BoolArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::root::root;

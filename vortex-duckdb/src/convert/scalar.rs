@@ -19,25 +19,25 @@
 //! | `Binary` | `BLOB` |
 //! | `ExtScalar` (temporal) | `DATE`/`TIME`/`TIMESTAMP` |
 
+use vortex::array::match_each_native_simd_ptype;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::Nullability::Nullable;
 use vortex::dtype::PType;
 use vortex::dtype::PType::I32;
 use vortex::dtype::PType::I64;
-use vortex::dtype::datetime::AnyTemporal;
-use vortex::dtype::datetime::Date;
-use vortex::dtype::datetime::TemporalMetadata;
-use vortex::dtype::datetime::Time;
-use vortex::dtype::datetime::TimeUnit;
-use vortex::dtype::datetime::Timestamp;
-use vortex::dtype::datetime::TimestampOptions;
 use vortex::dtype::half::f16;
-use vortex::dtype::match_each_native_simd_ptype;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
+use vortex::extension::datetime::AnyTemporal;
+use vortex::extension::datetime::Date;
+use vortex::extension::datetime::TemporalMetadata;
+use vortex::extension::datetime::Time;
+use vortex::extension::datetime::TimeUnit;
+use vortex::extension::datetime::Timestamp;
+use vortex::extension::datetime::TimestampOptions;
 use vortex::scalar::BinaryScalar;
 use vortex::scalar::BoolScalar;
 use vortex::scalar::DecimalScalar;
@@ -66,7 +66,8 @@ impl ToDuckDBScalar for Scalar {
     /// Struct and List scalars are not yet implemented and cause a panic.
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         if self.is_null() {
-            return Ok(Value::null(&LogicalType::try_from(self.dtype())?));
+            let lt = LogicalType::try_from(self.dtype())?;
+            return Ok(Value::null(&lt));
         }
 
         match self.dtype() {
@@ -116,7 +117,8 @@ impl ToDuckDBScalar for DecimalScalar<'_> {
             .ok_or_else(|| vortex_err!("decimal scalar without decimal dtype"))?;
 
         let Some(decimal_value) = self.decimal_value() else {
-            return Ok(Value::null(&LogicalType::try_from(self.dtype())?));
+            let lt = LogicalType::try_from(self.dtype())?;
+            return Ok(Value::null(&lt));
         };
 
         let huge_value = match decimal_value {
@@ -231,14 +233,14 @@ impl TryFrom<Value> for Scalar {
     type Error = VortexError;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
-        Scalar::try_from(value.as_ref())
+        Scalar::try_from(&*value)
     }
 }
 
-impl<'a> TryFrom<ValueRef<'a>> for Scalar {
+impl<'a> TryFrom<&'a ValueRef> for Scalar {
     type Error = VortexError;
 
-    fn try_from(value: ValueRef<'a>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a ValueRef) -> Result<Self, Self::Error> {
         use crate::duckdb::ExtractedValue;
         let dtype = DType::from_logical_type(value.logical_type(), Nullable)?;
         match value.extract() {
@@ -342,8 +344,8 @@ impl<'a> TryFrom<ValueRef<'a>> for Scalar {
 
 #[cfg(test)]
 mod tests {
-    use vortex::dtype::datetime::Timestamp;
-    use vortex::dtype::datetime::TimestampOptions;
+    use vortex::extension::datetime::Timestamp;
+    use vortex::extension::datetime::TimestampOptions;
     use vortex::scalar::Scalar;
 
     use crate::convert::ToDuckDBScalar;
@@ -374,7 +376,7 @@ mod tests {
         use vortex::dtype::DType;
         use vortex::dtype::Nullability;
         use vortex::dtype::PType;
-        use vortex::dtype::datetime::TimeUnit;
+        use vortex::extension::datetime::TimeUnit;
         use vortex::scalar::Scalar;
         use vortex::scalar::ScalarValue;
 

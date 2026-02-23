@@ -4,11 +4,10 @@
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use vortex_dtype::DType;
-
 use crate::Precision;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
+use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::StatsSetRef;

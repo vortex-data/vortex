@@ -23,9 +23,9 @@ mod rules;
 #[cfg(test)]
 mod tests {
     use vortex_array::ProstMetadata;
+    use vortex_array::dtype::PType;
     use vortex_array::patches::PatchesMetadata;
     use vortex_array::test_harness::check_metadata;
-    use vortex_dtype::PType;
 
     use crate::alp::array::ALPMetadata;
 
@@ -53,10 +53,10 @@ mod tests {
 pub use array::*;
 pub use compress::alp_encode;
 pub use decompress::decompress_into_array;
+use vortex_array::dtype::NativePType;
 use vortex_array::scalar::PValue;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_dtype::NativePType;
 
 const SAMPLE_SIZE: usize = 32;
 

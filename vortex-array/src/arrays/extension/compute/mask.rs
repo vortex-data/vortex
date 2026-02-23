@@ -8,8 +8,8 @@ use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
 use crate::arrays::ScalarFnArrayExt;
-use crate::compute::MaskReduce;
 use crate::expr::EmptyOptions;
+use crate::expr::MaskReduce;
 use crate::expr::mask::Mask as MaskExpr;
 
 impl MaskReduce for ExtensionVTable {

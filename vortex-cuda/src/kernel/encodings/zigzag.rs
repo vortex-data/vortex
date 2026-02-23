@@ -7,19 +7,19 @@ use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
-use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::PrimitiveArrayParts;
+use vortex::array::ArrayRef;
+use vortex::array::Canonical;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::PrimitiveArrayParts;
+use vortex::array::match_each_unsigned_integer_ptype;
+use vortex::dtype::NativePType;
+use vortex::dtype::PType;
+use vortex::encodings::zigzag::ZigZagArray;
+use vortex::encodings::zigzag::ZigZagVTable;
+use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
+use vortex::error::vortex_err;
 use vortex_cuda_macros::cuda_tests;
-use vortex_dtype::NativePType;
-use vortex_dtype::PType;
-use vortex_dtype::match_each_unsigned_integer_ptype;
-use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
-use vortex_zigzag::ZigZagArray;
-use vortex_zigzag::ZigZagVTable;
 
 use crate::CudaBufferExt;
 use crate::executor::CudaArrayExt;
@@ -98,14 +98,14 @@ where
 
 #[cuda_tests]
 mod tests {
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::validity::Validity::NonNullable;
-    use vortex_buffer::Buffer;
-    use vortex_error::VortexExpect;
-    use vortex_session::VortexSession;
-    use vortex_zigzag::ZigZagArray;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::array::validity::Validity::NonNullable;
+    use vortex::buffer::Buffer;
+    use vortex::encodings::zigzag::ZigZagArray;
+    use vortex::error::VortexExpect;
+    use vortex::session::VortexSession;
 
     use super::*;
     use crate::CanonicalCudaExt;

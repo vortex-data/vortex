@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use std::iter::once;
 use std::ops::Range;
 
-use vortex_dtype::FieldMask;
+use vortex_array::dtype::FieldMask;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 
@@ -56,8 +56,8 @@ mod test {
 
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
+    use vortex_array::dtype::FieldPath;
     use vortex_buffer::buffer;
-    use vortex_dtype::FieldPath;
     use vortex_io::runtime::single::block_on;
     use vortex_layout::LayoutReaderRef;
     use vortex_layout::LayoutStrategy;

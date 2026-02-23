@@ -43,10 +43,10 @@ mod tests {
     }
     // Consistency tests
     use rstest::rstest;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
 
     use crate::compute::conformance::consistency::test_array_consistency;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
 
     #[rstest]
     // From test_all_consistency

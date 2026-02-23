@@ -21,41 +21,35 @@ use crate::cpp;
 use crate::cpp::duckdb_vx_error;
 use crate::cpp::idx_t;
 use crate::duckdb::LogicalType;
-use crate::duckdb::SelectionVector;
+use crate::duckdb::LogicalTypeRef;
+use crate::duckdb::SelectionVectorRef;
 use crate::duckdb::Value;
-use crate::duckdb::vector_buffer::VectorBuffer;
-use crate::wrapper;
+use crate::duckdb::ValueRef;
+use crate::duckdb::VectorBufferRef;
+use crate::lifetime_wrapper;
 
 pub const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
 
-wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
+lifetime_wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
 
 /// Safety: It is safe to mark `Vector` as `Send` as the memory it points is `Send`.
-///
-/// Exceptions from a raw pointer not being `Send` would be pointing to
-/// thread-local storage or other types that are not `Send`, e.g. `RefCell`.
-///
-/// ```no_test
-/// pub struct Vector {
-///     ptr: *mut _duckdb_vector,
-///     owned: bool,
-/// }
-/// ```
 unsafe impl Send for Vector {}
 
 impl Vector {
     /// Create a new vector with the given type.
-    pub fn new(logical_type: LogicalType) -> Self {
+    pub fn new(logical_type: &LogicalTypeRef) -> Self {
         unsafe { Self::own(cpp::duckdb_create_vector(logical_type.as_ptr(), 0)) }
     }
 
     /// Create a new vector with the given type and capacity.
-    pub fn with_capacity(logical_type: LogicalType, len: usize) -> Self {
+    pub fn with_capacity(logical_type: &LogicalTypeRef, len: usize) -> Self {
         unsafe { Self::own(cpp::duckdb_create_vector(logical_type.as_ptr(), len as _)) }
     }
+}
 
+impl VectorRef {
     /// Converts the vector is a constant vector with every element `value`.
-    pub fn reference_value(&mut self, value: &Value) {
+    pub fn reference_value(&mut self, value: &ValueRef) {
         unsafe {
             cpp::duckdb_vector_reference_value(self.as_ptr(), value.as_ptr());
         }
@@ -64,7 +58,7 @@ impl Vector {
     /// Reference the data from another vector.
     ///
     /// After calling this, both vectors share ownership of the same underlying data.
-    pub fn reference(&mut self, other: &Vector) {
+    pub fn reference(&mut self, other: &VectorRef) {
         unsafe { cpp::duckdb_vector_reference_vector(self.as_ptr(), other.as_ptr()) }
     }
 
@@ -73,12 +67,11 @@ impl Vector {
     /// A dictionary holds a strong reference to all memory it uses.
     ///
     /// `dictionary` differs from `slice_to_dictionary` in that it initializes hash caching.
-    /// See: <https://github.com/duckdb/duckdb/blob/0dcf633f603a629981d089202f93b9080cb1a3e9/src/common/types/vector.cpp#L293>
     pub fn dictionary(
         &self,
-        dict: &Vector,
+        dict: &VectorRef,
         dictionary_size: usize,
-        sel_vec: &SelectionVector,
+        sel_vec: &SelectionVectorRef,
         count: usize,
     ) {
         unsafe {
@@ -105,7 +98,7 @@ impl Vector {
             .vortex_expect("dictionary ID should be valid C string");
         unsafe {
             cpp::duckdb_vx_set_dictionary_vector_id(
-                self.ptr,
+                self.as_ptr(),
                 dict_id.as_ptr(),
                 dict_id.as_bytes().len().as_u32(),
             )
@@ -113,7 +106,7 @@ impl Vector {
     }
 
     pub fn to_sequence(&mut self, start: i64, stop: i64, capacity: u64) {
-        unsafe { cpp::duckdb_vx_sequence_vector(self.ptr, start, stop, capacity) }
+        unsafe { cpp::duckdb_vx_sequence_vector(self.as_ptr(), start, stop, capacity) }
     }
 
     /// Converts a vector into a flat uncompressed vector vortex call this `canonicalize`.
@@ -134,7 +127,7 @@ impl Vector {
     }
 
     pub fn row_is_null(&self, row: u64) -> bool {
-        let validity = unsafe { cpp::duckdb_vector_get_validity(self.ptr) };
+        let validity = unsafe { cpp::duckdb_vector_get_validity(self.as_ptr()) };
 
         // validity can return a NULL pointer if the entire vector is valid
         if validity.is_null() {
@@ -151,11 +144,11 @@ impl Vector {
         !is_valid
     }
 
-    pub unsafe fn set_vector_buffer(&self, buffer: &VectorBuffer) {
+    pub unsafe fn set_vector_buffer(&self, buffer: &VectorBufferRef) {
         unsafe { cpp::duckdb_vx_vector_set_vector_data_buffer(self.as_ptr(), buffer.as_ptr()) }
     }
 
-    pub fn add_string_vector_buffer(&self, buffer: &VectorBuffer) {
+    pub fn add_string_vector_buffer(&self, buffer: &VectorBufferRef) {
         unsafe {
             cpp::duckdb_vx_string_vector_add_vector_data_buffer(self.as_ptr(), buffer.as_ptr())
         }
@@ -173,6 +166,7 @@ impl Vector {
     }
 
     pub fn logical_type(&self) -> LogicalType {
+        // NOTE(ngates): weirdly this function does indeed return an owned logical type.
         unsafe { LogicalType::own(cpp::duckdb_vector_get_column_type(self.as_ptr())) }
     }
 
@@ -265,15 +259,20 @@ impl Vector {
         }
     }
 
-    pub fn list_vector_get_child(&self) -> Self {
-        unsafe { Self::borrow(cpp::duckdb_list_vector_get_child(self.as_ptr())) }
+    pub fn list_vector_get_child(&self) -> &Self {
+        unsafe { Vector::borrow(cpp::duckdb_list_vector_get_child(self.as_ptr())) }
     }
 
-    pub fn array_vector_get_child(&self) -> Self {
-        // SAFETY: duckdb_array_vector_get_child dereferences the vector pointer which must be
-        // valid and point to an ARRAY type vector. The returned child vector is borrowed and
-        // remains valid as long as the parent vector is valid.
-        unsafe { Self::borrow(cpp::duckdb_array_vector_get_child(self.as_ptr())) }
+    pub fn list_vector_get_child_mut(&mut self) -> &mut Self {
+        unsafe { Vector::borrow_mut(cpp::duckdb_list_vector_get_child(self.as_ptr())) }
+    }
+
+    pub fn array_vector_get_child(&self) -> &Self {
+        unsafe { Vector::borrow(cpp::duckdb_array_vector_get_child(self.as_ptr())) }
+    }
+
+    pub fn array_vector_get_child_mut(&mut self) -> &mut Self {
+        unsafe { Vector::borrow_mut(cpp::duckdb_array_vector_get_child(self.as_ptr())) }
     }
 
     pub fn list_vector_set_size(&self, size: u64) -> VortexResult<()> {
@@ -284,12 +283,18 @@ impl Vector {
         }
     }
 
-    pub fn struct_vector_get_child(&self, idx: usize) -> Self {
-        // SAFETY: duckdb_struct_vector_get_child dereferences the vector pointer which must be
-        // valid and point to an STRUCT type vector. The returned child vector is borrowed and
-        // remains valid as long as the parent vector is valid.
+    pub fn struct_vector_get_child(&self, idx: usize) -> &Self {
         unsafe {
-            Self::borrow(cpp::duckdb_struct_vector_get_child(
+            Vector::borrow(cpp::duckdb_struct_vector_get_child(
+                self.as_ptr(),
+                idx as idx_t,
+            ))
+        }
+    }
+
+    pub fn struct_vector_get_child_mut(&mut self, idx: usize) -> &mut Self {
+        unsafe {
+            Vector::borrow_mut(cpp::duckdb_struct_vector_get_child(
                 self.as_ptr(),
                 idx as idx_t,
             ))
@@ -346,13 +351,13 @@ mod tests {
 
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
+    use crate::duckdb::SelectionVector;
 
     #[test]
     fn test_create_validity_all_valid() {
-        // Test case where all values are valid - should return None
         let len = 10;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let vector = Vector::with_capacity(logical_type, len);
+        let vector = Vector::with_capacity(&logical_type, len);
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
@@ -365,23 +370,19 @@ mod tests {
 
     #[test]
     fn test_create_validity_with_nulls() {
-        // Test case with some null values
         let len = 10;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
-        // Set some positions as null
-        // SAFETY: Vector was created with this length.
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
-        validity_slice.set(1, false); // null at position 1
-        validity_slice.set(3, false); // null at position 3
-        validity_slice.set(7, false); // null at position 7
+        validity_slice.set(1, false);
+        validity_slice.set(3, false);
+        validity_slice.set(7, false);
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
         assert_eq!(validity.maybe_len(), Some(len));
 
-        // Check that the right positions are null
         assert_eq!(
             validity.to_mask(len),
             Mask::from_indices(len, vec![0, 2, 4, 5, 6, 8, 9])
@@ -390,14 +391,12 @@ mod tests {
 
     #[test]
     fn test_create_validity_single_element() {
-        // Test with a single element that is null
         let len = 1;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
-        // SAFETY: Vector was created with this length.
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
-        validity_slice.set(0, false); // null at position 0
+        validity_slice.set(0, false);
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
@@ -406,13 +405,10 @@ mod tests {
 
     #[test]
     fn test_create_validity_single_element_valid() {
-        // Test with a single valid element
         let len = 1;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
-        // Ensure validity slice exists but don't set any nulls
-        // SAFETY: Vector was created with this length.
         let _validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
 
         let validity = vector.validity_ref(len);
@@ -422,47 +418,38 @@ mod tests {
 
     #[test]
     fn test_create_validity_empty() {
-        // Test with zero length
         let len = 0;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let vector = Vector::with_capacity(logical_type, len);
+        let vector = Vector::with_capacity(&logical_type, len);
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        // Even with zero length, if validity mask doesn't exist, should return None
         assert_eq!(validity, Validity::AllValid);
     }
 
     #[test]
     fn test_create_validity_all_nulls() {
-        // Test case where all values are null
         let len = 10;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
-        // SAFETY: Vector was created with this length.
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
-        // Set all positions as null
         for i in 0..len {
             validity_slice.set(i, false);
         }
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        // Check that all positions are null
         assert_eq!(validity, Validity::AllInvalid);
     }
 
     #[test]
     fn test_row_is_null_all_valid() {
-        // Test case where all values are valid (no validity mask)
         let len = 10;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let vector = Vector::with_capacity(logical_type, len);
+        let vector = Vector::with_capacity(&logical_type, len);
 
         let validity = vector.validity_ref(len);
-
-        // When there's no validity mask, all rows should be valid (not null)
         for i in 0..len {
             assert!(validity.is_valid(i), "Row {i} should not be null");
         }
@@ -470,21 +457,16 @@ mod tests {
 
     #[test]
     fn test_row_is_null_with_nulls() {
-        // Test case with some null values
         let len = 10;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
-        // Set some positions as null
-        // SAFETY: Vector was created with this length.
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
-        validity_slice.set(1, false); // null at position 1
-        validity_slice.set(3, false); // null at position 3
-        validity_slice.set(7, false); // null at position 7
+        validity_slice.set(1, false);
+        validity_slice.set(3, false);
+        validity_slice.set(7, false);
 
         let validity = vector.validity_ref(len);
-
-        // Check each position
         assert!(validity.is_valid(0), "Row 0 should not be null");
         assert!(!validity.is_valid(1), "Row 1 should be null");
         assert!(validity.is_valid(2), "Row 2 should not be null");
@@ -499,21 +481,16 @@ mod tests {
 
     #[test]
     fn test_row_is_null_all_nulls() {
-        // Test case where all values are null
         let len = 10;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
-        // SAFETY: Vector was created with this length.
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
-        // Set all positions as null
         for i in 0..len {
             validity_slice.set(i, false);
         }
 
         let validity = vector.validity_ref(len);
-
-        // Check that all positions are null
         for i in 0..len {
             assert!(!validity.is_valid(i), "Row {i} should be null");
         }
@@ -521,63 +498,48 @@ mod tests {
 
     #[test]
     fn test_row_is_null_single_element() {
-        // Test with a single element that is null
         let len = 1;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
-        // SAFETY: Vector was created with this length.
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
-        validity_slice.set(0, false); // null at position 0
+        validity_slice.set(0, false);
 
         let validity = vector.validity_ref(len);
-
         assert!(!validity.is_valid(0), "Single element should be null");
     }
 
     #[test]
     fn test_row_is_null_single_element_valid() {
-        // Test with a single valid element
         let len = 1;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
-        // Ensure validity slice exists but element is valid
-        // SAFETY: Vector was created with this length.
         let _validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
 
         let validity = vector.validity_ref(len);
-
         assert!(validity.is_valid(0), "Single element should be valid");
     }
 
     #[test]
     fn test_row_is_null_byte_boundaries() {
-        // Test bit manipulation across 64-bit boundaries
-        let len = 128; // More than 64 bits
+        let len = 128;
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        let mut vector = Vector::with_capacity(logical_type, len);
+        let mut vector = Vector::with_capacity(&logical_type, len);
 
-        // SAFETY: Vector was created with this length.
         let validity_slice = unsafe { vector.ensure_validity_bitslice(len) };
-
-        // Set specific positions as null to test bit manipulation
-        validity_slice.set(0, false); // First bit of first u64
-        validity_slice.set(63, false); // Last bit of first u64
-        validity_slice.set(64, false); // First bit of second u64
-        validity_slice.set(127, false); // Last bit of second u64 (if it exists)
+        validity_slice.set(0, false);
+        validity_slice.set(63, false);
+        validity_slice.set(64, false);
+        validity_slice.set(127, false);
 
         let validity = vector.validity_ref(len);
-
-        // Test the null positions
         assert!(!validity.is_valid(0), "Row 0 should be null");
         assert!(!validity.is_valid(63), "Row 63 should be null");
         assert!(!validity.is_valid(64), "Row 64 should be null");
         if len > 127 {
             assert!(!validity.is_valid(127), "Row 127 should be null");
         }
-
-        // Test some valid positions
         assert!(validity.is_valid(1), "Row 1 should be valid");
         assert!(validity.is_valid(32), "Row 32 should be valid");
         assert!(validity.is_valid(62), "Row 62 should be valid");
@@ -588,12 +550,12 @@ mod tests {
     fn test_dictionary() {
         let logical_type = LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
 
-        let mut dict = Vector::with_capacity(logical_type.clone(), 2);
+        let mut dict = Vector::with_capacity(&logical_type, 2);
         let dict_slice = unsafe { dict.as_slice_mut::<i32>(2) };
         dict_slice[0] = 100;
         dict_slice[1] = 200;
 
-        let vector = Vector::with_capacity(logical_type, 3);
+        let vector = Vector::with_capacity(&logical_type, 3);
 
         let mut sel_vec = SelectionVector::with_capacity(3);
         let sel_slice = unsafe { sel_vec.as_slice_mut(3) };

@@ -6,7 +6,6 @@ use std::sync::LazyLock;
 use arcref::ArcRef;
 use num_traits::CheckedAdd;
 use num_traits::CheckedSub;
-use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -20,6 +19,7 @@ use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Output;
+use crate::dtype::DType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
@@ -267,9 +267,6 @@ pub fn sum_impl(
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
     use vortex_error::VortexExpect;
 
     use crate::IntoArray as _;
@@ -278,6 +275,9 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::compute::sum;
     use crate::compute::sum_with_accumulator;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::scalar::Scalar;
 
     #[test]

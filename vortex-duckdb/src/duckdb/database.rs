@@ -15,9 +15,9 @@ use crate::cpp;
 use crate::duckdb::Config;
 use crate::duckdb::connection::Connection;
 use crate::duckdb_try;
-use crate::wrapper;
+use crate::lifetime_wrapper;
 
-wrapper!(
+lifetime_wrapper!(
     /// A DuckDB database instance.
     Database,
     duckdb_database,
@@ -69,11 +69,13 @@ impl Database {
         let mut ptr: duckdb_database = ptr::null_mut();
         let mut error: *mut c_char = ptr::null_mut();
 
+        // duckdb_open_ext borrows the config (copies it internally), so we pass as_ptr()
+        // and let the Config drop naturally at the end of this function.
         let result = unsafe {
             cpp::duckdb_open_ext(
                 path_cstr.as_ptr(),
                 &raw mut ptr,
-                config.into_ptr(),
+                config.as_ptr(),
                 &raw mut error,
             )
         };
@@ -104,8 +106,10 @@ impl Database {
         let mut ptr: duckdb_database = ptr::null_mut();
         let mut error: *mut c_char = ptr::null_mut();
 
+        // duckdb_open_ext borrows the config (copies it internally), so we pass as_ptr()
+        // and let the Config drop naturally at the end of this function.
         let result = unsafe {
-            cpp::duckdb_open_ext(ptr::null(), &raw mut ptr, config.into_ptr(), &raw mut error)
+            cpp::duckdb_open_ext(ptr::null(), &raw mut ptr, config.as_ptr(), &raw mut error)
         };
 
         if result != cpp::duckdb_state::DuckDBSuccess {
@@ -124,7 +128,9 @@ impl Database {
 
         Ok(unsafe { Self::own(ptr) })
     }
+}
 
+impl DatabaseRef {
     /// Connects to the DuckDB database.
     pub fn connect(&self) -> VortexResult<Connection> {
         Connection::connect(self)
@@ -132,7 +138,7 @@ impl Database {
 
     pub fn register_vortex_scan_replacement(&self) -> VortexResult<()> {
         duckdb_try!(
-            unsafe { cpp::duckdb_vx_register_scan_replacement(self.ptr) },
+            unsafe { cpp::duckdb_vx_register_scan_replacement(self.as_ptr()) },
             "Failed to register vortex scan replacement"
         );
         Ok(())

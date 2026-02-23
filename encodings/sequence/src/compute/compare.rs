@@ -6,14 +6,14 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::Operator;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
 use vortex_array::expr::CompareKernel;
+use vortex_array::expr::CompareOperator;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_buffer::BitBuffer;
-use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -26,11 +26,11 @@ impl CompareKernel for SequenceVTable {
     fn compare(
         lhs: &SequenceArray,
         rhs: &dyn Array,
-        operator: Operator,
+        operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // TODO(joe): support other operators (NotEq, Lt, Lte, Gt, Gte) in encoded space.
-        if operator != Operator::Eq {
+        if operator != CompareOperator::Eq {
             return Ok(None);
         }
 
@@ -138,10 +138,10 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::Operator;
-    use vortex_array::compute::compare;
-    use vortex_dtype::Nullability::NonNullable;
-    use vortex_dtype::Nullability::Nullable;
+    use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::dtype::Nullability::NonNullable;
+    use vortex_array::dtype::Nullability::Nullable;
+    use vortex_array::expr::Operator;
 
     use crate::SequenceArray;
 
@@ -149,7 +149,7 @@ mod tests {
     fn test_compare_match() {
         let lhs = SequenceArray::typed_new(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(4i64, lhs.len());
-        let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
+        let result = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([false, false, true, false]);
         assert_arrays_eq!(result, expected);
     }
@@ -158,7 +158,7 @@ mod tests {
     fn test_compare_match_scale() {
         let lhs = SequenceArray::typed_new(2i64, 3, Nullable, 4).unwrap();
         let rhs = ConstantArray::new(8i64, lhs.len());
-        let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
+        let result = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(true), Some(false)]);
         assert_arrays_eq!(result, expected);
     }
@@ -167,7 +167,7 @@ mod tests {
     fn test_compare_no_match() {
         let lhs = SequenceArray::typed_new(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(1i64, lhs.len());
-        let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
+        let result = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([false, false, false, false]);
         assert_arrays_eq!(result, expected);
     }
