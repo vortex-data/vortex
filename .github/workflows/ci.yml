@@ -188,6 +188,29 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      # DuckDB build from duckdb/, if building httpfs statically, fails unless
+      # you have cURL dev headers present. Ideally we'd see these loaded during
+      # DuckDB setup itself, but this is a tricky change, see
+      # https://github.com/duckdb/duckdb/issues/21073
+      #
+      # This does NOT check for DUCKDB_VERSION changes, and its use in CI
+      # is generally discouraged. Please change build.rs.
+      #
+      # Ideally I'd use a awalsh128/cache-apt-pkgs-action@v1.5.2,
+      # as apt-get takes around 22s, but this specific action is broken, see
+      # https://github.com/awalsh128/cache-apt-pkgs-action/issues/181
+      #
+      # TODO(myrrc): this should all go away once we have AMI in CI.
+      - uses: dorny/paths-filter@v3
+        id: duckdb-buildfile-changed
+        with:
+          filters: |
+            changed:
+              - 'vortex-duckdb/build.rs'
+      - name: Install curl dev headers for duckdb source build
+        if: steps.duckdb-buildfile-changed.outputs.changed == 'true'
+        run: |
+            sudo apt-get update -y -qq && sudo apt-get install -y -qq libcurl4-openssl-dev
       - name: Docs
         run: |
           RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
@@ -287,6 +310,16 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install nightly for fmt
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
+      - uses: dorny/paths-filter@v3
+        id: duckdb-buildfile-changed
+        with:
+          filters: |
+            changed:
+              - 'vortex-duckdb/build.rs'
+      - name: Install curl dev headers for duckdb source build
+        if: steps.duckdb-buildfile-changed.outputs.changed == 'true'
+        run: |
+            sudo apt-get update -y -qq && sudo apt-get install -y -qq libcurl4-openssl-dev
       - name: Rust Lint - Format
         run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
       - name: Rustc check
@@ -411,6 +444,16 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: nextest
+      - uses: dorny/paths-filter@v3
+        id: duckdb-buildfile-changed
+        with:
+          filters: |
+            changed:
+              - 'vortex-duckdb/build.rs'
+      - name: Install curl dev headers for duckdb source build
+        if: steps.duckdb-buildfile-changed.outputs.changed == 'true'
+        run: |
+            sudo apt-get update -y -qq && sudo apt-get install -y -qq libcurl4-openssl-dev
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
         run: |
@@ -477,8 +520,7 @@ jobs:
           components: "rust-src, rustfmt, clippy, llvm-tools-preview"
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build cmake
+            sudo apt-get update -y -qq && sudo apt-get install -y -qq ninja-build cmake libcurl4-openssl-dev
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
@@ -612,6 +654,16 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: nextest
+      - uses: dorny/paths-filter@v3
+        id: duckdb-buildfile-changed
+        with:
+          filters: |
+            changed:
+              - 'vortex-duckdb/build.rs'
+      - name: Install curl dev headers for duckdb source build
+        if: matrix.os != 'windows-x64' && steps.duckdb-buildfile-changed.outputs.changed == 'true'
+        run: |
+            sudo apt-get update -y -qq && sudo apt-get install -y -qq libcurl4-openssl-dev
       - name: Rust Tests (Windows)
         if: matrix.os == 'windows-x64'
         run: |
@@ -770,10 +822,19 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dorny/paths-filter@v3
+        id: duckdb-buildfile-changed
+        with:
+          filters: |
+            changed:
+              - 'vortex-duckdb/build.rs'
+      - name: Install curl dev headers for duckdb source build
+        if: steps.duckdb-buildfile-changed.outputs.changed == 'true'
+        run: |
+            sudo apt-get update -y -qq && sudo apt-get install -y -qq libcurl4-openssl-dev
       - name: Run sqllogictest tests
         run: |
           cargo test -p vortex-sqllogictest --test sqllogictests
-
 
   wasm-integration:
     name: "wasm-integration"
