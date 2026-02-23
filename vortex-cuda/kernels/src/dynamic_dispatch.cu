@@ -119,8 +119,9 @@ __device__ inline void dynamic_source_op(const T *__restrict input,
 
             uint64_t run_idx = block_first_run + current_run;
             // The last run covers all remaining positions.
-            if (run_idx >= num_runs)
+            if (run_idx >= num_runs) {
                 run_idx = num_runs - 1;
+            }
             smem_output[i] = values[run_idx];
         }
         break;
@@ -149,16 +150,18 @@ __device__ inline void apply_scalar_op(T *values, const struct ScalarOp &op, T *
         // clang-format off
         #pragma unroll
         // clang-format on
-        for (uint32_t i = 0; i < N; ++i)
+        for (uint32_t i = 0; i < N; ++i) {
             values[i] += ref;
+        }
         break;
     }
     case ScalarOp::ZIGZAG: {
         // clang-format off
         #pragma unroll
         // clang-format on
-        for (uint32_t i = 0; i < N; ++i)
+        for (uint32_t i = 0; i < N; ++i) {
             values[i] = (values[i] >> 1) ^ static_cast<T>(-(values[i] & 1));
+        }
         break;
     }
     case ScalarOp::ALP: {
@@ -178,8 +181,9 @@ __device__ inline void apply_scalar_op(T *values, const struct ScalarOp &op, T *
         // clang-format off
         #pragma unroll
         // clang-format on
-        for (uint32_t i = 0; i < N; ++i)
+        for (uint32_t i = 0; i < N; ++i) {
             values[i] = dict_values[static_cast<uint32_t>(values[i])];
+        }
         break;
     }
     default:
@@ -309,8 +313,9 @@ __device__ void dynamic_dispatch_impl(T *__restrict output,
     T *smem_base = reinterpret_cast<T *>(smem_bytes);
 
     __shared__ struct DynamicDispatchPlan smem_plan;
-    if (threadIdx.x == 0)
+    if (threadIdx.x == 0) {
         smem_plan = *plan;
+    }
     __syncthreads();
 
     const uint8_t last = smem_plan.num_stages - 1;
