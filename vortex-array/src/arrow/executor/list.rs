@@ -48,7 +48,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
             let zctl = if array.is_zero_copy_to_list() {
                 array
             } else {
-                array.rebuild(ListViewRebuildMode::MakeExact)?
+                array.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
             };
             return list_view_zctl::<O>(zctl, elements_field, ctx);
         }
@@ -63,7 +63,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     let zctl = if list_view.is_zero_copy_to_list() {
         list_view
     } else {
-        list_view.rebuild(ListViewRebuildMode::MakeExact)?
+        list_view.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
     };
     list_view_zctl::<O>(zctl, elements_field, ctx)
 }
