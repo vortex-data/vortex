@@ -151,14 +151,14 @@ impl Footer {
         self.root_layout.dtype()
     }
 
-    /// Returns the number of rows in the file.
-    pub fn row_count(&self) -> u64 {
-        self.root_layout.row_count()
-    }
-
     /// Returns the approximate size of the footer in bytes, used for caching and memory management.
     pub fn approx_byte_size(&self) -> Option<usize> {
         self.approx_byte_size
+    }
+
+    /// Returns the number of rows in the file.
+    pub fn row_count(&self) -> u64 {
+        self.root_layout.row_count()
     }
 
     /// Returns a serializer for this footer.

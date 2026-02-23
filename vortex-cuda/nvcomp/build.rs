@@ -16,10 +16,8 @@ use std::env;
 use std::fs;
 use std::io::Cursor;
 use std::path::PathBuf;
-use std::time::Duration;
 
 use liblzma::read::XzDecoder;
-use reqwest::blocking::Client;
 
 const NVCOMP_VERSION: &str = "5.1.0.21";
 const CUDA_VERSION: &str = "cuda12";
@@ -59,13 +57,7 @@ fn main() {
     let include_dir = nvcomp_dir.join("include");
 
     if !include_dir.exists() {
-        let response = Client::builder()
-            .build()
-            .unwrap()
-            .get(&url)
-            .timeout(Duration::from_secs(100_000_000))
-            .send()
-            // let response = reqwest::blocking::get(&url)
+        let response = reqwest::blocking::get(&url)
             .unwrap_or_else(|e| panic!("Failed to download nvCOMP: {e}"));
 
         assert!(

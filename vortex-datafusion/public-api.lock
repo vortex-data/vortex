@@ -50,7 +50,7 @@ pub fn vortex_datafusion::v2::VortexDataSource::output_partitioning(&self) -> da
 
 pub fn vortex_datafusion::v2::VortexDataSource::partition_statistics(&self, _partition: core::option::Option<usize>) -> datafusion_common::error::Result<datafusion_common::stats::Statistics>
 
-pub fn vortex_datafusion::v2::VortexDataSource::repartitioned(&self, target_partitions: usize, _repartition_file_min_size: usize, _output_ordering: core::option::Option<datafusion_physical_expr_common::sort_expr::LexOrdering>) -> datafusion_common::error::Result<core::option::Option<alloc::sync::Arc<dyn datafusion_datasource::source::DataSource>>>
+pub fn vortex_datafusion::v2::VortexDataSource::repartitioned(&self, target_partitions: usize, _repartition_file_min_size: usize, output_ordering: core::option::Option<datafusion_physical_expr_common::sort_expr::LexOrdering>) -> datafusion_common::error::Result<core::option::Option<alloc::sync::Arc<dyn datafusion_datasource::source::DataSource>>>
 
 pub fn vortex_datafusion::v2::VortexDataSource::try_pushdown_filters(&self, filters: alloc::vec::Vec<alloc::sync::Arc<dyn datafusion_physical_expr_common::physical_expr::PhysicalExpr>>, _config: &datafusion_common::config::ConfigOptions) -> datafusion_common::error::Result<datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation<alloc::sync::Arc<dyn datafusion_datasource::source::DataSource>>>
 
