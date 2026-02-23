@@ -6,10 +6,12 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaSlice;
 use cudarc::driver::CudaStream;
 use cudarc::driver::DevicePtrMut;
 use cudarc::driver::DeviceRepr;
+use cudarc::driver::HostSlice;
 use cudarc::driver::result::memcpy_htod_async;
 use cudarc::driver::result::stream;
 use futures::future::BoxFuture;
@@ -95,6 +97,20 @@ impl VortexCudaStream {
 
             Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
         }))
+    }
+
+    /// Schedules an async H2D memcpy from a pinned host buffer to a device slice.
+    pub(crate) fn memcpy_htod<H: HostSlice<u8>>(
+        &self,
+        src: &H,
+        dst: &mut CudaSlice<u8>,
+    ) -> Result<(), cudarc::driver::DriverError> {
+        self.0.memcpy_htod(src, dst)
+    }
+
+    /// Records a CUDA event on this stream.
+    pub(crate) fn record_event(&self) -> Result<CudaEvent, cudarc::driver::DriverError> {
+        self.0.record_event(None)
     }
 }
 
