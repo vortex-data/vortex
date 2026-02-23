@@ -6,49 +6,50 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
 
-use custom_labels::CURRENT_LABELSET;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use itertools::Itertools;
+use num_traits::AsPrimitive;
 use url::Url;
-use vortex::VortexSessionDefault;
-use vortex::array::ExecutionCtx;
+use vortex::dtype::FieldNames;
+use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
+use vortex::expr::and_collect;
+use vortex::expr::col;
+use vortex::expr::root;
+use vortex::expr::select;
 use vortex::expr::stats::Precision;
 use vortex::file::multi::MultiFileDataSource;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::metrics::tracing::get_global_labels;
 use vortex::scan::api::DataSourceRef;
 use vortex::scan::api::ScanRequest;
-use vortex::session::VortexSession;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::RUNTIME;
 use crate::SESSION;
 use crate::convert::try_from_bound_expression;
-use crate::duckdb;
-use crate::duckdb::BindInput;
-use crate::duckdb::BindResult;
+use crate::convert::try_from_table_filter;
+use crate::duckdb::BindInputRef;
+use crate::duckdb::BindResultRef;
 use crate::duckdb::Cardinality;
-use crate::duckdb::ClientContext;
-use crate::duckdb::DataChunk;
+use crate::duckdb::ClientContextRef;
+use crate::duckdb::DataChunkRef;
+use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
-use crate::duckdb::VirtualColumnsResult;
+use crate::duckdb::VirtualColumnsResultRef;
 use crate::exporter::ConversionCache;
 use crate::filesystem::resolve_filesystem;
 use crate::scan::EMPTY_COLUMN_IDX;
 use crate::scan::EMPTY_COLUMN_NAME;
 use crate::scan::VortexGlobalData;
 use crate::scan::VortexLocalData;
-use crate::scan::extract_projection_expr_from;
 use crate::scan::extract_schema_from_dtype;
-use crate::scan::extract_table_filter_expr_from;
-use crate::scan::scan_shared;
+use crate::scan::init_local_shared;
 
 /// Bind data for the scan API table function, holding a [`DataSourceRef`] instead of
 /// per-file URLs.
@@ -91,6 +92,64 @@ impl Debug for VortexScanApiBindData {
 #[derive(Debug)]
 pub struct VortexScanApiTableFunction;
 
+/// Creates a projection expression from the table initialization input.
+fn extract_projection_expr(init: &TableInitInput<VortexScanApiTableFunction>) -> Expression {
+    let projection_ids = init.projection_ids().unwrap_or(&[]);
+    let column_ids = init.column_ids();
+
+    select(
+        projection_ids
+            .iter()
+            .map(|p| {
+                let idx: usize = p.as_();
+                let val: usize = column_ids[idx].as_();
+                val
+            })
+            .map(|idx| {
+                init.bind_data()
+                    .column_names
+                    .get(idx)
+                    .vortex_expect("prune idx in column names")
+            })
+            .map(|s| Arc::from(s.as_str()))
+            .collect::<FieldNames>(),
+        root(),
+    )
+}
+
+/// Creates a table filter expression from the table filter set.
+fn extract_table_filter_expr(
+    init: &TableInitInput<VortexScanApiTableFunction>,
+    column_ids: &[u64],
+) -> VortexResult<Option<Expression>> {
+    let mut table_filter_exprs: HashSet<Expression> = if let Some(filter) = init.table_filter_set()
+    {
+        filter
+            .into_iter()
+            .map(|(idx, ex)| {
+                let idx_u: usize = idx.as_();
+                let col_idx: usize = column_ids[idx_u].as_();
+                let name = init
+                    .bind_data()
+                    .column_names
+                    .get(col_idx)
+                    .vortex_expect("exists");
+                try_from_table_filter(
+                    ex,
+                    &col(name.as_str()),
+                    init.bind_data().data_source.dtype(),
+                )
+            })
+            .collect::<VortexResult<Option<HashSet<_>>>>()?
+            .unwrap_or_else(HashSet::new)
+    } else {
+        HashSet::new()
+    };
+
+    table_filter_exprs.extend(init.bind_data().filter_exprs.clone());
+    Ok(and_collect(table_filter_exprs.into_iter().collect_vec()))
+}
+
 impl TableFunction for VortexScanApiTableFunction {
     type BindData = VortexScanApiBindData;
     type GlobalState = VortexGlobalData;
@@ -105,16 +164,16 @@ impl TableFunction for VortexScanApiTableFunction {
     }
 
     fn bind(
-        ctx: &ClientContext,
-        input: &BindInput,
-        result: &mut BindResult,
+        ctx: &ClientContextRef,
+        input: &BindInputRef,
+        result: &mut BindResultRef,
     ) -> VortexResult<Self::BindData> {
         let glob_url_parameter = input
             .get_parameter(0)
             .ok_or_else(|| vortex_err!("Missing file glob parameter"))?;
 
         // Parse the URL and separate the base URL (keep scheme, host, etc.) from the path.
-        let glob_url_str = glob_url_parameter.as_ref().as_string();
+        let glob_url_str = glob_url_parameter.as_string();
         let glob_url = match Url::parse(glob_url_str.as_str()) {
             Ok(url) => Ok(url),
             Err(_) => Url::from_file_path(Path::new(glob_url_str.as_str()))
@@ -149,29 +208,19 @@ impl TableFunction for VortexScanApiTableFunction {
     }
 
     fn scan(
-        _client_context: &ClientContext,
+        _client_context: &ClientContextRef,
         _bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
         global_state: &mut Self::GlobalState,
-        chunk: &mut DataChunk,
+        chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
-        scan_shared(local_state, global_state, chunk)
+        global_state.scan(local_state, chunk)
     }
 
     fn init_global(init_input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
         let bind_data = init_input.bind_data();
-        let projection_expr = extract_projection_expr_from(
-            init_input.projection_ids(),
-            init_input.column_ids(),
-            &bind_data.column_names,
-        );
-        let filter_expr = extract_table_filter_expr_from(
-            init_input.table_filter_set(),
-            init_input.column_ids(),
-            &bind_data.column_names,
-            bind_data.data_source.dtype(),
-            &bind_data.filter_exprs,
-        )?;
+        let projection_expr = extract_projection_expr(init_input);
+        let filter_expr = extract_table_filter_expr(init_input, init_input.column_ids())?;
 
         tracing::debug!(
             "Global init Vortex scan_api SELECT {} WHERE {}",
@@ -209,42 +258,27 @@ impl TableFunction for VortexScanApiTableFunction {
             scan_streams.try_flatten_unordered(Some(num_workers * 2))
         });
 
-        Ok(VortexGlobalData {
-            iterator,
-            batch_id: AtomicU64::new(0),
-            ctx: ExecutionCtx::new(VortexSession::default()),
-        })
+        Ok(VortexGlobalData::new(iterator))
     }
 
     fn init_local(
         _init: &TableInitInput<Self>,
         global: &mut Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
-        unsafe {
-            use custom_labels::sys;
+        init_local_shared(global)
+    }
 
-            if sys::current().is_null() {
-                let ls = sys::new(0);
-                sys::replace(ls);
-            };
-        }
-
-        let global_labels = get_global_labels();
-
-        for (key, value) in global_labels {
-            CURRENT_LABELSET.set(key, value);
-        }
-
-        Ok(VortexLocalData {
-            iterator: global.iterator.clone(),
-            exporter: None,
-            batch_id: None,
-        })
+    fn table_scan_progress(
+        _client_context: &ClientContextRef,
+        _bind_data: &mut Self::BindData,
+        global_state: &mut Self::GlobalState,
+    ) -> f64 {
+        global_state.progress()
     }
 
     fn pushdown_complex_filter(
         bind_data: &mut Self::BindData,
-        expr: &duckdb::Expression,
+        expr: &ExpressionRef,
     ) -> VortexResult<bool> {
         tracing::debug!("Attempting to push down filter expression: {expr}");
         let Some(expr) = try_from_bound_expression(expr)? else {
@@ -264,7 +298,7 @@ impl TableFunction for VortexScanApiTableFunction {
     }
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {
-        match bind_data.data_source.row_count_estimate() {
+        match bind_data.data_source.row_count() {
             Some(Precision::Exact(v)) => Cardinality::Maximum(v),
             Some(Precision::Inexact(v)) => Cardinality::Estimate(v),
             None => Cardinality::Unknown,
@@ -276,9 +310,7 @@ impl TableFunction for VortexScanApiTableFunction {
         _global_init_data: &mut Self::GlobalState,
         local_init_data: &mut Self::LocalState,
     ) -> VortexResult<u64> {
-        local_init_data
-            .batch_id
-            .ok_or_else(|| vortex_err!("batch id missing, no batches exported"))
+        VortexGlobalData::partition_data(local_init_data)
     }
 
     fn to_string(bind_data: &Self::BindData) -> Option<Vec<(String, String)>> {
@@ -294,7 +326,7 @@ impl TableFunction for VortexScanApiTableFunction {
         Some(result)
     }
 
-    fn virtual_columns(_bind_data: &Self::BindData, result: &mut VirtualColumnsResult) {
+    fn virtual_columns(_bind_data: &Self::BindData, result: &mut VirtualColumnsResultRef) {
         result.register(EMPTY_COLUMN_IDX, EMPTY_COLUMN_NAME, &LogicalType::bool());
     }
 }

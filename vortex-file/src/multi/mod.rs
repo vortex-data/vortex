@@ -104,10 +104,10 @@ impl MultiFileDataSource {
             .take()
             .ok_or_else(|| vortex_err!("MultiFileDataSource requires a glob URL"))?;
 
-        let fs = self
-            .fs
-            .map(Ok)
-            .unwrap_or_else(|| create_local_filesystem(&self.session))?;
+        let fs = match self.fs {
+            Some(fs) => fs,
+            None => create_local_filesystem(&self.session)?,
+        };
         let files: Vec<FileListing> = fs.glob(&glob)?.try_collect().await?;
 
         if files.is_empty() {

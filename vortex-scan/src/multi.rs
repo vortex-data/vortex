@@ -15,6 +15,11 @@
 //!
 //! # Future Work
 //!
+//! With LayoutV2, this should be rewritten as a `MultiLayoutDataSource` that operates directly
+//! over `LayoutReader`s rather than arbitrary `DataSource` children. This enables shared I/O
+//! scheduling, segment caching, and cross-file resource sharing that are impossible when each
+//! child is an opaque `DataSource`.
+//!
 //! - **Schema union**: Allow missing columns (filled with nulls) and compatible type upcasts
 //!   across sources instead of requiring exact dtype matches.
 //! - **Hive-style partitioning**: Extract partition values from file paths (e.g. `year=2024/month=01/`)
@@ -177,7 +182,7 @@ impl DataSource for MultiDataSource {
         &self.dtype
     }
 
-    fn row_count_estimate(&self) -> Option<Precision<u64>> {
+    fn row_count(&self) -> Option<Precision<u64>> {
         let mut sum: u64 = 0;
         let mut all_exact = true;
         let mut opened_count: u64 = 0;
@@ -188,7 +193,7 @@ impl DataSource for MultiDataSource {
             match child {
                 MultiChild::Opened(ds) => {
                     opened_count += 1;
-                    match ds.row_count_estimate() {
+                    match ds.row_count() {
                         Some(est) => {
                             if !est.is_exact() {
                                 all_exact = false;
@@ -342,11 +347,8 @@ impl DataSourceScan for MultiDataSourceScan {
         &self.dtype
     }
 
-    fn partition_count_estimate(&self) -> Option<Precision<usize>> {
-        let current_estimate = self
-            .current
-            .as_ref()
-            .and_then(|s| s.partition_count_estimate());
+    fn partition_count(&self) -> Option<Precision<usize>> {
+        let current_estimate = self.current.as_ref().and_then(|s| s.partition_count());
 
         let remaining_sources = self.ready.len() + self.opening.len() + self.deferred.len();
         if remaining_sources == 0 {
@@ -370,10 +372,8 @@ impl DataSourceScan for MultiDataSourceScan {
                                 if let Some(ref mut s) = state
                                     && let Some(ref mut limit) = s.remaining_limit
                                 {
-                                    let est = split
-                                        .row_count_estimate()
-                                        .map(|p| p.into_inner())
-                                        .unwrap_or(0);
+                                    let est =
+                                        split.row_count().map(|p| p.into_inner()).unwrap_or(0);
                                     *limit = limit.saturating_sub(est);
                                 }
                                 return Some((Ok(split), (state, current_stream)));

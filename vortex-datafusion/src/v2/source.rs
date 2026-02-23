@@ -390,10 +390,10 @@ impl DataSource for VortexDataSource {
     fn partition_statistics(&self, _partition: Option<usize>) -> DFResult<Statistics> {
         // FIXME(ngates): this should be adjusted based on filters. See DuckDB for heuristics,
         //  and in the future, store the selectivity stats in the session.
-        let num_rows = estimate_to_df_precision(&self.data_source.row_count_estimate());
+        let num_rows = estimate_to_df_precision(&self.data_source.row_count());
 
         // FIXME(ngates): byte size should be adjusted for the initial projection...
-        let total_byte_size = estimate_to_df_precision(&self.data_source.byte_size_estimate());
+        let total_byte_size = estimate_to_df_precision(&self.data_source.byte_size());
 
         // Column statistics must match the output schema (leftover_schema), which may differ
         // from the initial schema after try_swapping_with_projection adds computed columns.

@@ -95,11 +95,11 @@ impl DataSource for LayoutReaderDataSource {
         self.reader.dtype()
     }
 
-    fn row_count_estimate(&self) -> Option<Precision<u64>> {
+    fn row_count(&self) -> Option<Precision<u64>> {
         Some(Precision::exact(self.reader.row_count()))
     }
 
-    fn byte_size_estimate(&self) -> Option<Precision<u64>> {
+    fn byte_size(&self) -> Option<Precision<u64>> {
         None
     }
 
@@ -205,7 +205,7 @@ impl DataSourceScan for LayoutReaderScan {
         &self.dtype
     }
 
-    fn partition_count_estimate(&self) -> Option<Precision<usize>> {
+    fn partition_count(&self) -> Option<Precision<usize>> {
         let (lower, upper) = self.size_hint();
         match upper {
             Some(u) if u == lower => Some(Precision::exact(lower)),
@@ -289,7 +289,7 @@ impl Partition for LayoutReaderSplit {
         self
     }
 
-    fn row_count_estimate(&self) -> Option<Precision<u64>> {
+    fn row_count(&self) -> Option<Precision<u64>> {
         let row_count = self.row_range.end - self.row_range.start;
         let row_count = match &self.selection {
             Selection::All => row_count,
@@ -307,7 +307,7 @@ impl Partition for LayoutReaderSplit {
         })
     }
 
-    fn byte_size_estimate(&self) -> Option<Precision<u64>> {
+    fn byte_size(&self) -> Option<Precision<u64>> {
         None
     }
 
@@ -343,7 +343,7 @@ impl DataSourceScan for Empty {
         &self.dtype
     }
 
-    fn partition_count_estimate(&self) -> Option<Precision<usize>> {
+    fn partition_count(&self) -> Option<Precision<usize>> {
         Some(Precision::exact(1usize))
     }
 
@@ -357,11 +357,11 @@ impl Partition for Empty {
         self
     }
 
-    fn row_count_estimate(&self) -> Option<Precision<u64>> {
+    fn row_count(&self) -> Option<Precision<u64>> {
         Some(Precision::exact(self.row_count))
     }
 
-    fn byte_size_estimate(&self) -> Option<Precision<u64>> {
+    fn byte_size(&self) -> Option<Precision<u64>> {
         Some(Precision::exact(0u64))
     }
 

@@ -109,14 +109,14 @@ impl TableProvider for VortexTable {
     // NOTE(ngates): it's not obvious these are actually used? I think DataFusion does join
     //  planning over stats from the physical plan?
     fn statistics(&self) -> Option<Statistics> {
-        let num_rows = match self.data_source.row_count_estimate() {
+        let num_rows = match self.data_source.row_count() {
             Some(vortex::expr::stats::Precision::Exact(v)) => {
                 usize::try_from(v).map(Precision::Exact).unwrap_or_default()
             }
             _ => Precision::Absent,
         };
 
-        let total_byte_size = match self.data_source.byte_size_estimate() {
+        let total_byte_size = match self.data_source.byte_size() {
             Some(vortex::expr::stats::Precision::Exact(v)) => {
                 usize::try_from(v).map(Precision::Exact).unwrap_or_default()
             }

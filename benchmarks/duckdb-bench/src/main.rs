@@ -3,6 +3,7 @@
 
 mod validation;
 
+use std::ops::Deref;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -147,7 +148,7 @@ fn main() -> anyhow::Result<()> {
                 let result = ctx.connection.query(&format!("EXPLAIN {query}"))?;
                 for chunk in result {
                     let chunk_str =
-                        String::try_from(&chunk).unwrap_or_else(|_| "<error>".to_string());
+                        String::try_from(chunk.deref()).unwrap_or_else(|_| "<error>".to_string());
                     println!("{chunk_str}");
                 }
                 println!();

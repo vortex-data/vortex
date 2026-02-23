@@ -76,12 +76,12 @@ pub trait DataSource: 'static + Send + Sync {
     fn dtype(&self) -> &DType;
 
     /// Returns an estimate of the row count of the un-filtered source.
-    fn row_count_estimate(&self) -> Option<Precision<u64>> {
+    fn row_count(&self) -> Option<Precision<u64>> {
         None
     }
 
     /// Returns an estimate of the byte size of the un-filtered source.
-    fn byte_size_estimate(&self) -> Option<Precision<u64>> {
+    fn byte_size(&self) -> Option<Precision<u64>> {
         None
     }
 
@@ -136,7 +136,7 @@ pub trait DataSourceScan: 'static + Send {
     fn dtype(&self) -> &DType;
 
     /// Returns an estimate of the total number of partitions the scan will produce.
-    fn partition_count_estimate(&self) -> Option<Precision<usize>>;
+    fn partition_count(&self) -> Option<Precision<usize>>;
 
     /// Returns a stream of partitions to be processed.
     fn partitions(self: Box<Self>) -> PartitionStream;
@@ -151,10 +151,10 @@ pub trait Partition: 'static + Send {
     fn as_any(&self) -> &dyn Any;
 
     /// Returns an estimate of the row count for this partition.
-    fn row_count_estimate(&self) -> Option<Precision<u64>>;
+    fn row_count(&self) -> Option<Precision<u64>>;
 
     /// Returns an estimate of the byte size for this partition.
-    fn byte_size_estimate(&self) -> Option<Precision<u64>>;
+    fn byte_size(&self) -> Option<Precision<u64>>;
 
     /// Serialize this partition for a remote worker.
     fn serialize(&self) -> VortexResult<Option<Vec<u8>>> {
