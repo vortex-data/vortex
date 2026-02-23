@@ -88,7 +88,7 @@ struct ScalarOp {
     union ScalarParams params;
 };
 
-#define MAX_SCALAR_OPS 8
+#define MAX_SCALAR_OPS 4
 
 /// A single stage in the dispatch plan.
 ///

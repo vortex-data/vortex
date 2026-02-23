@@ -239,7 +239,7 @@ mod tests {
     fn test_max_scalar_ops() -> VortexResult<()> {
         let bit_width: u8 = 6;
         let len = 2050;
-        let references: [u32; 8] = [1, 2, 4, 8, 16, 32, 64, 128];
+        let references: [u32; 4] = [1, 2, 4, 8];
         let total_reference: u32 = references.iter().sum();
 
         let max_val = (1u64 << bit_width).saturating_sub(1);
@@ -264,7 +264,7 @@ mod tests {
             SourceOp::bitunpack(bit_width),
             &scalar_ops,
         )]);
-        assert_eq!(plan.stages[0].num_scalar_ops, 8);
+        assert_eq!(plan.stages[0].num_scalar_ops, 4);
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
         assert_eq!(actual, expected);

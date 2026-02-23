@@ -301,6 +301,7 @@ template <typename T>
 __device__ void dynamic_dispatch_impl(T *__restrict output,
                                       uint64_t array_len,
                                       const struct DynamicDispatchPlan *__restrict plan) {
+
     // Dynamically-sized shared memory: The host computes the exact byte count
     // needed to hold all stage outputs that must coexist simultaneously, and
     // passes the count at kernel launch (see DynamicDispatchPlan::shared_mem_bytes).

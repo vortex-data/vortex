@@ -28,6 +28,8 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
 use super::DynamicDispatchPlan;
+use super::MAX_SCALAR_OPS;
+use super::MAX_STAGES;
 use super::ScalarOp;
 use super::SourceOp;
 use super::Stage;
@@ -112,6 +114,14 @@ pub fn build_plan(
         &pipeline.scalar_ops,
     );
     state.stages.push(output_stage);
+
+    assert!(state.stages.len() <= MAX_STAGES as usize);
+    assert!(
+        state
+            .stages
+            .iter()
+            .all(|&stage| (stage.num_scalar_ops as u32) <= MAX_SCALAR_OPS)
+    );
 
     Ok((DynamicDispatchPlan::new(state.stages), state.device_buffers))
 }
