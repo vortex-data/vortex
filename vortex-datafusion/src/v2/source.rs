@@ -42,6 +42,7 @@ use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::DType;
 use vortex::dtype::FieldPath;
 use vortex::dtype::Nullability;
+use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::Expression;
@@ -174,7 +175,7 @@ impl VortexDataSourceBuilder {
             limit: None,
             ordered: false,
             num_partitions: std::thread::available_parallelism()
-                .unwrap_or(unsafe { NonZero::new_unchecked(1) }),
+                .unwrap_or(NonZero::new(1).vortex_expect("available parallelism must be non-zero")),
         })
     }
 }

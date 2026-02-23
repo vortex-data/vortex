@@ -28,6 +28,17 @@ pub enum Selection {
 }
 
 impl Selection {
+    /// Return the row count for this selection.
+    pub fn row_count(&self, total_rows: u64) -> u64 {
+        match self {
+            Selection::All => total_rows,
+            Selection::IncludeByIndex(include) => include.len() as u64,
+            Selection::ExcludeByIndex(exclude) => total_rows.saturating_sub(exclude.len() as u64),
+            Selection::IncludeRoaring(roaring) => roaring.len(),
+            Selection::ExcludeRoaring(roaring) => total_rows.saturating_sub(roaring.len()),
+        }
+    }
+
     /// Extract the [`RowMask`] for the given range from this selection.
     pub(crate) fn row_mask(&self, range: &Range<u64>) -> RowMask {
         // Saturating subtraction to prevent underflow, though range should be valid

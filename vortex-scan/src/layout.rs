@@ -13,14 +13,15 @@ use futures::FutureExt;
 use futures::Stream;
 use futures::stream;
 use futures::stream::StreamExt;
-use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
+use vortex_array::scalar::Scalar;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
@@ -126,13 +127,7 @@ impl DataSource for LayoutReaderDataSource {
         {
             // FIXME(ngates): extract out maybe?
             let row_count = row_range.end - row_range.start;
-            let row_count = match scan_request.selection {
-                Selection::All => row_count,
-                Selection::IncludeByIndex(idx) => idx.len() as u64,
-                Selection::ExcludeByIndex(idx) => row_count - idx.len() as u64,
-                Selection::IncludeRoaring(treemap) => treemap.len(),
-                Selection::ExcludeRoaring(treemap) => row_count - treemap.len(),
-            };
+            let row_count = scan_request.selection.row_count(row_count);
 
             // Apply the limit.
             let row_count = if let Some(limit) = scan_request.limit {
@@ -241,7 +236,14 @@ impl Stream for LayoutReaderScan {
         let split_rows = split_end - this.next_row;
 
         let split_limit = this.limit;
-        if let Some(ref mut limit) = this.limit {
+        // Only decrement the remaining limit when there is no filter. With a filter,
+        // the actual output row count is unknown (could be anywhere from 0 to split_rows),
+        // so decrementing by split_rows would be too aggressive and could stop producing
+        // splits before the limit is reached. Instead, pass the full remaining limit to
+        // each split and let the engine enforce the exact limit at the stream level.
+        if this.filter.is_none()
+            && let Some(ref mut limit) = this.limit
+        {
             *limit = limit.saturating_sub(split_rows);
         }
 
@@ -291,13 +293,7 @@ impl Partition for LayoutReaderSplit {
 
     fn row_count(&self) -> Option<Precision<u64>> {
         let row_count = self.row_range.end - self.row_range.start;
-        let row_count = match &self.selection {
-            Selection::All => row_count,
-            Selection::IncludeByIndex(idx) => idx.len() as u64,
-            Selection::ExcludeByIndex(idx) => row_count - idx.len() as u64,
-            Selection::IncludeRoaring(treemap) => treemap.len(),
-            Selection::ExcludeRoaring(treemap) => row_count - treemap.len(),
-        };
+        let row_count = self.selection.row_count(row_count);
         let row_count = self.limit.map_or(row_count, |limit| row_count.min(limit));
 
         Some(if self.filter.is_some() {
@@ -365,9 +361,25 @@ impl Partition for Empty {
         Some(Precision::exact(0u64))
     }
 
-    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
-        Ok(ArrayStreamExt::boxed(
-            Canonical::empty(&self.dtype).into_array().to_array_stream(),
-        ))
+    fn execute(mut self: Box<Self>) -> VortexResult<SendableArrayStream> {
+        let scalar = Scalar::default_value(&self.dtype);
+        let dtype = self.dtype.clone();
+
+        // Create an iterator of arrays with the correct row count, respecting u64::MAX limits.
+        let iter = std::iter::from_fn(move || {
+            if self.row_count == 0 {
+                return None;
+            }
+            let chunk_size = usize::try_from(self.row_count).unwrap_or(usize::MAX);
+            self.row_count -= chunk_size as u64;
+            Some(VortexResult::Ok(
+                ConstantArray::new(scalar.clone(), chunk_size).into_array(),
+            ))
+        });
+
+        Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+            dtype,
+            stream::iter(iter),
+        )))
     }
 }

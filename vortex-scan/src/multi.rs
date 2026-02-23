@@ -371,20 +371,14 @@ impl Partition for MultiLayoutPartition {
     }
 
     fn row_count(&self) -> Option<Precision<u64>> {
-        let rows = self.row_range.end - self.row_range.start;
-        let rows = match &self.selection {
-            Selection::All => rows,
-            Selection::IncludeByIndex(idx) => idx.len() as u64,
-            Selection::ExcludeByIndex(idx) => rows - idx.len() as u64,
-            Selection::IncludeRoaring(treemap) => treemap.len(),
-            Selection::ExcludeRoaring(treemap) => rows - treemap.len(),
-        };
-        let rows = self.limit.map_or(rows, |limit| rows.min(limit));
+        let row_count = self.row_range.end - self.row_range.start;
+        let row_count = self.selection.row_count(row_count);
+        let row_count = self.limit.map_or(row_count, |limit| row_count.min(limit));
 
         Some(if self.filter.is_some() {
-            Precision::inexact(rows)
+            Precision::inexact(row_count)
         } else {
-            Precision::exact(rows)
+            Precision::exact(row_count)
         })
     }
 
