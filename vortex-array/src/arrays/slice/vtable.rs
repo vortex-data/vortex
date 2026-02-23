@@ -114,8 +114,8 @@ impl VTable for SliceVTable {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        // Execute through the full loop so that execute_parent optimizations (e.g.
-        // SliceExecuteAdaptor for ChunkedArray) can fire before we canonicalize.
+        // Execute through the full loop so that execute_parent optimizations
+        // can fire before we canonicalize.
         let canonical = array.to_array().execute::<Canonical>(ctx)?;
         builder.extend_from_array(canonical.as_ref());
         Ok(())
