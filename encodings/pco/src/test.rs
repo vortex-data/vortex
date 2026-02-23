@@ -88,7 +88,7 @@ fn test_validity_and_multiple_chunks_and_pages() {
     validity[7..15].fill(false);
     validity[101] = false;
     let array = PrimitiveArray::new(
-        data.iter().cloned().collect::<Buffer<_>>(),
+        Buffer::from(data),
         Validity::Array(BoolArray::from_iter(validity).to_array()),
     );
     let compression_level = 3;
@@ -128,7 +128,7 @@ fn test_validity_vtable() {
     let data: Vec<i32> = (0..5).collect();
     let mask_bools = vec![false, true, true, false, true];
     let array = PrimitiveArray::new(
-        data.iter().cloned().collect::<Buffer<_>>(),
+        Buffer::from(data),
         Validity::Array(BoolArray::from_iter(mask_bools.clone()).to_array()),
     );
     let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();

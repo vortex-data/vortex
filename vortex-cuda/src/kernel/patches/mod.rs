@@ -3,11 +3,12 @@
 
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
+use tracing::instrument;
 use vortex::array::arrays::PrimitiveArrayParts;
-use vortex::array::dtype::NativePType;
 use vortex::array::patches::Patches;
 use vortex::array::validity::Validity;
 use vortex::array::vtable::ValidityHelper;
+use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex_cuda_macros::cuda_tests;
@@ -18,6 +19,7 @@ use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;
 
 /// Apply a set of patches in-place onto a [`CudaDeviceBuffer`] holding `ValuesT`.
+#[instrument(skip_all)]
 pub(crate) async fn execute_patches<
     ValuesT: NativePType + DeviceRepr,
     IndicesT: NativePType + DeviceRepr,
@@ -100,12 +102,12 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::array::buffer::BufferHandle;
     use vortex::array::builtins::ArrayBuiltins;
-    use vortex::array::dtype::DType;
-    use vortex::array::dtype::NativePType;
-    use vortex::array::dtype::Nullability;
     use vortex::array::patches::Patches;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
+    use vortex::dtype::DType;
+    use vortex::dtype::NativePType;
+    use vortex::dtype::Nullability;
     use vortex::session::VortexSession;
 
     use crate::CanonicalCudaExt;
@@ -159,7 +161,7 @@ mod tests {
             ..
         } = values.into_parts();
 
-        let handle = ctx.move_to_device(cuda_buffer).unwrap().await.unwrap();
+        let handle = ctx.ensure_on_device(cuda_buffer).await.unwrap();
         let device_buf = handle
             .as_device()
             .as_any()

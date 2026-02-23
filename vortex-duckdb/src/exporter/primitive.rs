@@ -11,9 +11,9 @@ use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
-use crate::LogicalType;
-use crate::duckdb::Vector;
+use crate::duckdb::LogicalType;
 use crate::duckdb::VectorBuffer;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::validity;
@@ -35,10 +35,8 @@ pub fn new_exporter(
         .execute::<Mask>(ctx)?;
 
     if validity.all_false() {
-        return Ok(all_invalid::new_exporter(
-            array.len(),
-            &LogicalType::try_from(array.ptype())?,
-        ));
+        let ltype = LogicalType::try_from(array.ptype())?;
+        return Ok(all_invalid::new_exporter(array.len(), &ltype));
     }
 
     match_each_native_ptype!(array.ptype(), |T| {
@@ -54,7 +52,7 @@ pub fn new_exporter(
 }
 
 impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         assert!(self.len >= offset + len);
 
         let pos = unsafe { self.start.add(offset) };
@@ -87,12 +85,12 @@ mod tests {
 
         new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
-            .export(0, 3, &mut chunk.get_vector(0))
+            .export(0, 3, chunk.get_vector_mut(0))
             .unwrap();
         chunk.set_len(3);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 3 = [ 0, 1, 2]
 "#
@@ -116,13 +114,13 @@ mod tests {
                     .export(
                         i * DUCKDB_STANDARD_VECTOR_SIZE,
                         DUCKDB_STANDARD_VECTOR_SIZE,
-                        &mut chunk[i].get_vector(0),
+                        chunk[i].get_vector_mut(0),
                     )
                     .unwrap();
                 chunk[i].set_len(DUCKDB_STANDARD_VECTOR_SIZE);
 
                 assert_eq!(
-                    format!("{}", String::try_from(&chunk[i]).unwrap()),
+                    format!("{}", String::try_from(&*chunk[i]).unwrap()),
                     format!(
                         r#"Chunk - [1 Columns]
 - FLAT INTEGER: {DUCKDB_STANDARD_VECTOR_SIZE} = [ {}]

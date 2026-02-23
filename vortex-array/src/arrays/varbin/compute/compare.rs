@@ -22,12 +22,13 @@ use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
-use crate::compute::Operator;
-use crate::compute::compare;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::compare_lengths_to_empty;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::expr::CompareKernel;
+use crate::expr::CompareOperator;
+use crate::expr::Operator;
 use crate::match_each_integer_ptype;
 use crate::vtable::ValidityHelper;
 
@@ -36,7 +37,7 @@ impl CompareKernel for VarBinVTable {
     fn compare(
         lhs: &VarBinArray,
         rhs: &dyn Array,
-        operator: Operator,
+        operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(rhs_const) = rhs.as_constant() {
@@ -57,9 +58,12 @@ impl CompareKernel for VarBinVTable {
 
             if rhs_is_empty {
                 let buffer = match operator {
-                    Operator::Gte => BitBuffer::new_set(len), // Every possible value is >= ""
-                    Operator::Lt => BitBuffer::new_unset(len), // No value is < ""
-                    Operator::Eq | Operator::NotEq | Operator::Gt | Operator::Lte => {
+                    CompareOperator::Gte => BitBuffer::new_set(len), // Every possible value is >= ""
+                    CompareOperator::Lt => BitBuffer::new_unset(len), // No value is < ""
+                    CompareOperator::Eq
+                    | CompareOperator::NotEq
+                    | CompareOperator::Gt
+                    | CompareOperator::Lte => {
                         let lhs_offsets = lhs.offsets().to_primitive();
                         match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
                             compare_offsets_to_empty::<P>(lhs_offsets, operator)
@@ -100,12 +104,12 @@ impl CompareKernel for VarBinVTable {
             };
 
             let array = match operator {
-                Operator::Eq => cmp::eq(&lhs, arrow_rhs),
-                Operator::NotEq => cmp::neq(&lhs, arrow_rhs),
-                Operator::Gt => cmp::gt(&lhs, arrow_rhs),
-                Operator::Gte => cmp::gt_eq(&lhs, arrow_rhs),
-                Operator::Lt => cmp::lt(&lhs, arrow_rhs),
-                Operator::Lte => cmp::lt_eq(&lhs, arrow_rhs),
+                CompareOperator::Eq => cmp::eq(&lhs, arrow_rhs),
+                CompareOperator::NotEq => cmp::neq(&lhs, arrow_rhs),
+                CompareOperator::Gt => cmp::gt(&lhs, arrow_rhs),
+                CompareOperator::Gte => cmp::gt_eq(&lhs, arrow_rhs),
+                CompareOperator::Lt => cmp::lt(&lhs, arrow_rhs),
+                CompareOperator::Lte => cmp::lt_eq(&lhs, arrow_rhs),
             }
             .map_err(|err| vortex_err!("Failed to compare VarBin array: {}", err))?;
 
@@ -114,7 +118,11 @@ impl CompareKernel for VarBinVTable {
             // NOTE: If the rhs is not a VarBin array it will be canonicalized to a VarBinView
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
-            return Ok(Some(compare(lhs.to_varbinview().as_ref(), rhs, operator)?));
+            return Ok(Some(
+                lhs.to_varbinview()
+                    .to_array()
+                    .binary(rhs.to_array(), Operator::from(operator))?,
+            ));
         } else {
             Ok(None)
         }
@@ -123,7 +131,7 @@ impl CompareKernel for VarBinVTable {
 
 fn compare_offsets_to_empty<P: IntegerPType>(
     offsets: PrimitiveArray,
-    operator: Operator,
+    operator: CompareOperator,
 ) -> BitBuffer {
     let lengths_iter = offsets
         .as_slice::<P>()
@@ -142,10 +150,10 @@ mod test {
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
-    use crate::compute::Operator;
-    use crate::compute::compare;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::expr::Operator;
     use crate::scalar::Scalar;
 
     #[test]
@@ -154,17 +162,18 @@ mod test {
             [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
         );
-        let result = compare(
-            array.as_ref(),
-            ConstantArray::new(
-                Scalar::binary(ByteBuffer::copy_from(b"abc"), Nullability::Nullable),
-                3,
+        let result = array
+            .to_array()
+            .binary(
+                ConstantArray::new(
+                    Scalar::binary(ByteBuffer::copy_from(b"abc"), Nullability::Nullable),
+                    3,
+                )
+                .to_array(),
+                Operator::Eq,
             )
-            .as_ref(),
-            Operator::Eq,
-        )
-        .unwrap()
-        .to_bool();
+            .unwrap()
+            .to_bool();
 
         assert_eq!(
             &result.validity_mask().unwrap().to_bit_buffer(),
@@ -186,7 +195,9 @@ mod test {
             [None, None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
         );
-        let result = compare(array.as_ref(), vbv.as_ref(), Operator::Eq)
+        let result = array
+            .to_array()
+            .binary(vbv.to_array(), Operator::Eq)
             .unwrap()
             .to_bool();
 
@@ -206,10 +217,10 @@ mod tests {
     use crate::Array;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
-    use crate::compute::Operator;
-    use crate::compute::compare;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::expr::Operator;
     use crate::scalar::Scalar;
 
     #[test]
@@ -219,7 +230,8 @@ mod tests {
         let const_ = ConstantArray::new(Scalar::utf8("", Nullability::Nullable), 1);
 
         assert_eq!(
-            compare(arr.as_ref(), const_.as_ref(), Operator::Eq)
+            arr.to_array()
+                .binary(const_.to_array(), Operator::Eq)
                 .unwrap()
                 .dtype(),
             &DType::Bool(Nullability::Nullable)

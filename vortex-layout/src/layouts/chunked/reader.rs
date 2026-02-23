@@ -166,6 +166,10 @@ impl LayoutReader for ChunkedReader {
         row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
+        if row_range.is_empty() {
+            return Ok(());
+        }
+
         for (index, (&start, &end)) in self
             .chunk_offsets
             .iter()
@@ -201,6 +205,10 @@ impl LayoutReader for ChunkedReader {
         expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
+        if row_range.is_empty() {
+            return Ok(MaskFuture::ready(mask));
+        }
+
         let mut chunk_evals = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
@@ -243,6 +251,10 @@ impl LayoutReader for ChunkedReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
+        if row_range.is_empty() {
+            return Ok(mask);
+        }
+
         let mut chunk_evals = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
@@ -279,6 +291,10 @@ impl LayoutReader for ChunkedReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let dtype = expr.return_dtype(self.dtype())?;
+        if row_range.is_empty() {
+            return Ok(async move { Ok(ChunkedArray::try_new(vec![], dtype)?.to_array()) }.boxed());
+        }
+
         let mut chunk_evals = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {

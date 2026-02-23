@@ -20,10 +20,10 @@ use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::ExtID;
 use crate::dtype::FieldDType;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::dtype::extension::ExtId;
 use crate::dtype::flatbuffers as fb;
 use crate::dtype::session::DTypeSessionExt;
 
@@ -194,7 +194,7 @@ impl TryFrom<ViewedDType> for DType {
                 let fb_ext = fb
                     .type__as_extension()
                     .ok_or_else(|| vortex_err!("failed to parse extension from flatbuffer"))?;
-                let id = ExtID::new_arc(
+                let id = ExtId::new_arc(
                     fb_ext
                         .id()
                         .ok_or_else(|| vortex_err!("failed to parse extension id from flatbuffer"))?

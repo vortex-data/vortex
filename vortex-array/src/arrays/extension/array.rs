@@ -3,8 +3,8 @@
 
 use crate::ArrayRef;
 use crate::dtype::DType;
-use crate::dtype::ExtID;
 use crate::dtype::extension::ExtDTypeRef;
+use crate::dtype::extension::ExtId;
 use crate::stats::ArrayStats;
 
 /// An extension array that wraps another array with additional type information.
@@ -78,7 +78,7 @@ impl ExtensionArray {
     }
 
     #[inline]
-    pub fn id(&self) -> ExtID {
+    pub fn id(&self) -> ExtId {
         self.ext_dtype().id()
     }
 }

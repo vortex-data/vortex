@@ -82,7 +82,6 @@ impl Footer {
         session: &VortexSession,
     ) -> VortexResult<Self> {
         let approx_byte_size = footer_bytes.len() + layout_bytes.len();
-
         let fb_footer = root::<fb::Footer>(&footer_bytes)?;
 
         // Create a LayoutContext from the registry.

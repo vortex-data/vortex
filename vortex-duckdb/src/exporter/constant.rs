@@ -10,7 +10,7 @@ use vortex::mask::Mask;
 
 use crate::convert::ToDuckDBScalar;
 use crate::duckdb::Value;
-use crate::duckdb::Vector;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::ConversionCache;
 use crate::exporter::new_array_exporter;
@@ -62,7 +62,7 @@ pub(crate) fn new_exporter(array: ConstantArray) -> VortexResult<Box<dyn ColumnE
 }
 
 impl ColumnExporter for ConstantExporter {
-    fn export(&self, _offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, _offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         match self.value.as_ref() {
             None => {
                 // TODO(ngates): would be good if DuckDB supported constant null vectors.

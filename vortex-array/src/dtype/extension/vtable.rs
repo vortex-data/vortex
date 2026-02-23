@@ -9,17 +9,20 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::dtype::DType;
-use crate::dtype::ExtDType;
-use crate::dtype::ExtID;
+use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtDTypeRef;
+use crate::dtype::extension::ExtId;
 
-/// The public API for defining new extension DTypes.
-pub trait ExtDTypeVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
+// TODO(connor): Right now this is just a vtable for DType (it used to be called `ExtDTypeVTable`),
+// need to add scalar and array functionality.
+// Also need to figure out if this name makes sense?
+/// The public API for defining new extension types.
+pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     /// Associated type containing the deserialized metadata for this extension type
     type Metadata: 'static + Send + Sync + Clone + Debug + Display + Eq + Hash;
 
     /// Returns the ID for this extension type.
-    fn id(&self) -> ExtID;
+    fn id(&self) -> ExtId;
 
     /// Serialize the metadata into a byte vector.
     fn serialize(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -45,30 +48,21 @@ pub trait ExtDTypeVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + H
 
 /// A dynamic vtable for extension types, used for type-erased deserialization.
 // TODO(ngates): consider renaming this to ExtDTypePlugin or similar?
-pub trait DynExtDTypeVTable: 'static + Send + Sync + Debug {
+pub trait DynExtVTable: 'static + Send + Sync + Debug {
     /// Returns the ID for this extension type.
-    fn id(&self) -> ExtID;
+    fn id(&self) -> ExtId;
 
     /// Deserialize an extension type from serialized metadata.
     fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef>;
 }
 
-impl<V: ExtDTypeVTable> DynExtDTypeVTable for V {
-    fn id(&self) -> ExtID {
-        ExtDTypeVTable::id(self)
+impl<V: ExtVTable> DynExtVTable for V {
+    fn id(&self) -> ExtId {
+        ExtVTable::id(self)
     }
 
     fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef> {
-        let metadata = ExtDTypeVTable::deserialize(self, data)?;
+        let metadata = ExtVTable::deserialize(self, data)?;
         Ok(ExtDType::try_with_vtable(self.clone(), metadata, storage_dtype)?.erased())
-    }
-}
-
-/// An empty metadata struct for extension dtypes that do not require any metadata.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct EmptyMetadata;
-impl Display for EmptyMetadata {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "")
     }
 }

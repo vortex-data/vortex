@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;
 use crate::compute::is_constant;
-use crate::compute::numeric;
+use crate::expr::Operator;
 use crate::register_kernel;
-use crate::scalar::NumericOperator;
 
 const SMALL_ARRAY_THRESHOLD: usize = 64;
 
@@ -46,7 +46,7 @@ impl IsConstantKernel for ListVTable {
             let end_offsets = array
                 .offsets()
                 .slice(SMALL_ARRAY_THRESHOLD + 1..array.len() + 1)?;
-            let list_lengths = numeric(&end_offsets, &start_offsets, NumericOperator::Sub)?;
+            let list_lengths = end_offsets.binary(start_offsets, Operator::Sub)?;
 
             if !is_constant(&list_lengths)?.unwrap_or_default() {
                 return Ok(Some(false));

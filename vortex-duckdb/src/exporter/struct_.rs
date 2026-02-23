@@ -9,8 +9,8 @@ use vortex::array::arrays::StructArrayParts;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::error::VortexResult;
 
-use crate::LogicalType;
-use crate::duckdb::Vector;
+use crate::duckdb::LogicalType;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 use crate::exporter::ConversionCache;
 use crate::exporter::all_invalid;
@@ -36,10 +36,8 @@ pub(crate) fn new_exporter(
     let validity = validity.to_array(len).execute::<BoolArray>(ctx)?;
 
     if validity.to_bit_buffer().true_count() == 0 {
-        return Ok(all_invalid::new_exporter(
-            len,
-            &LogicalType::try_from(struct_fields)?,
-        ));
+        let ltype = LogicalType::try_from(struct_fields)?;
+        return Ok(all_invalid::new_exporter(len, &ltype));
     }
 
     let children = fields
@@ -60,9 +58,9 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for StructExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         for (idx, child) in self.children.iter().enumerate() {
-            child.export(offset, len, &mut vector.struct_vector_get_child(idx))?;
+            child.export(offset, len, vector.struct_vector_get_child_mut(idx))?;
         }
         Ok(())
     }
@@ -104,7 +102,7 @@ mod tests {
             ],
             vec![CString::new("col1").unwrap(), CString::new("col2").unwrap()],
         )
-        .vortex_expect("LogicalType creation should succeed for test data")]);
+        .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
 
         new_exporter(
             arr,
@@ -112,12 +110,12 @@ mod tests {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
-        .export(0, 10, &mut chunk.get_vector(0))
+        .export(0, 10, chunk.get_vector_mut(0))
         .unwrap();
         chunk.set_len(10);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT STRUCT(col1 INTEGER, col2 VARCHAR): 10 = [ {'col1': 0, 'col2': a}, {'col1': 1, 'col2': b}, {'col1': 2, 'col2': c}, {'col1': 3, 'col2': d}, {'col1': 4, 'col2': e}, {'col1': 5, 'col2': f}, {'col1': 6, 'col2': g}, {'col1': 7, 'col2': h}, {'col1': 8, 'col2': i}, {'col1': 9, 'col2': j}]
 "#
@@ -168,7 +166,7 @@ mod tests {
             ],
             vec![CString::new("col1").unwrap(), CString::new("col2").unwrap()],
         )
-        .vortex_expect("LogicalType creation should succeed for test data")]);
+        .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
 
         new_exporter(
             arr,
@@ -176,12 +174,12 @@ mod tests {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
-        .export(0, 10, &mut chunk.get_vector(0))
+        .export(0, 10, chunk.get_vector_mut(0))
         .unwrap();
         chunk.set_len(10);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT STRUCT(col1 INTEGER, col2 VARCHAR): 10 = [ {'col1': 1, 'col2': NULL}, {'col1': NULL, 'col2': b}, {'col1': 2, 'col2': c}, NULL, NULL, NULL, {'col1': 4, 'col2': g}, {'col1': NULL, 'col2': h}, {'col1': 5, 'col2': NULL}, {'col1': NULL, 'col2': j}]
 "#
@@ -213,7 +211,7 @@ mod tests {
             ],
             vec![CString::new("col1").unwrap(), CString::new("col2").unwrap()],
         )
-        .vortex_expect("LogicalType creation should succeed for test data")]);
+        .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
 
         new_exporter(
             arr,
@@ -221,12 +219,12 @@ mod tests {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
-        .export(0, 10, &mut chunk.get_vector(0))
+        .export(0, 10, chunk.get_vector_mut(0))
         .unwrap();
         chunk.set_len(10);
 
         assert_eq!(
-            format!("{}", String::try_from(&chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
 - FLAT STRUCT(col1 INTEGER, col2 VARCHAR): 10 = [ {'col1': 42, 'col2': b}, {'col1': 42, 'col2': c}, {'col1': 42, 'col2': c}, NULL, NULL, NULL, {'col1': 42, 'col2': d}, {'col1': 42, 'col2': g}, {'col1': 42, 'col2': g}, {'col1': 42, 'col2': h}]
 "#

@@ -26,7 +26,6 @@ use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::vtable::ValidityHelper;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
-use vortex::dtype::datetime::TimeUnit;
 use vortex::encodings::alp::alp_encode;
 use vortex::encodings::datetime_parts::DateTimePartsArray;
 use vortex::encodings::datetime_parts::split_temporal;
@@ -35,6 +34,7 @@ use vortex::encodings::fsst::FSSTArray;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::runend::RunEndArray;
+use vortex::extension::datetime::TimeUnit;
 use vortex_fastlanes::BitPackedArray;
 
 #[global_allocator]

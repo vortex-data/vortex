@@ -10,8 +10,6 @@ use async_trait::async_trait;
 use cudarc::driver::CudaSlice;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
-use futures::future::BoxFuture;
-use futures::future::try_join_all;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::buffer::BufferHandle;
@@ -139,21 +137,11 @@ async fn move_frames_to_device(
     compressed_buffers: &[BufferHandle],
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Vec<BufferHandle>> {
-    let move_futures = compressed_buffers
-        .iter()
-        .map(
-            |frame| -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>> {
-                if frame.is_on_device() {
-                    let frame = frame.clone();
-                    Ok(Box::pin(async move { Ok(frame) }))
-                } else {
-                    ctx.move_to_device(frame.clone())
-                }
-            },
-        )
-        .collect::<VortexResult<Vec<_>>>()?;
-
-    try_join_all(move_futures).await
+    let mut results = Vec::with_capacity(compressed_buffers.len());
+    for frame in compressed_buffers {
+        results.push(ctx.ensure_on_device(frame.clone()).await?);
+    }
+    Ok(results)
 }
 
 // This performs D2H to retrieve the lengths and status arrays.

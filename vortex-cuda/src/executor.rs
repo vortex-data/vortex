@@ -25,7 +25,7 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::StructArrayParts;
 use vortex::array::arrays::StructVTable;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::dtype::PType;
+use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
@@ -220,7 +220,11 @@ impl CudaExecutionCtx {
         self.stream.device_alloc(len)
     }
 
-    /// See `VortexCudaStream::copy_to_device`.
+    /// Copies host data to the device.
+    ///
+    /// For **pageable** host memory the source is staged synchronously; for
+    /// **pinned** memory the transfer is async. In both cases `data` is
+    /// kept alive by the returned future until the copy completes.
     pub fn copy_to_device<T, D>(
         &self,
         data: D,
@@ -232,24 +236,19 @@ impl CudaExecutionCtx {
         self.stream.copy_to_device(data)
     }
 
-    /// See `VortexCudaStream::move_to_device`.
-    pub fn move_to_device(
-        &self,
-        handle: BufferHandle,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>> {
-        self.stream.move_to_device(handle)
-    }
-
     /// Ensures a buffer is resident on the device, copying from host if necessary.
     ///
-    /// If the buffer is already on the device it is returned as-is. Otherwise it
-    /// is asynchronously copied to device memory.
+    /// If the buffer is already on the device it is returned as-is. Otherwise
+    /// delegates to `copy_to_device`.
     pub async fn ensure_on_device(&self, handle: BufferHandle) -> VortexResult<BufferHandle> {
         if handle.is_on_device() {
-            Ok(handle)
-        } else {
-            self.move_to_device(handle)?.await
+            return Ok(handle);
         }
+        let host_buffer = handle
+            .as_host_opt()
+            .ok_or_else(|| vortex_err!("Buffer is not on host"))?
+            .clone();
+        self.stream.copy_to_device(host_buffer)?.await
     }
 
     /// Returns a reference to the underlying CUDA stream.
@@ -270,6 +269,36 @@ impl CudaExecutionCtx {
 }
 
 /// Support trait for CUDA-accelerated decompression of arrays.
+///
+/// # Execution model
+///
+/// Work is enqueued onto a single CUDA stream and executes in FIFO order.
+/// Kernel launches are synchronous fire-and-forget: They enqueue work and
+/// return immediately. The returned [`Canonical`] may reference device buffers
+/// with in-flight writes.
+///
+/// ## Pageable vs. page-locked (pinned) host memory
+///
+/// Whether the H2D transfer is asynchronous depends on whether the source
+/// memory is page-locked:
+///
+/// - **Page-locked memory** (allocated via `cuMemAllocHost` / `cudaMallocHost`):
+///   the GPU's DMA engine holds a stable physical address for the allocation and
+///   can transfer directly without CPU involvement. The call returns immediately
+///   and the copy proceeds in parallel with subsequent CPU work.
+///
+/// - **Pageable memory** (ordinary `malloc` / Rust allocator): CUDA must first
+///   stage the data through an internal page-locked bounce buffer, performing a
+///   CPU `memcpy` into that buffer before the DMA can begin. The `memcpy_htod_async`
+///   call blocks until the staging copy finishes, making the transfer effectively
+///   synchronous from the caller's perspective, though the DMA itself still runs
+///   on the stream.
+///
+///
+/// ## Synchronisation
+///
+/// To insert an explicit sync point, use `await_stream_callback`, which completes
+/// when all preceding stream work — including in-flight kernels — has finished.
 #[async_trait]
 pub trait CudaExecute: 'static + Send + Sync + Debug {
     /// Executes the array on CUDA, returning a canonical array.
@@ -284,10 +313,14 @@ pub trait CudaExecute: 'static + Send + Sync + Debug {
 /// Extension trait for executing arrays on CUDA.
 #[async_trait]
 pub trait CudaArrayExt: Array {
-    /// Recursively executes the array on CUDA, returning a canonical array.
+    /// Recursively walks the encoding tree, dispatching each layer to its
+    /// registered [`CudaExecute`] implementation and returning a canonical array
+    /// on the device.
     ///
-    /// If no CUDA support is registered for the encoding, falls back to CPU execution
-    /// and logs a debug message.
+    /// See [`CudaExecute`] for details on the execution model.
+    ///
+    /// Falls back to CPU execution if no CUDA support is registered for the
+    /// encoding.
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical>;
 }
 

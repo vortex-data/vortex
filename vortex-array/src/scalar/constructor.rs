@@ -12,12 +12,12 @@ use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::ExtDType;
-use crate::dtype::ExtDTypeRef;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::dtype::extension::ExtDTypeVTable;
+use crate::dtype::extension::ExtDType;
+use crate::dtype::extension::ExtDTypeRef;
+use crate::dtype::extension::ExtVTable;
 use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
@@ -171,7 +171,7 @@ impl Scalar {
     }
 
     /// Creates a new extension scalar wrapping the given storage value.
-    pub fn extension<V: ExtDTypeVTable + Default>(options: V::Metadata, value: Scalar) -> Self {
+    pub fn extension<V: ExtVTable + Default>(options: V::Metadata, value: Scalar) -> Self {
         let ext_dtype = ExtDType::<V>::try_new(options, value.dtype().clone())
             .vortex_expect("Failed to create extension dtype");
         Self::try_new(DType::Extension(ext_dtype.erased()), value.into_value())

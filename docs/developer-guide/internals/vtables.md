@@ -34,7 +34,7 @@ ID, metadata type, serialization, and validation:
 trait ExtDTypeVTable: Sized + Send + Sync + Clone + Debug {
     type Metadata: Send + Sync + Clone + Debug + Display + Eq + Hash;
 
-    fn id(&self) -> ExtID;
+    fn id(&self) -> ExtId;
     fn serialize(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>>;
     fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Metadata>;
     fn validate(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()>;

@@ -24,9 +24,9 @@ mod test {
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::Nullability;
-    use crate::dtype::datetime::Date;
-    use crate::dtype::datetime::TimeUnit;
-    use crate::dtype::datetime::Timestamp;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
 
     #[test]
     fn test_filter_extension_array() {
@@ -95,8 +95,8 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::Nullability;
-    use crate::dtype::datetime::TimeUnit;
-    use crate::dtype::datetime::Timestamp;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
 
     #[rstest]
     // Note: The original test_all_consistency cases for extension arrays caused errors

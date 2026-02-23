@@ -13,12 +13,10 @@ pub struct CachedVortexMetadata {
 impl CachedVortexMetadata {
     /// Create a new cached metadata entry from a VortexFile.
     pub fn new(vortex_file: &VortexFile) -> Self {
-        Self::from_footer(vortex_file.footer().clone())
-    }
-
-    /// Create a new cached metadata entry from a [`Footer`].
-    pub fn from_footer(footer: Footer) -> Self {
-        Self { footer }
+        let footer = vortex_file.footer();
+        Self {
+            footer: footer.clone(),
+        }
     }
 
     /// Get the cached footer.

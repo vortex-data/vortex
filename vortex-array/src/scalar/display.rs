@@ -38,10 +38,10 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::dtype::datetime::Date;
-    use crate::dtype::datetime::Time;
-    use crate::dtype::datetime::TimeUnit;
-    use crate::dtype::datetime::Timestamp;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::Time;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
     use crate::scalar::PValue;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;

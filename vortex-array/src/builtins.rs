@@ -22,6 +22,7 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::expr::Between;
 use crate::expr::BetweenOptions;
+use crate::expr::Binary;
 use crate::expr::Cast;
 use crate::expr::EmptyOptions;
 use crate::expr::Expression;
@@ -31,6 +32,7 @@ use crate::expr::IsNull;
 use crate::expr::ListContains;
 use crate::expr::Mask;
 use crate::expr::Not;
+use crate::expr::Operator;
 use crate::expr::VTableExt;
 use crate::expr::Zip;
 use crate::optimizer::ArrayOptimizer;
@@ -63,6 +65,9 @@ pub trait ExprBuiltins: Sized {
 
     /// Conditional selection: `result[i] = if mask[i] then self[i] else if_false[i]`.
     fn zip(&self, if_false: Expression, mask: Expression) -> VortexResult<Expression>;
+
+    /// Apply a binary operator to this expression and another.
+    fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression>;
 }
 
 impl ExprBuiltins for Expression {
@@ -97,6 +102,10 @@ impl ExprBuiltins for Expression {
     fn zip(&self, if_false: Expression, mask: Expression) -> VortexResult<Expression> {
         Zip.try_new_expr(EmptyOptions, [self.clone(), if_false, mask])
     }
+
+    fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression> {
+        Binary.try_new_expr(op, [self.clone(), rhs])
+    }
 }
 
 pub trait ArrayBuiltins: Sized {
@@ -125,6 +134,9 @@ pub trait ArrayBuiltins: Sized {
 
     /// Check if a list contains a value.
     fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef>;
+
+    /// Apply a binary operator to this array and another.
+    fn binary(&self, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef>;
 
     /// Compare a values between lower </<= value </<= upper
     fn between(
@@ -189,6 +201,12 @@ impl ArrayBuiltins for ArrayRef {
     fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef> {
         ListContains
             .try_new_array(self.len(), EmptyOptions, [self.clone(), value])?
+            .optimize()
+    }
+
+    fn binary(&self, rhs: ArrayRef, op: Operator) -> VortexResult<ArrayRef> {
+        Binary
+            .try_new_array(self.len(), op, [self.clone(), rhs])?
             .optimize()
     }
 

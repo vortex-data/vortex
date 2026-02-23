@@ -36,12 +36,12 @@ use crate::dtype::FieldName;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
-use crate::dtype::datetime::AnyTemporal;
-use crate::dtype::datetime::Date;
-use crate::dtype::datetime::TemporalMetadata;
-use crate::dtype::datetime::Time;
-use crate::dtype::datetime::TimeUnit;
-use crate::dtype::datetime::Timestamp;
+use crate::extension::datetime::AnyTemporal;
+use crate::extension::datetime::Date;
+use crate::extension::datetime::TemporalMetadata;
+use crate::extension::datetime::Time;
+use crate::extension::datetime::TimeUnit;
+use crate::extension::datetime::Timestamp;
 
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {

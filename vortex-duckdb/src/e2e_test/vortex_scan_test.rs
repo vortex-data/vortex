@@ -4,6 +4,8 @@
 //! This module contains tests for the `vortex_scan` table function.
 
 use std::ffi::CStr;
+use std::io::Write;
+use std::net::TcpListener;
 use std::path::Path;
 use std::slice;
 use std::str::FromStr;
@@ -120,9 +122,10 @@ fn scan_vortex_file_single_row<D, T: FromDuckDBValue<D>>(
     let formatted_query = query.replace('?', &format!("'{file_path}'"));
 
     let result = conn.query(&formatted_query).unwrap();
-    let chunk = result.into_iter().next().unwrap();
-    let mut vec = chunk.get_vector(col_idx);
-    T::from_duckdb_value(&mut unsafe { vec.as_slice_mut::<D>(chunk.len().as_()) }[0])
+    let mut chunk = result.into_iter().next().unwrap();
+    let len = chunk.len().as_();
+    let vec = chunk.get_vector_mut(col_idx);
+    T::from_duckdb_value(&mut unsafe { vec.as_slice_mut::<D>(len) }[0])
 }
 
 fn scan_vortex_file<D, T: FromDuckDBValue<D>>(
@@ -137,10 +140,11 @@ fn scan_vortex_file<D, T: FromDuckDBValue<D>>(
     let result = conn.query(&formatted_query)?;
 
     let mut values = Vec::new();
-    for chunk in result {
-        let mut vec = chunk.get_vector(col_idx);
+    for mut chunk in result {
+        let len = chunk.len().as_();
+        let vec = chunk.get_vector_mut(col_idx);
         values.extend(
-            unsafe { vec.as_slice_mut::<D>(chunk.len().as_()) }
+            unsafe { vec.as_slice_mut::<D>(len) }
                 .iter_mut()
                 .map(T::from_duckdb_value),
         );
@@ -344,6 +348,52 @@ fn test_vortex_scan_multiple_files() {
     let total_sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
 
     assert_eq!(total_sum, 21);
+}
+
+#[test]
+fn test_vortex_scan_over_http() {
+    let file = RUNTIME.block_on(async {
+        let strings = VarBinArray::from(vec!["a", "b", "c"]);
+        write_single_column_vortex_file("strings", strings).await
+    });
+
+    let file_bytes = std::fs::read(file.path()).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    std::thread::spawn(move || {
+        for _ in 0..2 {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
+                    file_bytes.len()
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+                stream.write_all(&file_bytes).unwrap();
+            }
+        }
+    });
+
+    let conn = database_connection();
+    conn.query("SET vortex_filesystem = 'duckdb';").unwrap();
+    conn.query("INSTALL httpfs;").unwrap();
+    conn.query("LOAD httpfs;").unwrap();
+
+    let url = format!(
+        "http://{}/{}",
+        addr,
+        file.path().file_name().unwrap().to_string_lossy()
+    );
+
+    let result = conn
+        .query(&format!("SELECT COUNT(*) FROM read_vortex('{url}')"))
+        .unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let count = chunk
+        .get_vector(0)
+        .as_slice_with_len::<i64>(chunk.len().as_())[0];
+
+    assert_eq!(count, 3);
 }
 
 #[test]
@@ -807,25 +857,26 @@ fn test_vortex_encodings_roundtrip() {
         ))
         .unwrap();
 
-    let chunk = result.into_iter().next().unwrap();
-    assert_eq!(chunk.len(), 5); // 5 rows
+    let mut chunk = result.into_iter().next().unwrap();
+    let len: usize = chunk.len().as_();
+    assert_eq!(len, 5); // 5 rows
     assert_eq!(chunk.column_count(), 10); // 10 columns
 
     // Verify primitive i32 (column 0)
     let primitive_i32_vec = chunk.get_vector(0);
-    let primitive_i32_slice = primitive_i32_vec.as_slice_with_len::<i32>(chunk.len().as_());
+    let primitive_i32_slice = primitive_i32_vec.as_slice_with_len::<i32>(len);
     assert_eq!(primitive_i32_slice, [1, 2, 3, 4, 5]);
 
     // Verify primitive f64 (column 1)
     let primitive_f64_vec = chunk.get_vector(1);
-    let primitive_f64_slice = primitive_f64_vec.as_slice_with_len::<f64>(chunk.len().as_());
+    let primitive_f64_slice = primitive_f64_vec.as_slice_with_len::<f64>(len);
     assert!((primitive_f64_slice[0] - 1.1).abs() < f64::EPSILON);
     assert!((primitive_f64_slice[1] - 2.2).abs() < f64::EPSILON);
     assert!((primitive_f64_slice[2] - 3.3).abs() < f64::EPSILON);
 
     // Verify constant string (column 2)
-    let mut constant_vec = chunk.get_vector(2);
-    let constant_slice = unsafe { constant_vec.as_slice_mut::<duckdb_string_t>(chunk.len().as_()) };
+    let constant_vec = chunk.get_vector_mut(2);
+    let constant_slice = unsafe { constant_vec.as_slice_mut::<duckdb_string_t>(len) };
     for idx in 0..5 {
         let string_val = String::from_duckdb_value(&mut constant_slice[idx]);
         assert_eq!(string_val, "constant_value");
@@ -833,12 +884,12 @@ fn test_vortex_encodings_roundtrip() {
 
     // Verify boolean (column 3)
     let bool_vec = chunk.get_vector(3);
-    let bool_slice = bool_vec.as_slice_with_len::<bool>(chunk.len().as_());
+    let bool_slice = bool_vec.as_slice_with_len::<bool>(len);
     assert_eq!(bool_slice, [true, false, true, false, true]);
 
     // Verify dictionary (column 4)
-    let mut dict_vec = chunk.get_vector(4);
-    let dict_slice = unsafe { dict_vec.as_slice_mut::<duckdb_string_t>(chunk.len().as_()) };
+    let dict_vec = chunk.get_vector_mut(4);
+    let dict_slice = unsafe { dict_vec.as_slice_mut::<duckdb_string_t>(len) };
     // Keys were [0, 1, 0, 2, 1] and values were ["apple", "banana", "cherry"]
     let expected_dict_values = ["apple", "banana", "apple", "cherry", "banana"];
     for idx in 0..5 {
@@ -848,17 +899,17 @@ fn test_vortex_encodings_roundtrip() {
 
     // Verify RLE (column 5)
     let rle_vec = chunk.get_vector(5);
-    let rle_slice = rle_vec.as_slice_with_len::<i32>(chunk.len().as_());
+    let rle_slice = rle_vec.as_slice_with_len::<i32>(len);
     assert_eq!(rle_slice, [100, 100, 100, 200, 200]);
 
     // Verify sequence (column 6)
     let seq_vec = chunk.get_vector(6);
-    let seq_slice = seq_vec.as_slice_with_len::<i64>(chunk.len().as_());
+    let seq_slice = seq_vec.as_slice_with_len::<i64>(len);
     assert_eq!(seq_slice, [0, 10, 20, 30, 40]);
 
     // Verify varbin (column 7)
-    let mut varbin_vec = chunk.get_vector(7);
-    let varbin_slice = unsafe { varbin_vec.as_slice_mut::<duckdb_string_t>(chunk.len().as_()) };
+    let varbin_vec = chunk.get_vector_mut(7);
+    let varbin_slice = unsafe { varbin_vec.as_slice_mut::<duckdb_string_t>(len) };
     let expected_strings = ["hello", "world", "vortex", "test", "data"];
     for i in 0..5 {
         let string_val = String::from_duckdb_value(&mut varbin_slice[i]);
@@ -868,7 +919,7 @@ fn test_vortex_encodings_roundtrip() {
     // Verify list (column 8)
     // Expected lists: [1,2], [3,4,5], [6], [7,8,9,10], []
     let list_vec = chunk.get_vector(8);
-    let list_entries = list_vec.as_slice_with_len::<cpp::duckdb_list_entry>(chunk.len().as_());
+    let list_entries = list_vec.as_slice_with_len::<cpp::duckdb_list_entry>(len);
 
     // Verify list lengths
     assert_eq!(list_entries[0].length, 2); // [1,2]

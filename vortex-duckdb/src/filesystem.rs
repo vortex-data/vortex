@@ -36,28 +36,32 @@ use vortex::io::runtime::BlockingRuntime;
 
 use crate::RUNTIME;
 use crate::cpp;
-use crate::duckdb::ClientContext;
+use crate::duckdb::ClientContextRef;
 use crate::duckdb::FsFileHandle;
 use crate::duckdb::duckdb_fs_list_dir;
 use crate::duckdb::fs_error;
 
 pub(super) fn resolve_filesystem(
     base_url: &Url,
-    ctx: &ClientContext,
+    ctx: &ClientContextRef,
 ) -> VortexResult<FileSystemRef> {
     let fs_config = ctx
         .try_get_current_setting(c"vortex_filesystem")
         .ok_or_else(|| {
             vortex_err!("Failed to read 'vortex_filesystem' setting from DuckDB config")
         })?;
-    let fs_config = fs_config.as_ref().as_string();
+    let fs_config = fs_config.as_string();
 
     Ok(if fs_config.as_str() == "duckdb" {
         tracing::info!(
             "Using DuckDB's built-in filesystem for URL scheme '{}'",
             base_url.scheme()
         );
-        Arc::new(DuckDbFileSystem::new(base_url.clone(), ctx.clone()))
+        // SAFETY: The ClientContext is owned by the Connection and lives for the duration of
+        // query execution. DuckDB keeps the connection alive while the filesystem is in use.
+        Arc::new(DuckDbFileSystem::new(base_url.clone(), unsafe {
+            ctx.erase_lifetime()
+        }))
     } else if fs_config.as_str() == "vortex" {
         tracing::info!(
             "Using Vortex's object store filesystem for URL scheme '{}'",
@@ -98,7 +102,7 @@ fn object_store_fs(base_url: &Url) -> VortexResult<FileSystemRef> {
 
 struct DuckDbFileSystem {
     base_url: Url,
-    ctx: ClientContext,
+    ctx: &'static ClientContextRef,
 }
 
 impl Debug for DuckDbFileSystem {
@@ -110,7 +114,7 @@ impl Debug for DuckDbFileSystem {
 }
 
 impl DuckDbFileSystem {
-    pub fn new(base_url: Url, ctx: ClientContext) -> Self {
+    pub fn new(base_url: Url, ctx: &'static ClientContextRef) -> Self {
         Self { base_url, ctx }
     }
 }
@@ -137,13 +141,13 @@ impl FileSystem for DuckDbFileSystem {
             directory
         );
 
-        let ctx = self.ctx.clone();
+        let ctx = self.ctx;
         let base_path = self.base_url.path().to_string();
 
         stream::once(async move {
             RUNTIME
                 .handle()
-                .spawn_blocking(move || list_recursive(&ctx, &directory, &base_path))
+                .spawn_blocking(move || list_recursive(ctx, &directory, &base_path))
                 .await
         })
         .flat_map(|result| match result {
@@ -164,7 +168,7 @@ impl FileSystem for DuckDbFileSystem {
 /// Recursively list all files under `directory`, stripping `base_path` from each
 /// returned URL to produce relative paths.
 fn list_recursive(
-    ctx: &ClientContext,
+    ctx: &ClientContextRef,
     directory: &str,
     base_path: &str,
 ) -> VortexResult<Vec<FileListing>> {

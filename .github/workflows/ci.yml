@@ -284,8 +284,9 @@ jobs:
       - id: setup-rust
         uses: ./.github/actions/setup-rust
         with:
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install nightly for fmt
+        run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
       - name: Rust Lint - Format
         run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
       - name: Rustc check
@@ -412,10 +413,8 @@ jobs:
           tool: nextest
       - name: Rust Tests
         if: ${{ matrix.suite == 'tests' }}
-        env:
-          RUSTFLAGS: "-Cinstrument-coverage -A warnings --cfg vortex_nightly"
         run: |
-          cargo +$NIGHTLY_TOOLCHAIN nextest run --locked --workspace --all-features --no-fail-fast
+          cargo nextest run --locked --workspace --all-features --no-fail-fast
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
       - name: Generate coverage report
@@ -691,13 +690,15 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: ./.github/actions/system-info
       - name: Install Codspeed
-        run: cargo install --force cargo-codspeed --locked
+        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        with:
+          tool: cargo-codspeed
       - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
         run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@4deb3275dd364fb96fb074c953133d29ec96f80f
+        uses: CodSpeedHQ/action@2ac572851726409c88c02a307f1ea2632a9ea59b
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
@@ -821,7 +822,8 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
+      - name: Install nightly for cbindgen macro expansion
+        run: rustup toolchain install $NIGHTLY_TOOLCHAIN
       - uses: ./.github/actions/setup-flatc
       - name: "regenerate all .fbs/.proto Rust code"
         run: |
@@ -872,3 +874,34 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: "false"
       - run: cargo build --package vortex-jni
+
+  rust-publish-dry-run:
+    name: "Rust publish dry-run"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+      - tag=rust-publish-dry-run
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install cargo-edit
+        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        with:
+          tool: cargo-edit
+      - name: Set Version
+        run: |
+          # This is mostly a dummy version, we don't actually publish anything but it cannot exist in crates.io
+          cargo set-version --workspace 0.100000.0
+      - name: Test Release
+        run: |
+          cargo publish --dry-run --no-verify --allow-dirty --workspace

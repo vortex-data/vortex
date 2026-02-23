@@ -15,9 +15,9 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict_test::gen_primitive_for_dict;
 use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::builders::dict::dict_encode;
-use vortex_array::compute::Operator;
-use vortex_array::compute::compare;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::warm_up_vtables;
+use vortex_array::expr::Operator;
 use vortex_array::expr::eq;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
@@ -56,14 +56,11 @@ fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, u
     bencher
         .with_inputs(|| (&dict, session.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
-            compare(
-                dict.as_ref(),
-                ConstantArray::new(value, len).as_ref(),
-                Operator::Eq,
-            )
-            .unwrap()
-            .execute::<Canonical>(ctx)
-            .unwrap()
+            dict.to_array()
+                .binary(ConstantArray::new(value, len).to_array(), Operator::Eq)
+                .unwrap()
+                .execute::<Canonical>(ctx)
+                .unwrap()
         })
 }
 
@@ -78,14 +75,11 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usiz
     bencher
         .with_inputs(|| (&dict, session.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
-            compare(
-                dict.as_ref(),
-                ConstantArray::new(value, len).as_ref(),
-                Operator::Eq,
-            )
-            .unwrap()
-            .execute::<RecursiveCanonical>(ctx)
-            .unwrap()
+            dict.to_array()
+                .binary(ConstantArray::new(value, len).to_array(), Operator::Eq)
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap()
         })
 }
 
@@ -100,14 +94,11 @@ fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, 
     bencher
         .with_inputs(|| (&dict, session.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
-            compare(
-                dict.as_ref(),
-                ConstantArray::new(value, len).as_ref(),
-                Operator::Eq,
-            )
-            .unwrap()
-            .execute::<RecursiveCanonical>(ctx)
-            .unwrap()
+            dict.to_array()
+                .binary(ConstantArray::new(value, len).to_array(), Operator::Eq)
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap()
         })
 }
 

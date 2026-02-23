@@ -5,15 +5,17 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::builtins::ArrayBuiltins;
+use crate::expr::Operator;
 
 /// Point-wise Kleene logical _and_ between two Boolean arrays.
-#[deprecated(note = "use expr::and_kleene instead")]
+#[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn and_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    crate::expr::and_kleene(lhs, rhs)
+    lhs.to_array().binary(rhs.to_array(), Operator::And)
 }
 
 /// Point-wise Kleene logical _or_ between two Boolean arrays.
-#[deprecated(note = "use expr::or_kleene instead")]
+#[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn or_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
-    crate::expr::or_kleene(lhs, rhs)
+    lhs.to_array().binary(rhs.to_array(), Operator::Or)
 }
