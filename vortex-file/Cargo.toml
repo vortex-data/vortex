@@ -22,6 +22,7 @@ bytes = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
 getrandom_v03 = { workspace = true }                              # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
+glob = { workspace = true }
 itertools = { workspace = true }
 kanal = { workspace = true }
 object_store = { workspace = true, optional = true }

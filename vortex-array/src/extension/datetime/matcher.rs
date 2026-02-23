@@ -6,13 +6,13 @@ use std::sync::Arc;
 
 use vortex_error::VortexResult;
 
-use crate::dtype::datetime::Date;
-use crate::dtype::datetime::Time;
-use crate::dtype::datetime::TimeUnit;
-use crate::dtype::datetime::Timestamp;
 use crate::dtype::extension::ExtDTypeRef;
-use crate::dtype::extension::ExtDTypeVTable;
+use crate::dtype::extension::ExtVTable;
 use crate::dtype::extension::Matcher;
+use crate::extension::datetime::Date;
+use crate::extension::datetime::Time;
+use crate::extension::datetime::TimeUnit;
+use crate::extension::datetime::Timestamp;
 
 /// Matcher for temporal extension data types.
 pub struct AnyTemporal;
@@ -40,9 +40,9 @@ pub enum TemporalMetadata<'a> {
     /// Metadata for Timestamp dtypes, a tuple of time unit and optional timezone.
     Timestamp(&'a TimeUnit, &'a Option<Arc<str>>),
     /// Metadata for Date dtypes
-    Date(&'a <Date as ExtDTypeVTable>::Metadata),
+    Date(&'a <Date as ExtVTable>::Metadata),
     /// Metadata for Time dtypes
-    Time(&'a <Time as ExtDTypeVTable>::Metadata),
+    Time(&'a <Time as ExtVTable>::Metadata),
 }
 
 // TODO(ngates): remove this logic in favor of having an ExtScalarVTable in vortex_array::scalar.

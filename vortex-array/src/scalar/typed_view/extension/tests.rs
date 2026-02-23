@@ -4,12 +4,12 @@
 use vortex_error::VortexResult;
 
 use crate::dtype::DType;
-use crate::dtype::ExtDType;
-use crate::dtype::ExtID;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::dtype::extension::EmptyMetadata;
-use crate::dtype::extension::ExtDTypeVTable;
+use crate::dtype::extension::ExtDType;
+use crate::dtype::extension::ExtId;
+use crate::dtype::extension::ExtVTable;
+use crate::extension::EmptyMetadata;
 use crate::scalar::ExtScalar;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
@@ -17,11 +17,11 @@ use crate::scalar::ScalarValue;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 struct TestI32Ext;
-impl ExtDTypeVTable for TestI32Ext {
+impl ExtVTable for TestI32Ext {
     type Metadata = EmptyMetadata;
 
-    fn id(&self) -> ExtID {
-        ExtID::new_ref("test_ext")
+    fn id(&self) -> ExtId {
+        ExtId::new_ref("test_ext")
     }
 
     fn validate_dtype(
@@ -88,11 +88,11 @@ fn test_ext_scalar_partial_ord() {
 fn test_ext_scalar_partial_ord_different_types() {
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct TestExt2;
-    impl ExtDTypeVTable for TestExt2 {
+    impl ExtVTable for TestExt2 {
         type Metadata = EmptyMetadata;
 
-        fn id(&self) -> ExtID {
-            ExtID::new_ref("test_ext_2")
+        fn id(&self) -> ExtId {
+            ExtId::new_ref("test_ext_2")
         }
 
         fn validate_dtype(
@@ -267,11 +267,11 @@ fn test_ext_scalar_try_new_non_extension() {
 fn test_ext_scalar_with_metadata() {
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct TestExtMetadata;
-    impl ExtDTypeVTable for TestExtMetadata {
+    impl ExtVTable for TestExtMetadata {
         type Metadata = usize;
 
-        fn id(&self) -> ExtID {
-            ExtID::new_ref("test_ext_metadata")
+        fn id(&self) -> ExtId {
+            ExtId::new_ref("test_ext_metadata")
         }
 
         fn validate_dtype(

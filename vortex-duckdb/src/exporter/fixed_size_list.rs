@@ -18,7 +18,7 @@ use super::all_invalid;
 use super::new_array_exporter_with_flatten;
 use super::validity;
 use crate::duckdb::LogicalType;
-use crate::duckdb::Vector;
+use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 
 /// Exporter for converting Vortex [`FixedSizeListArray`] to DuckDB ARRAY vectors.
@@ -43,10 +43,8 @@ pub(crate) fn new_exporter(
     let elements_exporter = new_array_exporter_with_flatten(elements, cache, ctx, true)?;
 
     if mask.all_false() {
-        return Ok(all_invalid::new_exporter(
-            len,
-            &LogicalType::try_from(dtype)?,
-        ));
+        let ltype = LogicalType::try_from(dtype)?;
+        return Ok(all_invalid::new_exporter(len, &ltype));
     }
 
     Ok(validity::new_exporter(
@@ -62,7 +60,7 @@ pub(crate) fn new_exporter(
 impl ColumnExporter for FixedSizeListExporter {
     // TODO(connor): Should `export` be `unsafe` instead? We have no way to verify this without
     // making an assertion.
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
         // Verify that offset + len doesn't exceed the validity mask length.
         assert!(
             offset + len <= self.len,
@@ -75,9 +73,9 @@ impl ColumnExporter for FixedSizeListExporter {
         let list_size = self.list_size as usize;
 
         // Get the child vector for array elements and export the elements directly.
-        let mut elements_vector = vector.array_vector_get_child();
+        let elements_vector = vector.array_vector_get_child_mut();
         self.elements_exporter
-            .export(offset * list_size, len * list_size, &mut elements_vector)?;
+            .export(offset * list_size, len * list_size, elements_vector)?;
 
         // TODO(connor): We must flatten the child vector to ensure any child dictionary views
         // (namely UTF-8 string views in dictionaries) are materialized.
@@ -102,7 +100,7 @@ mod tests {
     use crate::cpp;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
-    use crate::duckdb::Vector;
+    use crate::duckdb::VectorRef;
 
     /// Sets up a DataChunk, exports the array to it, and returns the chunk.
     fn export_to_chunk(
@@ -122,7 +120,7 @@ mod tests {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
-        .export(offset, len, &mut chunk.get_vector(0))
+        .export(offset, len, chunk.get_vector_mut(0))
         .unwrap();
         chunk.set_len(len);
 
@@ -131,7 +129,7 @@ mod tests {
 
     /// Asserts that the null pattern in a vector matches the expected pattern.
     /// true = valid (not null), false = null
-    fn assert_nulls(vector: &Vector, expected: &[bool]) {
+    fn assert_nulls(vector: &VectorRef, expected: &[bool]) {
         for (i, &expected_valid) in expected.iter().enumerate() {
             if expected_valid {
                 assert!(
@@ -151,7 +149,7 @@ mod tests {
 
     /// Helper function to verify array elements in a DuckDB vector.
     fn verify_array_elements(
-        vector: &Vector,
+        vector: &VectorRef,
         expected_values: &[i32],
         list_size: usize,
         num_lists: usize,
@@ -188,7 +186,7 @@ mod tests {
 
         // Verify the actual array values.
         let vector = chunk.get_vector(0);
-        verify_array_elements(&vector, &[1, 2, 3, 4, 5, 6], 2, 3);
+        verify_array_elements(vector, &[1, 2, 3, 4, 5, 6], 2, 3);
     }
 
     #[test]
@@ -207,10 +205,10 @@ mod tests {
 
         // Verify nullability.
         let vector = chunk.get_vector(0);
-        assert_nulls(&vector, &[true, false, true, true]);
+        assert_nulls(vector, &[true, false, true, true]);
 
         // Verify the values (note: elements for null list still exist in storage).
-        verify_array_elements(&vector, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 3, 4);
+        verify_array_elements(vector, &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], 3, 4);
     }
 
     #[test]
@@ -229,7 +227,7 @@ mod tests {
         // All lists should be null.
         let vector = chunk.get_vector(0);
         vector.flatten(chunk.len());
-        assert_nulls(&vector, &[false, false, false]);
+        assert_nulls(vector, &[false, false, false]);
     }
 
     #[test]
@@ -248,7 +246,7 @@ mod tests {
 
         // Verify alternating null pattern.
         let vector = chunk.get_vector(0);
-        assert_nulls(&vector, &[false, true, false, true, false]);
+        assert_nulls(vector, &[false, true, false, true, false]);
     }
 
     #[test]
@@ -267,7 +265,7 @@ mod tests {
 
         // Verify the single-element arrays.
         let vector = chunk.get_vector(0);
-        verify_array_elements(&vector, &[10, 20, 30, 40], 1, 4);
+        verify_array_elements(vector, &[10, 20, 30, 40], 1, 4);
     }
 
     #[test]
@@ -288,7 +286,7 @@ mod tests {
 
         // Should contain [4, 5, 6], [7, 8, 9].
         let vector = chunk.get_vector(0);
-        verify_array_elements(&vector, &[4, 5, 6, 7, 8, 9], 3, 2);
+        verify_array_elements(vector, &[4, 5, 6, 7, 8, 9], 3, 2);
     }
 
     /// Helper to create nested array type for DuckDB.
@@ -337,7 +335,7 @@ mod tests {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
-        .export(0, 2, &mut chunk.get_vector(0))
+        .export(0, 2, chunk.get_vector_mut(0))
         .unwrap();
         chunk.set_len(2);
 
@@ -394,7 +392,7 @@ mod tests {
             &mut SESSION.create_execution_ctx(),
         )
         .unwrap()
-        .export(0, 3, &mut chunk.get_vector(0))
+        .export(0, 3, chunk.get_vector_mut(0))
         .unwrap();
         chunk.set_len(3);
 
@@ -402,7 +400,7 @@ mod tests {
 
         // Verify outer level nullability.
         let outer_vector = chunk.get_vector(0);
-        assert_nulls(&outer_vector, &[true, false, true]);
+        assert_nulls(outer_vector, &[true, false, true]);
 
         // Verify inner level structure and nullability.
         let inner_vector = outer_vector.array_vector_get_child();

@@ -23,13 +23,13 @@ use serde::ser::SerializeTupleVariant;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
-use crate::dtype::ExtID;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::dtype::decimal::DecimalDType;
 use crate::dtype::extension::ExtDTypeRef;
+use crate::dtype::extension::ExtId;
 use crate::dtype::session::DTypeSessionExt;
 
 /// Serialize Nullability as a boolean
@@ -565,7 +565,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, ExtDTypeRef> {
                 }
 
                 let id = id.ok_or_else(|| de::Error::missing_field("id"))?;
-                let id = ExtID::new_arc(id);
+                let id = ExtId::new_arc(id);
                 let vtable = self.session.dtypes().registry().find(&id).ok_or_else(|| {
                     de::Error::custom(format!("unknown extension dtype id: {}", id))
                 })?;

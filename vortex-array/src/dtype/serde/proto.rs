@@ -10,9 +10,9 @@ use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
-use crate::dtype::ExtID;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::dtype::extension::ExtId;
 use crate::dtype::field::Field;
 use crate::dtype::field::FieldPath;
 use crate::dtype::proto::dtype as pb;
@@ -86,7 +86,7 @@ impl DType {
                 ))
             }
             DtypeType::Extension(e) => {
-                let id = ExtID::new_arc(e.id.as_str().to_string().into());
+                let id = ExtId::new_arc(e.id.as_str().to_string().into());
                 let vtable = session.dtypes().registry().find(&id).ok_or_else(
                     || vortex_err!(Serde: "Unregistered extension type ID: {}", e.id),
                 )?;
@@ -225,11 +225,11 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::dtype::datetime::TimeUnit;
-    use crate::dtype::datetime::Timestamp;
     use crate::dtype::proto::dtype::d_type::DtypeType;
     use crate::dtype::proto::dtype::field::FieldType;
     use crate::dtype::test::SESSION;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
 
     fn round_trip_dtype(dtype: &DType) -> DType {
         let pb_dtype = pb::DType::try_from(dtype).unwrap();

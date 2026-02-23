@@ -9,10 +9,10 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::datetime::Timestamp;
 use vortex_array::expr::CompareKernel;
 use vortex_array::expr::CompareOperator;
 use vortex_array::expr::Operator;
+use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
@@ -201,7 +201,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::dtype::IntegerPType;
-    use vortex_array::dtype::datetime::TimeUnit;
+    use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 

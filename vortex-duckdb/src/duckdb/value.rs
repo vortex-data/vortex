@@ -19,19 +19,19 @@ use crate::cpp;
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::idx_t;
 use crate::duckdb::LogicalType;
+use crate::duckdb::LogicalTypeRef;
 use crate::lifetime_wrapper;
 
-lifetime_wrapper!(Value, cpp::duckdb_value, cpp::duckdb_destroy_value, [owned, ref]);
+lifetime_wrapper!(Value, cpp::duckdb_value, cpp::duckdb_destroy_value);
 
-impl<'a> ValueRef<'a> {
-    /// Note the lifetime of logical type is tied to &self
-    pub fn logical_type(&self) -> LogicalType {
+impl ValueRef {
+    pub fn logical_type(&self) -> &LogicalTypeRef {
         unsafe { LogicalType::borrow(cpp::duckdb_get_value_type(self.as_ptr())) }
     }
 
     pub fn as_string(&self) -> BufferString {
         let ExtractedValue::Varchar(string) = self.extract() else {
-            vortex_panic!("Value is not a string");
+            vortex_panic!("ValueRef is not a string");
         };
         string
     }
@@ -89,9 +89,6 @@ impl<'a> ValueRef<'a> {
                 ExtractedValue::Varchar(string)
             }
             DUCKDB_TYPE::DUCKDB_TYPE_BLOB => {
-                // TODO(ngates): for blobs and strings, we could write our own C functions to
-                //  get the values by reference, avoiding a double copy since these C functions
-                //  also copy on the CPP side.
                 let blob = unsafe { cpp::duckdb_get_blob(self.as_ptr()) };
                 let slice =
                     unsafe { std::slice::from_raw_parts(blob.data.cast::<u8>(), blob.size.as_()) };
@@ -157,7 +154,7 @@ impl<'a> ValueRef<'a> {
     }
 }
 
-impl<'a> Debug for ValueRef<'a> {
+impl Debug for ValueRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let ptr = unsafe { cpp::duckdb_value_to_string(self.as_ptr()) };
         write!(f, "{}", unsafe { CStr::from_ptr(ptr).to_string_lossy() })?;
@@ -166,18 +163,19 @@ impl<'a> Debug for ValueRef<'a> {
     }
 }
 
+impl Debug for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&**self, f)
+    }
+}
+
 impl Value {
     pub fn sql_null() -> Self {
         unsafe { Self::own(cpp::duckdb_create_null_value()) }
     }
 
-    pub fn null(logical_type: &LogicalType) -> Self {
+    pub fn null(logical_type: &LogicalTypeRef) -> Self {
         unsafe { Self::own(cpp::duckdb_vx_value_create_null(logical_type.as_ptr())) }
-    }
-
-    /// Note the lifetime of logical type if tied to &self
-    pub fn logical_type(&self) -> LogicalType {
-        unsafe { LogicalType::borrow(cpp::duckdb_get_value_type(self.as_ptr())) }
     }
 
     pub fn new_decimal(precision: u8, scale: i8, value: i128) -> Self {
@@ -246,25 +244,24 @@ impl Value {
     }
 }
 
-impl Display for Value {
+impl Display for ValueRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let ptr = unsafe { cpp::duckdb_vx_value_to_string(self.as_ptr()) };
         write!(f, "{}", unsafe { CStr::from_ptr(ptr) }.to_string_lossy())?;
         unsafe { cpp::duckdb_free(ptr.cast()) };
-
         Ok(())
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&**self, f)
     }
 }
 
 #[inline]
 pub fn i128_from_parts(high: i64, low: u64) -> i128 {
     ((high as i128) << 64) | (low as i128)
-}
-
-impl Debug for Value {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self}",)
-    }
 }
 
 impl<T> TryFrom<Option<T>> for Value
@@ -276,7 +273,10 @@ where
     fn try_from(value: Option<T>) -> Result<Self, Self::Error> {
         match value {
             Some(v) => Ok(v.into()),
-            None => Ok(Value::null(&LogicalType::try_from(&T::dtype())?)),
+            None => {
+                let lt = LogicalType::try_from(&T::dtype())?;
+                Ok(Value::null(&lt))
+            }
         }
     }
 }

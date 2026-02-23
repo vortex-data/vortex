@@ -45,6 +45,7 @@ pub mod dtype;
 mod executor;
 pub mod expr;
 mod expression;
+pub mod extension;
 mod hash;
 pub mod iter;
 pub mod kernel;

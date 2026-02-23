@@ -15,8 +15,8 @@ mod tests {
     use crate::dtype::NativeDecimalType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::dtype::datetime::Date;
-    use crate::dtype::datetime::TimeUnit;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::TimeUnit;
     use crate::scalar::DecimalScalar;
     use crate::scalar::DecimalValue;
     use crate::scalar::PValue;

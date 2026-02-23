@@ -6,12 +6,12 @@ use std::sync::Arc;
 
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
-use vortex::dtype::datetime::AnyTemporal;
-use vortex::dtype::datetime::Date;
-use vortex::dtype::datetime::Time;
-use vortex::dtype::datetime::Timestamp;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_panic;
+use vortex::extension::datetime::AnyTemporal;
+use vortex::extension::datetime::Date;
+use vortex::extension::datetime::Time;
+use vortex::extension::datetime::Timestamp;
 
 use crate::arc_wrapper;
 use crate::ptype::vx_ptype;

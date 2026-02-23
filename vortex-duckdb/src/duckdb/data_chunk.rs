@@ -11,11 +11,11 @@ use vortex::error::vortex_bail;
 use crate::cpp;
 use crate::cpp::duckdb_logical_type;
 use crate::cpp::duckdb_vx_error;
-use crate::duckdb::LogicalType;
 use crate::duckdb::Vector;
-use crate::wrapper;
+use crate::duckdb::VectorRef;
+use crate::lifetime_wrapper;
 
-wrapper!(
+lifetime_wrapper!(
     DataChunk,
     cpp::duckdb_data_chunk,
     cpp::duckdb_destroy_data_chunk
@@ -33,7 +33,11 @@ impl DataChunk {
         let ptr = unsafe { cpp::duckdb_create_data_chunk(ptrs.as_mut_ptr(), ptrs.len() as _) };
         unsafe { DataChunk::own(ptr) }
     }
+}
 
+use crate::duckdb::LogicalType;
+
+impl DataChunkRef {
     /// Returns the column count of the data chunk.
     pub fn column_count(&self) -> usize {
         usize::try_from(unsafe { cpp::duckdb_data_chunk_get_column_count(self.as_ptr()) })
@@ -46,12 +50,17 @@ impl DataChunk {
     }
 
     /// Returns the vector at the specified column index.
-    pub fn get_vector(&self, idx: usize) -> Vector {
+    pub fn get_vector(&self, idx: usize) -> &VectorRef {
         unsafe { Vector::borrow(cpp::duckdb_data_chunk_get_vector(self.as_ptr(), idx as _)) }
     }
 
+    /// Returns a mutable reference to the vector at the specified column index.
+    pub fn get_vector_mut(&mut self, idx: usize) -> &mut VectorRef {
+        unsafe { Vector::borrow_mut(cpp::duckdb_data_chunk_get_vector(self.as_ptr(), idx as _)) }
+    }
+
     pub fn len(&self) -> u64 {
-        unsafe { cpp::duckdb_data_chunk_get_size(self.ptr) }
+        unsafe { cpp::duckdb_data_chunk_get_size(self.as_ptr()) }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -59,10 +68,10 @@ impl DataChunk {
     }
 }
 
-impl TryFrom<&DataChunk> for String {
+impl TryFrom<&DataChunkRef> for String {
     type Error = VortexError;
 
-    fn try_from(value: &DataChunk) -> Result<Self, Self::Error> {
+    fn try_from(value: &DataChunkRef) -> Result<Self, Self::Error> {
         let mut err: duckdb_vx_error = ptr::null_mut();
         #[cfg(debug_assertions)]
         unsafe {
