@@ -47,9 +47,9 @@ use crate::api::DataSource;
 use crate::api::DataSourceRef;
 use crate::api::DataSourceScan;
 use crate::api::DataSourceScanRef;
+use crate::api::PartitionRef;
+use crate::api::PartitionStream;
 use crate::api::ScanRequest;
-use crate::api::SplitRef;
-use crate::api::SplitStream;
 
 /// An async factory that produces a [`DataSource`].
 ///
@@ -226,7 +226,11 @@ impl DataSource for MultiDataSource {
         }
     }
 
-    fn deserialize_split(&self, _data: &[u8], _session: &VortexSession) -> VortexResult<SplitRef> {
+    fn deserialize_partition(
+        &self,
+        _data: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<PartitionRef> {
         vortex_bail!("MultiDataSource splits are not yet serializable")
     }
 
@@ -338,22 +342,25 @@ impl DataSourceScan for MultiDataSourceScan {
         &self.dtype
     }
 
-    fn split_count_estimate(&self) -> Option<Precision<usize>> {
-        let current_estimate = self.current.as_ref().and_then(|s| s.split_count_estimate());
+    fn partition_count_estimate(&self) -> Option<Precision<usize>> {
+        let current_estimate = self
+            .current
+            .as_ref()
+            .and_then(|s| s.partition_count_estimate());
 
         let remaining_sources = self.ready.len() + self.opening.len() + self.deferred.len();
         if remaining_sources == 0 {
             return current_estimate;
         }
 
-        // With remaining sources whose split counts are unknown, return inexact.
+        // With remaining sources whose partition counts are unknown, return inexact.
         let current_count = current_estimate.map(|p| p.into_inner()).unwrap_or(0);
         Some(Precision::inexact(current_count))
     }
 
-    fn splits(self: Box<Self>) -> SplitStream {
+    fn partitions(self: Box<Self>) -> PartitionStream {
         stream::unfold(
-            (Some(*self), None::<SplitStream>),
+            (Some(*self), None::<PartitionStream>),
             |(mut state, mut current_stream)| async move {
                 loop {
                     // Try to pull from the current child's split stream.
@@ -412,7 +419,7 @@ impl DataSourceScan for MultiDataSourceScan {
                         Err(e) => return Some((Err(e), (None, None))),
                     };
 
-                    current_stream = Some(child_scan.splits());
+                    current_stream = Some(child_scan.partitions());
                 }
             },
         )

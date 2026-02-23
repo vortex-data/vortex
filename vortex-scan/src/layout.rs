@@ -37,10 +37,10 @@ use crate::Selection;
 use crate::api::DataSource;
 use crate::api::DataSourceScan;
 use crate::api::DataSourceScanRef;
+use crate::api::Partition;
+use crate::api::PartitionRef;
+use crate::api::PartitionStream;
 use crate::api::ScanRequest;
-use crate::api::Split;
-use crate::api::SplitRef;
-use crate::api::SplitStream;
 
 /// An implementation of a [`DataSource`] that reads data from a [`LayoutReaderRef`].
 pub struct LayoutReaderDataSource {
@@ -103,7 +103,11 @@ impl DataSource for LayoutReaderDataSource {
         None
     }
 
-    fn deserialize_split(&self, _data: &[u8], _session: &VortexSession) -> VortexResult<SplitRef> {
+    fn deserialize_partition(
+        &self,
+        _data: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<PartitionRef> {
         vortex_bail!("LayoutReader splits are not yet serializable");
     }
 
@@ -201,7 +205,7 @@ impl DataSourceScan for LayoutReaderScan {
         &self.dtype
     }
 
-    fn split_count_estimate(&self) -> Option<Precision<usize>> {
+    fn partition_count_estimate(&self) -> Option<Precision<usize>> {
         let (lower, upper) = self.size_hint();
         match upper {
             Some(u) if u == lower => Some(Precision::exact(lower)),
@@ -210,13 +214,13 @@ impl DataSourceScan for LayoutReaderScan {
         }
     }
 
-    fn splits(self: Box<Self>) -> SplitStream {
+    fn partitions(self: Box<Self>) -> PartitionStream {
         (*self).boxed()
     }
 }
 
 impl Stream for LayoutReaderScan {
-    type Item = VortexResult<SplitRef>;
+    type Item = VortexResult<PartitionRef>;
 
     fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
@@ -251,7 +255,7 @@ impl Stream for LayoutReaderScan {
             row_range,
             selection: this.selection.clone(),
             metrics_registry: this.metrics_registry.clone(),
-        }) as SplitRef;
+        }) as PartitionRef;
 
         this.next_row = split_end;
 
@@ -280,7 +284,7 @@ struct LayoutReaderSplit {
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
 }
 
-impl Split for LayoutReaderSplit {
+impl Partition for LayoutReaderSplit {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -339,16 +343,16 @@ impl DataSourceScan for Empty {
         &self.dtype
     }
 
-    fn split_count_estimate(&self) -> Option<Precision<usize>> {
+    fn partition_count_estimate(&self) -> Option<Precision<usize>> {
         Some(Precision::exact(1usize))
     }
 
-    fn splits(self: Box<Self>) -> SplitStream {
+    fn partitions(self: Box<Self>) -> PartitionStream {
         stream::iter([Ok(self as _)]).boxed()
     }
 }
 
-impl Split for Empty {
+impl Partition for Empty {
     fn as_any(&self) -> &dyn Any {
         self
     }

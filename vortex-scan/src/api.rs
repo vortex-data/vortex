@@ -7,7 +7,7 @@
 //! read data from various data sources.
 //!
 //! It supports arbitrary projection expressions, filter expressions, and limit pushdown as well
-//! as mechanisms for parallel and distributed execution via splits.
+//! as mechanisms for parallel and distributed execution via partitions.
 //!
 //! The API is currently under development and may change in future releases, however we hope to
 //! stabilize into stable C ABI for use within foreign language bindings.
@@ -15,7 +15,7 @@
 //! ## Open Issues
 //!
 //! * We probably want to make the DataSource serializable as well, so that we can share
-//!   source-level state with workers, separately from split serialization.
+//!   source-level state with workers, separately from partition serialization.
 //! * We should add a way for the client to negotiate capabilities with the data source, for
 //!   example which encodings it knows about.
 
@@ -37,8 +37,8 @@ use vortex_session::VortexSession;
 
 use crate::Selection;
 
-/// A sendable stream of splits.
-pub type SplitStream = BoxStream<'static, VortexResult<SplitRef>>;
+/// A sendable stream of partitions.
+pub type PartitionStream = BoxStream<'static, VortexResult<PartitionRef>>;
 
 /// Opens a Vortex [`DataSource`] from a URI.
 ///
@@ -65,11 +65,11 @@ pub trait DataSourceRemote: 'static {
 pub type DataSourceRef = Arc<dyn DataSource>;
 
 /// A data source represents a streamable dataset that can be scanned with projection and filter
-/// expressions. Each scan produces splits that can be executed in parallel to read data. Each
-/// split can be serialized for remote execution.
+/// expressions. Each scan produces partitions that can be executed in parallel to read data. Each
+/// partition can be serialized for remote execution.
 ///
 /// The DataSource may be used multiple times to create multiple scans, whereas each scan and each
-/// split of a scan can only be consumed once.
+/// partition of a scan can only be consumed once.
 #[async_trait]
 pub trait DataSource: 'static + Send + Sync {
     /// Returns the dtype of the source.
@@ -90,8 +90,12 @@ pub trait DataSource: 'static + Send + Sync {
         Ok(None)
     }
 
-    /// Deserialize a split that was previously serialized from a compatible data source.
-    fn deserialize_split(&self, data: &[u8], session: &VortexSession) -> VortexResult<SplitRef> {
+    /// Deserialize a partition that was previously serialized from a compatible data source.
+    fn deserialize_partition(
+        &self,
+        data: &[u8],
+        session: &VortexSession,
+    ) -> VortexResult<PartitionRef> {
         let _ = (data, session);
         vortex_bail!("DataSource does not support deserialization")
     }
@@ -116,7 +120,7 @@ pub struct ScanRequest {
     /// row range.
     pub selection: Selection,
     /// Whether the scan should preserve row order. If false, the scan may produce rows in any
-    /// order, for example to enable parallel execution across splits.
+    /// order, for example to enable parallel execution across partitions.
     pub ordered: bool,
     /// Optional limit on the number of rows returned by scan. Limits are applied after all
     /// filtering and row selection.
@@ -126,38 +130,38 @@ pub struct ScanRequest {
 /// A boxed data source scan.
 pub type DataSourceScanRef = Box<dyn DataSourceScan>;
 
-/// A data source scan produces splits that can be executed to read data from the source.
+/// A data source scan produces partitions that can be executed to read data from the source.
 pub trait DataSourceScan: 'static + Send {
     /// The returned dtype of the scan.
     fn dtype(&self) -> &DType;
 
-    /// Returns an estimate of the total number of splits the scan will produce.
-    fn split_count_estimate(&self) -> Option<Precision<usize>>;
+    /// Returns an estimate of the total number of partitions the scan will produce.
+    fn partition_count_estimate(&self) -> Option<Precision<usize>>;
 
-    /// Returns a stream of splits to be processed.
-    fn splits(self: Box<Self>) -> SplitStream;
+    /// Returns a stream of partitions to be processed.
+    fn partitions(self: Box<Self>) -> PartitionStream;
 }
 
-/// A reference-counted split.
-pub type SplitRef = Box<dyn Split>;
+/// A reference-counted partition.
+pub type PartitionRef = Box<dyn Partition>;
 
-/// A split represents a unit of work that can be executed to produce a stream of arrays.
-pub trait Split: 'static + Send {
-    /// Downcast the split to a concrete type.
+/// A partition represents a unit of work that can be executed to produce a stream of arrays.
+pub trait Partition: 'static + Send {
+    /// Downcast the partition to a concrete type.
     fn as_any(&self) -> &dyn Any;
 
-    /// Returns an estimate of the row count for this split.
+    /// Returns an estimate of the row count for this partition.
     fn row_count_estimate(&self) -> Option<Precision<u64>>;
 
-    /// Returns an estimate of the byte size for this split.
+    /// Returns an estimate of the byte size for this partition.
     fn byte_size_estimate(&self) -> Option<Precision<u64>>;
 
-    /// Serialize this split for a remote worker.
+    /// Serialize this partition for a remote worker.
     fn serialize(&self) -> VortexResult<Option<Vec<u8>>> {
         Ok(None)
     }
 
-    /// Executes the split, returning an array stream.
+    /// Executes the partition, returning an array stream.
     ///
     /// This method must be fast. The returned stream should be lazy — all non-trivial work
     /// (I/O, decoding, filtering) must be deferred to when the stream is polled. Expensive

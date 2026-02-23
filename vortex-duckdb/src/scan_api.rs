@@ -198,7 +198,7 @@ impl TableFunction for VortexScanApiTableFunction {
         // work (expression resolution, layout traversal, first I/O spawns). We use
         // try_flatten_unordered to poll multiple split streams concurrently so that
         // the next split is already warm when the current one finishes.
-        let scan_streams = scan.splits().map(move |split_result| {
+        let scan_streams = scan.partitions().map(move |split_result| {
             let cache = conversion_cache.clone();
             let split = split_result?;
             let s = split.execute()?;

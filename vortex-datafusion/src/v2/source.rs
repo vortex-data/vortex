@@ -171,6 +171,7 @@ impl VortexDataSourceBuilder {
             final_statistics: statistics,
             filter: None,
             limit: None,
+            ordered: false,
             num_partitions: std::thread::available_parallelism()
                 .unwrap_or(unsafe { NonZero::new_unchecked(1) }),
         })
@@ -219,6 +220,8 @@ pub struct VortexDataSource {
     filter: Option<Expression>,
     /// An optional row limit populated by [`DataSource::with_fetch`].
     limit: Option<usize>,
+    /// Whether to preserve the order of the output rows.
+    ordered: bool,
 
     /// The requested partition count from DataFusion, populated by [`DataSource::repartitioned`].
     /// We use this as a hint for how many splits to execute concurrently in `open()`, but we
@@ -258,6 +261,7 @@ impl DataSource for VortexDataSource {
             projection: Some(self.final_projection.clone()),
             filter: self.filter.clone(),
             limit: self.limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
+            ordered: self.ordered,
             ..Default::default()
         };
 
@@ -277,7 +281,7 @@ impl DataSource for VortexDataSource {
             // work (expression resolution, layout traversal, first I/O spawns). We use
             // try_flatten_unordered to poll multiple split streams concurrently so that
             // the next split is already warm when the current one finishes.
-            let scan_streams = scan.splits().map(|split_result| {
+            let scan_streams = scan.partitions().map(|split_result| {
                 let split = split_result?;
                 split.execute()
             });
@@ -326,12 +330,13 @@ impl DataSource for VortexDataSource {
         &self,
         target_partitions: usize,
         _repartition_file_min_size: usize,
-        _output_ordering: Option<LexOrdering>,
+        output_ordering: Option<LexOrdering>,
     ) -> DFResult<Option<Arc<dyn DataSource>>> {
         // Vortex handles parallelism internally — always use a single partition.
         let mut this = self.clone();
         this.num_partitions = NonZero::new(target_partitions)
             .ok_or_else(|| DataFusionError::Internal("non-zero partitions".to_string()))?;
+        this.ordered = this.ordered | output_ordering.is_some();
         Ok(Some(Arc::new(this)))
     }
 
