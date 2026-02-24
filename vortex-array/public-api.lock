@@ -6296,31 +6296,25 @@ pub fn vortex_array::dtype::extension::ExtDType<V>::hash<__H: core::hash::Hasher
 
 impl<V: vortex_array::dtype::extension::ExtVTable> core::marker::StructuralPartialEq for vortex_array::dtype::extension::ExtDType<V>
 
-pub struct vortex_array::dtype::extension::ExtDTypeMetadata<'a>
-
-impl vortex_array::dtype::extension::ExtDTypeMetadata<'_>
-
-pub fn vortex_array::dtype::extension::ExtDTypeMetadata<'_>::serialize(&self) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
-
-impl core::cmp::Eq for vortex_array::dtype::extension::ExtDTypeMetadata<'_>
-
-impl core::cmp::PartialEq for vortex_array::dtype::extension::ExtDTypeMetadata<'_>
-
-pub fn vortex_array::dtype::extension::ExtDTypeMetadata<'_>::eq(&self, other: &Self) -> bool
-
-impl core::fmt::Debug for vortex_array::dtype::extension::ExtDTypeMetadata<'_>
-
-pub fn vortex_array::dtype::extension::ExtDTypeMetadata<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::fmt::Display for vortex_array::dtype::extension::ExtDTypeMetadata<'_>
-
-pub fn vortex_array::dtype::extension::ExtDTypeMetadata<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::dtype::extension::ExtDTypeMetadata<'_>
-
-pub fn vortex_array::dtype::extension::ExtDTypeMetadata<'_>::hash<H: core::hash::Hasher>(&self, state: &mut H)
-
 pub struct vortex_array::dtype::extension::ExtDTypeRef(_)
+
+impl vortex_array::dtype::extension::ExtDTypeRef
+
+pub fn vortex_array::dtype::extension::ExtDTypeRef::display_metadata(&self) -> impl core::fmt::Display + '_
+
+pub fn vortex_array::dtype::extension::ExtDTypeRef::eq_ignore_nullability(&self, other: &Self) -> bool
+
+pub fn vortex_array::dtype::extension::ExtDTypeRef::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::dtype::extension::ExtDTypeRef::is_nullable(&self) -> bool
+
+pub fn vortex_array::dtype::extension::ExtDTypeRef::nullability(&self) -> vortex_array::dtype::Nullability
+
+pub fn vortex_array::dtype::extension::ExtDTypeRef::serialize_metadata(&self) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::dtype::extension::ExtDTypeRef::storage_dtype(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_array::dtype::extension::ExtDTypeRef::with_nullability(&self, nullability: vortex_array::dtype::Nullability) -> Self
 
 impl vortex_array::dtype::extension::ExtDTypeRef
 
@@ -6333,22 +6327,6 @@ pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata<M: vortex_array::dt
 pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata_opt<M: vortex_array::dtype::extension::Matcher>(&self) -> core::option::Option<<M as vortex_array::dtype::extension::Matcher>::Match>
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::try_downcast<V: vortex_array::dtype::extension::ExtVTable>(self) -> core::result::Result<vortex_array::dtype::extension::ExtDType<V>, vortex_array::dtype::extension::ExtDTypeRef>
-
-impl vortex_array::dtype::extension::ExtDTypeRef
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::eq_ignore_nullability(&self, other: &Self) -> bool
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::is_nullable(&self) -> bool
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata_erased(&self) -> vortex_array::dtype::extension::ExtDTypeMetadata<'_>
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::nullability(&self) -> vortex_array::dtype::Nullability
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::storage_dtype(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::with_nullability(&self, nullability: vortex_array::dtype::Nullability) -> Self
 
 impl core::clone::Clone for vortex_array::dtype::extension::ExtDTypeRef
 
@@ -6372,13 +6350,13 @@ impl core::hash::Hash for vortex_array::dtype::extension::ExtDTypeRef
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::hash<H: core::hash::Hasher>(&self, state: &mut H)
 
-pub trait vortex_array::dtype::extension::DynExtVTable: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+pub trait vortex_array::dtype::extension::ExtDTypePlugin: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
 
-pub fn vortex_array::dtype::extension::DynExtVTable::deserialize(&self, data: &[u8], storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::extension::ExtDTypeRef>
+pub fn vortex_array::dtype::extension::ExtDTypePlugin::deserialize(&self, data: &[u8], storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::extension::ExtDTypeRef>
 
-pub fn vortex_array::dtype::extension::DynExtVTable::id(&self) -> vortex_array::dtype::extension::ExtId
+pub fn vortex_array::dtype::extension::ExtDTypePlugin::id(&self) -> vortex_array::dtype::extension::ExtId
 
-impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::dtype::extension::DynExtVTable for V
+impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::dtype::extension::ExtDTypePlugin for V
 
 pub fn V::deserialize(&self, data: &[u8], storage_dtype: vortex_array::dtype::DType) -> core::result::Result<vortex_array::dtype::extension::ExtDTypeRef, vortex_error::VortexError>
 
@@ -6492,7 +6470,7 @@ impl<S: vortex_session::SessionExt> vortex_array::dtype::session::DTypeSessionEx
 
 pub fn S::dtypes(&self) -> vortex_session::Ref<'_, vortex_array::dtype::session::DTypeSession>
 
-pub type vortex_array::dtype::session::ExtDTypeRegistry = vortex_session::registry::Registry<alloc::sync::Arc<dyn vortex_array::dtype::extension::DynExtVTable>>
+pub type vortex_array::dtype::session::ExtDTypeRegistry = vortex_session::registry::Registry<alloc::sync::Arc<dyn vortex_array::dtype::extension::ExtDTypePlugin>>
 
 pub enum vortex_array::dtype::DType
 

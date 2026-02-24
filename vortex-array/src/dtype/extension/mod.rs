@@ -19,7 +19,7 @@ pub use vtable::ExtVTable;
 mod plugin;
 pub use plugin::ExtDTypePlugin;
 
-pub(super) mod typed;
+mod typed;
 pub use typed::ExtDType;
 
 mod erased;

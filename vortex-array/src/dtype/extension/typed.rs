@@ -97,11 +97,11 @@ impl<V: ExtVTable> ExtDType<V> {
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub(super) struct ExtDTypeInner<V: ExtVTable> {
     /// The extension dtype vtable.
-    vtable: V,
+    pub(super) vtable: V,
     /// The extension dtype metadata.
     pub(super) metadata: V::Metadata,
     /// The underlying storage dtype.
-    storage_dtype: DType,
+    pub(super) storage_dtype: DType,
 }
 
 /// An object-safe, sealed trait encapsulating the behavior for extension dtypes.
