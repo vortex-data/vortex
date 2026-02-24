@@ -11,14 +11,14 @@ post-conditions at the boundary between the two.
 Every vtable-backed type in Vortex follows the same structural pattern. For a concept `Foo`,
 there are six components:
 
-| Component | Name | Visibility | Role |
-|-----------|------|------------|------|
-| VTable trait | `FooVTable` | Public | Non-object-safe trait that plugin authors implement |
-| Typed wrapper | `Foo<V: FooVTable>` | Public | Generic wrapper with full access to `V::Metadata` |
-| Erased ref | `FooRef` | Public | Type-erased wrapper for heterogeneous storage |
-| Adapter | `FooAdapter<V>` | Private | Bridges `FooVTable` → `DynFoo` |
-| Sealed trait | `DynFoo` | Private | Object-safe trait implemented only by `FooAdapter` |
-| Plugin | `FooPlugin` | Public | Registry trait for ID-based deserialization |
+| Component     | Name                | Visibility | Role                                                |
+|---------------|---------------------|------------|-----------------------------------------------------|
+| VTable trait  | `FooVTable`         | Public     | Non-object-safe trait that plugin authors implement |
+| Typed wrapper | `Foo<V: FooVTable>` | Public     | Generic wrapper with full access to `V::Metadata`   |
+| Erased ref    | `FooRef`            | Public     | Type-erased wrapper for heterogeneous storage       |
+| Adapter       | `FooAdapter<V>`     | Private    | Bridges `FooVTable` → `DynFoo`                      |
+| Sealed trait  | `DynFoo`            | Private    | Object-safe trait implemented only by `FooAdapter`  |
+| Plugin        | `FooPlugin`         | Public     | Registry trait for ID-based deserialization         |
 
 **Typed form** `Foo<V>` is generic over the vtable type `V`. This is what plugin authors
 construct and what callers use when they know the concrete type. It provides compile-time
@@ -60,8 +60,8 @@ The typed form `ExtDType<V>` wraps an `Arc` containing the vtable instance, the 
 the storage dtype. Users who know the concrete type get full access to the typed metadata:
 
 ```rust
-let ts: ExtDType<Timestamp> = ...;
-let unit: &TimeUnit = &ts.metadata().unit;    // V::Metadata is concrete
+let ts: ExtDType<Timestamp> =...;
+let unit: & TimeUnit = & ts.metadata().unit;    // V::Metadata is concrete
 ```
 
 The erased form `ExtDTypeRef` wraps the same `Arc` behind the private `DynExtDType` trait.
@@ -69,9 +69,9 @@ Code that does not need to know the concrete type works with `ExtDTypeRef` and c
 pattern-match to recover the typed form when needed:
 
 ```rust
-let ext: &ExtDTypeRef = dtype.ext();
+let ext: & ExtDTypeRef = dtype.ext();
 if let Some(meta) = ext.metadata_opt::<Timestamp>() {
-    // meta is &TimestampMetadata -- type-safe from here
+// meta is &TimestampMetadata -- type-safe from here
 }
 ```
 
