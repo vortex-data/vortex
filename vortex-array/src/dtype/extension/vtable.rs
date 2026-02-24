@@ -9,14 +9,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::dtype::DType;
-use crate::dtype::extension::ExtDType;
-use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
 
-// TODO(connor): Right now this is just a vtable for DType (it used to be called `ExtDTypeVTable`),
-// need to add scalar and array functionality.
-// Also need to figure out if this name makes sense?
 /// The public API for defining new extension types.
+///
+/// This is the non-object-safe trait that plugin authors implement to define a new extension
+/// type. It specifies the type's identity, metadata, serialization, and validation.
 pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     /// Associated type containing the deserialized metadata for this extension type
     type Metadata: 'static + Send + Sync + Clone + Debug + Display + Eq + Hash;
@@ -44,25 +42,4 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
 
     /// Validate that the given storage type is compatible with this extension type.
     fn validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()>;
-}
-
-/// A dynamic vtable for extension types, used for type-erased deserialization.
-// TODO(ngates): consider renaming this to ExtDTypePlugin or similar?
-pub trait DynExtVTable: 'static + Send + Sync + Debug {
-    /// Returns the ID for this extension type.
-    fn id(&self) -> ExtId;
-
-    /// Deserialize an extension type from serialized metadata.
-    fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef>;
-}
-
-impl<V: ExtVTable> DynExtVTable for V {
-    fn id(&self) -> ExtId {
-        ExtVTable::id(self)
-    }
-
-    fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef> {
-        let metadata = ExtVTable::deserialize(self, data)?;
-        Ok(ExtDType::try_with_vtable(self.clone(), metadata, storage_dtype)?.erased())
-    }
 }

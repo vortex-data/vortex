@@ -497,8 +497,7 @@ impl Serialize for ExtDTypeRef {
         state.serialize_field(
             "metadata",
             &self
-                .metadata_erased()
-                .serialize()
+                .serialize_metadata()
                 .map_err(|e| serde::ser::Error::custom(e.to_string()))?,
         )?;
         state.end()

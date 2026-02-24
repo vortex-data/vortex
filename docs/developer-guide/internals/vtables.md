@@ -97,6 +97,23 @@ plugin authors implement) from the public API (what callers use). The public API
 inputs, enforce invariants, and transform outputs without exposing those concerns to vtable
 implementors. With `dyn Trait`, the trait surface is the public API.
 
+## File Layout Convention
+
+Each vtable-backed concept `Foo` lives in its own module directory with a consistent file
+structure:
+
+| File         | Contents                                                          |
+|--------------|-------------------------------------------------------------------|
+| `vtable.rs`  | `FooVTable` — the non-object-safe trait users implement           |
+| `plugin.rs`  | `FooPlugin` — registry trait for deserialization + blanket impl   |
+| `typed.rs`   | `Foo<V>` + `FooInner<V>` + `DynFoo` + impl (typed wrapper + guts) |
+| `erased.rs`  | `FooRef` + Display/Debug/PartialEq/Hash impls (erased public API) |
+| `matcher.rs` | `Matcher` trait + blanket impl for `V: FooVTable`                 |
+| `mod.rs`     | Re-exports, `FooId` type alias, sealed module                     |
+
+The private internals (`FooInner`, `DynFoo`, sealed module) are `pub(super)` within the
+concept's module. Everything else is re-exported from `mod.rs`.
+
 ## Registration and Deserialization
 
 Vtables are registered in the session by their ID. When a serialized value is encountered
@@ -113,13 +130,13 @@ All four vtable-backed types are converging on the pattern described above.
 
 ### ExtDType -- Done
 
-The reference implementation. `ExtVTable`, `ExtDType<V>`, `ExtDTypeRef`, `ExtDTypeAdapter`,
-`DynExtDType`, and `ExtDTypePlugin` are all in place. Naming needs to be updated to match the
-conventions above (e.g. `ExtDTypeImpl` → `DynExtDType`, `ExtDTypeAdapter` → `ExtDTypeInner`,
-`DynExtVTable` → `ExtDTypePlugin`).
-`ExtDTypeMetadata` (the erased metadata wrapper) should be removed -- its methods
-(`serialize`, `Display`, `Debug`, `PartialEq`, `Hash`) should move to direct methods
-on `ExtDTypeRef`.
+The reference implementation. All components follow the convention:
+
+- `ExtVTable` (vtable trait, uniquely not prefixed `ExtDType` for historical reasons)
+- `ExtDType<V>`, `ExtDTypeRef`, `ExtDTypeInner`, `DynExtDType`, `ExtDTypePlugin`
+- `Matcher` trait with blanket impl
+- File layout: `vtable.rs`, `plugin.rs`, `typed.rs`, `erased.rs`, `matcher.rs`
+- `ExtDTypeMetadata` wrapper removed; methods inlined on `ExtDTypeRef`
 
 ### Expr -- Not started
 
