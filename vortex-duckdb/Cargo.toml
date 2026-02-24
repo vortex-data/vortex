@@ -30,7 +30,6 @@ async-trait = { workspace = true }
 bitvec = { workspace = true }
 custom-labels = { workspace = true }
 futures = { workspace = true }
-glob = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 object_store = { workspace = true, features = ["aws"] }

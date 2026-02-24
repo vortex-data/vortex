@@ -16,7 +16,6 @@ version = { workspace = true }
 [dependencies]
 arrow-schema = { workspace = true }
 async-trait = { workspace = true }
-chrono = { workspace = true }
 datafusion-catalog = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-common-runtime = { workspace = true }
@@ -46,7 +45,6 @@ rstest = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "fs"] }
 url = { workspace = true }
-walkdir = { workspace = true }
 
 [lints]
 workspace = true
