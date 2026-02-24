@@ -262,6 +262,11 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                     }
                 })
             })
+            // TODO(ngates): I'd like to run an experiment with a custom buffer_unordered
+            //  implementation that re-fills the queue before returning a value. The regular
+            //  implementation will only re-fill the queue on the subsequent poll after a value
+            //  is returned, which means we have to wait for one round of polling before all
+            //  workers are driving the scan.
             .buffer_unordered(num_workers);
 
         // Spawn a task to drive the partition stream and push array chunks into the channel.
