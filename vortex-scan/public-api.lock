@@ -22,7 +22,7 @@ pub fn vortex_scan::api::ScanRequest::clone(&self) -> vortex_scan::api::ScanRequ
 
 impl core::default::Default for vortex_scan::api::ScanRequest
 
-pub fn vortex_scan::api::ScanRequest::default() -> vortex_scan::api::ScanRequest
+pub fn vortex_scan::api::ScanRequest::default() -> Self
 
 impl core::fmt::Debug for vortex_scan::api::ScanRequest
 
