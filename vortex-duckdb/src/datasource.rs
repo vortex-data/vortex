@@ -318,8 +318,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                     &mut global_state.ctx,
                 )?);
                 // Relaxed since there is no intra-instruction ordering required.
-                local_state.batch_id =
-                    Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
+                local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
             }
 
             let exporter = local_state

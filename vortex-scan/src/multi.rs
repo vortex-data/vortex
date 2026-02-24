@@ -98,7 +98,7 @@ impl MultiLayoutDataSource {
     ///
     /// The first reader determines the dtype. Remaining readers are opened lazily during
     /// scanning via their factories.
-    pub fn with_first(
+    pub fn new_with_first(
         first: LayoutReaderRef,
         remaining: Vec<Arc<dyn LayoutReaderFactory>>,
         session: &VortexSession,
@@ -125,7 +125,7 @@ impl MultiLayoutDataSource {
     /// The dtype must be provided externally since there is no pre-opened reader to infer it
     /// from. This avoids eagerly opening any file when the schema is already known (e.g. from
     /// a catalog or a prior scan).
-    pub fn all_deferred(
+    pub fn new_deferred(
         dtype: DType,
         factories: Vec<Arc<dyn LayoutReaderFactory>>,
         session: &VortexSession,
@@ -270,28 +270,46 @@ impl DataSourceScan for MultiLayoutScan {
             concurrency,
         } = *self;
 
+        let ordered = request.ordered;
+
         // Pre-opened readers are immediately available.
         let ready_stream = stream::iter(ready).map(Ok);
 
-        // Deferred readers are opened concurrently via spawned tasks, mirroring the DuckDB
-        // scan pattern of `buffer_unordered(num_workers * 2)`.
-        let deferred_stream = stream::iter(deferred)
-            .map(move |factory| {
-                handle.spawn(async move {
-                    factory
-                        .open()
-                        .instrument(tracing::info_span!("LayoutReaderFactory::open"))
-                        .await
-                })
+        // Deferred readers are opened concurrently via spawned tasks.
+        // When ordered, we use `buffered` to preserve the original partition order.
+        // When unordered, we use `buffer_unordered` to yield partitions as they open.
+        let spawned = stream::iter(deferred).map(move |factory| {
+            handle.spawn(async move {
+                factory
+                    .open()
+                    .instrument(tracing::info_span!("LayoutReaderFactory::open"))
+                    .await
             })
-            .buffer_unordered(concurrency)
-            .filter_map(|result| async move {
-                match result {
-                    Ok(Some(reader)) => Some(Ok(reader)),
-                    Ok(None) => None,
-                    Err(e) => Some(Err(e)),
-                }
-            });
+        });
+
+        let deferred_stream = if ordered {
+            spawned
+                .buffered(concurrency)
+                .filter_map(|result| async move {
+                    match result {
+                        Ok(Some(reader)) => Some(Ok(reader)),
+                        Ok(None) => None,
+                        Err(e) => Some(Err(e)),
+                    }
+                })
+                .boxed()
+        } else {
+            spawned
+                .buffer_unordered(concurrency)
+                .filter_map(|result| async move {
+                    match result {
+                        Ok(Some(reader)) => Some(Ok(reader)),
+                        Ok(None) => None,
+                        Err(e) => Some(Err(e)),
+                    }
+                })
+                .boxed()
+        };
 
         // For each reader (ready or just-opened), generate a partition.
         // Partition generation is synchronous (just creates structs with row ranges), so
