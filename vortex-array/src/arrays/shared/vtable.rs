@@ -13,7 +13,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::shared::SharedArray;
 use crate::buffer::BufferHandle;
@@ -99,9 +98,7 @@ impl VTable for SharedVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(array
-            .get_or_compute(|source| source.clone().execute::<Canonical>(ctx))?
-            .into_array())
+        array.get_or_compute(|source| source.clone().execute::<Canonical>(ctx))
     }
 }
 
@@ -127,7 +124,7 @@ impl BaseArrayVTable<SharedVTable> for SharedVTable {
     fn array_eq(array: &SharedArray, other: &SharedArray, precision: Precision) -> bool {
         let current = array.current_array_ref();
         let other_current = other.current_array_ref();
-        current.array_eq(&other_current, precision) && array.dtype == other.dtype
+        current.array_eq(other_current, precision) && array.dtype == other.dtype
     }
 }
 
@@ -147,7 +144,7 @@ impl VisitorVTable<SharedVTable> for SharedVTable {
     fn visit_buffers(_array: &SharedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &SharedArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("source", &array.current_array_ref());
+        visitor.visit_child("source", array.current_array_ref());
     }
 
     fn nchildren(_array: &SharedArray) -> usize {
@@ -156,7 +153,7 @@ impl VisitorVTable<SharedVTable> for SharedVTable {
 
     fn nth_child(array: &SharedArray, idx: usize) -> Option<ArrayRef> {
         match idx {
-            0 => Some(array.current_array_ref()),
+            0 => Some(array.current_array_ref().clone()),
             _ => None,
         }
     }

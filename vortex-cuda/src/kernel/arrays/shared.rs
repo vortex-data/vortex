@@ -32,6 +32,7 @@ impl CudaExecute for SharedExecutor {
 
         shared
             .get_or_compute_async(|source| source.execute_cuda(ctx))
-            .await
+            .await?
+            .to_canonical()
     }
 }
