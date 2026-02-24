@@ -2924,9 +2924,9 @@ pub struct vortex_array::arrays::SharedArray
 
 impl vortex_array::arrays::SharedArray
 
-pub fn vortex_array::arrays::SharedArray::get_or_compute(&self, f: impl core::ops::function::FnOnce(&vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::Canonical>) -> vortex_error::VortexResult<vortex_array::Canonical>
+pub fn vortex_array::arrays::SharedArray::get_or_compute(&self, f: impl core::ops::function::FnOnce(&vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::Canonical>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub async fn vortex_array::arrays::SharedArray::get_or_compute_async<F, Fut>(&self, f: F) -> vortex_error::VortexResult<vortex_array::Canonical> where F: core::ops::function::FnOnce(vortex_array::ArrayRef) -> Fut, Fut: core::future::future::Future<Output = vortex_error::VortexResult<vortex_array::Canonical>>
+pub async fn vortex_array::arrays::SharedArray::get_or_compute_async<F, Fut>(&self, f: F) -> vortex_error::VortexResult<vortex_array::ArrayRef> where F: core::ops::function::FnOnce(vortex_array::ArrayRef) -> Fut, Fut: core::future::future::Future<Output = vortex_error::VortexResult<vortex_array::Canonical>>
 
 pub fn vortex_array::arrays::SharedArray::new(source: vortex_array::ArrayRef) -> Self
 
