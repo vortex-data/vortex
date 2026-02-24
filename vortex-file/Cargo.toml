@@ -25,12 +25,14 @@ getrandom_v03 = { workspace = true }                              # Needed to pi
 glob = { workspace = true }
 itertools = { workspace = true }
 kanal = { workspace = true }
+moka = { workspace = true, features = ["sync"] }
 object_store = { workspace = true, optional = true }
 oneshot.workspace = true
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true }
+url = { workspace = true }
 uuid = { workspace = true }                                       # Needed to pickup the "js" feature for wasm targets from the workspace configuration
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
@@ -46,6 +48,7 @@ vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
+vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-pco = { workspace = true }
 vortex-runend = { workspace = true }
@@ -61,6 +64,7 @@ vortex-zstd = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-io = { workspace = true, features = ["tokio"] }
+vortex-layout = { workspace = true, features = ["_test-harness"] }
 vortex-scan = { workspace = true }
 
 [lints]

@@ -26,6 +26,7 @@ use datafusion_physical_plan::collect;
 use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::fs::File;
+use vortex::scan::api::DataSourceRef;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
 use vortex_bench::CompactionStrategy;
@@ -33,6 +34,7 @@ use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::Opt;
 use vortex_bench::Opts;
+use vortex_bench::SESSION;
 use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
 use vortex_bench::create_output_writer;
@@ -220,6 +222,10 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn use_scan_api() -> bool {
+    std::env::var("VORTEX_USE_SCAN_API").is_ok_and(|v| v == "1")
+}
+
 async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,
@@ -227,6 +233,9 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
 ) -> anyhow::Result<()> {
     match format {
         Format::Arrow => register_arrow_tables(session, benchmark).await,
+        _ if use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact) => {
+            register_v2_tables(session, benchmark, format).await
+        }
         _ => {
             let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
             let file_format = format_to_df_format(format);
@@ -263,6 +272,54 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
             Ok(())
         }
     }
+}
+
+/// Register tables using the V2 `VortexTable` + `MultiFileDataSource` path.
+async fn register_v2_tables<B: Benchmark + ?Sized>(
+    session: &SessionContext,
+    benchmark: &B,
+    format: Format,
+) -> anyhow::Result<()> {
+    use vortex::file::multi::MultiFileDataSource;
+    use vortex::io::object_store::ObjectStoreFileSystem;
+    use vortex::io::session::RuntimeSessionExt;
+    use vortex::scan::api::DataSource as _;
+    use vortex_datafusion::v2::VortexTable;
+
+    let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
+
+    for table in benchmark.table_specs().iter() {
+        let pattern = benchmark.pattern(table.name, format);
+        let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern.clone())?;
+        let store = session
+            .state()
+            .runtime_env()
+            .object_store(table_url.object_store())?;
+
+        let fs: vortex::io::filesystem::FileSystemRef =
+            Arc::new(ObjectStoreFileSystem::new(store.clone(), SESSION.handle()));
+        let base_prefix = benchmark_base.path().trim_start_matches('/').to_string();
+        let fs = fs.with_prefix(base_prefix);
+
+        let glob_pattern = match &pattern {
+            Some(p) => p.as_str().to_string(),
+            None => format!("*.{}", format.ext()),
+        };
+
+        let multi_ds = MultiFileDataSource::new(SESSION.clone())
+            .with_filesystem(fs)
+            .with_glob(glob_pattern)
+            .build()
+            .await?;
+
+        let arrow_schema = Arc::new(multi_ds.dtype().to_arrow_schema()?);
+        let data_source: DataSourceRef = Arc::new(multi_ds);
+
+        let table_provider = Arc::new(VortexTable::new(data_source, SESSION.clone(), arrow_schema));
+        session.register_table(table.name, table_provider)?;
+    }
+
+    Ok(())
 }
 
 /// Load Arrow IPC files into in-memory DataFusion tables.

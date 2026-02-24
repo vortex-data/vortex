@@ -17,6 +17,11 @@ use bindgen::Abi;
 use once_cell::sync::Lazy;
 
 static DUCKDB_VERSION: Lazy<DuckDBVersion> = Lazy::new(|| {
+    // Override the DuckDB version via environment variable in case of an extension build.
+    // `DUCKDB_VERSION` is set by the extension build in the `duckdb-vortex` repo.
+    //
+    // This is to ensure that we don't implicitly build against a different DuckDB version during
+    // an extension build which might lead to subtle ABI breaks, e.g. reordering fields in C++ structs.
     if let Ok(version) = env::var("DUCKDB_VERSION") {
         // DUCKDB_VERSION env var can be set by:
         // - The extension build in `vortex-data/duckdb-vortex` repo

@@ -3,6 +3,7 @@
 
 mod validation;
 
+use std::ops::Deref;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -68,6 +69,10 @@ struct Args {
 
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
+
+    /// Print EXPLAIN output for each query instead of running benchmarks.
+    #[arg(long, default_value_t = false)]
+    explain: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -124,6 +129,33 @@ fn main() -> anyhow::Result<()> {
 
             anyhow::Ok(())
         })?;
+    }
+
+    if args.explain {
+        for format in &args.formats {
+            let ctx = DuckClient::new(
+                &*benchmark,
+                *format,
+                args.delete_duckdb_database,
+                args.threads,
+            )?;
+            ctx.register_tables(&*benchmark, *format)?;
+
+            for (query_idx, query) in &filtered_queries {
+                println!("=== Q{query_idx} [{format}] ===");
+                println!("{query}");
+                println!();
+                let result = ctx.connection().query(&format!("EXPLAIN {query}"))?;
+                for chunk in result {
+                    let chunk_str =
+                        String::try_from(chunk.deref()).unwrap_or_else(|_| "<error>".to_string());
+                    println!("{chunk_str}");
+                }
+                println!();
+            }
+        }
+
+        return Ok(());
     }
 
     let mut runner = SqlBenchmarkRunner::new(

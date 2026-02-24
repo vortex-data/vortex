@@ -31,7 +31,6 @@ datafusion-physical-plan = { workspace = true }
 datafusion-pruning = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
-moka = { workspace = true, features = ["future"] }
 object_store = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "fs"] }
 tokio-stream = { workspace = true }

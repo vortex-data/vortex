@@ -75,7 +75,7 @@ impl<T: TableFunction> Debug for TableInitInput<'_, T> {
             .field("table_function", &std::any::type_name::<T>())
             .field("column_ids", &self.column_ids())
             .field("projection_ids", &self.projection_ids())
-            // .field("table_filter_set", &self.table_filter_set())
+            .field("table_filter_set", &self.table_filter_set())
             .finish()
     }
 }

@@ -118,11 +118,100 @@ pub struct VortexGlobalData {
 }
 
 impl VortexGlobalData {
+    pub(crate) fn new(
+        iterator: ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>,
+    ) -> Self {
+        Self {
+            iterator,
+            batch_id: AtomicU64::new(0),
+            ctx: ExecutionCtx::new(VortexSession::default()),
+            bytes_total: Arc::new(AtomicU64::new(0)),
+            bytes_read: AtomicU64::new(0),
+        }
+    }
+
     pub fn progress(&self) -> f64 {
         let read = self.bytes_read.load(Ordering::Relaxed);
         let mut total = self.bytes_total.load(Ordering::Relaxed);
         total += (total == 0) as u64;
         read as f64 / total as f64 * 100. // return 100. when nothing is read
+    }
+
+    pub(crate) fn new_local(&self) -> VortexLocalData {
+        VortexLocalData {
+            iterator: self.iterator.clone(),
+            exporter: None,
+            batch_id: None,
+        }
+    }
+
+    /// Shared scan logic: pulls arrays from the thread-safe iterator, converts them to struct
+    /// arrays, and exports them into DuckDB data chunks.
+    pub(crate) fn scan(
+        &mut self,
+        local_state: &mut VortexLocalData,
+        chunk: &mut DataChunkRef,
+    ) -> VortexResult<()> {
+        loop {
+            if local_state.exporter.is_none() {
+                let Some(result) = local_state.iterator.next() else {
+                    return Ok(());
+                };
+                let (array_result, conversion_cache) = result?;
+
+                let array_result = array_result.optimize_recursive()?;
+                let array_result = if let Some(array) = array_result.as_opt::<StructVTable>() {
+                    array.clone()
+                } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
+                    && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
+                {
+                    StructArray::new(
+                        pack_options.names.clone(),
+                        array.children(),
+                        array.len(),
+                        pack_options.nullability.into(),
+                    )
+                } else {
+                    array_result
+                        .execute::<Canonical>(&mut self.ctx)?
+                        .into_struct()
+                };
+
+                local_state.exporter = Some(ArrayExporter::try_new(
+                    &array_result,
+                    &conversion_cache,
+                    &mut self.ctx,
+                )?);
+                // Relaxed since there is no intra-instruction ordering required.
+                local_state.batch_id = Some(self.batch_id.fetch_add(1, Ordering::Relaxed));
+            }
+
+            let exporter = local_state
+                .exporter
+                .as_mut()
+                .vortex_expect("error: exporter missing");
+
+            let has_more_data = exporter.export(chunk)?;
+            self.bytes_read.fetch_add(chunk.len(), Ordering::Relaxed);
+
+            if !has_more_data {
+                // This exporter is fully consumed.
+                local_state.exporter = None;
+                local_state.batch_id = None;
+            } else {
+                break;
+            }
+        }
+
+        assert!(!chunk.is_empty());
+
+        Ok(())
+    }
+
+    pub(crate) fn partition_data(local_state: &VortexLocalData) -> VortexResult<u64> {
+        local_state
+            .batch_id
+            .ok_or_else(|| vortex_err!("batch id missing, no batches exported"))
     }
 }
 
@@ -136,13 +225,10 @@ pub struct VortexLocalData {
 #[derive(Debug)]
 pub struct VortexTableFunction;
 
-/// Extracts the schema from a Vortex file.
-fn extract_schema_from_vortex_file(
-    file: &VortexFile,
+/// Extracts DuckDB column names and logical types from a Vortex struct DType.
+pub(crate) fn extract_schema_from_dtype(
+    dtype: &vortex::dtype::DType,
 ) -> VortexResult<(Vec<String>, Vec<LogicalType>)> {
-    let dtype = file.dtype();
-
-    // For now, we assume the top-level type to be a struct.
     let struct_dtype = dtype
         .as_struct_fields_opt()
         .ok_or_else(|| vortex_err!("Vortex file must contain a struct array at the top level"))?;
@@ -218,8 +304,28 @@ fn extract_table_filter_expr(
 // This is used by duckdb whenever there is no projection id in a logical_get node.
 // For some reason we cannot return an empty DataChunk and duckdb will look for the virtual column
 // with this index and create a data chunk with a single vector of that type.
-static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
-static EMPTY_COLUMN_NAME: &str = "";
+pub(crate) static EMPTY_COLUMN_IDX: u64 = 18446744073709551614;
+pub(crate) static EMPTY_COLUMN_NAME: &str = "";
+
+/// Shared local state initialization for both `VortexTableFunction` and `VortexScanApiTableFunction`.
+pub(crate) fn init_local_shared(global: &mut VortexGlobalData) -> VortexResult<VortexLocalData> {
+    unsafe {
+        use custom_labels::sys;
+
+        if sys::current().is_null() {
+            let ls = sys::new(0);
+            sys::replace(ls);
+        };
+    }
+
+    let global_labels = get_global_labels();
+
+    for (key, value) in global_labels {
+        CURRENT_LABELSET.set(key, value);
+    }
+
+    Ok(global.new_local())
+}
 
 impl TableFunction for VortexTableFunction {
     type BindData = VortexBindData;
@@ -321,7 +427,7 @@ impl TableFunction for VortexTableFunction {
             VortexResult::Ok(file)
         })?;
 
-        let (column_names, column_types) = extract_schema_from_vortex_file(&first_file)?;
+        let (column_names, column_types) = extract_schema_from_dtype(first_file.dtype())?;
 
         // Add result columns based on the extracted schema.
         for (column_name, column_type) in column_names.iter().zip(&column_types) {
@@ -345,62 +451,7 @@ impl TableFunction for VortexTableFunction {
         global_state: &mut Self::GlobalState,
         chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
-        loop {
-            if local_state.exporter.is_none() {
-                let Some(result) = local_state.iterator.next() else {
-                    return Ok(());
-                };
-                let (array_result, conversion_cache) = result?;
-
-                let array_result = array_result.optimize_recursive()?;
-                let array_result = if let Some(array) = array_result.as_opt::<StructVTable>() {
-                    array.clone()
-                } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
-                    && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
-                {
-                    StructArray::new(
-                        pack_options.names.clone(),
-                        array.children(),
-                        array.len(),
-                        pack_options.nullability.into(),
-                    )
-                } else {
-                    array_result
-                        .execute::<Canonical>(&mut global_state.ctx)?
-                        .into_struct()
-                };
-
-                local_state.exporter = Some(ArrayExporter::try_new(
-                    &array_result,
-                    &conversion_cache,
-                    &mut global_state.ctx,
-                )?);
-                // Relaxed since there is no intra-instruction ordering required.
-                local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
-            }
-
-            let exporter = local_state
-                .exporter
-                .as_mut()
-                .vortex_expect("error: exporter missing");
-
-            let has_more_data = exporter.export(chunk)?;
-            global_state
-                .bytes_read
-                .fetch_add(chunk.len(), Ordering::Relaxed);
-
-            if !has_more_data {
-                // This exporter is fully consumed.
-                local_state.exporter = None;
-                local_state.batch_id = None;
-            } else {
-                break;
-            }
-        }
-
-        assert!(!chunk.is_empty());
-
-        Ok(())
+        global_state.scan(local_state, chunk)
     }
 
     fn init_global(init_input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
@@ -504,26 +555,7 @@ impl TableFunction for VortexTableFunction {
         _init: &TableInitInput<Self>,
         global: &mut Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
-        unsafe {
-            use custom_labels::sys;
-
-            if sys::current().is_null() {
-                let ls = sys::new(0);
-                sys::replace(ls);
-            };
-        }
-
-        let global_labels = get_global_labels();
-
-        for (key, value) in global_labels {
-            CURRENT_LABELSET.set(key, value);
-        }
-
-        Ok(VortexLocalData {
-            iterator: global.iterator.clone(),
-            exporter: None,
-            batch_id: None,
-        })
+        init_local_shared(global)
     }
 
     fn table_scan_progress(
@@ -562,11 +594,9 @@ impl TableFunction for VortexTableFunction {
     fn partition_data(
         _bind_data: &Self::BindData,
         _global_init_data: &mut Self::GlobalState,
-        _local_init_data: &mut Self::LocalState,
+        local_init_data: &mut Self::LocalState,
     ) -> VortexResult<u64> {
-        _local_init_data
-            .batch_id
-            .ok_or_else(|| vortex_err!("batch id missing, no batches exported"))
+        VortexGlobalData::partition_data(local_init_data)
     }
 
     fn to_string(bind_data: &Self::BindData) -> Option<Vec<(String, String)>> {

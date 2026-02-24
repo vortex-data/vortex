@@ -1,5 +1,21 @@
 pub mod vortex_file
 
+pub mod vortex_file::multi
+
+pub struct vortex_file::multi::MultiFileDataSource
+
+impl vortex_file::multi::MultiFileDataSource
+
+pub async fn vortex_file::multi::MultiFileDataSource::build(self) -> vortex_error::VortexResult<impl vortex_scan::api::DataSource>
+
+pub fn vortex_file::multi::MultiFileDataSource::new(session: vortex_session::VortexSession) -> Self
+
+pub fn vortex_file::multi::MultiFileDataSource::with_filesystem(self, fs: vortex_io::filesystem::FileSystemRef) -> Self
+
+pub fn vortex_file::multi::MultiFileDataSource::with_glob(self, glob: impl core::convert::Into<alloc::string::String>) -> Self
+
+pub fn vortex_file::multi::MultiFileDataSource::with_open_options(self, f: impl core::ops::function::Fn(vortex_file::VortexOpenOptions) -> vortex_file::VortexOpenOptions + core::marker::Send + core::marker::Sync + 'static) -> Self
+
 pub mod vortex_file::segments
 
 pub enum vortex_file::segments::ReadEvent
@@ -47,6 +63,30 @@ pub vortex_file::segments::RequestMetrics::num_requests_coalesced: vortex_metric
 impl vortex_file::segments::RequestMetrics
 
 pub fn vortex_file::segments::RequestMetrics::new(metrics_registry: &dyn vortex_metrics::MetricsRegistry, labels: alloc::vec::Vec<vortex_metrics::Label>) -> Self
+
+pub mod vortex_file::v2
+
+pub struct vortex_file::v2::FileStatsLayoutReader
+
+impl vortex_file::v2::FileStatsLayoutReader
+
+pub fn vortex_file::v2::FileStatsLayoutReader::new(child: vortex_layout::reader::LayoutReaderRef, file_stats: vortex_file::FileStatistics, session: vortex_session::VortexSession) -> Self
+
+impl vortex_layout::reader::LayoutReader for vortex_file::v2::FileStatsLayoutReader
+
+pub fn vortex_file::v2::FileStatsLayoutReader::dtype(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_file::v2::FileStatsLayoutReader::filter_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_array::mask_future::MaskFuture) -> vortex_error::VortexResult<vortex_array::mask_future::MaskFuture>
+
+pub fn vortex_file::v2::FileStatsLayoutReader::name(&self) -> &alloc::sync::Arc<str>
+
+pub fn vortex_file::v2::FileStatsLayoutReader::projection_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_array::mask_future::MaskFuture) -> vortex_error::VortexResult<vortex_layout::reader::ArrayFuture>
+
+pub fn vortex_file::v2::FileStatsLayoutReader::pruning_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::mask_future::MaskFuture>
+
+pub fn vortex_file::v2::FileStatsLayoutReader::register_splits(&self, field_mask: &[vortex_array::dtype::field_mask::FieldMask], row_range: &core::ops::range::Range<u64>, splits: &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<()>
+
+pub fn vortex_file::v2::FileStatsLayoutReader::row_count(&self) -> u64
 
 pub enum vortex_file::DeserializeStep
 
@@ -209,6 +249,8 @@ pub struct vortex_file::VortexFile
 impl vortex_file::VortexFile
 
 pub fn vortex_file::VortexFile::can_prune(&self, filter: &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_file::VortexFile::data_source(&self) -> vortex_error::VortexResult<vortex_scan::api::DataSourceRef>
 
 pub fn vortex_file::VortexFile::dtype(&self) -> &vortex_array::dtype::DType
 

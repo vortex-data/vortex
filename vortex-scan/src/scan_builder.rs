@@ -137,6 +137,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    pub fn ordered(&self) -> bool {
+        self.ordered
+    }
+
     pub fn with_ordered(mut self, ordered: bool) -> Self {
         self.ordered = ordered;
         self
@@ -167,6 +171,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    pub fn concurrency(&self) -> usize {
+        self.concurrency
+    }
+
     /// The number of row splits to make progress on concurrently per-thread, must
     /// be greater than 0.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
@@ -175,8 +183,18 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    pub fn with_some_metrics_registry(mut self, metrics: Option<Arc<dyn MetricsRegistry>>) -> Self {
+        self.metrics_registry = metrics;
+        self
+    }
+
     pub fn with_metrics_registry(mut self, metrics: Arc<dyn MetricsRegistry>) -> Self {
         self.metrics_registry = Some(metrics);
+        self
+    }
+
+    pub fn with_some_limit(mut self, limit: Option<u64>) -> Self {
+        self.limit = limit;
         self
     }
 

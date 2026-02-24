@@ -18,11 +18,75 @@ pub type vortex_datafusion::metrics::VortexMetricsFinder::Error = core::convert:
 
 pub fn vortex_datafusion::metrics::VortexMetricsFinder::pre_visit(&mut self, plan: &dyn datafusion_physical_plan::execution_plan::ExecutionPlan) -> core::result::Result<bool, Self::Error>
 
+pub mod vortex_datafusion::v2
+
+pub struct vortex_datafusion::v2::VortexDataSource
+
+impl vortex_datafusion::v2::VortexDataSource
+
+pub fn vortex_datafusion::v2::VortexDataSource::builder(data_source: vortex_scan::api::DataSourceRef, session: vortex_session::VortexSession) -> vortex_datafusion::v2::source::VortexDataSourceBuilder
+
+impl core::clone::Clone for vortex_datafusion::v2::VortexDataSource
+
+pub fn vortex_datafusion::v2::VortexDataSource::clone(&self) -> vortex_datafusion::v2::VortexDataSource
+
+impl core::fmt::Debug for vortex_datafusion::v2::VortexDataSource
+
+pub fn vortex_datafusion::v2::VortexDataSource::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl datafusion_datasource::source::DataSource for vortex_datafusion::v2::VortexDataSource
+
+pub fn vortex_datafusion::v2::VortexDataSource::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_datafusion::v2::VortexDataSource::eq_properties(&self) -> datafusion_physical_expr::equivalence::properties::EquivalenceProperties
+
+pub fn vortex_datafusion::v2::VortexDataSource::fetch(&self) -> core::option::Option<usize>
+
+pub fn vortex_datafusion::v2::VortexDataSource::fmt_as(&self, _t: datafusion_physical_plan::display::DisplayFormatType, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_datafusion::v2::VortexDataSource::open(&self, partition: usize, _context: alloc::sync::Arc<datafusion_execution::task::TaskContext>) -> datafusion_common::error::Result<datafusion_execution::stream::SendableRecordBatchStream>
+
+pub fn vortex_datafusion::v2::VortexDataSource::output_partitioning(&self) -> datafusion_physical_expr::partitioning::Partitioning
+
+pub fn vortex_datafusion::v2::VortexDataSource::partition_statistics(&self, _partition: core::option::Option<usize>) -> datafusion_common::error::Result<datafusion_common::stats::Statistics>
+
+pub fn vortex_datafusion::v2::VortexDataSource::repartitioned(&self, target_partitions: usize, _repartition_file_min_size: usize, output_ordering: core::option::Option<datafusion_physical_expr_common::sort_expr::LexOrdering>) -> datafusion_common::error::Result<core::option::Option<alloc::sync::Arc<dyn datafusion_datasource::source::DataSource>>>
+
+pub fn vortex_datafusion::v2::VortexDataSource::try_pushdown_filters(&self, filters: alloc::vec::Vec<alloc::sync::Arc<dyn datafusion_physical_expr_common::physical_expr::PhysicalExpr>>, _config: &datafusion_common::config::ConfigOptions) -> datafusion_common::error::Result<datafusion_physical_plan::filter_pushdown::FilterPushdownPropagation<alloc::sync::Arc<dyn datafusion_datasource::source::DataSource>>>
+
+pub fn vortex_datafusion::v2::VortexDataSource::try_swapping_with_projection(&self, projection: &datafusion_physical_expr::projection::ProjectionExprs) -> datafusion_common::error::Result<core::option::Option<alloc::sync::Arc<dyn datafusion_datasource::source::DataSource>>>
+
+pub fn vortex_datafusion::v2::VortexDataSource::with_fetch(&self, limit: core::option::Option<usize>) -> core::option::Option<alloc::sync::Arc<dyn datafusion_datasource::source::DataSource>>
+
+pub struct vortex_datafusion::v2::VortexTable
+
+impl vortex_datafusion::v2::VortexTable
+
+pub fn vortex_datafusion::v2::VortexTable::new(data_source: vortex_scan::api::DataSourceRef, session: vortex_session::VortexSession, arrow_schema: arrow_schema::schema::SchemaRef) -> Self
+
+impl core::fmt::Debug for vortex_datafusion::v2::VortexTable
+
+pub fn vortex_datafusion::v2::VortexTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl datafusion_catalog::table::TableProvider for vortex_datafusion::v2::VortexTable
+
+pub fn vortex_datafusion::v2::VortexTable::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_datafusion::v2::VortexTable::scan<'life0, 'life1, 'life2, 'life3, 'async_trait>(&'life0 self, _state: &'life1 dyn datafusion_session::session::Session, projection: core::option::Option<&'life2 alloc::vec::Vec<usize>>, _filters: &'life3 [datafusion_expr::expr::Expr], _limit: core::option::Option<usize>) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = datafusion_common::error::Result<alloc::sync::Arc<dyn datafusion_physical_plan::execution_plan::ExecutionPlan>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait, 'life2: 'async_trait, 'life3: 'async_trait
+
+pub fn vortex_datafusion::v2::VortexTable::schema(&self) -> arrow_schema::schema::SchemaRef
+
+pub fn vortex_datafusion::v2::VortexTable::statistics(&self) -> core::option::Option<datafusion_common::stats::Statistics>
+
+pub fn vortex_datafusion::v2::VortexTable::table_type(&self) -> datafusion_expr::table_source::TableType
+
 pub struct vortex_datafusion::VortexAccessPlan
 
 impl vortex_datafusion::VortexAccessPlan
 
 pub fn vortex_datafusion::VortexAccessPlan::apply_to_builder<A>(&self, scan_builder: vortex_scan::scan_builder::ScanBuilder<A>) -> vortex_scan::scan_builder::ScanBuilder<A> where A: 'static + core::marker::Send
+
+pub fn vortex_datafusion::VortexAccessPlan::selection(&self) -> core::option::Option<&vortex_scan::selection::Selection>
 
 impl vortex_datafusion::VortexAccessPlan
 

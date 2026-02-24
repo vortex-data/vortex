@@ -200,7 +200,7 @@ impl VortexWriteOptions {
         let (layout, segment_specs) = layout_fut.await?;
 
         // Assemble the Footer object now that we have all the segments.
-        let footer = Footer::new(
+        let mut footer = Footer::new(
             layout.clone(),
             segment_specs,
             if self.file_statistics.is_empty() {
@@ -221,6 +221,11 @@ impl VortexWriteOptions {
             .with_offset(position)
             .with_exclude_dtype(self.exclude_dtype)
             .serialize()?;
+
+        // Update the approx footer size in the footer object, so it can be used for caching and
+        // memory management in the future.
+        footer = footer.with_approx_byte_size(footer_buffers.iter().map(|b| b.len()).sum());
+
         for buffer in footer_buffers {
             position += buffer.len() as u64;
             write.write_all(buffer).await?;

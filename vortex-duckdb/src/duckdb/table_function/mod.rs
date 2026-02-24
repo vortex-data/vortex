@@ -151,6 +151,7 @@ pub trait TableFunction: Sized + Debug {
     // TODO(ngates): there are many more callbacks that can be configured.
 }
 
+#[derive(Debug)]
 pub enum Cardinality {
     /// Completely unknown cardinality.
     Unknown,

@@ -21,6 +21,8 @@ use crate::scalar::ScalarValue;
 /// This is statistic specific, for max this will be an upper bound. Meaning that the actual max
 /// in an array is guaranteed to be less than or equal to the inexact value, but equal to the exact
 /// value.
+///
+// TODO(ngates): should we model Unknown as a variant of Precision? Or have Option<Precision<T>>?
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Precision<T> {
     Exact(T),

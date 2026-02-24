@@ -96,9 +96,13 @@ class RunContext:
             self._result_count += 1
 
     def write_raw_json(self, json_line: str) -> None:
-        """Write a raw JSON line directly (from benchmark binary output)."""
-        if self._results_file:
-            self._results_file.write(json_line.strip() + "\n")
+        """Write a raw JSON line directly (from benchmark binary output).
+
+        Non-JSON lines (e.g. DuckDB ASCII table output) are silently skipped.
+        """
+        line = json_line.strip()
+        if self._results_file and line.startswith("{"):
+            self._results_file.write(line + "\n")
             self._results_file.flush()
             self._result_count += 1
 
