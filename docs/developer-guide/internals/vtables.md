@@ -113,10 +113,10 @@ All four vtable-backed types are converging on the pattern described above.
 
 ### ExtDType -- Done
 
-The reference implementation. `ExtDTypeVTable`, `ExtDType<V>`, `ExtDTypeRef`, `ExtDTypeInner`,
+The reference implementation. `ExtVTable`, `ExtDType<V>`, `ExtDTypeRef`, `ExtDTypeAdapter`,
 `DynExtDType`, and `ExtDTypePlugin` are all in place. Naming needs to be updated to match the
-conventions above (e.g. `ExtVTable` → `ExtDTypeVTable`, `ExtDTypeImpl` → `DynExtDType`,
-`ExtDTypeAdapter` → `ExtDTypeInner`, `DynExtVTable` → `ExtDTypePlugin`).
+conventions above (e.g. `ExtDTypeImpl` → `DynExtDType`, `ExtDTypeAdapter` → `ExtDTypeInner`,
+`DynExtVTable` → `ExtDTypePlugin`).
 `ExtDTypeMetadata` (the erased metadata wrapper) should be removed -- its methods
 (`serialize`, `Display`, `Debug`, `PartialEq`, `Hash`) should move to direct methods
 on `ExtDTypeRef`.
