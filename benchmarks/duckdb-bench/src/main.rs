@@ -145,7 +145,7 @@ fn main() -> anyhow::Result<()> {
                 println!("=== Q{query_idx} [{format}] ===");
                 println!("{query}");
                 println!();
-                let result = ctx.connection.query(&format!("EXPLAIN {query}"))?;
+                let result = ctx.connection().query(&format!("EXPLAIN {query}"))?;
                 for chunk in result {
                     let chunk_str =
                         String::try_from(chunk.deref()).unwrap_or_else(|_| "<error>".to_string());
