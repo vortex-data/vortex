@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use async_trait::async_trait;
 use futures::FutureExt;
@@ -183,6 +184,7 @@ impl VTable for CudaFlatVTable {
             name,
             segment_source,
             session: session.clone(),
+            array: Default::default(),
         }))
     }
 
@@ -229,34 +231,39 @@ pub struct CudaFlatReader {
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
     session: VortexSession,
+    array: OnceLock<SharedArrayFuture>,
 }
 
 impl CudaFlatReader {
     fn array_future(&self) -> SharedArrayFuture {
-        let row_count =
-            usize::try_from(self.layout.row_count).vortex_expect("row count must fit in usize");
+        self.array
+            .get_or_init(|| {
+                let row_count = usize::try_from(self.layout.row_count)
+                    .vortex_expect("row count must fit in usize");
 
-        let segment_fut = self.segment_source.request(self.layout.segment_id);
+                let segment_fut = self.segment_source.request(self.layout.segment_id);
 
-        let ctx = self.layout.ctx.clone();
-        let session = self.session.clone();
-        let dtype = self.layout.dtype.clone();
-        let array_tree = self.layout.array_tree.clone();
-        let host_buffers = self.layout.host_buffers.clone();
+                let ctx = self.layout.ctx.clone();
+                let session = self.session.clone();
+                let dtype = self.layout.dtype.clone();
+                let array_tree = self.layout.array_tree.clone();
+                let host_buffers = self.layout.host_buffers.clone();
 
-        async move {
-            let segment = segment_fut.await?;
-            let parts = ArrayParts::from_flatbuffer_and_segment_with_overrides(
-                array_tree,
-                segment,
-                &host_buffers,
-            )?;
-            parts
-                .decode(&dtype, row_count, &ctx, &session)
-                .map_err(Arc::new)
-        }
-        .boxed()
-        .shared()
+                async move {
+                    let segment = segment_fut.await?;
+                    let parts = ArrayParts::from_flatbuffer_and_segment_with_overrides(
+                        array_tree,
+                        segment,
+                        &host_buffers,
+                    )?;
+                    parts
+                        .decode(&dtype, row_count, &ctx, &session)
+                        .map_err(Arc::new)
+                }
+                .boxed()
+                .shared()
+            })
+            .clone()
     }
 }
 
