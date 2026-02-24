@@ -13,11 +13,11 @@ use futures::future::BoxFuture;
 use futures::try_join;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
-use vortex_array::arrays::SharedArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
@@ -86,6 +86,7 @@ impl DictReader {
         // We capture the name, so it may be wrong if we re-use the same reader within multiple
         // different parent readers. But that's rare...
         let values_len = self.values_len;
+        let session = self.session.clone();
         self.values_array
             .get_or_init(move || {
                 self.values
@@ -98,7 +99,8 @@ impl DictReader {
                     .map_err(Arc::new)
                     .map(move |array| {
                         let array = array?;
-                        Ok(SharedArray::new(array).into_array())
+                        let mut ctx = session.create_execution_ctx();
+                        Ok(array.execute::<Canonical>(&mut ctx)?.into_array())
                     })
                     .boxed()
                     .shared()
@@ -117,13 +119,15 @@ impl DictReader {
             return fut.clone();
         }
 
+        let session = self.session.clone();
         self.values_evals
             .entry(expr.clone())
             .or_insert_with(|| {
                 self.values_array()
                     .map(move |array| {
                         let array = array?.apply(&expr)?;
-                        Ok(SharedArray::new(array).into_array())
+                        let mut ctx = session.create_execution_ctx();
+                        Ok(array.execute::<Canonical>(&mut ctx)?.into_array())
                     })
                     .boxed()
                     .shared()
