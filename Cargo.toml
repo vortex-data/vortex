@@ -113,10 +113,10 @@ clap = "4.5"
 criterion = "0.7"
 crossterm = "0.29"
 cudarc = { version = "0.18.2", features = [
-    # 12.8 matches the CUDA toolkit version pre-installed on the lambda.ai GPU base
-    # image. The version does not have to match exactly. Lower toolkit versions can
-    # be specified if a later toolkit version is installed on the system.
-    "cuda-12080",
+    # The NSight Compute version available on lambda.ai hosts does not inject a symbol for
+    # several functions that cudarc expects to load when this is set to "cuda-12080". We
+    # don't use any CUDA 12.8 specific features currently so this is fine.
+    "cuda-12050",
 ] }
 custom-labels = "0.4.4"
 dashmap = "6.1.0"
