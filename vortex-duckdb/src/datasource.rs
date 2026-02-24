@@ -14,9 +14,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use custom_labels::CURRENT_LABELSET;
-use futures::SinkExt;
 use futures::StreamExt;
-use futures::stream::FuturesUnordered;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex::VortexSessionDefault;
@@ -39,8 +37,8 @@ use vortex::expr::col;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::expr::stats::Precision;
+use vortex::io::kanal_ext::KanalExt;
 use vortex::io::runtime::BlockingRuntime;
-use vortex::io::runtime::Task;
 use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scan::api::DataSourceRef;
@@ -226,68 +224,50 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         };
 
         let scan = RUNTIME.block_on(bind_data.data_source.scan(request))?;
-        let handle = RUNTIME.handle();
 
         let num_workers = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
 
-        // Create a result channel so all workers can return whatever the next chunk is regardless
-        // of which partition it came from.
-        let (tx, rx) = futures::channel::mpsc::channel(num_workers * 2);
+        // We create an async bounded channel so that all thread-local workers can pull the next
+        // available array chunk regardless of which partition it came from.
+        let (tx, rx) = kanal::bounded_async(num_workers * 2);
 
-        // We want to drive `num_workers` partitions concurrently, and ensure we have the same
-        // number ready to go as soon as one finishes, so we spawn up to `num_workers * 2` tasks.
+        // We drive one partition per worker thread. Each partition is driven as a spawned task
+        // that pushes array chunks into the shared channel as they are produced. This spawning
+        // allows all worker threads to drive the polling of all partitions, and then return the
+        // first available array chunk.
         let stream = scan
             .partitions()
-            // We spawn the partition execution on the CPU runtime in case it does anything
-            // expensive.
-            .map(|partition| RUNTIME.handle().spawn_cpu(move || partition?.execute()))
-            // We then buffer `num_workers` partitions so that we make sure we have this many
-            // partitions open in the background.
-            .buffer_unordered(num_workers)
-            // For each partition stream, we spawn a task that drives it and sends the resulting arrays through a channel to the local scan tasks. We clone the conversion cache for each partition task so that they can populate it in parallel.
-            .map(move |stream| {
+            .map(move |partition| {
                 // We create a new conversion cache scoped to the partition, since there's no point
                 // caching anything across partitions.
-                let conversion_cache = Arc::new(ConversionCache::default());
-                let mut tx = tx.clone();
-                handle.spawn(async move {
-                    match stream {
-                        Ok(mut stream) => {
-                            while let Some(array) = stream.next().await {
-                                if tx
-                                    .send(array.map(|a| (a, conversion_cache.clone())))
-                                    .await
-                                    .is_err()
-                                {
-                                    // If the receiver is dropped, we can stop processing and exit the task.
-                                    break;
-                                };
-                            }
-                        }
+                let cache = Arc::new(ConversionCache::default());
+                let tx = tx.clone();
+
+                RUNTIME.handle().spawn(async move {
+                    let mut stream = match partition.and_then(|p| p.execute()) {
+                        Ok(s) => s,
                         Err(e) => {
-                            // If we fail to execute the partition, we send the error through the channel and exit the task.
                             let _ = tx.send(Err(e)).await;
+                            return;
+                        }
+                    };
+                    while let Some(item) = stream.next().await {
+                        if tx.send(item.map(|a| (a, cache.clone()))).await.is_err() {
+                            // Exit early if the receiver has been dropped, which happens when the
+                            // scan is complete or if an error has occurred in another partition.
+                            return;
                         }
                     }
                 })
             })
-            .buffer_unordered(num_workers)
-            .boxed();
+            .buffer_unordered(num_workers);
 
-        // Spawn the stream to completion while works await on the rx channel.
-        RUNTIME
-            .handle()
-            .spawn(async move {
-                stream.collect::<()>().await;
-            })
-            .detach();
+        // Spawn a task to drive the partition stream and push array chunks into the channel.
+        RUNTIME.handle().spawn(stream.collect::<()>()).detach();
 
-        // Spawn a task per partition so that multiple executor threads can drive different
-        // partitions simultaneously, rather than funnelling all polling through a single
-        // stream-driving task.
-        let iterator = RUNTIME.block_on_stream_thread_safe(|_handle| rx);
+        let iterator = RUNTIME.block_on_stream_thread_safe(|_handle| rx.into_stream());
 
         Ok(DataSourceGlobal {
             iterator,
