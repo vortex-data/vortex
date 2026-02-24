@@ -162,11 +162,11 @@ pub struct vortex_scan::multi::MultiLayoutDataSource
 
 impl vortex_scan::multi::MultiLayoutDataSource
 
-pub fn vortex_scan::multi::MultiLayoutDataSource::all_deferred(dtype: vortex_array::dtype::DType, factories: alloc::vec::Vec<alloc::sync::Arc<dyn vortex_scan::multi::LayoutReaderFactory>>, session: &vortex_session::VortexSession) -> Self
+pub fn vortex_scan::multi::MultiLayoutDataSource::new_deferred(dtype: vortex_array::dtype::DType, factories: alloc::vec::Vec<alloc::sync::Arc<dyn vortex_scan::multi::LayoutReaderFactory>>, session: &vortex_session::VortexSession) -> Self
+
+pub fn vortex_scan::multi::MultiLayoutDataSource::new_with_first(first: vortex_layout::reader::LayoutReaderRef, remaining: alloc::vec::Vec<alloc::sync::Arc<dyn vortex_scan::multi::LayoutReaderFactory>>, session: &vortex_session::VortexSession) -> Self
 
 pub fn vortex_scan::multi::MultiLayoutDataSource::with_concurrency(self, concurrency: usize) -> Self
-
-pub fn vortex_scan::multi::MultiLayoutDataSource::with_first(first: vortex_layout::reader::LayoutReaderRef, remaining: alloc::vec::Vec<alloc::sync::Arc<dyn vortex_scan::multi::LayoutReaderFactory>>, session: &vortex_session::VortexSession) -> Self
 
 impl vortex_scan::api::DataSource for vortex_scan::multi::MultiLayoutDataSource
 
