@@ -130,6 +130,7 @@ impl VTable for DictVTable {
             .map_err(|_| vortex_err!("Failed to convert children to array"))?;
         array.codes = codes;
         array.values = values;
+        array.cached_validity = std::sync::OnceLock::new();
         Ok(())
     }
 

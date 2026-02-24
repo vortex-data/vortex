@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::OnceLock;
+
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -14,6 +16,7 @@ use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
+use crate::validity::Validity;
 
 #[derive(Clone, prost::Message)]
 pub struct DictMetadata {
@@ -43,6 +46,7 @@ pub struct DictArray {
     /// In case this is incorrect never use this to enable memory unsafe behaviour just semantically
     /// incorrect behaviour.
     pub(super) all_values_referenced: bool,
+    pub(super) cached_validity: OnceLock<Validity>,
 }
 
 pub struct DictArrayParts {
@@ -68,6 +72,7 @@ impl DictArray {
             stats_set: Default::default(),
             dtype,
             all_values_referenced: false,
+            cached_validity: OnceLock::new(),
         }
     }
 

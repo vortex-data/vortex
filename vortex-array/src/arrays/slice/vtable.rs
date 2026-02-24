@@ -92,6 +92,7 @@ impl VTable for SliceVTable {
             child,
             range: metadata.0.clone(),
             stats: Default::default(),
+            cached_validity: std::sync::OnceLock::new(),
         })
     }
 
@@ -105,6 +106,7 @@ impl VTable for SliceVTable {
             .into_iter()
             .next()
             .vortex_expect("children length already validated");
+        array.cached_validity = std::sync::OnceLock::new();
         Ok(())
     }
 
@@ -166,7 +168,11 @@ impl OperationsVTable<SliceVTable> for SliceVTable {
 
 impl ValidityVTable<SliceVTable> for SliceVTable {
     fn validity(array: &SliceArray) -> VortexResult<Validity> {
-        array.child.validity()?.slice(array.range.clone())
+        if let Some(v) = array.cached_validity.get() {
+            return Ok(v.clone());
+        }
+        let validity = array.child.validity()?.slice(array.range.clone())?;
+        Ok(array.cached_validity.get_or_init(|| validity).clone())
     }
 }
 

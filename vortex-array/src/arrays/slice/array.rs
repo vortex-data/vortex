@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ops::Range;
+use std::sync::OnceLock;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -9,12 +10,14 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::stats::ArrayStats;
+use crate::validity::Validity;
 
 #[derive(Clone, Debug)]
 pub struct SliceArray {
     pub(super) child: ArrayRef,
     pub(super) range: Range<usize>,
     pub(super) stats: ArrayStats,
+    pub(super) cached_validity: OnceLock<Validity>,
 }
 
 pub struct SliceArrayParts {
@@ -35,6 +38,7 @@ impl SliceArray {
             child,
             range,
             stats: ArrayStats::default(),
+            cached_validity: OnceLock::new(),
         })
     }
 
