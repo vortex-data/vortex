@@ -14,8 +14,9 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use custom_labels::CURRENT_LABELSET;
+use futures::SinkExt;
 use futures::StreamExt;
-use futures::TryStreamExt;
+use futures::stream::FuturesUnordered;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex::VortexSessionDefault;
@@ -39,6 +40,7 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::expr::stats::Precision;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::io::runtime::Task;
 use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scan::api::DataSourceRef;
@@ -224,26 +226,68 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         };
 
         let scan = RUNTIME.block_on(bind_data.data_source.scan(request))?;
-        let conversion_cache = Arc::new(ConversionCache::new(0));
+        let handle = RUNTIME.handle();
 
         let num_workers = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
 
-        // Each split.execute() returns a lazy stream whose early polls do preparation
-        // work (expression resolution, layout traversal, first I/O spawns). We use
-        // try_flatten_unordered to poll multiple split streams concurrently so that
-        // the next split is already warm when the current one finishes.
-        let scan_streams = scan.partitions().map(move |split_result| {
-            let cache = conversion_cache.clone();
-            let split = split_result?;
-            let s = split.execute()?;
-            VortexResult::Ok(s.map(move |r| Ok((r?, cache.clone()))).boxed())
-        });
+        // Create a result channel so all workers can return whatever the next chunk is regardless
+        // of which partition it came from.
+        let (tx, rx) = futures::channel::mpsc::channel(num_workers * 2);
 
-        let iterator = RUNTIME.block_on_stream_thread_safe(move |_| {
-            scan_streams.try_flatten_unordered(Some(num_workers * 2))
-        });
+        // We want to drive `num_workers` partitions concurrently, and ensure we have the same
+        // number ready to go as soon as one finishes, so we spawn up to `num_workers * 2` tasks.
+        let stream = scan
+            .partitions()
+            // We spawn the partition execution on the CPU runtime in case it does anything
+            // expensive.
+            .map(|partition| RUNTIME.handle().spawn_cpu(move || partition?.execute()))
+            // We then buffer `num_workers` partitions so that we make sure we have this many
+            // partitions open in the background.
+            .buffer_unordered(num_workers)
+            // For each partition stream, we spawn a task that drives it and sends the resulting arrays through a channel to the local scan tasks. We clone the conversion cache for each partition task so that they can populate it in parallel.
+            .map(move |stream| {
+                // We create a new conversion cache scoped to the partition, since there's no point
+                // caching anything across partitions.
+                let conversion_cache = Arc::new(ConversionCache::default());
+                let mut tx = tx.clone();
+                handle.spawn(async move {
+                    match stream {
+                        Ok(mut stream) => {
+                            while let Some(array) = stream.next().await {
+                                if tx
+                                    .send(array.map(|a| (a, conversion_cache.clone())))
+                                    .await
+                                    .is_err()
+                                {
+                                    // If the receiver is dropped, we can stop processing and exit the task.
+                                    break;
+                                };
+                            }
+                        }
+                        Err(e) => {
+                            // If we fail to execute the partition, we send the error through the channel and exit the task.
+                            let _ = tx.send(Err(e)).await;
+                        }
+                    }
+                })
+            })
+            .buffer_unordered(num_workers)
+            .boxed();
+
+        // Spawn the stream to completion while works await on the rx channel.
+        RUNTIME
+            .handle()
+            .spawn(async move {
+                stream.collect::<()>().await;
+            })
+            .detach();
+
+        // Spawn a task per partition so that multiple executor threads can drive different
+        // partitions simultaneously, rather than funnelling all polling through a single
+        // stream-driving task.
+        let iterator = RUNTIME.block_on_stream_thread_safe(|_handle| rx);
 
         Ok(DataSourceGlobal {
             iterator,
