@@ -218,7 +218,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         );
 
         let request = ScanRequest {
-            projection: Some(projection_expr),
+            projection: projection_expr,
             filter: filter_expr,
             ..Default::default()
         };

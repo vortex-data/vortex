@@ -10,7 +10,7 @@ pub vortex_scan::api::ScanRequest::limit: core::option::Option<u64>
 
 pub vortex_scan::api::ScanRequest::ordered: bool
 
-pub vortex_scan::api::ScanRequest::projection: core::option::Option<vortex_array::expr::expression::Expression>
+pub vortex_scan::api::ScanRequest::projection: vortex_array::expr::expression::Expression
 
 pub vortex_scan::api::ScanRequest::row_range: core::option::Option<core::ops::range::Range<u64>>
 
