@@ -111,7 +111,7 @@ All four vtable-backed types are converging on the pattern described above.
 
 ### ExtDType -- Done
 
-The reference implementation. `ExtDTypeVTable`, `ExtDType<V>`, `ExtDTypeRef`, `ExtDTypeAdapter`,
+The reference implementation. `ExtVTable`, `ExtDType<V>`, `ExtDTypeRef`, `ExtDTypeAdapter`,
 `DynExtDType`, and `ExtDTypePlugin` are all in place. Naming needs to be updated to match the
 conventions above (e.g. `ExtVTable` → `ExtDTypeVTable`, `ExtDTypeImpl` → `DynExtDType`,
 `DynExtVTable` → `ExtDTypePlugin`).
