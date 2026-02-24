@@ -44,7 +44,7 @@ use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 
 mod lazy_null_builder;
-pub(crate) use lazy_null_builder::LazyBitBufferBuilder;
+pub use lazy_null_builder::LazyBitBufferBuilder;
 
 mod bool;
 mod decimal;

@@ -118,6 +118,97 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         self.values.extend(iter);
         self.nulls.append_validity_mask(mask);
     }
+
+    /// Returns a mutable slice of the initialized values in this builder.
+    pub fn values_mut(&mut self) -> &mut [T] {
+        self.values.as_mut_slice()
+    }
+
+    /// Temporarily detaches the nulls buffer, making this builder non-nullable
+    /// for the duration of the closure.
+    ///
+    /// The closure receives:
+    /// - `&mut self` with dtype changed to non-nullable and nulls swapped out
+    /// - The detached [`LazyBitBufferBuilder`] for managing validity separately
+    ///
+    /// After the closure returns, the original nullability and nulls are restored.
+    pub fn as_values_and_nulls<R>(
+        &mut self,
+        f: impl FnOnce(&mut Self, &mut LazyBitBufferBuilder) -> R,
+    ) -> R {
+        let original_dtype = self.dtype.clone();
+
+        // Make the builder non-nullable.
+        self.dtype = DType::Primitive(T::PTYPE, Nullability::NonNullable);
+
+        // Swap nulls out.
+        let mut nulls = LazyBitBufferBuilder::new(0);
+        std::mem::swap(&mut self.nulls, &mut nulls);
+
+        let result = f(self, &mut nulls);
+
+        // Restore dtype and nulls.
+        self.dtype = original_dtype;
+        std::mem::swap(&mut self.nulls, &mut nulls);
+
+        result
+    }
+
+    /// Temporarily transmutes the values buffer from `T` to `U` and runs a
+    /// closure with a `PrimitiveBuilder<U>`.
+    ///
+    /// The temporary builder preserves this builder's nullability, and the nulls
+    /// buffer is moved into it for the duration of the closure.
+    ///
+    /// After the closure returns, values are transmuted back to `T` and the
+    /// nulls buffer is restored.
+    ///
+    /// # Safety
+    ///
+    /// - `T` and `U` must have the same size and alignment.
+    /// - After this call, any newly appended values contain `U` bit patterns.
+    ///   The caller must ensure these are valid `T` bit patterns before reading
+    ///   them as `T`.
+    pub unsafe fn as_transmuted<U: NativePType, R>(
+        &mut self,
+        f: impl FnOnce(&mut PrimitiveBuilder<U>) -> R,
+    ) -> R {
+        assert_eq!(
+            size_of::<T>(),
+            size_of::<U>(),
+            "T and U must have the same size"
+        );
+        assert_eq!(
+            align_of::<T>(),
+            align_of::<U>(),
+            "T and U must have the same alignment"
+        );
+
+        let values = std::mem::take(&mut self.values);
+        // SAFETY: We have verified that T and U have the same size and alignment.
+        let retyped_values: BufferMut<U> = unsafe { values.transmute() };
+
+        // Swap nulls into the temp builder so it inherits our validity state.
+        let mut nulls = LazyBitBufferBuilder::new(0);
+        std::mem::swap(&mut self.nulls, &mut nulls);
+
+        let mut temp_builder = PrimitiveBuilder {
+            dtype: DType::Primitive(U::PTYPE, self.dtype.nullability()),
+            values: retyped_values,
+            nulls,
+        };
+
+        let result = f(&mut temp_builder);
+
+        // Restore values (transmute back to T).
+        // SAFETY: Same size/alignment guarantee as above.
+        self.values = unsafe { std::mem::take(&mut temp_builder.values).transmute() };
+
+        // Restore nulls.
+        std::mem::swap(&mut self.nulls, &mut temp_builder.nulls);
+
+        result
+    }
 }
 
 impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {

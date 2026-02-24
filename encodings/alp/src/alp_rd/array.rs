@@ -17,6 +17,8 @@ use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -35,6 +37,7 @@ use vortex_array::vtable::patches_child;
 use vortex_array::vtable::patches_child_name;
 use vortex_array::vtable::patches_nchildren;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -43,6 +46,8 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
+use crate::ALPRDFloat;
+use crate::alp_rd::alp_rd_decode_inplace;
 use crate::alp_rd::kernel::PARENT_KERNELS;
 use crate::alp_rd::rules::RULES;
 use crate::alp_rd_decode;
@@ -295,6 +300,18 @@ impl VTable for ALPRDVTable {
         Ok(())
     }
 
+    fn append_to_builder(
+        array: &Self::Array,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if array.is_f32() {
+            append_to_builder_typed::<f32>(array, builder, ctx)
+        } else {
+            append_to_builder_typed::<f64>(array, builder, ctx)
+        }
+    }
+
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let left_parts = array.left_parts().clone().execute::<PrimitiveArray>(ctx)?;
         let right_parts = array.right_parts().clone().execute::<PrimitiveArray>(ctx)?;
@@ -353,6 +370,58 @@ impl VTable for ALPRDVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
+}
+
+fn append_to_builder_typed<T: ALPRDFloat>(
+    array: &ALPRDArray,
+    builder: &mut dyn ArrayBuilder,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let left_parts = array.left_parts().clone().execute::<PrimitiveArray>(ctx)?;
+    let validity = array
+        .left_parts()
+        .validity()?
+        .to_array(array.len())
+        .execute::<Mask>(ctx)?;
+
+    let builder: &mut PrimitiveBuilder<T> = builder
+        .as_any_mut()
+        .downcast_mut()
+        .vortex_expect("ALPRD array must canonicalize into a primitive array");
+
+    let cursor = builder.len();
+    let n = array.len();
+    builder.reserve_exact(n);
+
+    builder.as_values_and_nulls(|non_nullable_builder, nulls| -> VortexResult<()> {
+        // SAFETY: T and T::UINT have the same size/alignment (f32↔u32, f64↔u64).
+        unsafe {
+            non_nullable_builder.as_transmuted::<T::UINT, VortexResult<()>>(|uint_builder| {
+                // BitPacked can downcast uint_builder to PrimitiveBuilder<T::UINT>.
+                array.right_parts().append_to_builder(uint_builder, ctx)?;
+
+                // Decode in-place: combine left+right bits.
+                let right_parts_slice = &mut uint_builder.values_mut()[cursor..cursor + n];
+                alp_rd_decode_inplace::<T>(
+                    left_parts.into_buffer::<u16>(),
+                    array.left_parts_dictionary(),
+                    array.right_bit_width,
+                    right_parts_slice,
+                    array.left_parts_patches(),
+                    ctx,
+                )?;
+
+                Ok(())
+            })?;
+        }
+
+        // Set the correct validity from left_parts.
+        nulls.append_validity_mask(validity);
+
+        Ok(())
+    })?;
+
+    Ok(())
 }
 
 #[derive(Clone, Debug)]

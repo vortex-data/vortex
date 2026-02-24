@@ -294,13 +294,46 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     left_parts: Buffer<u16>,
     left_parts_dict: &[u16],
     right_bit_width: u8,
-    right_parts: BufferMut<T::UINT>,
+    mut right_parts: BufferMut<T::UINT>,
     left_parts_patches: Option<&Patches>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Buffer<T>> {
-    if left_parts.len() != right_parts.len() {
-        vortex_panic!("alp_rd_decode: left_parts.len != right_parts.len");
-    }
+    alp_rd_decode_inplace::<T>(
+        left_parts,
+        left_parts_dict,
+        right_bit_width,
+        right_parts.as_mut_slice(),
+        left_parts_patches,
+        ctx,
+    )?;
+
+    // SAFETY: alp_rd_decode_inplace combined left+right bits in-place.
+    // The buffer now contains valid T bit patterns stored as T::UINT.
+    Ok(unsafe { right_parts.transmute::<T>() }.freeze())
+}
+
+/// Decode ALP-RD encoded values in-place into a mutable slice of right parts.
+///
+/// After this function returns, `right_parts` contains valid `T` bit patterns
+/// (stored as `T::UINT`). Each element is the combination of the dictionary-decoded
+/// left part shifted left by `right_bit_width` bits, OR'd with the original right part.
+///
+/// # Panics
+///
+/// Panics if `left_parts.len() != right_parts.len()`.
+pub fn alp_rd_decode_inplace<T: ALPRDFloat>(
+    left_parts: Buffer<u16>,
+    left_parts_dict: &[u16],
+    right_bit_width: u8,
+    right_parts: &mut [T::UINT],
+    left_parts_patches: Option<&Patches>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    assert_eq!(
+        left_parts.len(),
+        right_parts.len(),
+        "alp_rd_decode_inplace: left_parts.len != right_parts.len"
+    );
 
     // Decode the left-parts dictionary
     let mut values = BufferMut::<u16>::from_iter(
@@ -316,13 +349,13 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
         alp_rd_apply_patches(&mut values, &indices, &patch_values, patches.offset());
     }
 
-    // Shift the left-parts and add in the right-parts.
-    Ok(alp_rd_decode_core(
-        left_parts_dict,
-        right_bit_width,
-        right_parts,
-        values,
-    ))
+    // Combine left + right in-place: *right = (left << rbw) | *right
+    for (right, left) in right_parts.iter_mut().zip(values.iter()) {
+        let left_uint = <T as ALPRDFloat>::from_u16(*left);
+        *right = (left_uint << (right_bit_width as usize)) | *right;
+    }
+
+    Ok(())
 }
 
 /// Apply patches to the decoded left-parts values.
@@ -341,25 +374,6 @@ fn alp_rd_apply_patches(
             .zip(patch_values.as_slice::<u16>().iter())
             .for_each(|(idx, v)| values[idx as usize] = *v);
     })
-}
-
-/// Core decode logic shared between `alp_rd_decode` and `execute_alp_rd_decode`.
-fn alp_rd_decode_core<T: ALPRDFloat>(
-    _left_parts_dict: &[u16],
-    right_bit_width: u8,
-    right_parts: BufferMut<T::UINT>,
-    values: BufferMut<u16>,
-) -> Buffer<T> {
-    // Shift the left-parts and add in the right-parts.
-    let mut index = 0;
-    right_parts
-        .map_each_in_place(|right| {
-            let left = values[index];
-            index += 1;
-            let left = <T as ALPRDFloat>::from_u16(left);
-            T::from_bits((left << (right_bit_width as usize)) | right)
-        })
-        .freeze()
 }
 
 /// Find the best "cut point" for a set of floating point values such that we can

@@ -31,6 +31,10 @@ impl LazyBitBufferBuilder {
         }
     }
 
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
     /// Appends `n` non-null values to the builder.
     #[inline]
     pub fn append_n_non_nulls(&mut self, n: usize) {
@@ -103,6 +107,11 @@ impl LazyBitBufferBuilder {
     pub fn len(&self) -> usize {
         // self.len is the length of the builder if the inner buffer is not materialized
         self.inner.as_ref().map(|i| i.len()).unwrap_or(self.len)
+    }
+
+    /// Returns true if this builder contains no bits.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     fn finish(&mut self) -> Option<BitBuffer> {
