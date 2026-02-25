@@ -20,9 +20,9 @@ use crate::dtype::Nullability;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
-use crate::dtype::extension::Matcher;
 use crate::dtype::extension::typed::DynExtDType;
 use crate::dtype::extension::typed::ExtDTypeInner;
+use crate::matcher::Matcher;
 
 /// A type-erased extension dtype.
 ///

@@ -20,6 +20,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::dtype::DType;
 use crate::matcher::Matcher;
+use crate::matcher::MatcherType;
 use crate::scalar::Scalar;
 
 /// Represents a columnnar array of data, either in canonical form or as a constant array.
@@ -125,9 +126,12 @@ impl<'a> AsRef<dyn Array> for ColumnarView<'a> {
 }
 
 pub struct AnyColumnar;
-impl Matcher for AnyColumnar {
-    type Match<'a> = ColumnarView<'a>;
 
+impl MatcherType<dyn Array> for AnyColumnar {
+    type Match<'a> = ColumnarView<'a>;
+}
+
+impl Matcher<dyn Array> for AnyColumnar {
     fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
         if let Some(constant) = array.as_opt::<ConstantVTable>() {
             Some(ColumnarView::Constant(constant))

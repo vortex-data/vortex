@@ -12,12 +12,13 @@ pub use array::*;
 use vortex_error::VortexResult;
 pub use vtable::*;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::kernel::ExecuteParentKernel;
-use crate::matcher::Matcher;
+use crate::matcher::MatcherType;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::vtable::VTable;
 
@@ -76,7 +77,7 @@ where
     fn reduce_parent(
         &self,
         array: &V::Array,
-        parent: <Self::Parent as Matcher>::Match<'_>,
+        parent: <Self::Parent as MatcherType<dyn Array>>::Match<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         assert_eq!(child_idx, 0);
@@ -99,7 +100,7 @@ where
     fn execute_parent(
         &self,
         array: &V::Array,
-        parent: <Self::Parent as Matcher>::Match<'_>,
+        parent: <Self::Parent as MatcherType<dyn Array>>::Match<'_>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

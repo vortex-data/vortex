@@ -3,6 +3,7 @@
 
 use vortex_error::VortexResult;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::ExactScalarFn;
@@ -10,7 +11,7 @@ use crate::arrays::ScalarFnArrayView;
 use crate::dtype::DType;
 use crate::expr::Cast;
 use crate::kernel::ExecuteParentKernel;
-use crate::matcher::Matcher;
+use crate::matcher::MatcherType;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::vtable::VTable;
 
@@ -76,7 +77,7 @@ where
     fn execute_parent(
         &self,
         array: &V::Array,
-        parent: <Self::Parent as Matcher>::Match<'_>,
+        parent: <Self::Parent as MatcherType<dyn Array>>::Match<'_>,
         _child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

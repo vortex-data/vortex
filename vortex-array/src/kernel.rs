@@ -7,9 +7,11 @@ use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::matcher::Matcher;
+use crate::matcher::MatcherType;
 use crate::vtable::VTable;
 
 pub struct ParentKernelSet<V: VTable> {
@@ -59,13 +61,13 @@ impl<V: VTable> ParentKernelSet<V> {
 }
 
 pub trait ExecuteParentKernel<V: VTable>: Debug + Send + Sync + 'static {
-    type Parent: Matcher;
+    type Parent: Matcher<dyn Array>;
 
     /// Attempt to execute the parent array fused with the child array.
     fn execute_parent(
         &self,
         array: &V::Array,
-        parent: <Self::Parent as Matcher>::Match<'_>,
+        parent: <Self::Parent as MatcherType<dyn Array>>::Match<'_>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;

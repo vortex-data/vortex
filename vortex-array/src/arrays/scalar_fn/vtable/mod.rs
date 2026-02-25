@@ -39,6 +39,7 @@ use crate::expr::Expression;
 use crate::expr::ScalarFn;
 use crate::expr::VTableExt;
 use crate::matcher::Matcher;
+use crate::matcher::MatcherType;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -185,9 +186,12 @@ impl<V: expr::VTable> ScalarFnArrayExt for V {}
 /// A matcher that matches any scalar function expression.
 #[derive(Debug)]
 pub struct AnyScalarFn;
-impl Matcher for AnyScalarFn {
-    type Match<'a> = &'a ScalarFnArray;
 
+impl MatcherType<dyn Array> for AnyScalarFn {
+    type Match<'a> = &'a ScalarFnArray;
+}
+
+impl Matcher<dyn Array> for AnyScalarFn {
     fn try_match(array: &dyn Array) -> Option<Self::Match<'_>> {
         array.as_opt::<ScalarFnVTable>()
     }
@@ -197,9 +201,11 @@ impl Matcher for AnyScalarFn {
 #[derive(Debug, Default)]
 pub struct ExactScalarFn<F: expr::VTable>(PhantomData<F>);
 
-impl<F: expr::VTable> Matcher for ExactScalarFn<F> {
+impl<F: expr::VTable> MatcherType<dyn Array> for ExactScalarFn<F> {
     type Match<'a> = ScalarFnArrayView<'a, F>;
+}
 
+impl<F: expr::VTable> Matcher<dyn Array> for ExactScalarFn<F> {
     fn matches(array: &dyn Array) -> bool {
         if let Some(scalar_fn_array) = array.as_opt::<ScalarFnVTable>() {
             scalar_fn_array.scalar_fn().is::<F>()

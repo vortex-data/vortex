@@ -8,17 +8,17 @@ use vortex_error::VortexResult;
 
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtVTable;
-use crate::dtype::extension::Matcher;
-use crate::dtype::extension::MatcherType;
 use crate::extension::datetime::Date;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
+use crate::matcher::Matcher;
+use crate::matcher::MatcherType;
 
 /// Matcher for temporal extension data types.
 pub struct AnyTemporal;
 
-impl MatcherType for AnyTemporal {
+impl MatcherType<ExtDTypeRef> for AnyTemporal {
     type Match<'a> = TemporalMetadata<'a>;
 }
 

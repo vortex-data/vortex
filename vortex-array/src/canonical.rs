@@ -47,6 +47,7 @@ use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::matcher::Matcher;
+use crate::matcher::MatcherType;
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
 ///
@@ -871,9 +872,12 @@ impl AsRef<dyn Array> for CanonicalView<'_> {
 
 /// A matcher for any canonical array type.
 pub struct AnyCanonical;
-impl Matcher for AnyCanonical {
-    type Match<'a> = CanonicalView<'a>;
 
+impl MatcherType<dyn Array> for AnyCanonical {
+    type Match<'a> = CanonicalView<'a>;
+}
+
+impl Matcher<dyn Array> for AnyCanonical {
     fn matches(array: &dyn Array) -> bool {
         array.is::<NullVTable>()
             || array.is::<BoolVTable>()

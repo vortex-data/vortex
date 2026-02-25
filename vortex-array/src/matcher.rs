@@ -3,26 +3,35 @@
 
 use crate::Array;
 
-/// Trait for matching array types.
-pub trait Matcher {
+/// A super trait that allows us to define a generic associated type on `Matcher`.
+///
+/// We need to do this in this manner because of rust needs to keep forward compatibility.
+/// See [this](https://github.com/rust-lang/rust/issues/87479) GitHub issue for more information.
+pub trait MatcherType<Over: ?Sized> {
+    /// The matched view type.
     type Match<'a>;
+}
 
-    /// Check if the given array matches this matcher type
-    fn matches(array: &dyn Array) -> bool {
-        Self::try_match(array).is_some()
+/// A trait for matching types.
+pub trait Matcher<Over: ?Sized>: MatcherType<Over> {
+    /// Check if the given item matches this matcher.
+    fn matches(item: &Over) -> bool {
+        Self::try_match(item).is_some()
     }
 
-    /// Try to match the given array, returning the matched view type if successful.
-    fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>>;
+    /// Try to match the given item, returning the matched type if successful.
+    fn try_match<'a>(item: &'a Over) -> Option<Self::Match<'a>>;
 }
 
 /// Matches any array type (wildcard matcher)
 #[derive(Debug)]
 pub struct AnyArray;
 
-impl Matcher for AnyArray {
+impl MatcherType<dyn Array> for AnyArray {
     type Match<'a> = &'a dyn Array;
+}
 
+impl Matcher<dyn Array> for AnyArray {
     #[inline(always)]
     fn matches(_array: &dyn Array) -> bool {
         true

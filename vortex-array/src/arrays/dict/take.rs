@@ -16,7 +16,7 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::expr::stats::StatsProviderExt;
 use crate::kernel::ExecuteParentKernel;
-use crate::matcher::Matcher;
+use crate::matcher::MatcherType;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
 use crate::stats::StatsSet;
@@ -118,7 +118,7 @@ where
     fn execute_parent(
         &self,
         array: &V::Array,
-        parent: <Self::Parent as Matcher>::Match<'_>,
+        parent: <Self::Parent as MatcherType<dyn Array>>::Match<'_>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

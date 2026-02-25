@@ -26,8 +26,6 @@ mod erased;
 pub use erased::ExtDTypeRef;
 
 mod matcher;
-pub use matcher::Matcher;
-pub use matcher::MatcherType;
 
 /// A unique identifier for an extension type
 pub type ExtId = arcref::ArcRef<str>;

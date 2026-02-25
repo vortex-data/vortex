@@ -7,8 +7,10 @@ use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
 
+use crate::Array;
 use crate::array::ArrayRef;
 use crate::matcher::Matcher;
+use crate::matcher::MatcherType;
 use crate::vtable::VTable;
 
 /// A rewrite rule that transforms arrays based on their own content
@@ -24,7 +26,7 @@ pub trait ArrayReduceRule<V: VTable>: Debug + Send + Sync + 'static {
 
 /// A rewrite rule that transforms arrays based on parent context
 pub trait ArrayParentReduceRule<V: VTable>: Debug + Send + Sync + 'static {
-    type Parent: Matcher;
+    type Parent: Matcher<dyn Array>;
 
     /// Attempt to rewrite this child array given information about its parent.
     ///
@@ -35,7 +37,7 @@ pub trait ArrayParentReduceRule<V: VTable>: Debug + Send + Sync + 'static {
     fn reduce_parent(
         &self,
         array: &V::Array,
-        parent: <Self::Parent as Matcher>::Match<'_>,
+        parent: <Self::Parent as MatcherType<dyn Array>>::Match<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
 }
