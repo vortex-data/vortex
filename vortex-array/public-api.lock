@@ -316,11 +316,13 @@ impl core::fmt::Debug for vortex_array::arrays::AnyScalarFn
 
 pub fn vortex_array::arrays::AnyScalarFn::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl vortex_array::matcher::Matcher for vortex_array::arrays::AnyScalarFn
-
-pub type vortex_array::arrays::AnyScalarFn::Match<'a> = &'a vortex_array::arrays::ScalarFnArray
+impl vortex_array::matcher::Matcher<dyn vortex_array::Array> for vortex_array::arrays::AnyScalarFn
 
 pub fn vortex_array::arrays::AnyScalarFn::try_match(array: &dyn vortex_array::Array) -> core::option::Option<Self::Match>
+
+impl vortex_array::matcher::MatcherType<dyn vortex_array::Array> for vortex_array::arrays::AnyScalarFn
+
+pub type vortex_array::arrays::AnyScalarFn::Match<'a> = &'a vortex_array::arrays::ScalarFnArray
 
 pub struct vortex_array::arrays::BoolArray
 
@@ -1310,13 +1312,15 @@ impl<F: core::fmt::Debug + vortex_array::expr::VTable> core::fmt::Debug for vort
 
 pub fn vortex_array::arrays::ExactScalarFn<F>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl<F: vortex_array::expr::VTable> vortex_array::matcher::Matcher for vortex_array::arrays::ExactScalarFn<F>
-
-pub type vortex_array::arrays::ExactScalarFn<F>::Match<'a> = vortex_array::arrays::ScalarFnArrayView<'a, F>
+impl<F: vortex_array::expr::VTable> vortex_array::matcher::Matcher<dyn vortex_array::Array> for vortex_array::arrays::ExactScalarFn<F>
 
 pub fn vortex_array::arrays::ExactScalarFn<F>::matches(array: &dyn vortex_array::Array) -> bool
 
 pub fn vortex_array::arrays::ExactScalarFn<F>::try_match(array: &dyn vortex_array::Array) -> core::option::Option<Self::Match>
+
+impl<F: vortex_array::expr::VTable> vortex_array::matcher::MatcherType<dyn vortex_array::Array> for vortex_array::arrays::ExactScalarFn<F>
+
+pub type vortex_array::arrays::ExactScalarFn<F>::Match<'a> = vortex_array::arrays::ScalarFnArrayView<'a, F>
 
 pub struct vortex_array::arrays::ExtensionArray
 
@@ -1550,7 +1554,7 @@ impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::arrays::F
 
 pub type vortex_array::arrays::FilterExecuteAdaptor<V>::Parent = vortex_array::arrays::FilterVTable
 
-pub fn vortex_array::arrays::FilterExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::FilterExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::MatcherType<dyn vortex_array::Array>>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub struct vortex_array::arrays::FilterReduceAdaptor<V>(pub V)
 
@@ -3084,7 +3088,7 @@ impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::arrays::S
 
 pub type vortex_array::arrays::SliceExecuteAdaptor<V>::Parent = vortex_array::arrays::SliceVTable
 
-pub fn vortex_array::arrays::SliceExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::SliceExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::MatcherType<dyn vortex_array::Array>>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub struct vortex_array::arrays::SliceMetadata(_)
 
@@ -3106,7 +3110,7 @@ impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_arra
 
 pub type vortex_array::arrays::SliceReduceAdaptor<V>::Parent = vortex_array::arrays::SliceVTable
 
-pub fn vortex_array::arrays::SliceReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::SliceReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::MatcherType<dyn vortex_array::Array>>::Match, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub struct vortex_array::arrays::SliceVTable
 
@@ -3384,7 +3388,7 @@ impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::arrays::T
 
 pub type vortex_array::arrays::TakeExecuteAdaptor<V>::Parent = vortex_array::arrays::DictVTable
 
-pub fn vortex_array::arrays::TakeExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::TakeExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::MatcherType<dyn vortex_array::Array>>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub struct vortex_array::arrays::TakeReduceAdaptor<V>(pub V)
 
@@ -6320,11 +6324,11 @@ impl vortex_array::dtype::extension::ExtDTypeRef
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::downcast<V: vortex_array::dtype::extension::ExtVTable>(self) -> vortex_array::dtype::extension::ExtDType<V>
 
-pub fn vortex_array::dtype::extension::ExtDTypeRef::is<M: vortex_array::dtype::extension::Matcher>(&self) -> bool
+pub fn vortex_array::dtype::extension::ExtDTypeRef::is<M: vortex_array::matcher::Matcher<Self>>(&self) -> bool
 
-pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata<M: vortex_array::dtype::extension::Matcher>(&self) -> <M as vortex_array::dtype::extension::Matcher>::Match
+pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata<M: vortex_array::matcher::Matcher<Self>>(&self) -> <M as vortex_array::matcher::MatcherType>::Match
 
-pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata_opt<M: vortex_array::dtype::extension::Matcher>(&self) -> core::option::Option<<M as vortex_array::dtype::extension::Matcher>::Match>
+pub fn vortex_array::dtype::extension::ExtDTypeRef::metadata_opt<M: vortex_array::matcher::Matcher<Self>>(&self) -> core::option::Option<<M as vortex_array::matcher::MatcherType>::Match>
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::try_downcast<V: vortex_array::dtype::extension::ExtVTable>(self) -> core::result::Result<vortex_array::dtype::extension::ExtDType<V>, vortex_array::dtype::extension::ExtDTypeRef>
 
@@ -6349,6 +6353,14 @@ pub fn vortex_array::dtype::extension::ExtDTypeRef::fmt(&self, f: &mut core::fmt
 impl core::hash::Hash for vortex_array::dtype::extension::ExtDTypeRef
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::hash<H: core::hash::Hasher>(&self, state: &mut H)
+
+impl vortex_array::matcher::Matcher<vortex_array::dtype::extension::ExtDTypeRef> for vortex_array::extension::datetime::AnyTemporal
+
+pub fn vortex_array::extension::datetime::AnyTemporal::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<Self::Match>
+
+impl vortex_array::matcher::MatcherType<vortex_array::dtype::extension::ExtDTypeRef> for vortex_array::extension::datetime::AnyTemporal
+
+pub type vortex_array::extension::datetime::AnyTemporal::Match<'a> = vortex_array::extension::datetime::TemporalMetadata<'a>
 
 pub trait vortex_array::dtype::extension::ExtDTypePlugin: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
 
@@ -6409,28 +6421,6 @@ pub fn vortex_array::extension::datetime::Timestamp::id(&self) -> vortex_array::
 pub fn vortex_array::extension::datetime::Timestamp::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
 pub fn vortex_array::extension::datetime::Timestamp::validate_dtype(&self, _metadata: &Self::Metadata, storage_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
-
-pub trait vortex_array::dtype::extension::Matcher
-
-pub type vortex_array::dtype::extension::Matcher::Match<'a>
-
-pub fn vortex_array::dtype::extension::Matcher::matches(item: &vortex_array::dtype::extension::ExtDTypeRef) -> bool
-
-pub fn vortex_array::dtype::extension::Matcher::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<Self::Match>
-
-impl vortex_array::dtype::extension::Matcher for vortex_array::extension::datetime::AnyTemporal
-
-pub type vortex_array::extension::datetime::AnyTemporal::Match<'a> = vortex_array::extension::datetime::TemporalMetadata<'a>
-
-pub fn vortex_array::extension::datetime::AnyTemporal::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<Self::Match>
-
-impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::dtype::extension::Matcher for V
-
-pub type V::Match<'a> = &'a <V as vortex_array::dtype::extension::ExtVTable>::Metadata
-
-pub fn V::matches(item: &vortex_array::dtype::extension::ExtDTypeRef) -> bool
-
-pub fn V::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<<V as vortex_array::dtype::extension::Matcher>::Match>
 
 pub type vortex_array::dtype::extension::ExtId = arcref::ArcRef<str>
 
@@ -10142,7 +10132,7 @@ impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::Cas
 
 pub type vortex_array::expr::CastExecuteAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Cast>
 
-pub fn vortex_array::expr::CastExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, _child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::expr::CastExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::MatcherType<dyn vortex_array::Array>>::Match, _child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub struct vortex_array::expr::CastReduceAdaptor<V>(pub V)
 
@@ -12308,11 +12298,13 @@ impl core::marker::StructuralPartialEq for vortex_array::extension::datetime::Ti
 
 pub struct vortex_array::extension::datetime::AnyTemporal
 
-impl vortex_array::dtype::extension::Matcher for vortex_array::extension::datetime::AnyTemporal
-
-pub type vortex_array::extension::datetime::AnyTemporal::Match<'a> = vortex_array::extension::datetime::TemporalMetadata<'a>
+impl vortex_array::matcher::Matcher<vortex_array::dtype::extension::ExtDTypeRef> for vortex_array::extension::datetime::AnyTemporal
 
 pub fn vortex_array::extension::datetime::AnyTemporal::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<Self::Match>
+
+impl vortex_array::matcher::MatcherType<vortex_array::dtype::extension::ExtDTypeRef> for vortex_array::extension::datetime::AnyTemporal
+
+pub type vortex_array::extension::datetime::AnyTemporal::Match<'a> = vortex_array::extension::datetime::TemporalMetadata<'a>
 
 pub struct vortex_array::extension::datetime::Date
 
@@ -12588,27 +12580,27 @@ pub fn vortex_array::kernel::ParentKernelAdapter<V, K>::matches(&self, parent: &
 
 pub trait vortex_array::kernel::ExecuteParentKernel<V: vortex_array::vtable::VTable>: core::fmt::Debug + core::marker::Send + core::marker::Sync + 'static
 
-pub type vortex_array::kernel::ExecuteParentKernel::Parent: vortex_array::matcher::Matcher
+pub type vortex_array::kernel::ExecuteParentKernel::Parent: vortex_array::matcher::Matcher<dyn vortex_array::Array>
 
-pub fn vortex_array::kernel::ExecuteParentKernel::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::kernel::ExecuteParentKernel::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::MatcherType<dyn vortex_array::Array>>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::arrays::FilterExecuteAdaptor<V> where V: vortex_array::arrays::FilterKernel
 
 pub type vortex_array::arrays::FilterExecuteAdaptor<V>::Parent = vortex_array::arrays::FilterVTable
 
-pub fn vortex_array::arrays::FilterExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::FilterExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::MatcherType<dyn vortex_array::Array>>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::arrays::SliceExecuteAdaptor<V> where V: vortex_array::arrays::SliceKernel
 
 pub type vortex_array::arrays::SliceExecuteAdaptor<V>::Parent = vortex_array::arrays::SliceVTable
 
-pub fn vortex_array::arrays::SliceExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::SliceExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::MatcherType<dyn vortex_array::Array>>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::arrays::TakeExecuteAdaptor<V> where V: vortex_array::arrays::TakeExecute
 
 pub type vortex_array::arrays::TakeExecuteAdaptor<V>::Parent = vortex_array::arrays::DictVTable
 
-pub fn vortex_array::arrays::TakeExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::TakeExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::MatcherType<dyn vortex_array::Array>>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::BetweenExecuteAdaptor<V> where V: vortex_array::expr::BetweenKernel
 
@@ -12620,7 +12612,7 @@ impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::Cas
 
 pub type vortex_array::expr::CastExecuteAdaptor<V>::Parent = vortex_array::arrays::ExactScalarFn<vortex_array::expr::Cast>
 
-pub fn vortex_array::expr::CastExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, _child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::expr::CastExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::MatcherType<dyn vortex_array::Array>>::Match, _child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::expr::CompareExecuteAdaptor<V> where V: vortex_array::expr::CompareKernel
 
@@ -12674,65 +12666,99 @@ impl core::fmt::Debug for vortex_array::matcher::AnyArray
 
 pub fn vortex_array::matcher::AnyArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl vortex_array::matcher::Matcher for vortex_array::matcher::AnyArray
-
-pub type vortex_array::matcher::AnyArray::Match<'a> = &'a (dyn vortex_array::Array + 'static)
+impl vortex_array::matcher::Matcher<dyn vortex_array::Array> for vortex_array::matcher::AnyArray
 
 pub fn vortex_array::matcher::AnyArray::matches(_array: &dyn vortex_array::Array) -> bool
 
 pub fn vortex_array::matcher::AnyArray::try_match(array: &dyn vortex_array::Array) -> core::option::Option<Self::Match>
 
-pub trait vortex_array::matcher::Matcher
+impl vortex_array::matcher::MatcherType<dyn vortex_array::Array> for vortex_array::matcher::AnyArray
 
-pub type vortex_array::matcher::Matcher::Match<'a>
+pub type vortex_array::matcher::AnyArray::Match<'a> = &'a (dyn vortex_array::Array + 'static)
 
-pub fn vortex_array::matcher::Matcher::matches(array: &dyn vortex_array::Array) -> bool
+pub trait vortex_array::matcher::Matcher<Over: ?core::marker::Sized>: vortex_array::matcher::MatcherType<Over>
 
-pub fn vortex_array::matcher::Matcher::try_match<'a>(array: &'a dyn vortex_array::Array) -> core::option::Option<Self::Match>
+pub fn vortex_array::matcher::Matcher::matches(item: &Over) -> bool
 
-impl vortex_array::matcher::Matcher for vortex_array::AnyCanonical
+pub fn vortex_array::matcher::Matcher::try_match<'a>(item: &'a Over) -> core::option::Option<Self::Match>
 
-pub type vortex_array::AnyCanonical::Match<'a> = vortex_array::CanonicalView<'a>
+impl vortex_array::matcher::Matcher<dyn vortex_array::Array> for vortex_array::AnyCanonical
 
 pub fn vortex_array::AnyCanonical::matches(array: &dyn vortex_array::Array) -> bool
 
 pub fn vortex_array::AnyCanonical::try_match<'a>(array: &'a dyn vortex_array::Array) -> core::option::Option<Self::Match>
 
-impl vortex_array::matcher::Matcher for vortex_array::AnyColumnar
-
-pub type vortex_array::AnyColumnar::Match<'a> = vortex_array::ColumnarView<'a>
+impl vortex_array::matcher::Matcher<dyn vortex_array::Array> for vortex_array::AnyColumnar
 
 pub fn vortex_array::AnyColumnar::try_match<'a>(array: &'a dyn vortex_array::Array) -> core::option::Option<Self::Match>
 
-impl vortex_array::matcher::Matcher for vortex_array::arrays::AnyScalarFn
-
-pub type vortex_array::arrays::AnyScalarFn::Match<'a> = &'a vortex_array::arrays::ScalarFnArray
+impl vortex_array::matcher::Matcher<dyn vortex_array::Array> for vortex_array::arrays::AnyScalarFn
 
 pub fn vortex_array::arrays::AnyScalarFn::try_match(array: &dyn vortex_array::Array) -> core::option::Option<Self::Match>
 
-impl vortex_array::matcher::Matcher for vortex_array::matcher::AnyArray
-
-pub type vortex_array::matcher::AnyArray::Match<'a> = &'a (dyn vortex_array::Array + 'static)
+impl vortex_array::matcher::Matcher<dyn vortex_array::Array> for vortex_array::matcher::AnyArray
 
 pub fn vortex_array::matcher::AnyArray::matches(_array: &dyn vortex_array::Array) -> bool
 
 pub fn vortex_array::matcher::AnyArray::try_match(array: &dyn vortex_array::Array) -> core::option::Option<Self::Match>
 
-impl<F: vortex_array::expr::VTable> vortex_array::matcher::Matcher for vortex_array::arrays::ExactScalarFn<F>
+impl vortex_array::matcher::Matcher<vortex_array::dtype::extension::ExtDTypeRef> for vortex_array::extension::datetime::AnyTemporal
 
-pub type vortex_array::arrays::ExactScalarFn<F>::Match<'a> = vortex_array::arrays::ScalarFnArrayView<'a, F>
+pub fn vortex_array::extension::datetime::AnyTemporal::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<Self::Match>
+
+impl<F: vortex_array::expr::VTable> vortex_array::matcher::Matcher<dyn vortex_array::Array> for vortex_array::arrays::ExactScalarFn<F>
 
 pub fn vortex_array::arrays::ExactScalarFn<F>::matches(array: &dyn vortex_array::Array) -> bool
 
 pub fn vortex_array::arrays::ExactScalarFn<F>::try_match(array: &dyn vortex_array::Array) -> core::option::Option<Self::Match>
 
-impl<V: vortex_array::vtable::VTable> vortex_array::matcher::Matcher for V
+impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::matcher::Matcher<vortex_array::dtype::extension::ExtDTypeRef> for V
 
-pub type V::Match<'a> = &'a <V as vortex_array::vtable::VTable>::Array
+pub fn V::matches(item: &vortex_array::dtype::extension::ExtDTypeRef) -> bool
+
+pub fn V::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<Self::Match>
+
+impl<V: vortex_array::vtable::VTable> vortex_array::matcher::Matcher<dyn vortex_array::Array> for V
 
 pub fn V::matches(array: &dyn vortex_array::Array) -> bool
 
 pub fn V::try_match<'a>(array: &'a dyn vortex_array::Array) -> core::option::Option<Self::Match>
+
+pub trait vortex_array::matcher::MatcherType<Over: ?core::marker::Sized>
+
+pub type vortex_array::matcher::MatcherType::Match<'a>
+
+impl vortex_array::matcher::MatcherType<dyn vortex_array::Array> for vortex_array::AnyCanonical
+
+pub type vortex_array::AnyCanonical::Match<'a> = vortex_array::CanonicalView<'a>
+
+impl vortex_array::matcher::MatcherType<dyn vortex_array::Array> for vortex_array::AnyColumnar
+
+pub type vortex_array::AnyColumnar::Match<'a> = vortex_array::ColumnarView<'a>
+
+impl vortex_array::matcher::MatcherType<dyn vortex_array::Array> for vortex_array::arrays::AnyScalarFn
+
+pub type vortex_array::arrays::AnyScalarFn::Match<'a> = &'a vortex_array::arrays::ScalarFnArray
+
+impl vortex_array::matcher::MatcherType<dyn vortex_array::Array> for vortex_array::matcher::AnyArray
+
+pub type vortex_array::matcher::AnyArray::Match<'a> = &'a (dyn vortex_array::Array + 'static)
+
+impl vortex_array::matcher::MatcherType<vortex_array::dtype::extension::ExtDTypeRef> for vortex_array::extension::datetime::AnyTemporal
+
+pub type vortex_array::extension::datetime::AnyTemporal::Match<'a> = vortex_array::extension::datetime::TemporalMetadata<'a>
+
+impl<F: vortex_array::expr::VTable> vortex_array::matcher::MatcherType<dyn vortex_array::Array> for vortex_array::arrays::ExactScalarFn<F>
+
+pub type vortex_array::arrays::ExactScalarFn<F>::Match<'a> = vortex_array::arrays::ScalarFnArrayView<'a, F>
+
+impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::matcher::MatcherType<vortex_array::dtype::extension::ExtDTypeRef> for V
+
+pub type V::Match<'a> = &'a <V as vortex_array::dtype::extension::ExtVTable>::Metadata
+
+impl<V: vortex_array::vtable::VTable> vortex_array::matcher::MatcherType<dyn vortex_array::Array> for V
+
+pub type V::Match<'a> = &'a <V as vortex_array::vtable::VTable>::Array
 
 pub mod vortex_array::normalize
 
@@ -12782,9 +12808,9 @@ pub const fn vortex_array::optimizer::rules::ReduceRuleSet<V>::new(rules: &'stat
 
 pub trait vortex_array::optimizer::rules::ArrayParentReduceRule<V: vortex_array::vtable::VTable>: core::fmt::Debug + core::marker::Send + core::marker::Sync + 'static
 
-pub type vortex_array::optimizer::rules::ArrayParentReduceRule::Parent: vortex_array::matcher::Matcher
+pub type vortex_array::optimizer::rules::ArrayParentReduceRule::Parent: vortex_array::matcher::Matcher<dyn vortex_array::Array>
 
-pub fn vortex_array::optimizer::rules::ArrayParentReduceRule::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::optimizer::rules::ArrayParentReduceRule::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::MatcherType<dyn vortex_array::Array>>::Match, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::BoolVTable> for vortex_array::arrays::BoolMaskedValidityRule
 
@@ -12814,7 +12840,7 @@ impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_arra
 
 pub type vortex_array::arrays::SliceReduceAdaptor<V>::Parent = vortex_array::arrays::SliceVTable
 
-pub fn vortex_array::arrays::SliceReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::SliceReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::MatcherType<dyn vortex_array::Array>>::Match, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::arrays::TakeReduceAdaptor<V> where V: vortex_array::arrays::TakeReduce
 
@@ -17196,21 +17222,25 @@ impl core::marker::Copy for vortex_array::Precision
 
 pub struct vortex_array::AnyCanonical
 
-impl vortex_array::matcher::Matcher for vortex_array::AnyCanonical
-
-pub type vortex_array::AnyCanonical::Match<'a> = vortex_array::CanonicalView<'a>
+impl vortex_array::matcher::Matcher<dyn vortex_array::Array> for vortex_array::AnyCanonical
 
 pub fn vortex_array::AnyCanonical::matches(array: &dyn vortex_array::Array) -> bool
 
 pub fn vortex_array::AnyCanonical::try_match<'a>(array: &'a dyn vortex_array::Array) -> core::option::Option<Self::Match>
 
+impl vortex_array::matcher::MatcherType<dyn vortex_array::Array> for vortex_array::AnyCanonical
+
+pub type vortex_array::AnyCanonical::Match<'a> = vortex_array::CanonicalView<'a>
+
 pub struct vortex_array::AnyColumnar
 
-impl vortex_array::matcher::Matcher for vortex_array::AnyColumnar
-
-pub type vortex_array::AnyColumnar::Match<'a> = vortex_array::ColumnarView<'a>
+impl vortex_array::matcher::Matcher<dyn vortex_array::Array> for vortex_array::AnyColumnar
 
 pub fn vortex_array::AnyColumnar::try_match<'a>(array: &'a dyn vortex_array::Array) -> core::option::Option<Self::Match>
+
+impl vortex_array::matcher::MatcherType<dyn vortex_array::Array> for vortex_array::AnyColumnar
+
+pub type vortex_array::AnyColumnar::Match<'a> = vortex_array::ColumnarView<'a>
 
 #[repr(transparent)] pub struct vortex_array::ArrayAdapter<V: vortex_array::vtable::VTable>(_)
 
