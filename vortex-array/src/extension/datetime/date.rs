@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt;
+
+use jiff::Span;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
@@ -13,10 +17,24 @@ use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::TimeUnit;
+use crate::scalar::ScalarValue;
+
+/// The Unix epoch date (1970-01-01).
+const EPOCH: jiff::civil::Date = jiff::civil::Date::constant(1970, 1, 1);
 
 /// Date DType.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Date;
+
+fn date_ptype(time_unit: &TimeUnit) -> Option<PType> {
+    match time_unit {
+        TimeUnit::Nanoseconds => None,
+        TimeUnit::Microseconds => None,
+        TimeUnit::Milliseconds => Some(PType::I64),
+        TimeUnit::Seconds => None,
+        TimeUnit::Days => Some(PType::I32),
+    }
+}
 
 impl Date {
     /// Creates a new Date extension dtype with the given time unit and nullability.
@@ -38,18 +56,37 @@ impl Date {
     }
 }
 
+/// Unpacked value of a [`Date`] extension scalar.
+pub enum DateValue {
+    /// Days since the Unix epoch.
+    Days(i32),
+    /// Milliseconds since the Unix epoch.
+    Milliseconds(i64),
+}
+
+impl fmt::Display for DateValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let date = match self {
+            DateValue::Days(days) => EPOCH + Span::new().days(*days),
+            DateValue::Milliseconds(ms) => EPOCH + Span::new().milliseconds(*ms),
+        };
+        write!(f, "{}", date)
+    }
+}
+
 impl ExtVTable for Date {
     type Metadata = TimeUnit;
+    type NativeValue<'a> = DateValue;
 
     fn id(&self) -> ExtId {
         ExtId::new_ref("vortex.date")
     }
 
-    fn serialize(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+    fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
         Ok(vec![u8::from(*metadata)])
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
         let tag = metadata[0];
         TimeUnit::try_from(tag)
     }
@@ -67,14 +104,19 @@ impl ExtVTable for Date {
 
         Ok(())
     }
-}
 
-fn date_ptype(time_unit: &TimeUnit) -> Option<PType> {
-    match time_unit {
-        TimeUnit::Nanoseconds => None,
-        TimeUnit::Microseconds => None,
-        TimeUnit::Milliseconds => Some(PType::I64),
-        TimeUnit::Seconds => None,
-        TimeUnit::Days => Some(PType::I32),
+    fn unpack_native(
+        &self,
+        metadata: &Self::Metadata,
+        _storage_dtype: &DType,
+        storage_value: &ScalarValue,
+    ) -> VortexResult<Self::NativeValue<'_>> {
+        match metadata {
+            TimeUnit::Milliseconds => Ok(DateValue::Milliseconds(
+                storage_value.as_primitive().cast::<i64>()?,
+            )),
+            TimeUnit::Days => Ok(DateValue::Days(storage_value.as_primitive().cast::<i32>()?)),
+            _ => vortex_bail!("Date type does not support time unit {}", metadata),
+        }
     }
 }

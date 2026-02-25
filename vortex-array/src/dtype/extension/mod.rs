@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Extension DTypes, and interfaces for working with extension types (dtypes, scalars, and arrays).
+//! Extension DTypes, and interfaces for working with extension types.
 //!
 //! ## File layout convention
 //!

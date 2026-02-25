@@ -9,6 +9,7 @@ mod tests {
 
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
 
     use crate::dtype::DType;
     use crate::dtype::FieldDType;
@@ -28,9 +29,18 @@ mod tests {
 
     impl ExtVTable for Apples {
         type Metadata = usize;
+        type NativeValue<'a> = &'a str;
 
         fn id(&self) -> ExtId {
             ExtId::new_ref("apples")
+        }
+
+        fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            Ok(vec![])
+        }
+
+        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            Ok(0)
         }
 
         fn validate_dtype(
@@ -39,6 +49,15 @@ mod tests {
             _storage_dtype: &DType,
         ) -> VortexResult<()> {
             Ok(())
+        }
+
+        fn unpack_native<'a>(
+            &self,
+            _metadata: &'a Self::Metadata,
+            _storage_dtype: &'a DType,
+            _storage_value: &'a ScalarValue,
+        ) -> VortexResult<Self::NativeValue<'a>> {
+            Ok("")
         }
     }
 
@@ -231,9 +250,18 @@ mod tests {
         struct F16Ext;
         impl ExtVTable for F16Ext {
             type Metadata = usize;
+            type NativeValue<'a> = &'a str;
 
             fn id(&self) -> ExtId {
                 ExtId::new_ref("f16_ext")
+            }
+
+            fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+                vortex_bail!("not implemented")
+            }
+
+            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+                vortex_bail!("not implemented")
             }
 
             fn validate_dtype(
@@ -242,6 +270,15 @@ mod tests {
                 _storage_dtype: &DType,
             ) -> VortexResult<()> {
                 Ok(())
+            }
+
+            fn unpack_native<'a>(
+                &self,
+                _metadata: &'a Self::Metadata,
+                _storage_dtype: &'a DType,
+                _storage_value: &'a ScalarValue,
+            ) -> VortexResult<Self::NativeValue<'a>> {
+                Ok("")
             }
         }
 
@@ -276,9 +313,18 @@ mod tests {
         struct StructExt;
         impl ExtVTable for StructExt {
             type Metadata = usize;
+            type NativeValue<'a> = &'a str;
 
             fn id(&self) -> ExtId {
                 ExtId::new_ref("struct_ext")
+            }
+
+            fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+                vortex_bail!("not implemented")
+            }
+
+            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+                vortex_bail!("not implemented")
             }
 
             fn validate_dtype(
@@ -287,6 +333,15 @@ mod tests {
                 _storage_dtype: &DType,
             ) -> VortexResult<()> {
                 Ok(())
+            }
+
+            fn unpack_native<'a>(
+                &self,
+                _metadata: &'a Self::Metadata,
+                _storage_dtype: &'a DType,
+                _storage_value: &'a ScalarValue,
+            ) -> VortexResult<Self::NativeValue<'a>> {
+                Ok("")
             }
         }
 
