@@ -30,3 +30,6 @@ mod sealed {
     /// This can be the **only** implementor for [`super::typed::DynExtScalarValue`].
     impl<V: ExtVTable> Sealed for ExtScalarValueInner<V> {}
 }
+
+#[cfg(test)]
+mod tests;

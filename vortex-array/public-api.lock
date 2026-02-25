@@ -13146,19 +13146,11 @@ impl vortex_array::scalar::extension::ExtScalarValueRef
 
 pub fn vortex_array::scalar::extension::ExtScalarValueRef::downcast<V: vortex_array::dtype::extension::ExtVTable>(self) -> vortex_array::scalar::extension::ExtScalarValue<V>
 
-pub fn vortex_array::scalar::extension::ExtScalarValueRef::fmt_ext_scalar(&self, ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-pub fn vortex_array::scalar::extension::ExtScalarValueRef::get_vtable<V: vortex_array::dtype::extension::ExtVTable>(&self) -> &V
-
 pub fn vortex_array::scalar::extension::ExtScalarValueRef::id(&self) -> vortex_array::dtype::extension::ExtId
 
 pub fn vortex_array::scalar::extension::ExtScalarValueRef::storage_value(&self) -> &vortex_array::scalar::ScalarValue
 
 pub fn vortex_array::scalar::extension::ExtScalarValueRef::try_downcast<V: vortex_array::dtype::extension::ExtVTable>(self) -> core::result::Result<vortex_array::scalar::extension::ExtScalarValue<V>, vortex_array::scalar::extension::ExtScalarValueRef>
-
-pub fn vortex_array::scalar::extension::ExtScalarValueRef::try_get_vtable<V: vortex_array::dtype::extension::ExtVTable>(&self) -> core::option::Option<&V>
-
-pub fn vortex_array::scalar::extension::ExtScalarValueRef::validate(&self, ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<()>
 
 impl core::clone::Clone for vortex_array::scalar::extension::ExtScalarValueRef
 

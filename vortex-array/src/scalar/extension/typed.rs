@@ -88,6 +88,10 @@ impl<V: ExtVTable> DynExtScalarValue for ExtScalarValueInner<V> {
     }
 }
 
+#[expect(
+    dead_code,
+    reason = "TODO(connor): Use this for the `ExtScalar` typed view into Scalar"
+)]
 /// An object-safe, sealed trait encapsulating the behavior for extension scalar values.
 ///
 /// This mirrors [`DynExtDType`] in `vortex-dtype`: it provides type-erased access to the
