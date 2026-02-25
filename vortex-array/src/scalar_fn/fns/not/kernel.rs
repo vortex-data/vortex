@@ -9,7 +9,7 @@ use crate::arrays::ExactScalarFn;
 use crate::arrays::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::scalar_fn::Not as NotExpr;
+use crate::scalar_fn::fns::not::Not as NotExpr;
 use crate::vtable::VTable;
 
 /// Invert a boolean array without reading buffers.

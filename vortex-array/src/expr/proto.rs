@@ -81,8 +81,8 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::or;
     use crate::expr::root;
-    use crate::scalar_fn::BetweenOptions;
-    use crate::scalar_fn::StrictComparison;
+    use crate::scalar_fn::fns::between::BetweenOptions;
+    use crate::scalar_fn::fns::between::StrictComparison;
 
     #[test]
     fn expression_serde() {

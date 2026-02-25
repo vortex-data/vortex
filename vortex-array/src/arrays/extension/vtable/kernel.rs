@@ -4,7 +4,7 @@
 use crate::arrays::ExtensionVTable;
 use crate::arrays::TakeExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
-use crate::scalar_fn::CompareExecuteAdaptor;
+use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<ExtensionVTable> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&CompareExecuteAdaptor(ExtensionVTable)),

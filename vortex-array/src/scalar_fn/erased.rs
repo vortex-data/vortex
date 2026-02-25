@@ -18,8 +18,6 @@ use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::IsNull;
-use crate::scalar_fn::Not;
 use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
@@ -27,16 +25,18 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnPlugin;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::is_null::IsNull;
+use crate::scalar_fn::fns::not::Not;
 use crate::scalar_fn::options::ScalarFnOptions;
 use crate::scalar_fn::signature::ScalarFnSignature;
 
 /// An instance of an expression bound to some invocation options.
-pub struct ScalarFn {
+pub struct ScalarFnRef {
     vtable: ScalarFnPlugin,
     options: Box<dyn Any + Send + Sync>,
 }
 
-impl ScalarFn {
+impl ScalarFnRef {
     /// Create a new bound expression from raw vtable and options.
     ///
     /// # Safety
@@ -143,16 +143,16 @@ impl ScalarFn {
     }
 }
 
-impl Clone for ScalarFn {
+impl Clone for ScalarFnRef {
     fn clone(&self) -> Self {
-        ScalarFn {
+        ScalarFnRef {
             vtable: self.vtable.clone(),
             options: self.vtable.as_dyn().options_clone(self.options.deref()),
         }
     }
 }
 
-impl Debug for ScalarFn {
+impl Debug for ScalarFnRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BoundExpression")
             .field("vtable", &self.vtable)
@@ -168,7 +168,7 @@ impl Debug for ScalarFn {
     }
 }
 
-impl Display for ScalarFn {
+impl Display for ScalarFnRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}(", self.vtable.id())?;
         self.vtable
@@ -178,7 +178,7 @@ impl Display for ScalarFn {
     }
 }
 
-impl PartialEq for ScalarFn {
+impl PartialEq for ScalarFnRef {
     fn eq(&self, other: &Self) -> bool {
         self.vtable == other.vtable
             && self
@@ -187,9 +187,9 @@ impl PartialEq for ScalarFn {
                 .options_eq(self.options.deref(), other.options.deref())
     }
 }
-impl Eq for ScalarFn {}
+impl Eq for ScalarFnRef {}
 
-impl Hash for ScalarFn {
+impl Hash for ScalarFnRef {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.vtable.hash(state);
         self.vtable

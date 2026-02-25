@@ -11,7 +11,7 @@ use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;
 use crate::compute::is_constant;
 use crate::register_kernel;
-use crate::scalar_fn::Operator;
+use crate::scalar_fn::fns::operators::Operator;
 
 const SMALL_ARRAY_THRESHOLD: usize = 64;
 

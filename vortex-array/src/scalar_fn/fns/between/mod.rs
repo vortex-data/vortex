@@ -36,8 +36,8 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::execute_boolean;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::binary::execute_boolean;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 

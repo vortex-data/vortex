@@ -8,7 +8,7 @@ use crate::IntoArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
 use crate::match_each_decimal_value_type;
-use crate::scalar_fn::MaskReduce;
+use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

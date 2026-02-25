@@ -11,8 +11,8 @@ use vortex_array::arrays::FilterReduce;
 use vortex_array::arrays::ScalarFnArrayExt;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::scalar_fn::EmptyOptions;
-use vortex_array::scalar_fn::Mask as MaskExpr;
-use vortex_array::scalar_fn::MaskReduce;
+use vortex_array::scalar_fn::fns::mask::Mask as MaskExpr;
+use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 

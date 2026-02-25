@@ -11,8 +11,8 @@ use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::CompareKernel;
-use vortex_array::scalar_fn::CompareOperator;
+use vortex_array::scalar_fn::fns::binary::CompareKernel;
+use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -141,7 +141,7 @@ mod tests {
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::Nullability::Nullable;
-    use vortex_array::scalar_fn::Operator;
+    use vortex_array::scalar_fn::fns::operators::Operator;
 
     use crate::SequenceArray;
 

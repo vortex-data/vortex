@@ -15,7 +15,7 @@ use crate::arrow::IntoArrowArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
-use crate::scalar_fn::operators::Operator;
+use crate::scalar_fn::fns::operators::Operator;
 
 /// Point-wise Kleene logical _and_ between two Boolean arrays.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
@@ -112,7 +112,7 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
-    use crate::scalar_fn::operators::Operator;
+    use crate::scalar_fn::fns::operators::Operator;
 
     #[rstest]
     #[case(

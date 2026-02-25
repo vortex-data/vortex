@@ -21,8 +21,8 @@ use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
 use crate::expr::stats::Stat;
-use crate::scalar_fn::ScalarFn;
 use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::ScalarFnRef;
 
 /// This trait defines the interface for scalar function vtables, including methods for
 /// serialization, deserialization, validation, child naming, return type computation,
@@ -217,7 +217,7 @@ pub trait ReduceCtx {
     /// Create a new reduction node from the given scalar function and children.
     fn new_node(
         &self,
-        scalar_fn: ScalarFn,
+        scalar_fn: ScalarFnRef,
         children: &[ReduceNodeRef],
     ) -> VortexResult<ReduceNodeRef>;
 }
@@ -233,7 +233,7 @@ pub trait ReduceNode {
     fn node_dtype(&self) -> VortexResult<DType>;
 
     /// Return this node's scalar function if it is indeed a scalar fn.
-    fn scalar_fn(&self) -> Option<&ScalarFn>;
+    fn scalar_fn(&self) -> Option<&ScalarFnRef>;
 
     /// Descend to the child of this handle.
     fn child(&self, idx: usize) -> ReduceNodeRef;
@@ -310,9 +310,9 @@ impl Display for EmptyOptions {
 
 /// Factory functions for static vtables.
 pub trait ScalarFnVTableExt: ScalarFnVTable {
-    /// Bind this vtable with the given options into a [`ScalarFn`].
-    fn bind(&'static self, options: Self::Options) -> ScalarFn {
-        ScalarFn::new_static(self, options)
+    /// Bind this vtable with the given options into a [`ScalarFnRef`].
+    fn bind(&'static self, options: Self::Options) -> ScalarFnRef {
+        ScalarFnRef::new_static(self, options)
     }
 
     /// Create a new expression with this vtable and the given options and children.

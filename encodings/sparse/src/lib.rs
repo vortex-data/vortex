@@ -27,7 +27,7 @@ use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
-use vortex_array::scalar_fn::Operator;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;

@@ -29,7 +29,7 @@ use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::StructFields;
 use crate::dtype::arrow::FromArrowType;
-use crate::scalar_fn::Pack;
+use crate::scalar_fn::fns::pack::Pack;
 
 pub(super) fn to_arrow_struct(
     array: ArrayRef,

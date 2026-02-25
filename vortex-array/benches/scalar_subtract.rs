@@ -15,7 +15,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::scalar_fn::Operator;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_buffer::Buffer;
 
 fn main() {

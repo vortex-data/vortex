@@ -22,7 +22,7 @@ use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
-use crate::scalar_fn::Operator;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 

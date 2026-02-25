@@ -23,8 +23,8 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::kernel::ExecuteParentKernel;
 use crate::scalar::Scalar;
-use crate::scalar_fn::Binary;
-use crate::scalar_fn::CompareOperator;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::vtable::VTable;
 
 /// Trait for encoding-specific comparison kernels that operate in encoded space.
@@ -221,7 +221,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::Operator;
+    use crate::scalar_fn::fns::operators::Operator;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 

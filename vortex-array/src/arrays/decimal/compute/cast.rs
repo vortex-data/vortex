@@ -15,7 +15,7 @@ use crate::dtype::DType;
 use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
-use crate::scalar_fn::CastKernel;
+use crate::scalar_fn::fns::cast::CastKernel;
 use crate::vtable::ValidityHelper;
 
 impl CastKernel for DecimalVTable {

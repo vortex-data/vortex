@@ -3,8 +3,8 @@
 
 use vortex_array::arrays::SliceReduceAdaptor;
 use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_array::scalar_fn::CastReduceAdaptor;
-use vortex_array::scalar_fn::ListContainsElementReduceAdaptor;
+use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::fns::list_contains::ListContainsElementReduceAdaptor;
 
 use crate::SequenceVTable;
 

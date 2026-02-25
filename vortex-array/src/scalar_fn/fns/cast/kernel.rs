@@ -11,7 +11,7 @@ use crate::dtype::DType;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::scalar_fn::Cast;
+use crate::scalar_fn::fns::cast::Cast;
 use crate::vtable::VTable;
 
 /// Reduce rule for cast: restructure the array without reading buffers.

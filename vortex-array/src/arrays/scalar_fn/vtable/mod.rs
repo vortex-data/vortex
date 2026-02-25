@@ -36,8 +36,8 @@ use crate::scalar_fn;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ScalarFn;
 use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::serde::ArrayChildren;
 use crate::vtable;
@@ -159,7 +159,7 @@ pub trait ScalarFnArrayExt: scalar_fn::ScalarFnVTable {
         options: Self::Options,
         children: impl Into<Vec<ArrayRef>>,
     ) -> VortexResult<ArrayRef> {
-        let scalar_fn = ScalarFn::new_static(self, options);
+        let scalar_fn = ScalarFnRef::new_static(self, options);
 
         let children = children.into();
         vortex_ensure!(

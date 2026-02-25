@@ -9,7 +9,7 @@ use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
-use crate::scalar_fn::FillNullReduce;
+use crate::scalar_fn::fns::fill_null::FillNullReduce;
 
 impl FillNullReduce for ChunkedVTable {
     fn fill_null(array: &ChunkedArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {

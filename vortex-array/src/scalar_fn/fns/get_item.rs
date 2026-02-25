@@ -26,15 +26,15 @@ use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::Literal;
-use crate::scalar_fn::Mask;
-use crate::scalar_fn::Pack;
 use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::mask::Mask;
+use crate::scalar_fn::fns::pack::Pack;
 
 pub struct GetItem;
 

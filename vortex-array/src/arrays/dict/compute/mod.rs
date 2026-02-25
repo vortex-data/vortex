@@ -79,7 +79,7 @@ mod test {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
-    use crate::scalar_fn::Operator;
+    use crate::scalar_fn::fns::operators::Operator;
     #[test]
     fn canonicalise_nullable_primitive() {
         let values: Vec<Option<i32>> = (0..65)

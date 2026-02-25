@@ -11,7 +11,7 @@ use crate::arrays::NullArray;
 use crate::arrays::NullVTable;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
-use crate::scalar_fn::CastReduce;
+use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for NullVTable {
     fn cast(array: &NullArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

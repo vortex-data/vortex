@@ -16,7 +16,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
-use crate::scalar_fn::FillNull as FillNullExpr;
+use crate::scalar_fn::fns::fill_null::FillNull as FillNullExpr;
 use crate::vtable::VTable;
 
 /// Fill nulls in an array with a scalar value without reading buffers.

@@ -11,9 +11,9 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArrayExt;
 use crate::optimizer::ArrayOptimizer;
-use crate::scalar_fn::Like;
-use crate::scalar_fn::LikeOptions;
-use crate::scalar_fn::LikeReduce;
+use crate::scalar_fn::fns::like::Like;
+use crate::scalar_fn::fns::like::LikeOptions;
+use crate::scalar_fn::fns::like::LikeReduce;
 
 impl LikeReduce for DictVTable {
     fn like(
@@ -61,8 +61,8 @@ mod tests {
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::optimizer::ArrayOptimizer;
-    use crate::scalar_fn::Like;
-    use crate::scalar_fn::LikeOptions;
+    use crate::scalar_fn::fns::like::Like;
+    use crate::scalar_fn::fns::like::LikeOptions;
 
     #[test]
     fn like_reduce_dict() -> VortexResult<()> {

@@ -4,7 +4,7 @@
 use vortex_array::arrays::FilterExecuteAdaptor;
 use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
-use vortex_array::scalar_fn::CompareExecuteAdaptor;
+use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 
 use crate::FSSTVTable;
 

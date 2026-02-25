@@ -27,9 +27,9 @@ use crate::compute::compare_lengths_to_empty;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
-use crate::scalar_fn::CompareKernel;
-use crate::scalar_fn::CompareOperator;
-use crate::scalar_fn::Operator;
+use crate::scalar_fn::fns::binary::CompareKernel;
+use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::vtable::ValidityHelper;
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
@@ -154,7 +154,7 @@ mod test {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::Operator;
+    use crate::scalar_fn::fns::operators::Operator;
 
     #[test]
     fn test_binary_compare() {
@@ -221,7 +221,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::Operator;
+    use crate::scalar_fn::fns::operators::Operator;
 
     #[test]
     fn test_null_compare() {

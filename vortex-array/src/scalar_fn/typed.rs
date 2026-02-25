@@ -84,7 +84,7 @@ pub(crate) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
 }
 
 #[repr(transparent)]
-pub(crate) struct ScalarFnInner<V>(pub(super) V);
+pub(super) struct ScalarFnInner<V>(pub(super) V);
 
 impl<V: ScalarFnVTable> DynScalarFn for ScalarFnInner<V> {
     #[inline(always)]
@@ -272,4 +272,32 @@ pub(crate) fn downcast<V: ScalarFnVTable>(options: &dyn Any) -> &V::Options {
     options
         .downcast_ref::<V::Options>()
         .vortex_expect("Invalid options type for expression")
+}
+
+/// A typed scalar function instance, parameterized by a concrete [`ScalarFnVTable`].
+pub struct ScalarFn<V: ScalarFnVTable> {
+    vtable: V,
+    options: V::Options,
+}
+
+impl<V: ScalarFnVTable> ScalarFn<V> {
+    /// Create a new typed scalar function instance.
+    pub fn new(vtable: V, options: V::Options) -> Self {
+        Self { vtable, options }
+    }
+
+    /// Returns a reference to the vtable.
+    pub fn vtable(&self) -> &V {
+        &self.vtable
+    }
+
+    /// Returns a reference to the options.
+    pub fn options(&self) -> &V::Options {
+        &self.options
+    }
+
+    /// Erase the type information, returning a [`ScalarFnRef`].
+    pub fn erased(self) -> super::ScalarFnRef {
+        super::ScalarFnRef::new(self.vtable, self.options)
+    }
 }

@@ -14,10 +14,10 @@ use vortex::expr::Expression;
 use vortex::expr::and;
 use vortex::expr::lit;
 use vortex::expr::not;
-use vortex::scalar_fn::Binary;
-use vortex::scalar_fn::GetItem;
-use vortex::scalar_fn::Operator;
 use vortex::scalar_fn::ScalarFnVTableExt;
+use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::get_item::GetItem;
+use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::dtype::PyDType;
 use crate::install_module;

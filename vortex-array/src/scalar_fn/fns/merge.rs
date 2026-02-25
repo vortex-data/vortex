@@ -25,15 +25,15 @@ use crate::expr::lit;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::GetItem;
-use crate::scalar_fn::Pack;
-use crate::scalar_fn::PackOptions;
 use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::pack::Pack;
+use crate::scalar_fn::fns::pack::PackOptions;
 use crate::validity::Validity;
 
 /// Merge zero or more expressions that ALL return structs.
@@ -298,8 +298,8 @@ mod tests {
     use crate::expr::merge;
     use crate::expr::merge_opts;
     use crate::expr::root;
-    use crate::scalar_fn::Pack;
     use crate::scalar_fn::fns::merge::DuplicateHandling;
+    use crate::scalar_fn::fns::pack::Pack;
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();

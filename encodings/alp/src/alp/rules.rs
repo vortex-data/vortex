@@ -6,11 +6,11 @@ use vortex_array::arrays::SliceExecuteAdaptor;
 use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_array::scalar_fn::BetweenReduceAdaptor;
-use vortex_array::scalar_fn::CastReduceAdaptor;
-use vortex_array::scalar_fn::CompareExecuteAdaptor;
-use vortex_array::scalar_fn::MaskExecuteAdaptor;
-use vortex_array::scalar_fn::MaskReduceAdaptor;
+use vortex_array::scalar_fn::fns::between::BetweenReduceAdaptor;
+use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::fns::mask::MaskExecuteAdaptor;
+use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 use crate::ALPVTable;
 

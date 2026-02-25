@@ -23,7 +23,7 @@ use vortex_array::compute::warm_up_vtables;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::Operator;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;

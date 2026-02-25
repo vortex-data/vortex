@@ -25,10 +25,10 @@ use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::Literal;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::SimplifyCtx;
+use crate::scalar_fn::fns::literal::Literal;
 
 /// An expression that conditionally selects between two arrays based on a boolean mask.
 ///

@@ -17,11 +17,11 @@ use crate::arrays::StructVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::scalar_fn::Cast;
 use crate::scalar_fn::EmptyOptions;
-use crate::scalar_fn::GetItem;
-use crate::scalar_fn::Mask;
-use crate::scalar_fn::MaskReduceAdaptor;
+use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::mask::Mask;
+use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

@@ -7,7 +7,7 @@ use crate::array::ArrayRef;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::dtype::DType;
-use crate::scalar_fn::CastReduce;
+use crate::scalar_fn::fns::cast::CastReduce;
 use crate::vtable::ValidityHelper;
 
 impl CastReduce for BoolVTable {

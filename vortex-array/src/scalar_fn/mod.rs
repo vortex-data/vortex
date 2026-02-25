@@ -11,25 +11,19 @@ use arcref::ArcRef;
 
 mod vtable;
 pub use vtable::*;
-
 mod plugin;
 pub use plugin::*;
-
-pub(crate) mod typed;
-
+mod typed;
+pub use typed::*;
 mod erased;
 pub use erased::*;
-
-pub(crate) mod options;
+mod options;
 pub use options::*;
-
-pub(crate) mod signature;
+mod signature;
 pub use signature::*;
 
+pub mod fns;
 pub mod session;
-
-pub(crate) mod fns;
-pub use fns::*;
 
 /// A unique identifier for a scalar function.
 pub type ScalarFnId = ArcRef<str>;

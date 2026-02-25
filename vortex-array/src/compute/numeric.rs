@@ -14,7 +14,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::compute::Options;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
-use crate::scalar_fn::Operator;
+use crate::scalar_fn::fns::operators::Operator;
 
 /// Point-wise add two numeric arrays.
 ///

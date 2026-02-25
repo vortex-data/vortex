@@ -11,7 +11,7 @@ use crate::arrays::ExactScalarFn;
 use crate::arrays::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::scalar_fn::Mask as MaskExpr;
+use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 use crate::vtable::VTable;
 
 /// Mask an array without reading buffers.

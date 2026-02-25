@@ -18,10 +18,10 @@ use vortex_array::extension::datetime::Timestamp;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_array::scalar_fn::Between;
-use vortex_array::scalar_fn::Binary;
-use vortex_array::scalar_fn::CastReduceAdaptor;
-use vortex_array::scalar_fn::MaskReduceAdaptor;
+use vortex_array::scalar_fn::fns::between::Between;
+use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -187,9 +187,9 @@ mod tests {
     use vortex_array::extension::datetime::TimestampOptions;
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::scalar::Scalar;
-    use vortex_array::scalar_fn::BetweenOptions;
-    use vortex_array::scalar_fn::Operator;
-    use vortex_array::scalar_fn::StrictComparison;
+    use vortex_array::scalar_fn::fns::between::BetweenOptions;
+    use vortex_array::scalar_fn::fns::between::StrictComparison;
+    use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
 

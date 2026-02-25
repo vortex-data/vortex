@@ -14,9 +14,9 @@ use crate::arrays::PrimitiveVTable;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::match_each_native_ptype;
-use crate::scalar_fn::BetweenKernel;
-use crate::scalar_fn::BetweenOptions;
-use crate::scalar_fn::StrictComparison;
+use crate::scalar_fn::fns::between::BetweenKernel;
+use crate::scalar_fn::fns::between::BetweenOptions;
+use crate::scalar_fn::fns::between::StrictComparison;
 use crate::vtable::ValidityHelper;
 
 impl BetweenKernel for PrimitiveVTable {

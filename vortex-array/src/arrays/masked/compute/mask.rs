@@ -8,8 +8,8 @@ use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::ScalarFnArrayExt;
 use crate::scalar_fn::EmptyOptions;
-use crate::scalar_fn::MaskReduce;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
+use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

@@ -54,7 +54,7 @@ use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
-use crate::scalar_fn::ScalarFn;
+use crate::scalar_fn::ScalarFnRef;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable::ArrayId;
@@ -407,7 +407,7 @@ impl<V: VTable> ReduceNode for ArrayAdapter<V> {
         Ok(<V::ArrayVTable as BaseArrayVTable<V>>::dtype(&self.0).clone())
     }
 
-    fn scalar_fn(&self) -> Option<&ScalarFn> {
+    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
         self.0.as_opt::<ScalarFnVTable>().map(|a| a.scalar_fn())
     }
 

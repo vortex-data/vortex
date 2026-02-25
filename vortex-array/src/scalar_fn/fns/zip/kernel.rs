@@ -13,7 +13,7 @@ use crate::arrays::ScalarFnArrayView;
 use crate::arrays::ScalarFnVTable;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::scalar_fn::Zip as ZipExpr;
+use crate::scalar_fn::fns::zip::Zip as ZipExpr;
 use crate::vtable::VTable;
 
 /// Zip two arrays using a mask without reading buffers.

@@ -11,8 +11,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
 use crate::expr::Expression;
 use crate::optimizer::ArrayOptimizer;
-use crate::scalar_fn::Literal;
-use crate::scalar_fn::Root;
+use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::root::Root;
 
 impl dyn Array + '_ {
     /// Apply the expression to this array, producing a new array in constant time.

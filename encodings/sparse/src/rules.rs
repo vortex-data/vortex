@@ -5,9 +5,9 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_array::scalar_fn::CastReduceAdaptor;
-use vortex_array::scalar_fn::NotReduce;
-use vortex_array::scalar_fn::NotReduceAdaptor;
+use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::fns::not::NotReduce;
+use vortex_array::scalar_fn::fns::not::NotReduceAdaptor;
 use vortex_error::VortexResult;
 
 use crate::SparseArray;

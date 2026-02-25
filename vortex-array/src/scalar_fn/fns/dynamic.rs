@@ -26,14 +26,14 @@ use crate::expr::traversal::TraversalOrder;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::Arity;
-use crate::scalar_fn::Binary;
 use crate::scalar_fn::ChildName;
-use crate::scalar_fn::CompareOperator;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::Operator;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::fns::operators::Operator;
 
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT

@@ -12,7 +12,7 @@ use crate::arrays::ScalarFnArrayView;
 use crate::arrays::ScalarFnVTable;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::scalar_fn::Like as LikeExpr;
+use crate::scalar_fn::fns::like::Like as LikeExpr;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::vtable::VTable;
 

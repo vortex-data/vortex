@@ -8,7 +8,7 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::scalar::Scalar;
-use crate::scalar_fn::NotReduce;
+use crate::scalar_fn::fns::not::NotReduce;
 
 impl NotReduce for ConstantVTable {
     fn invert(array: &ConstantArray) -> VortexResult<Option<ArrayRef>> {

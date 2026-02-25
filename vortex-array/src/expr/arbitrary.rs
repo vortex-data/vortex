@@ -14,9 +14,9 @@ use crate::expr::col;
 use crate::expr::lit;
 use crate::expr::pack;
 use crate::scalar::arbitrary::random_scalar;
-use crate::scalar_fn::Binary;
-use crate::scalar_fn::Operator;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::operators::Operator;
 
 pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Expression>> {
     let Some(struct_dtype) = dtype.as_struct_fields_opt() else {

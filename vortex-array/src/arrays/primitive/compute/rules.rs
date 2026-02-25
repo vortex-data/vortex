@@ -12,7 +12,7 @@ use crate::arrays::PrimitiveVTable;
 use crate::arrays::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::scalar_fn::MaskReduceAdaptor;
+use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::vtable::ValidityHelper;
 
 pub(crate) const RULES: ParentRuleSet<PrimitiveVTable> = ParentRuleSet::new(&[

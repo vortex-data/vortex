@@ -6,7 +6,7 @@ use std::fmt::Formatter;
 use std::ops::Deref;
 
 use crate::expr::Expression;
-use crate::scalar_fn::ScalarFn;
+use crate::scalar_fn::ScalarFnRef;
 
 pub enum DisplayFormat {
     Compact,
@@ -19,7 +19,7 @@ impl Display for DisplayTreeExpr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         pub use termtree::Tree;
         fn make_tree(expr: &Expression) -> Result<Tree<String>, std::fmt::Error> {
-            let scalar_fn: &ScalarFn = expr.deref();
+            let scalar_fn: &ScalarFnRef = expr.deref();
             let node_name = format!("{}", scalar_fn);
 
             // Get child names for display purposes
@@ -62,8 +62,8 @@ mod tests {
     use crate::expr::root;
     use crate::expr::select;
     use crate::expr::select_exclude;
-    use crate::scalar_fn::BetweenOptions;
-    use crate::scalar_fn::StrictComparison;
+    use crate::scalar_fn::fns::between::BetweenOptions;
+    use crate::scalar_fn::fns::between::StrictComparison;
 
     #[test]
     fn tree_display_getitem() {

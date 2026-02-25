@@ -4,9 +4,9 @@
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::TakeExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
-use crate::scalar_fn::BetweenExecuteAdaptor;
-use crate::scalar_fn::CastExecuteAdaptor;
-use crate::scalar_fn::FillNullExecuteAdaptor;
+use crate::scalar_fn::fns::between::BetweenExecuteAdaptor;
+use crate::scalar_fn::fns::cast::CastExecuteAdaptor;
+use crate::scalar_fn::fns::fill_null::FillNullExecuteAdaptor;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<PrimitiveVTable> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&BetweenExecuteAdaptor(PrimitiveVTable)),

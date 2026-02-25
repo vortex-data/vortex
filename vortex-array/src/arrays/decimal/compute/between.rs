@@ -16,9 +16,9 @@ use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::match_each_decimal_value_type;
 use crate::scalar::Scalar;
-use crate::scalar_fn::BetweenKernel;
-use crate::scalar_fn::BetweenOptions;
-use crate::scalar_fn::StrictComparison;
+use crate::scalar_fn::fns::between::BetweenKernel;
+use crate::scalar_fn::fns::between::BetweenOptions;
+use crate::scalar_fn::fns::between::StrictComparison;
 use crate::vtable::ValidityHelper;
 
 impl BetweenKernel for DecimalVTable {

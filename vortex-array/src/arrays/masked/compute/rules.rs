@@ -5,7 +5,7 @@ use crate::arrays::FilterReduceAdaptor;
 use crate::arrays::MaskedVTable;
 use crate::arrays::SliceReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::scalar_fn::MaskReduceAdaptor;
+use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<MaskedVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FilterReduceAdaptor(MaskedVTable)),

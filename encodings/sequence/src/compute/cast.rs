@@ -7,7 +7,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
-use vortex_array::scalar_fn::CastReduce;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 

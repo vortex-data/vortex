@@ -17,9 +17,9 @@ use crate::expr::transform::match_between::find_between;
 use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
-use crate::scalar_fn::Root;
-use crate::scalar_fn::ScalarFn;
+use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::SimplifyCtx;
+use crate::scalar_fn::fns::root::Root;
 
 impl Expression {
     /// Optimize the root expression node only, iterating to convergence.
@@ -251,7 +251,7 @@ impl ReduceNode for ExpressionReduceNode {
         self.expression.return_dtype(&self.scope)
     }
 
-    fn scalar_fn(&self) -> Option<&ScalarFn> {
+    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
         Some(self.expression.scalar_fn())
     }
 
@@ -273,7 +273,7 @@ struct ExpressionReduceCtx {
 impl ReduceCtx for ExpressionReduceCtx {
     fn new_node(
         &self,
-        scalar_fn: ScalarFn,
+        scalar_fn: ScalarFnRef,
         children: &[ReduceNodeRef],
     ) -> VortexResult<ReduceNodeRef> {
         let expression = Expression::try_new(

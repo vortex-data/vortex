@@ -6,7 +6,7 @@ use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::patches::Patches;
-use vortex_array::scalar_fn::CastReduce;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 

@@ -16,7 +16,7 @@ use crate::arrays::SliceReduceAdaptor;
 use crate::match_each_decimal_value_type;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::scalar_fn::MaskReduceAdaptor;
+use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::vtable::ValidityHelper;
 
 pub(crate) static RULES: ParentRuleSet<DecimalVTable> = ParentRuleSet::new(&[

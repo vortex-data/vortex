@@ -12,7 +12,7 @@ use crate::arrays::ScalarFnArrayView;
 use crate::arrays::ScalarFnVTable;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::scalar_fn::ListContains as ListContainsExpr;
+use crate::scalar_fn::fns::list_contains::ListContains as ListContainsExpr;
 use crate::vtable::VTable;
 
 /// Check list-contains without reading buffers (metadata-only).

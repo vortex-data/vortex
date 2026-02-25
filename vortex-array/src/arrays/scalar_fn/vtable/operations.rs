@@ -65,9 +65,9 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::scalar_fn::array::ScalarFnArray;
     use crate::assert_arrays_eq;
-    use crate::scalar_fn::Operator;
-    use crate::scalar_fn::ScalarFn;
+    use crate::scalar_fn::ScalarFnRef;
     use crate::scalar_fn::fns::binary::Binary;
+    use crate::scalar_fn::fns::operators::Operator;
     use crate::validity::Validity;
 
     #[test]
@@ -75,7 +75,7 @@ mod tests {
         let lhs = buffer![1i32, 2, 3].into_array();
         let rhs = buffer![10i32, 20, 30].into_array();
 
-        let scalar_fn = ScalarFn::new(Binary, Operator::Add);
+        let scalar_fn = ScalarFnRef::new(Binary, Operator::Add);
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
         let result = scalar_fn_array.to_canonical()?.into_array();
@@ -90,7 +90,7 @@ mod tests {
         let lhs = buffer![2i32, 3, 4].into_array();
         let rhs = buffer![5i32, 6, 7].into_array();
 
-        let scalar_fn = ScalarFn::new(Binary, Operator::Mul);
+        let scalar_fn = ScalarFnRef::new(Binary, Operator::Mul);
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
         let result = scalar_fn_array.to_canonical()?.into_array();
@@ -109,7 +109,7 @@ mod tests {
         )
         .into_array();
 
-        let scalar_fn = ScalarFn::new(Binary, Operator::Add);
+        let scalar_fn = ScalarFnRef::new(Binary, Operator::Add);
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
         let result = scalar_fn_array.to_canonical()?.into_array();
@@ -128,7 +128,7 @@ mod tests {
         let lhs = buffer![1i32, 5, 3].into_array();
         let rhs = buffer![2i32, 5, 1].into_array();
 
-        let scalar_fn = ScalarFn::new(Binary, Operator::Eq);
+        let scalar_fn = ScalarFnRef::new(Binary, Operator::Eq);
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
 
         let result = scalar_fn_array.to_canonical()?.into_array();

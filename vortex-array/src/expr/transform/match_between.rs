@@ -5,14 +5,14 @@ use crate::expr::Expression;
 use crate::expr::and_collect;
 use crate::expr::forms::conjuncts;
 use crate::expr::lit;
-use crate::scalar_fn::Between;
-use crate::scalar_fn::BetweenOptions;
-use crate::scalar_fn::Binary;
-use crate::scalar_fn::GetItem;
-use crate::scalar_fn::Literal;
-use crate::scalar_fn::Operator;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::StrictComparison;
+use crate::scalar_fn::fns::between::Between;
+use crate::scalar_fn::fns::between::BetweenOptions;
+use crate::scalar_fn::fns::between::StrictComparison;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::operators::Operator;
 
 /// This pass looks for expression of the form
 ///      `x >= a && x < b` and converts them into x between a and b`
@@ -134,8 +134,8 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::lt;
     use crate::expr::lt_eq;
-    use crate::scalar_fn::BetweenOptions;
-    use crate::scalar_fn::StrictComparison;
+    use crate::scalar_fn::fns::between::BetweenOptions;
+    use crate::scalar_fn::fns::between::StrictComparison;
 
     #[test]
     fn test_bad_match() {

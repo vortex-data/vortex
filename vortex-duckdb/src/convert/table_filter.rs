@@ -18,9 +18,9 @@ use vortex::expr::lit;
 use vortex::expr::not;
 use vortex::expr::or_collect;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::Binary;
-use vortex::scalar_fn::CompareOperator;
 use vortex::scalar_fn::ScalarFnVTableExt;
+use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::operators::CompareOperator;
 
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb::TableFilterClass;

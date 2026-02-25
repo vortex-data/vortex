@@ -12,8 +12,8 @@ use arcref::ArcRef;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-use crate::scalar_fn::ScalarFn;
 use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::typed::DynScalarFn;
 use crate::scalar_fn::typed::ScalarFnInner;
@@ -58,9 +58,13 @@ impl ScalarFnPlugin {
     }
 
     /// Deserialize options of this scalar function vtable from metadata.
-    pub fn deserialize(&self, metadata: &[u8], session: &VortexSession) -> VortexResult<ScalarFn> {
+    pub fn deserialize(
+        &self,
+        metadata: &[u8],
+        session: &VortexSession,
+    ) -> VortexResult<ScalarFnRef> {
         Ok(unsafe {
-            ScalarFn::new_unchecked(
+            ScalarFnRef::new_unchecked(
                 self.clone(),
                 self.as_dyn().options_deserialize(metadata, session)?,
             )

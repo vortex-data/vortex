@@ -17,8 +17,8 @@ use crate::dtype::DType;
 use crate::expr::StatsCatalog;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::stats::Stat;
-use crate::scalar_fn::Root;
-use crate::scalar_fn::ScalarFn;
+use crate::scalar_fn::ScalarFnRef;
+use crate::scalar_fn::fns::root::Root;
 
 /// A node in a Vortex expression tree.
 ///
@@ -27,13 +27,13 @@ use crate::scalar_fn::ScalarFn;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Expression {
     /// The scalar fn for this node.
-    scalar_fn: ScalarFn,
+    scalar_fn: ScalarFnRef,
     /// Any children of this expression.
     children: Arc<Vec<Expression>>,
 }
 
 impl Deref for Expression {
-    type Target = ScalarFn;
+    type Target = ScalarFnRef;
 
     fn deref(&self) -> &Self::Target {
         &self.scalar_fn
@@ -43,7 +43,7 @@ impl Deref for Expression {
 impl Expression {
     /// Create a new expression node from a scalar_fn expression and its children.
     pub fn try_new(
-        scalar_fn: ScalarFn,
+        scalar_fn: ScalarFnRef,
         children: impl IntoIterator<Item = Expression>,
     ) -> VortexResult<Self> {
         let children = Vec::from_iter(children);
@@ -62,7 +62,7 @@ impl Expression {
     }
 
     /// Returns the scalar fn vtable for this expression.
-    pub fn scalar_fn(&self) -> &ScalarFn {
+    pub fn scalar_fn(&self) -> &ScalarFnRef {
         &self.scalar_fn
     }
 

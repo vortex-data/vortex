@@ -41,14 +41,14 @@ use crate::match_each_integer_ptype;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
-use crate::scalar_fn::Binary;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::Operator;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
+use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

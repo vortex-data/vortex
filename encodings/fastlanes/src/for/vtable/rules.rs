@@ -10,7 +10,7 @@ use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::SliceReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_array::scalar_fn::CastReduceAdaptor;
+use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_error::VortexResult;
 
 use crate::FoRArray;

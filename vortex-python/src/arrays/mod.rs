@@ -33,7 +33,7 @@ use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
-use vortex::scalar_fn::Operator;
+use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::PyVortex;
 use crate::arrays::native::PyNativeArray;

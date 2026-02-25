@@ -20,8 +20,8 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::dtype::FieldName;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::ReferenceCollector;
-use crate::scalar_fn::Binary;
-use crate::scalar_fn::Operator;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::operators::Operator;
 
 pub mod aliases;
 pub mod analysis;

@@ -24,7 +24,7 @@ use vortex_array::dtype::FieldPathSet;
 use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
 use vortex_array::expr::root;
-use vortex_array::scalar_fn::DynamicExprUpdates;
+use vortex_array::scalar_fn::fns::dynamic::DynamicExprUpdates;
 use vortex_buffer::BitBufferMut;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexError;

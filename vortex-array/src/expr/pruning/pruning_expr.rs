@@ -139,8 +139,8 @@ mod tests {
     use crate::expr::pruning::field_path_stat_field_name;
     use crate::expr::root;
     use crate::expr::stats::Stat;
-    use crate::scalar_fn::BetweenOptions;
-    use crate::scalar_fn::StrictComparison;
+    use crate::scalar_fn::fns::between::BetweenOptions;
+    use crate::scalar_fn::fns::between::StrictComparison;
 
     // Implement some checked pruning expressions.
     #[fixture]

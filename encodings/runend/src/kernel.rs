@@ -13,7 +13,7 @@ use vortex_array::arrays::SliceVTable;
 use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
-use vortex_array::scalar_fn::CompareExecuteAdaptor;
+use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;

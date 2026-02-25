@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_array::scalar_fn::CastReduceAdaptor;
-use vortex_array::scalar_fn::MaskReduceAdaptor;
+use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
+use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 use crate::alp_rd::ALPRDVTable;
 

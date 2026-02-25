@@ -20,7 +20,7 @@ use vortex_array::compute::warm_up_vtables;
 use vortex_array::expr::eq;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
-use vortex_array::scalar_fn::Operator;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_session::VortexSession;
 
 fn main() {
