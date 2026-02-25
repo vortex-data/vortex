@@ -91,12 +91,12 @@ impl ExtDTypeRef {
 /// Methods for downcasting type-erased extension dtypes.
 impl ExtDTypeRef {
     /// Check if the extension dtype is of the concrete type.
-    pub fn is<M: Matcher>(&self) -> bool {
+    pub fn is<M: Matcher<Self>>(&self) -> bool {
         M::matches(self)
     }
 
     /// Extract the metadata of the ExtDType per the given [`Matcher`].
-    pub fn metadata_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
+    pub fn metadata_opt<M: Matcher<Self>>(&self) -> Option<M::Match<'_>> {
         M::try_match(self)
     }
 
@@ -105,7 +105,7 @@ impl ExtDTypeRef {
     /// # Panics
     ///
     /// Panics if the match fails.
-    pub fn metadata<M: Matcher>(&self) -> M::Match<'_> {
+    pub fn metadata<M: Matcher<Self>>(&self) -> M::Match<'_> {
         self.metadata_opt::<M>()
             .vortex_expect("Failed to downcast ExtDTypeRef")
     }
