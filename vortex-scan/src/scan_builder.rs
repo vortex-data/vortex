@@ -8,6 +8,7 @@ use std::task::Context;
 use std::task::Poll;
 use std::task::ready;
 
+use futures::FutureExt;
 use futures::Stream;
 use futures::StreamExt;
 use futures::future::BoxFuture;
@@ -30,7 +31,6 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::runtime::Handle;
 use vortex_io::runtime::Task;
@@ -38,6 +38,7 @@ use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReader;
 use vortex_layout::LayoutReaderRef;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
+use vortex_mask::Mask;
 use vortex_metrics::MetricsRegistry;
 use vortex_session::VortexSession;
 
@@ -240,10 +241,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
         let dtype = self.dtype()?;
 
-        if self.filter.is_some() && self.limit.is_some() {
-            vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
-        }
-
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
         let mut layout_reader = self.layout_reader;
@@ -285,6 +282,24 @@ impl<A: 'static + Send> ScanBuilder<A> {
                 )?)
             };
 
+        // When both filter and limit are present, try to compute a satisfaction mask
+        // that tells us which splits are fully satisfied by the filter.
+        let satisfaction_mask = match (&filter, self.limit) {
+            (Some(filter_expr), Some(_)) => {
+                let row_range = self
+                    .row_range
+                    .clone()
+                    .unwrap_or_else(|| 0..layout_reader.row_count());
+                let row_count = row_range.end - row_range.start;
+                let mask = Mask::new_true(usize::try_from(row_count).unwrap_or(usize::MAX));
+                layout_reader
+                    .satisfaction_evaluation(&row_range, filter_expr, mask)?
+                    .now_or_never()
+                    .and_then(|r| r.ok())
+            }
+            _ => None,
+        };
+
         Ok(RepeatedScan::new(
             self.session.clone(),
             layout_reader,
@@ -298,6 +313,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             self.map_fn,
             self.limit,
             dtype,
+            satisfaction_mask,
         ))
     }
 
@@ -784,5 +800,28 @@ mod test {
         assert_eq!(calls.load(Ordering::Relaxed), 0);
 
         drop(runtime);
+    }
+
+    #[test]
+    fn filter_and_limit_does_not_bail() -> VortexResult<()> {
+        use vortex_array::expr::gt;
+        use vortex_array::expr::lit;
+        use vortex_array::expr::root;
+        use vortex_io::runtime::single::SingleThreadRuntime;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(SplittingLayoutReader::new(calls));
+
+        let runtime = SingleThreadRuntime::default();
+        let session = crate::test::session_with_handle(runtime.handle());
+
+        // This should NOT error — filter+limit is now supported.
+        let stream = ScanBuilder::new(session, reader)
+            .with_filter(gt(root(), lit(1)))
+            .with_limit(2)
+            .into_stream();
+
+        assert!(stream.is_ok(), "filter+limit should be supported");
+        Ok(())
     }
 }

@@ -24,6 +24,7 @@ use vortex_array::dtype::FieldPathSet;
 use vortex_array::expr::DynamicExprUpdates;
 use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
+use vortex_array::expr::pruning::checked_satisfaction_expr;
 use vortex_array::expr::root;
 use vortex_buffer::BitBufferMut;
 use vortex_error::SharedVortexResult;
@@ -60,6 +61,12 @@ pub struct ZonedReader {
     /// A cache of expr -> optional pruning predicate.
     /// This also uses the present_stats from the `ZonedLayout`
     pruning_predicates: LazyLock<Arc<DashMap<Expression, PredicateCache>>>,
+
+    /// A cache of expr -> optional satisfaction result (applying the satisfaction expr to the zone map)
+    satisfaction_result: LazyLock<DashMap<Expression, Option<SharedPruningResult>>>,
+
+    /// A cache of expr -> optional satisfaction predicate.
+    satisfaction_predicates: LazyLock<Arc<DashMap<Expression, PredicateCache>>>,
 }
 
 impl ZonedReader {
@@ -90,6 +97,8 @@ impl ZonedReader {
             pruning_result: Default::default(),
             zone_map: Default::default(),
             pruning_predicates: Default::default(),
+            satisfaction_result: Default::default(),
+            satisfaction_predicates: Default::default(),
         })
     }
 
@@ -184,6 +193,69 @@ impl ZonedReader {
                                 zone_map,
                                 predicate,
                                 dynamic_updates,
+                                latest_result: RwLock::new((0, initial_mask)),
+                                session,
+                            }))
+                        }
+                        .boxed()
+                        .shared(),
+                    )
+                }
+            })
+            .clone()
+    }
+
+    /// Get or create the satisfaction predicate for a given expression.
+    fn satisfaction_predicate(&self, expr: Expression) -> Option<Expression> {
+        self.satisfaction_predicates
+            .entry(expr.clone())
+            .or_default()
+            .get_or_init(move || {
+                let field_path_set = FieldPathSet::from_iter(
+                    self.layout
+                        .present_stats
+                        .iter()
+                        .map(|s| FieldPath::from_name(s.name())),
+                );
+                checked_satisfaction_expr(&expr, &field_path_set).map(|(expr, _)| expr)
+            })
+            .clone()
+    }
+
+    /// Returns a satisfaction mask where `true` means the zone is fully satisfied by the filter.
+    fn satisfaction_mask_future(&self, expr: Expression) -> Option<SharedPruningResult> {
+        if let Some(result) = self.satisfaction_result.get(&expr) {
+            return result.value().clone();
+        }
+
+        self.satisfaction_result
+            .entry(expr.clone())
+            .or_insert_with(|| match self.satisfaction_predicate(expr.clone()) {
+                None => {
+                    tracing::debug!("No satisfaction predicate for expr: {expr}");
+                    None
+                }
+                Some(predicate) => {
+                    tracing::debug!(
+                        "Constructed satisfaction predicate for expr: {expr}: {predicate:?}"
+                    );
+                    let zone_map = self.zone_map();
+                    let session = self.session.clone();
+
+                    Some(
+                        async move {
+                            let zone_map = zone_map.await?;
+                            let initial_mask =
+                                zone_map.prune(&predicate, &session).map_err(|err| {
+                                    err.with_context(format!(
+                                        "While evaluating satisfaction predicate {} (derived from {})",
+                                        predicate, expr
+                                    ))
+                                })?;
+                            Ok(Arc::new(PruningResult {
+                                zone_map,
+                                predicate,
+                                dynamic_updates: None,
                                 latest_result: RwLock::new((0, initial_mask)),
                                 session,
                             }))
@@ -302,6 +374,64 @@ impl LayoutReader for ZonedReader {
                 name,
                 expr,
                 mask.density(),
+                stats_mask.density(),
+            );
+
+            Ok(stats_mask)
+        }))
+    }
+
+    fn satisfaction_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        expr: &Expression,
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
+        let Some(satisfaction_mask_future) = self.satisfaction_mask_future(expr.clone()) else {
+            return Ok(MaskFuture::ready(Mask::new_false(mask.len())));
+        };
+
+        let row_count = row_range.end - row_range.start;
+        let zone_range = self.zone_range(row_range);
+        let zone_lengths: Vec<_> = zone_range
+            .clone()
+            .map(|zone_idx| {
+                let start = usize::try_from(
+                    self.first_row_offset(zone_idx)
+                        .saturating_sub(row_range.start),
+                )?;
+                let end = usize::try_from(
+                    self.first_row_offset(zone_idx + 1)
+                        .saturating_sub(row_range.start)
+                        .min(row_count),
+                )?;
+                Ok::<_, VortexError>(end - start)
+            })
+            .try_collect()?;
+
+        let name = self.name.clone();
+        let expr = expr.clone();
+
+        Ok(MaskFuture::new(mask.len(), async move {
+            let satisfaction_mask = satisfaction_mask_future.await?.mask()?;
+
+            // For satisfaction: true in the pruning result means the negated filter is
+            // falsified for that zone, which means the original filter is satisfied.
+            let mut builder = BitBufferMut::with_capacity(mask.len());
+            for (zone_idx, &zone_length) in zone_range.clone().zip_eq(&zone_lengths) {
+                builder.append_n(
+                    satisfaction_mask.value(usize::try_from(zone_idx)?),
+                    zone_length,
+                );
+            }
+
+            let stats_mask = Mask::from(builder.freeze());
+            assert_eq!(stats_mask.len(), mask.len(), "Mask length mismatch");
+
+            tracing::debug!(
+                "Satisfaction evaluation {} - {} => {}",
+                name,
+                expr,
                 stats_mask.density(),
             );
 
@@ -497,6 +627,40 @@ mod test {
             assert_eq!(
                 result,
                 Mask::from_iter([false, false, false, false, false, false, true, true, true])
+            );
+        })
+    }
+
+    #[rstest]
+    fn test_satisfaction_mask(
+        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) {
+        use vortex_array::expr::lt;
+
+        block_on(|_| async {
+            let row_count = layout.row_count();
+            let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
+
+            // Filter: root() < 4 — zone 0 (values 1,2,3) should be fully satisfied
+            // (all values < 4), zones 1,2 should NOT be satisfied.
+            let expr = lt(root(), lit(4));
+
+            let result = reader
+                .satisfaction_evaluation(
+                    &(0..row_count),
+                    &expr,
+                    Mask::new_true(row_count.try_into().unwrap()),
+                )
+                .unwrap()
+                .await
+                .unwrap();
+
+            // Zone 0 (rows 0-2): max=3, 3 < 4 is true, so zone is satisfied
+            // Zone 1 (rows 3-5): max=6, 6 < 4 is false, not satisfied
+            // Zone 2 (rows 6-8): max=9, 9 < 4 is false, not satisfied
+            assert_eq!(
+                result,
+                Mask::from_iter([true, true, true, false, false, false, false, false, false])
             );
         })
     }

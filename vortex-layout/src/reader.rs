@@ -56,6 +56,22 @@ pub trait LayoutReader: 'static + Send + Sync {
         mask: Mask,
     ) -> VortexResult<MaskFuture>;
 
+    /// Returns a mask where `true` values indicate zones where the given expression is provably
+    /// satisfied for ALL rows (based on zone-level statistics).
+    ///
+    /// This is the dual of `pruning_evaluation`: pruning tells us where an expression is definitely
+    /// false, while satisfaction tells us where it's definitely true.
+    ///
+    /// The default implementation conservatively returns all-false (no zones proven satisfied).
+    fn satisfaction_evaluation(
+        &self,
+        _row_range: &Range<u64>,
+        _expr: &Expression,
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
+        Ok(MaskFuture::ready(Mask::new_false(mask.len())))
+    }
+
     /// Refines the given mask, returning a mask equal in length to the input mask.
     ///
     /// It is recommended to defer awaiting the input mask for as long as possible (ideally, after

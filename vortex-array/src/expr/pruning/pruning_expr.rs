@@ -14,7 +14,13 @@ use crate::dtype::FieldPath;
 use crate::dtype::FieldPathSet;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
+use crate::expr::VTableExt;
+use crate::expr::exprs::binary::Binary;
+use crate::expr::exprs::binary::and_collect;
+use crate::expr::exprs::binary::eq;
 use crate::expr::exprs::get_item::get_item;
+use crate::expr::exprs::literal::lit;
+use crate::expr::exprs::operators::Operator;
 use crate::expr::exprs::root::root;
 use crate::expr::stats::Stat;
 
@@ -106,6 +112,92 @@ pub fn checked_pruning_expr(
     }
 
     Some((expr, relation))
+}
+
+/// Push logical NOT inward through a filter expression, returning the negated expression.
+///
+/// This handles comparison operators (via `Operator::inverse`) and boolean connectives
+/// (via De Morgan's laws). Returns `None` for expressions that cannot be negated
+/// (e.g. arithmetic, LIKE, BETWEEN), which is conservative — we simply can't prove
+/// satisfaction for those expressions.
+pub fn push_not_inward(expr: &Expression) -> Option<Expression> {
+    let scalar_fn = expr.scalar_fn();
+    let op = scalar_fn.as_opt::<Binary>()?;
+
+    match op {
+        // Comparison operators: negate via inverse
+        Operator::Eq
+        | Operator::NotEq
+        | Operator::Gt
+        | Operator::Gte
+        | Operator::Lt
+        | Operator::Lte => {
+            let negated_op = op.inverse()?;
+            Some(
+                Binary
+                    .try_new_expr(negated_op, [expr.child(0).clone(), expr.child(1).clone()])
+                    .ok()?,
+            )
+        }
+        // De Morgan: NOT(AND(p, q)) = OR(NOT(p), NOT(q))
+        Operator::And => {
+            let left = push_not_inward(expr.child(0))?;
+            let right = push_not_inward(expr.child(1))?;
+            Some(Binary.try_new_expr(Operator::Or, [left, right]).ok()?)
+        }
+        // De Morgan: NOT(OR(p, q)) = AND(NOT(p), NOT(q))
+        Operator::Or => {
+            let left = push_not_inward(expr.child(0))?;
+            let right = push_not_inward(expr.child(1))?;
+            Some(Binary.try_new_expr(Operator::And, [left, right]).ok()?)
+        }
+        // Arithmetic operators cannot be negated
+        Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
+    }
+}
+
+/// Build a satisfaction expression: returns `true` for zones where the filter is provably
+/// satisfied for ALL rows.
+///
+/// This works by negating the filter and reusing the falsification infrastructure:
+/// `satisfaction(filter) = falsification(NOT(filter))`.
+///
+/// Additionally, for zones to be fully satisfied, there must be no null values in any
+/// referenced column (since nulls produce NULL, not TRUE, from the filter). We AND in
+/// `null_count == 0` checks for each field that has null_count stats available.
+pub fn checked_satisfaction_expr(
+    expr: &Expression,
+    available_stats: &FieldPathSet,
+) -> Option<(Expression, RequiredStats)> {
+    let negated = push_not_inward(expr)?;
+    let (pruning_expr, mut required_stats) = checked_pruning_expr(&negated, available_stats)?;
+
+    // Collect null_count checks for all field paths that have null_count stats available.
+    // Satisfaction requires no nulls — null values produce NULL (not TRUE) from the filter.
+    let field_paths: Vec<_> = required_stats.map().keys().cloned().collect();
+    let null_count_checks: Vec<Expression> = field_paths
+        .into_iter()
+        .filter_map(|field_path| {
+            let null_count_stat_path = field_path.clone().push(Stat::NullCount.name());
+            available_stats.contains(&null_count_stat_path).then(|| {
+                required_stats.insert(field_path.clone(), Stat::NullCount);
+                let null_count_col = get_item(
+                    field_path_stat_field_name(&field_path, Stat::NullCount),
+                    root(),
+                );
+                eq(null_count_col, lit(0u64))
+            })
+        })
+        .collect();
+
+    let final_expr = if let Some(null_check) = and_collect(null_count_checks) {
+        use crate::expr::exprs::binary::and;
+        and(null_check, pruning_expr)
+    } else {
+        pruning_expr
+    };
+
+    Some((final_expr, required_stats))
 }
 
 #[cfg(test)]
@@ -552,5 +644,130 @@ mod tests {
                 gt(lit("value"), col("a_max"))
             )
         );
+    }
+
+    // ===== push_not_inward tests =====
+
+    use crate::expr::pruning::push_not_inward;
+
+    #[rstest]
+    #[case(gt(col("a"), lit(10)), lt_eq(col("a"), lit(10)))]
+    #[case(gt_eq(col("a"), lit(10)), lt(col("a"), lit(10)))]
+    #[case(lt(col("a"), lit(10)), gt_eq(col("a"), lit(10)))]
+    #[case(lt_eq(col("a"), lit(10)), gt(col("a"), lit(10)))]
+    #[case(eq(col("a"), lit(10)), not_eq(col("a"), lit(10)))]
+    #[case(not_eq(col("a"), lit(10)), eq(col("a"), lit(10)))]
+    fn push_not_inward_comparison(#[case] input: Expression, #[case] expected: Expression) {
+        let result = push_not_inward(&input).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    use crate::expr::Expression;
+
+    #[rstest]
+    fn push_not_inward_and_de_morgan() {
+        // NOT(a > 10 AND b < 5) = (a <= 10) OR (b >= 5)
+        let input = and(gt(col("a"), lit(10)), lt(col("b"), lit(5)));
+        let result = push_not_inward(&input).unwrap();
+        assert_eq!(
+            result,
+            or(lt_eq(col("a"), lit(10)), gt_eq(col("b"), lit(5)))
+        );
+    }
+
+    #[rstest]
+    fn push_not_inward_or_de_morgan() {
+        // NOT(a > 10 OR b < 5) = (a <= 10) AND (b >= 5)
+        let input = or(gt(col("a"), lit(10)), lt(col("b"), lit(5)));
+        let result = push_not_inward(&input).unwrap();
+        assert_eq!(
+            result,
+            and(lt_eq(col("a"), lit(10)), gt_eq(col("b"), lit(5)))
+        );
+    }
+
+    #[rstest]
+    fn push_not_inward_nested() {
+        // NOT(a > 10 AND (b < 5 OR c = 3))
+        // = (a <= 10) OR NOT(b < 5 OR c = 3)
+        // = (a <= 10) OR ((b >= 5) AND (c != 3))
+        let input = and(
+            gt(col("a"), lit(10)),
+            or(lt(col("b"), lit(5)), eq(col("c"), lit(3))),
+        );
+        let result = push_not_inward(&input).unwrap();
+        assert_eq!(
+            result,
+            or(
+                lt_eq(col("a"), lit(10)),
+                and(gt_eq(col("b"), lit(5)), not_eq(col("c"), lit(3))),
+            )
+        );
+    }
+
+    // ===== checked_satisfaction_expr tests =====
+
+    use crate::expr::pruning::checked_satisfaction_expr;
+
+    #[fixture]
+    fn available_stats_with_null_count() -> FieldPathSet {
+        let field_a = FieldPath::from_name("a");
+        let field_b = FieldPath::from_name("b");
+
+        FieldPathSet::from_iter([
+            field_a.clone().push(Stat::Min.name()),
+            field_a.clone().push(Stat::Max.name()),
+            field_a.push(Stat::NullCount.name()),
+            field_b.clone().push(Stat::Min.name()),
+            field_b.clone().push(Stat::Max.name()),
+            field_b.push(Stat::NullCount.name()),
+        ])
+    }
+
+    #[rstest]
+    fn satisfaction_gt_value(available_stats_with_null_count: FieldPathSet) {
+        // Filter: a > 42
+        // Negated: a <= 42
+        // Falsification of negated: a_min > 42
+        // Plus null_count check: a_null_count == 0 AND a_min > 42
+        let expr = gt(col("a"), lit(42));
+        let (satisfaction_expr, refs) =
+            checked_satisfaction_expr(&expr, &available_stats_with_null_count).unwrap();
+
+        assert!(refs.map().contains_key(&FieldPath::from_name("a")));
+        assert!(refs.map()[&FieldPath::from_name("a")].contains(&Stat::NullCount));
+
+        // The satisfaction expression should contain a null_count check
+        let expr_str = satisfaction_expr.to_string();
+        assert!(
+            expr_str.contains("null_count"),
+            "Expected null_count in: {expr_str}"
+        );
+    }
+
+    #[rstest]
+    fn satisfaction_without_null_count(available_stats: FieldPathSet) {
+        // When null_count is not available, we still produce a satisfaction expr,
+        // just without the null check (conservative: only works for non-nullable columns)
+        let expr = gt(col("a"), lit(42));
+        let result = checked_satisfaction_expr(&expr, &available_stats);
+        assert!(result.is_some());
+        let (satisfaction_expr, _) = result.unwrap();
+        let expr_str = satisfaction_expr.to_string();
+        // No null_count available, so no null check
+        assert!(
+            !expr_str.contains("null_count"),
+            "Unexpected null_count in: {expr_str}"
+        );
+    }
+
+    #[rstest]
+    fn satisfaction_and_expr(available_stats_with_null_count: FieldPathSet) {
+        // Filter: a > 10 AND b < 50
+        // Negated: a <= 10 OR b >= 50
+        // Falsification should produce something
+        let expr = and(gt(col("a"), lit(10)), lt(col("b"), lit(50)));
+        let result = checked_satisfaction_expr(&expr, &available_stats_with_null_count);
+        assert!(result.is_some());
     }
 }

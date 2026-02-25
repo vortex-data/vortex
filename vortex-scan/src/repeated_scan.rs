@@ -21,6 +21,7 @@ use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReaderRef;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::filter::FilterExpr;
@@ -53,6 +54,9 @@ pub struct RepeatedScan<A: 'static + Send> {
     limit: Option<u64>,
     /// The dtype of the projected arrays.
     dtype: DType,
+    /// A mask where true indicates that all rows in that range are fully satisfied by the filter.
+    /// Used with limit pushdown to count rows from fully-satisfied zones toward the limit.
+    satisfaction_mask: Option<Mask>,
 }
 
 impl RepeatedScan<ArrayRef> {
@@ -100,6 +104,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
         limit: Option<u64>,
         dtype: DType,
+        satisfaction_mask: Option<Mask>,
     ) -> Self {
         Self {
             session,
@@ -114,6 +119,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             map_fn,
             limit,
             dtype,
+            satisfaction_mask,
         }
     }
 
@@ -121,15 +127,32 @@ impl<A: 'static + Send> RepeatedScan<A> {
         &self,
         row_range: Option<Range<u64>>,
     ) -> VortexResult<Vec<BoxFuture<'static, VortexResult<Option<A>>>>> {
-        let ctx = Arc::new(TaskContext {
+        let filter_expr = self.filter.clone().map(|f| Arc::new(FilterExpr::new(f)));
+
+        let ctx_with_filter = Arc::new(TaskContext {
             selection: self.selection.clone(),
-            filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
+            filter: filter_expr.clone(),
             reader: self.layout_reader.clone(),
             projection: self.projection.clone(),
             mapper: self.map_fn.clone(),
         });
 
+        // Build a context without filter for fully-satisfied splits.
+        let ctx_no_filter =
+            (filter_expr.is_some() && self.satisfaction_mask.is_some()).then(|| {
+                Arc::new(TaskContext {
+                    selection: self.selection.clone(),
+                    filter: None,
+                    reader: self.layout_reader.clone(),
+                    projection: self.projection.clone(),
+                    mapper: self.map_fn.clone(),
+                })
+            });
+
         let row_range = intersect_ranges(self.row_range.as_ref(), row_range);
+
+        // Compute the base row offset for indexing into the satisfaction mask.
+        let base_row = self.row_range.as_ref().map(|r| r.start).unwrap_or(0);
 
         let ranges = match &self.splits {
             Splits::Natural(btree_set) => {
@@ -176,7 +199,23 @@ impl<A: 'static + Send> RepeatedScan<A> {
                 break;
             }
 
-            tasks.push(split_exec(ctx.clone(), range, limit.as_mut())?);
+            // When we have a satisfaction mask and a limit, check if this split is
+            // fully satisfied by the filter. If so, run without filter so limit tracking works.
+            let fully_satisfied = self.satisfaction_mask.as_ref().is_some_and(|mask| {
+                let start = usize::try_from(range.start.saturating_sub(base_row)).unwrap_or(0);
+                let end = usize::try_from(range.end.saturating_sub(base_row))
+                    .unwrap_or(mask.len())
+                    .min(mask.len());
+                start < end && mask.slice(start..end).all_true()
+            });
+
+            if fully_satisfied && let Some(ref ctx) = ctx_no_filter {
+                // Fully satisfied: run without filter, limit will be decremented in split_exec
+                tasks.push(split_exec(ctx.clone(), range, limit.as_mut())?);
+            } else {
+                // Not fully satisfied: run with filter, don't decrement limit
+                tasks.push(split_exec(ctx_with_filter.clone(), range, limit.as_mut())?);
+            }
         }
 
         Ok(tasks)

@@ -6,7 +6,9 @@ mod relation;
 
 pub use pruning_expr::RequiredStats;
 pub use pruning_expr::checked_pruning_expr;
+pub use pruning_expr::checked_satisfaction_expr;
 pub use pruning_expr::field_path_stat_field_name;
+pub use pruning_expr::push_not_inward;
 pub use relation::Relation;
 
 use crate::dtype::FieldPath;

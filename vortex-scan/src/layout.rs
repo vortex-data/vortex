@@ -233,13 +233,23 @@ impl Stream for LayoutReaderScan {
         let row_range = this.next_row..split_end;
         let split_rows = split_end - this.next_row;
 
+        // Check if this split is fully satisfied by the filter using zone stats.
+        // If so, we can decrement the limit (like the no-filter case) and skip the filter.
+        let split_satisfied = matches!((&this.filter, this.limit), (Some(_), Some(_)))
+            && this.filter.as_ref().is_some_and(|filter_expr| {
+                let mask = Mask::new_true(usize::try_from(split_rows).unwrap_or(usize::MAX));
+                this.reader
+                    .satisfaction_evaluation(&row_range, filter_expr, mask)
+                    .ok()
+                    .and_then(|f| f.now_or_never())
+                    .and_then(|r| r.ok())
+                    .is_some_and(|m| m.all_true())
+            });
+
         let split_limit = this.limit;
-        // Only decrement the remaining limit when there is no filter. With a filter,
-        // the actual output row count is unknown (could be anywhere from 0 to split_rows),
-        // so decrementing by split_rows would be too aggressive and could stop producing
-        // splits before the limit is reached. Instead, pass the full remaining limit to
-        // each split and let the engine enforce the exact limit at the stream level.
-        if this.filter.is_none()
+        // Decrement the remaining limit when there is no filter, or when the split is
+        // fully satisfied by the filter (meaning all rows pass, so the count is known).
+        if (this.filter.is_none() || split_satisfied)
             && let Some(ref mut limit) = this.limit
         {
             *limit = limit.saturating_sub(split_rows);

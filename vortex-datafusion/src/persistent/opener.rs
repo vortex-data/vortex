@@ -346,9 +346,7 @@ impl FileOpener for VortexOpener {
                 })
                 .transpose()?;
 
-            if let Some(limit) = limit
-                && filter.is_none()
-            {
+            if let Some(limit) = limit {
                 scan_builder = scan_builder.with_limit(limit);
             }
 
