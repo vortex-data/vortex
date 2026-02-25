@@ -29,13 +29,11 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
 
     // Methods related to the extension `DType`.
 
-    // TODO(connor): Should probably be called `serialize_metadata`.
     /// Serialize the metadata into a byte vector.
-    fn serialize(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>>;
+    fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>>;
 
-    // TODO(connor): Should probably be called `deserialize_metadata`.
     /// Deserialize the metadata from a byte slice.
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Metadata>;
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata>;
 
     /// Validate that the given storage type is compatible with this extension type.
     fn validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()>;

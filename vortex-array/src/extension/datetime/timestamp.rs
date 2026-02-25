@@ -120,7 +120,7 @@ impl ExtVTable for Timestamp {
 
     // NOTE(ngates): unfortunately we're stuck with this hand-rolled serialization format for
     //  backwards compatibility.
-    fn serialize(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+    fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
         let mut bytes = Vec::with_capacity(4);
         let unit_tag: u8 = metadata.unit.into();
 
@@ -141,7 +141,7 @@ impl ExtVTable for Timestamp {
         Ok(bytes)
     }
 
-    fn deserialize(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
         vortex_ensure!(data.len() >= 3);
 
         let tag = data[0];

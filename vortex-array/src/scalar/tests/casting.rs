@@ -35,11 +35,11 @@ mod tests {
             ExtId::new_ref("apples")
         }
 
-        fn serialize(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+        fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
             Ok(vec![])
         }
 
-        fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
             Ok(0)
         }
 
@@ -256,11 +256,11 @@ mod tests {
                 ExtId::new_ref("f16_ext")
             }
 
-            fn serialize(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
                 vortex_bail!("not implemented")
             }
 
-            fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
                 vortex_bail!("not implemented")
             }
 
@@ -319,11 +319,11 @@ mod tests {
                 ExtId::new_ref("struct_ext")
             }
 
-            fn serialize(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
                 vortex_bail!("not implemented")
             }
 
-            fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
                 vortex_bail!("not implemented")
             }
 

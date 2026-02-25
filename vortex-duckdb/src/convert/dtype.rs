@@ -583,11 +583,11 @@ mod tests {
                 ExtId::new_ref("unknown.extension")
             }
 
-            fn serialize(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
                 Ok(vec![])
             }
 
-            fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
                 Ok(EmptyMetadata)
             }
 

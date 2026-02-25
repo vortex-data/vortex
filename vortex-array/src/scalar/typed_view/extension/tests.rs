@@ -26,11 +26,11 @@ impl ExtVTable for TestI32Ext {
         ExtId::new_ref("test_ext")
     }
 
-    fn serialize(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+    fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
         Ok(vec![])
     }
 
-    fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -115,11 +115,11 @@ fn test_ext_scalar_partial_ord_different_types() {
             ExtId::new_ref("test_ext_2")
         }
 
-        fn serialize(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+        fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
             Ok(vec![])
         }
 
-        fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
             Ok(EmptyMetadata)
         }
 
@@ -312,11 +312,11 @@ fn test_ext_scalar_with_metadata() {
             ExtId::new_ref("test_ext_metadata")
         }
 
-        fn serialize(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+        fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
             vortex_bail!("not implemented")
         }
 
-        fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
             vortex_bail!("not implemented")
         }
 

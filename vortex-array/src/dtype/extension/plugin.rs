@@ -32,7 +32,7 @@ impl<V: ExtVTable> ExtDTypePlugin for V {
     }
 
     fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef> {
-        let metadata = ExtVTable::deserialize(self, data)?;
+        let metadata = ExtVTable::deserialize_metadata(self, data)?;
         Ok(ExtDType::try_with_vtable(self.clone(), metadata, storage_dtype)?.erased())
     }
 }

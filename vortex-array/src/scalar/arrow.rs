@@ -456,11 +456,11 @@ mod tests {
                 ExtId::new_ref("some_ext")
             }
 
-            fn serialize(&self, _options: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            fn serialize_metadata(&self, _options: &Self::Metadata) -> VortexResult<Vec<u8>> {
                 vortex_bail!("not implemented")
             }
 
-            fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
                 vortex_bail!("not implemented")
             }
 

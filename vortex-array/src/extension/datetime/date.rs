@@ -72,11 +72,11 @@ impl ExtVTable for Date {
         ExtId::new_ref("vortex.date")
     }
 
-    fn serialize(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+    fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
         Ok(vec![u8::from(*metadata)])
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
         let tag = metadata[0];
         TimeUnit::try_from(tag)
     }
