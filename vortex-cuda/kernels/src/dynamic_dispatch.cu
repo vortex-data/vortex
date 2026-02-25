@@ -56,8 +56,10 @@ __device__ inline void dynamic_source_op(const T *__restrict input,
         constexpr uint32_t FL_CHUNK_SIZE = 1024;
         constexpr uint32_t LANES_PER_FL_BLOCK = FL_CHUNK_SIZE / T_BITS;
         const uint32_t bit_width = source_op.params.bitunpack.bit_width;
+        const uint32_t element_offset = source_op.params.bitunpack.element_offset;
         const uint32_t packed_words_per_fl_block = LANES_PER_FL_BLOCK * bit_width;
-        const uint64_t first_fl_block = chunk_start / FL_CHUNK_SIZE;
+        // Shift chunk_start by the sub-block element offset.
+        const uint64_t first_fl_block = (chunk_start + element_offset) / FL_CHUNK_SIZE;
 
         // FL blocks must divide evenly. Otherwise, the last unpack would overflow smem.
         static_assert((ELEMENTS_PER_BLOCK % FL_CHUNK_SIZE) == 0);

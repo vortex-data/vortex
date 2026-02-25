@@ -5,20 +5,15 @@ use std::cmp::max;
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::SliceKernel;
+use vortex_array::arrays::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::BitPackedArray;
 use crate::BitPackedVTable;
 
-impl SliceKernel for BitPackedVTable {
-    fn slice(
-        array: &BitPackedArray,
-        range: Range<usize>,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
+impl SliceReduce for BitPackedVTable {
+    fn slice(array: &BitPackedArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let offset_start = range.start + array.offset() as usize;
         let offset_stop = range.end + array.offset() as usize;
         let offset = offset_start % 1024;
@@ -51,43 +46,44 @@ impl SliceKernel for BitPackedVTable {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
-
     use vortex_array::Array;
-    use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::SliceArray;
-    use vortex_array::session::ArraySession;
-    use vortex_array::vtable::VTable;
+    use vortex_array::arrays::SliceReduce;
+    use vortex_array::arrays::SliceVTable;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
 
     use crate::BitPackedVTable;
     use crate::bitpack_compress::bitpack_encode;
 
-    static SESSION: LazyLock<VortexSession> =
-        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
-
     #[test]
-    fn test_execute_parent_returns_bitpacked_slice() -> VortexResult<()> {
+    fn test_slice_returns_bitpacked() -> VortexResult<()> {
         let values = vortex_array::arrays::PrimitiveArray::from_iter(0u32..2048);
         let bitpacked = bitpack_encode(&values, 11, None)?;
 
-        let slice_array = SliceArray::new(bitpacked.clone().into_array(), 500..1500);
+        let result =
+            BitPackedVTable::slice(&bitpacked, 500..1500)?.expect("expected slice to succeed");
 
-        let mut ctx = SESSION.create_execution_ctx();
-        let reduced = <BitPackedVTable as VTable>::execute_parent(
-            &bitpacked,
-            &slice_array.into_array(),
-            0,
-            &mut ctx,
-        )?
-        .expect("expected slice kernel to execute");
+        assert!(result.is::<BitPackedVTable>());
+        let result_bp = result.as_::<BitPackedVTable>();
+        assert_eq!(result_bp.offset(), 500);
+        assert_eq!(result.len(), 1000);
 
-        assert!(reduced.is::<BitPackedVTable>());
-        let reduced_bp = reduced.as_::<BitPackedVTable>();
-        assert_eq!(reduced_bp.offset(), 500);
-        assert_eq!(reduced.len(), 1000);
+        Ok(())
+    }
+
+    #[test]
+    fn test_slice_via_array_trait() -> VortexResult<()> {
+        let values = vortex_array::arrays::PrimitiveArray::from_iter(0u32..2048);
+        let bitpacked = bitpack_encode(&values, 11, None)?;
+
+        let sliced = bitpacked.as_ref().slice(500..1500)?;
+
+        // After optimize, the SliceArray should have been reduced away.
+        assert!(
+            !sliced.is::<SliceVTable>(),
+            "expected SliceReduce to eliminate the SliceArray wrapper"
+        );
+        assert!(sliced.is::<BitPackedVTable>());
+        assert_eq!(sliced.len(), 1000);
 
         Ok(())
     }

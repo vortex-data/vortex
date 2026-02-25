@@ -94,7 +94,7 @@ async fn main() -> VortexResult<()> {
 
     // Create a full scan that executes on the GPU
     let cuda_stream =
-        VortexCudaStreamPool::new(Arc::clone(cuda_ctx.stream().context()), 1).get_stream()?;
+        VortexCudaStreamPool::new(Arc::clone(cuda_ctx.stream().context()), 1).stream()?;
     let gpu_reader = CopyDeviceReadAt::new(recompressed, cuda_stream);
 
     let gpu_file = session

@@ -32,16 +32,27 @@ unsafe impl cudarc::driver::DeviceRepr for Stage {}
 
 impl SourceOp {
     /// Unpack bit-packed data using FastLanes layout.
-    pub fn bitunpack(bit_width: u8) -> Self {
+    ///
+    /// The device pointer already accounts for buffer slicing, so no
+    /// offset parameter is needed. `element_offset` (0..1023) is the
+    /// remaining position within the first FastLanes block.
+    pub fn bitunpack(bit_width: u8, element_offset: u16) -> Self {
         Self {
             op_code: SourceOp_SourceOpCode_BITUNPACK,
             params: SourceParams {
-                bitunpack: SourceParams_BitunpackParams { bit_width },
+                bitunpack: SourceParams_BitunpackParams {
+                    bit_width,
+                    _padding: [0; 3],
+                    element_offset: u32::from(element_offset),
+                },
             },
         }
     }
 
     /// Copy elements verbatim from global memory to shared memory.
+    ///
+    /// The device pointer already accounts for buffer slicing, so no
+    /// offset parameter is needed.
     pub fn load() -> Self {
         Self {
             op_code: SourceOp_SourceOpCode_LOAD,
@@ -262,7 +273,7 @@ mod tests {
         let plan = DynamicDispatchPlan::new([Stage::output(
             input_ptr,
             0,
-            SourceOp::bitunpack(bit_width),
+            SourceOp::bitunpack(bit_width, 0),
             &scalar_ops,
         )]);
         assert_eq!(plan.stages[0].num_scalar_ops, 4);
@@ -282,13 +293,13 @@ mod tests {
                 0xAAAA,
                 0,
                 256,
-                SourceOp::bitunpack(4),
+                SourceOp::bitunpack(4, 0),
                 &[ScalarOp::frame_of_ref(10)],
             ),
             Stage::output(
                 0xBBBB,
                 256,
-                SourceOp::bitunpack(6),
+                SourceOp::bitunpack(6, 0),
                 &[ScalarOp::frame_of_ref(42), ScalarOp::dict(0)],
             ),
         ]);
@@ -683,6 +694,115 @@ mod tests {
         let (plan, _bufs) = build_plan(&dict.to_array(), &cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sliced_primitive() -> VortexResult<()> {
+        let len = 5000;
+        let data: Vec<u32> = (0..len).map(|i| (i * 7) % 1000).collect();
+
+        let prim = PrimitiveArray::new(Buffer::from(data.clone()), NonNullable);
+
+        let slice_start = 500;
+        let slice_end = 3500;
+        let sliced = prim.as_ref().slice(slice_start..slice_end)?;
+
+        let expected: Vec<u32> = data[slice_start..slice_end].to_vec();
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let (plan, _bufs) = build_plan(&sliced, &cuda_ctx)?;
+
+        let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sliced_for_bitpacked() -> VortexResult<()> {
+        let reference = 100u32;
+        let bit_width = 10u8;
+        let max_val = (1u32 << bit_width) - 1;
+        let len = 5000;
+
+        let encoded_data: Vec<u32> = (0..len).map(|i| (i as u32) % max_val).collect();
+        let prim = PrimitiveArray::new(Buffer::from(encoded_data.clone()), NonNullable);
+        let bp = BitPackedArray::encode(prim.as_ref(), bit_width)?;
+        let for_arr = FoRArray::try_new(bp.into_array(), Scalar::from(reference))?;
+
+        let all_decoded: Vec<u32> = encoded_data.iter().map(|&v| v + reference).collect();
+
+        let slice_start = 1024;
+        let slice_end = 3500;
+        let sliced = for_arr.as_ref().slice(slice_start..slice_end)?;
+        let expected: Vec<u32> = all_decoded[slice_start..slice_end].to_vec();
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let (plan, _bufs) = build_plan(&sliced, &cuda_ctx)?;
+
+        let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sliced_zigzag_bitpacked() -> VortexResult<()> {
+        let bit_width = 10u8;
+        let max_val = (1u32 << bit_width) - 1;
+        let len = 5000;
+
+        let raw: Vec<u32> = (0..len).map(|i| (i as u32) % max_val).collect();
+        let all_decoded: Vec<u32> = raw
+            .iter()
+            .map(|&v| (v >> 1) ^ (0u32.wrapping_sub(v & 1)))
+            .collect();
+
+        let prim = PrimitiveArray::new(Buffer::from(raw), NonNullable);
+        let bp = BitPackedArray::encode(prim.as_ref(), bit_width)?;
+        let zz = ZigZagArray::try_new(bp.into_array())?;
+
+        let slice_start = 1024;
+        let slice_end = 3500;
+        let sliced = zz.as_ref().slice(slice_start..slice_end)?;
+        let expected: Vec<u32> = all_decoded[slice_start..slice_end].to_vec();
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let (plan, _bufs) = build_plan(&sliced, &cuda_ctx)?;
+
+        let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sliced_dict_with_primitive_codes() -> VortexResult<()> {
+        let dict_values: Vec<u32> = vec![100, 200, 300, 400, 500];
+        let dict_size = dict_values.len();
+        let len = 5000;
+        let codes: Vec<u32> = (0..len).map(|i| (i % dict_size) as u32).collect();
+
+        let codes_prim = PrimitiveArray::new(Buffer::from(codes.clone()), NonNullable);
+        let values_prim = PrimitiveArray::new(Buffer::from(dict_values.clone()), NonNullable);
+        let dict = DictArray::try_new(codes_prim.into_array(), values_prim.into_array())?;
+
+        let slice_start = 1000;
+        let slice_end = 3000;
+        let sliced = dict.as_ref().slice(slice_start..slice_end)?;
+
+        let expected: Vec<u32> = codes[slice_start..slice_end]
+            .iter()
+            .map(|&c| dict_values[c as usize])
+            .collect();
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let (plan, _bufs) = build_plan(&sliced, &cuda_ctx)?;
+
+        let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
         assert_eq!(actual, expected);
 
         Ok(())

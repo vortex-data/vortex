@@ -19,6 +19,7 @@ use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::ALPVTable;
 use vortex::encodings::fastlanes::BitPackedArrayParts;
 use vortex::encodings::fastlanes::BitPackedVTable;
+use vortex::encodings::fastlanes::FoRArray;
 use vortex::encodings::fastlanes::FoRVTable;
 use vortex::encodings::runend::RunEndArrayParts;
 use vortex::encodings::runend::RunEndVTable;
@@ -83,8 +84,6 @@ struct Pipeline {
 /// **Nullability**: validity bitmaps are silently ignored. All output elements
 /// receive a value regardless of whether the input was null. Only arrays with
 /// `NonNullable` or `AllValid` validity produce correct results.
-///
-/// **Slicing**: Not supported.
 ///
 /// **Patches**: `BitPackedArray` with patches and `ALPArray` with patches are
 /// not supported and will return an error.
@@ -161,6 +160,9 @@ impl PlanBuilderState<'_> {
     }
 
     /// Canonical primitive array → LOAD source op.
+    ///
+    /// The device pointer already accounts for buffer slicing, so no
+    /// offset parameter is needed.
     fn walk_primitive(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let prim = array.to_canonical()?.into_primitive();
         let PrimitiveArrayParts { buffer, .. } = prim.into_parts();
@@ -170,11 +172,17 @@ impl PlanBuilderState<'_> {
         Ok(Pipeline {
             source: SourceOp::load(),
             scalar_ops: vec![],
-            input_ptr: ptr,
+            input_ptr: ptr as u64,
         })
     }
 
     /// BitPackedArray → BITUNPACK source op.
+    ///
+    /// The device pointer already accounts for buffer slicing, so no
+    /// offset parameter is needed. The sub-block element offset (0..1023)
+    /// from `BitPackedArrayParts` is the exception: It is passed as a kernel
+    /// parameter since it cannot be expressed as pointer arithmetic on
+    /// bit-packed data.
     fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
         let bp = array
             .try_into::<BitPackedVTable>()
@@ -187,11 +195,6 @@ impl PlanBuilderState<'_> {
             ..
         } = bp.into_parts();
 
-        if offset != 0 {
-            vortex_bail!(
-                "Dynamic dispatch does not support sliced BitPackedArray (offset={offset})"
-            );
-        }
         if patches.is_some() {
             vortex_bail!("Dynamic dispatch does not support BitPackedArray with patches");
         }
@@ -200,9 +203,9 @@ impl PlanBuilderState<'_> {
         let ptr = device_buf.cuda_device_ptr()?;
         self.device_buffers.push(device_buf);
         Ok(Pipeline {
-            source: SourceOp::bitunpack(bit_width),
+            source: SourceOp::bitunpack(bit_width, offset),
             scalar_ops: vec![],
-            input_ptr: ptr,
+            input_ptr: ptr as u64,
         })
     }
 
@@ -313,7 +316,7 @@ impl PlanBuilderState<'_> {
 }
 
 /// Extract a FoR reference scalar as u64 bits.
-fn extract_for_reference(for_arr: &vortex::encodings::fastlanes::FoRArray) -> VortexResult<u64> {
+fn extract_for_reference(for_arr: &FoRArray) -> VortexResult<u64> {
     if let Ok(v) = u32::try_from(for_arr.reference_scalar()) {
         Ok(v as u64)
     } else if let Ok(v) = i32::try_from(for_arr.reference_scalar()) {

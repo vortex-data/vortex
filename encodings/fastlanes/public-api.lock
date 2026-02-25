@@ -196,9 +196,9 @@ impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_fastlanes::Bi
 
 pub fn vortex_fastlanes::BitPackedVTable::filter(array: &vortex_fastlanes::BitPackedArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::arrays::slice::SliceKernel for vortex_fastlanes::BitPackedVTable
+impl vortex_array::arrays::slice::SliceReduce for vortex_fastlanes::BitPackedVTable
 
-pub fn vortex_fastlanes::BitPackedVTable::slice(array: &vortex_fastlanes::BitPackedArray, range: core::ops::range::Range<usize>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::BitPackedVTable::slice(array: &vortex_fastlanes::BitPackedArray, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::compute::is_constant::IsConstantKernel for vortex_fastlanes::BitPackedVTable
 

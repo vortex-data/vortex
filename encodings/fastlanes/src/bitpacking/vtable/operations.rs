@@ -26,13 +26,10 @@ impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
 #[cfg(test)]
 mod test {
     use std::ops::Range;
-    use std::sync::LazyLock;
 
     use vortex_array::Array;
     use vortex_array::IntoArray;
-    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::SliceArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
     use vortex_array::buffer::BufferHandle;
@@ -41,9 +38,7 @@ mod test {
     use vortex_array::dtype::PType;
     use vortex_array::patches::Patches;
     use vortex_array::scalar::Scalar;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::VTable;
     use vortex_buffer::Alignment;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
@@ -52,20 +47,8 @@ mod test {
     use crate::BitPackedArray;
     use crate::BitPackedVTable;
 
-    static SESSION: LazyLock<vortex_session::VortexSession> =
-        LazyLock::new(|| vortex_session::VortexSession::empty().with::<ArraySession>());
-
     fn slice_via_kernel(array: &BitPackedArray, range: Range<usize>) -> BitPackedArray {
-        let slice_array = SliceArray::new(array.clone().into_array(), range);
-        let mut ctx = SESSION.create_execution_ctx();
-        let sliced = <BitPackedVTable as VTable>::execute_parent(
-            array,
-            &slice_array.into_array(),
-            0,
-            &mut ctx,
-        )
-        .expect("execute_parent failed")
-        .expect("expected slice kernel to execute");
+        let sliced = array.as_ref().slice(range).expect("slice failed");
         sliced.as_::<BitPackedVTable>().clone()
     }
 
