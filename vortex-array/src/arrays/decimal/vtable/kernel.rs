@@ -3,10 +3,10 @@
 
 use crate::arrays::DecimalVTable;
 use crate::arrays::TakeExecuteAdaptor;
-use crate::expr::BetweenExecuteAdaptor;
-use crate::expr::CastExecuteAdaptor;
-use crate::expr::FillNullExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
+use crate::scalar_fn::BetweenExecuteAdaptor;
+use crate::scalar_fn::CastExecuteAdaptor;
+use crate::scalar_fn::FillNullExecuteAdaptor;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<DecimalVTable> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&BetweenExecuteAdaptor(DecimalVTable)),

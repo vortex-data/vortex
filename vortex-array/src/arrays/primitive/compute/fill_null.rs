@@ -12,9 +12,9 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::expr::FillNullKernel;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
+use crate::scalar_fn::FillNullKernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

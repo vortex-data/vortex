@@ -11,9 +11,9 @@ use vortex_array::arrays::FilterExecuteAdaptor;
 use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::SliceVTable;
 use vortex_array::arrays::TakeExecuteAdaptor;
-use vortex_array::expr::CompareExecuteAdaptor;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
+use vortex_array::scalar_fn::CompareExecuteAdaptor;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;

@@ -11,8 +11,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::columnar::Columnar;
-use crate::expr::ExecutionArgs;
 use crate::scalar::Scalar;
+use crate::scalar_fn::ExecutionArgs;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
@@ -65,9 +65,9 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::scalar_fn::array::ScalarFnArray;
     use crate::assert_arrays_eq;
-    use crate::expr::Operator;
-    use crate::expr::ScalarFn;
-    use crate::expr::binary::Binary;
+    use crate::scalar_fn::Operator;
+    use crate::scalar_fn::ScalarFn;
+    use crate::scalar_fn::fns::binary::Binary;
     use crate::validity::Validity;
 
     #[test]

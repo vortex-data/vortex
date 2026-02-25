@@ -17,10 +17,10 @@ use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
 use vortex::expr::Expression;
-use vortex::expr::root;
-use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
+use vortex::scalar_fn::root;
+use vortex::scalar_fn::select;
 use vortex::scan::SplitBy;
 
 use crate::RUNTIME;

@@ -6,12 +6,12 @@ use vortex_error::VortexExpect;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::expr::Expression;
-use crate::expr::exprs::get_item::col;
-use crate::expr::exprs::pack::pack;
-use crate::expr::exprs::root::root;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::Transformed;
 use crate::expr::traversal::TraversalOrder;
+use crate::scalar_fn::fns::get_item::col;
+use crate::scalar_fn::fns::pack::pack;
+use crate::scalar_fn::fns::root::root;
 
 /// Replaces all occurrences of `needle` in the expression `expr` with `replacement`.
 pub fn replace(expr: Expression, needle: &Expression, replacement: Expression) -> Expression {
@@ -50,9 +50,9 @@ pub fn replace_root_fields(expr: Expression, fields: &StructFields) -> Expressio
 mod test {
     use super::replace;
     use crate::dtype::Nullability::NonNullable;
-    use crate::expr::exprs::get_item::get_item;
-    use crate::expr::exprs::literal::lit;
-    use crate::expr::exprs::pack::pack;
+    use crate::scalar_fn::fns::get_item::get_item;
+    use crate::scalar_fn::fns::literal::lit;
+    use crate::scalar_fn::fns::pack::pack;
 
     #[test]
     fn test_replace_full_tree() {

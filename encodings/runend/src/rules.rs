@@ -8,10 +8,10 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ConstantVTable;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::DType;
-use vortex_array::expr::CastReduceAdaptor;
-use vortex_array::expr::FillNullReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::scalar_fn::CastReduceAdaptor;
+use vortex_array::scalar_fn::FillNullReduceAdaptor;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;

@@ -14,9 +14,9 @@ use crate::dtype::FieldPath;
 use crate::dtype::FieldPathSet;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
-use crate::expr::exprs::get_item::get_item;
-use crate::expr::exprs::root::root;
 use crate::expr::stats::Stat;
+use crate::scalar_fn::fns::get_item::get_item;
+use crate::scalar_fn::fns::root::root;
 
 pub type RequiredStats = Relation<FieldPath, Stat>;
 
@@ -122,25 +122,25 @@ mod tests {
     use crate::dtype::FieldPathSet;
     use crate::dtype::Nullability;
     use crate::dtype::StructFields;
-    use crate::expr::BetweenOptions;
-    use crate::expr::StrictComparison;
-    use crate::expr::exprs::between::between;
-    use crate::expr::exprs::binary::and;
-    use crate::expr::exprs::binary::eq;
-    use crate::expr::exprs::binary::gt;
-    use crate::expr::exprs::binary::gt_eq;
-    use crate::expr::exprs::binary::lt;
-    use crate::expr::exprs::binary::lt_eq;
-    use crate::expr::exprs::binary::not_eq;
-    use crate::expr::exprs::binary::or;
-    use crate::expr::exprs::cast::cast;
-    use crate::expr::exprs::get_item::col;
-    use crate::expr::exprs::get_item::get_item;
-    use crate::expr::exprs::literal::lit;
-    use crate::expr::exprs::root::root;
     use crate::expr::pruning::checked_pruning_expr;
     use crate::expr::pruning::field_path_stat_field_name;
     use crate::expr::stats::Stat;
+    use crate::scalar_fn::BetweenOptions;
+    use crate::scalar_fn::StrictComparison;
+    use crate::scalar_fn::fns::between::between;
+    use crate::scalar_fn::fns::binary::and;
+    use crate::scalar_fn::fns::binary::eq;
+    use crate::scalar_fn::fns::binary::gt;
+    use crate::scalar_fn::fns::binary::gt_eq;
+    use crate::scalar_fn::fns::binary::lt;
+    use crate::scalar_fn::fns::binary::lt_eq;
+    use crate::scalar_fn::fns::binary::not_eq;
+    use crate::scalar_fn::fns::binary::or;
+    use crate::scalar_fn::fns::cast::cast;
+    use crate::scalar_fn::fns::get_item::col;
+    use crate::scalar_fn::fns::get_item::get_item;
+    use crate::scalar_fn::fns::literal::lit;
+    use crate::scalar_fn::fns::root::root;
 
     // Implement some checked pruning expressions.
     #[fixture]

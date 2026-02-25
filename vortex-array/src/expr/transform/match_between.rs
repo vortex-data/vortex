@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::expr::BetweenOptions;
 use crate::expr::Expression;
-use crate::expr::StrictComparison;
-use crate::expr::VTableExt;
-use crate::expr::and_collect;
-use crate::expr::exprs::between::Between;
-use crate::expr::exprs::binary::Binary;
-use crate::expr::exprs::get_item::GetItem;
-use crate::expr::exprs::literal::Literal;
-use crate::expr::exprs::literal::lit;
-use crate::expr::exprs::operators::Operator;
 use crate::expr::forms::conjuncts;
+use crate::scalar_fn::BetweenOptions;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::StrictComparison;
+use crate::scalar_fn::and_collect;
+use crate::scalar_fn::fns::between::Between;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::literal::lit;
+use crate::scalar_fn::fns::operators::Operator;
 
 /// This pass looks for expression of the form
 ///      `x >= a && x < b` and converts them into x between a and b`
@@ -126,16 +126,16 @@ fn is_strict_comparison(op: Operator) -> Option<StrictComparison> {
 #[cfg(test)]
 mod tests {
     use super::find_between;
-    use crate::expr::BetweenOptions;
-    use crate::expr::StrictComparison;
-    use crate::expr::exprs::between::between;
-    use crate::expr::exprs::binary::and;
-    use crate::expr::exprs::binary::gt;
-    use crate::expr::exprs::binary::gt_eq;
-    use crate::expr::exprs::binary::lt;
-    use crate::expr::exprs::binary::lt_eq;
-    use crate::expr::exprs::get_item::col;
-    use crate::expr::exprs::literal::lit;
+    use crate::scalar_fn::BetweenOptions;
+    use crate::scalar_fn::StrictComparison;
+    use crate::scalar_fn::fns::between::between;
+    use crate::scalar_fn::fns::binary::and;
+    use crate::scalar_fn::fns::binary::gt;
+    use crate::scalar_fn::fns::binary::gt_eq;
+    use crate::scalar_fn::fns::binary::lt;
+    use crate::scalar_fn::fns::binary::lt_eq;
+    use crate::scalar_fn::fns::get_item::col;
+    use crate::scalar_fn::fns::literal::lit;
 
     #[test]
     fn test_bad_match() {

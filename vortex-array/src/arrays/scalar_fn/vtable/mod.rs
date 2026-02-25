@@ -30,15 +30,15 @@ use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
-use crate::expr;
-use crate::expr::Arity;
-use crate::expr::ChildName;
-use crate::expr::ExecutionArgs;
-use crate::expr::ExprId;
 use crate::expr::Expression;
-use crate::expr::ScalarFn;
-use crate::expr::VTableExt;
 use crate::matcher::Matcher;
+use crate::scalar_fn;
+use crate::scalar_fn::Arity;
+use crate::scalar_fn::ChildName;
+use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFn;
+use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::ScalarFnVTableExt;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -152,7 +152,7 @@ impl VTable for ScalarFnVTable {
 }
 
 /// Array factory functions for scalar functions.
-pub trait ScalarFnArrayExt: expr::VTable {
+pub trait ScalarFnArrayExt: scalar_fn::ScalarFnVTable {
     fn try_new_array(
         &'static self,
         len: usize,
@@ -180,7 +180,7 @@ pub trait ScalarFnArrayExt: expr::VTable {
         .into_array())
     }
 }
-impl<V: expr::VTable> ScalarFnArrayExt for V {}
+impl<V: scalar_fn::ScalarFnVTable> ScalarFnArrayExt for V {}
 
 /// A matcher that matches any scalar function expression.
 #[derive(Debug)]
@@ -195,9 +195,9 @@ impl Matcher for AnyScalarFn {
 
 /// A matcher that matches a specific scalar function expression.
 #[derive(Debug, Default)]
-pub struct ExactScalarFn<F: expr::VTable>(PhantomData<F>);
+pub struct ExactScalarFn<F: scalar_fn::ScalarFnVTable>(PhantomData<F>);
 
-impl<F: expr::VTable> Matcher for ExactScalarFn<F> {
+impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
     type Match<'a> = ScalarFnArrayView<'a, F>;
 
     fn matches(array: &dyn Array) -> bool {
@@ -230,13 +230,13 @@ impl<F: expr::VTable> Matcher for ExactScalarFn<F> {
     }
 }
 
-pub struct ScalarFnArrayView<'a, F: expr::VTable> {
+pub struct ScalarFnArrayView<'a, F: scalar_fn::ScalarFnVTable> {
     array: &'a dyn Array,
     pub vtable: &'a F,
     pub options: &'a F::Options,
 }
 
-impl<F: expr::VTable> Deref for ScalarFnArrayView<'_, F> {
+impl<F: scalar_fn::ScalarFnVTable> Deref for ScalarFnArrayView<'_, F> {
     type Target = dyn Array;
 
     fn deref(&self) -> &Self::Target {
@@ -268,11 +268,11 @@ impl Display for FakeEq<ArrayRef> {
     }
 }
 
-impl expr::VTable for ArrayExpr {
+impl scalar_fn::ScalarFnVTable for ArrayExpr {
     type Options = FakeEq<ArrayRef>;
 
-    fn id(&self) -> ExprId {
-        ExprId::from("vortex.array")
+    fn id(&self) -> ScalarFnId {
+        ScalarFnId::from("vortex.array")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

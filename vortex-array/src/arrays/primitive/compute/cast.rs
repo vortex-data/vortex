@@ -15,8 +15,8 @@ use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
-use crate::expr::CastKernel;
 use crate::match_each_native_ptype;
+use crate::scalar_fn::CastKernel;
 use crate::vtable::ValidityHelper;
 
 impl CastKernel for PrimitiveVTable {

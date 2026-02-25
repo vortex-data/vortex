@@ -17,7 +17,7 @@ use crate::scalar::Scalar;
 ///
 /// The returned array is nullable but otherwise has the same dtype and length as `array`.
 ///
-/// This function returns a lazy `ScalarFnArray` wrapping the [`Mask`](crate::expr::mask::Mask)
+/// This function returns a lazy `ScalarFnArray` wrapping the [`Mask`](crate::scalar_fn::fns::mask::Mask)
 /// expression that defers the actual masking operation until execution time. The mask is inverted
 /// (true=mask-out becomes true=keep) and passed as a boolean child to the expression.
 #[deprecated(note = "use array.mask(mask_array) via ArrayBuiltins instead")]

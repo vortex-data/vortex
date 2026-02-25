@@ -11,13 +11,13 @@ use crate::array::Array;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::TemporalArray;
 use crate::assert_arrays_eq;
-use crate::expr::root;
-use crate::expr::*;
 use crate::extension::datetime::TemporalMetadata;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 use crate::extension::datetime::TimestampOptions;
 use crate::scalar::Scalar;
+use crate::scalar_fn::root;
+use crate::scalar_fn::*;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 
 use crate::dtype::DType;
-use crate::expr::ScalarFn;
+use crate::scalar_fn::ScalarFn;
 
 #[derive(Clone)]
 pub struct ScalarFnMetadata {

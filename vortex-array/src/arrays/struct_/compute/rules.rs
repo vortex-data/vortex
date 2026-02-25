@@ -15,13 +15,13 @@ use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::expr::Cast;
-use crate::expr::EmptyOptions;
-use crate::expr::GetItem;
-use crate::expr::Mask;
-use crate::expr::MaskReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::Cast;
+use crate::scalar_fn::EmptyOptions;
+use crate::scalar_fn::GetItem;
+use crate::scalar_fn::Mask;
+use crate::scalar_fn::MaskReduceAdaptor;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

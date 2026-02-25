@@ -9,7 +9,7 @@ use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::expr::CastReduce;
+use crate::scalar_fn::CastReduce;
 use crate::vtable::ValidityHelper;
 
 /// Cast implementation for [`FixedSizeListArray`].

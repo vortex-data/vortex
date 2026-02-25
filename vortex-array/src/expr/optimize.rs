@@ -13,13 +13,13 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::dtype::DType;
 use crate::expr::Expression;
-use crate::expr::ReduceCtx;
-use crate::expr::ReduceNode;
-use crate::expr::ReduceNodeRef;
-use crate::expr::Root;
-use crate::expr::ScalarFn;
-use crate::expr::SimplifyCtx;
 use crate::expr::transform::match_between::find_between;
+use crate::scalar_fn::ReduceCtx;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeRef;
+use crate::scalar_fn::Root;
+use crate::scalar_fn::ScalarFn;
+use crate::scalar_fn::SimplifyCtx;
 
 impl Expression {
     /// Optimize the root expression node only, iterating to convergence.

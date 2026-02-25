@@ -212,10 +212,10 @@ mod tests {
     use vortex_array::dtype::FieldName;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::root;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::expr::stats::StatsProviderExt;
+    use vortex_array::scalar_fn::root;
     use vortex_array::session::ArrayRegistry;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBufferMut;

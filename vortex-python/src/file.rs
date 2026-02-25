@@ -17,11 +17,11 @@ use vortex::dtype::Nullability::NonNullable;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::expr::Expression;
-use vortex::expr::root;
-use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::layout::segments::MokaSegmentCache;
+use vortex::scalar_fn::root;
+use vortex::scalar_fn::select;
 use vortex::scan::ScanBuilder;
 use vortex::scan::SplitBy;
 

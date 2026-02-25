@@ -26,13 +26,13 @@ impl fmt::Display for NumericOperator {
     }
 }
 
-impl From<NumericOperator> for crate::expr::Operator {
+impl From<NumericOperator> for crate::scalar_fn::Operator {
     fn from(op: NumericOperator) -> Self {
         match op {
-            NumericOperator::Add => crate::expr::Operator::Add,
-            NumericOperator::Sub => crate::expr::Operator::Sub,
-            NumericOperator::Mul => crate::expr::Operator::Mul,
-            NumericOperator::Div => crate::expr::Operator::Div,
+            NumericOperator::Add => crate::scalar_fn::Operator::Add,
+            NumericOperator::Sub => crate::scalar_fn::Operator::Sub,
+            NumericOperator::Mul => crate::scalar_fn::Operator::Mul,
+            NumericOperator::Div => crate::scalar_fn::Operator::Div,
         }
     }
 }

@@ -4,8 +4,8 @@
 use crate::arrays::BoolVTable;
 use crate::arrays::TakeExecuteAdaptor;
 use crate::arrays::filter::FilterExecuteAdaptor;
-use crate::expr::FillNullExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
+use crate::scalar_fn::FillNullExecuteAdaptor;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<BoolVTable> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&FilterExecuteAdaptor(BoolVTable)),

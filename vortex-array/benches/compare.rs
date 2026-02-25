@@ -13,7 +13,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::expr::Operator;
+use vortex_array::scalar_fn::Operator;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 

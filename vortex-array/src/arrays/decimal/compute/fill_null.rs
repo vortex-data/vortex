@@ -16,10 +16,10 @@ use crate::ToCanonical;
 use crate::arrays::DecimalVTable;
 use crate::arrays::decimal::DecimalArray;
 use crate::dtype::NativeDecimalType;
-use crate::expr::FillNullKernel;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
+use crate::scalar_fn::FillNullKernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

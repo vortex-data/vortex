@@ -3,9 +3,9 @@
 
 use crate::arrays::ListVTable;
 use crate::arrays::SliceReduceAdaptor;
-use crate::expr::CastReduceAdaptor;
-use crate::expr::MaskReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::CastReduceAdaptor;
+use crate::scalar_fn::MaskReduceAdaptor;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<ListVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&CastReduceAdaptor(ListVTable)),

@@ -7,7 +7,7 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::expr::CastReduce;
+use crate::scalar_fn::CastReduce;
 
 impl CastReduce for ExtensionVTable {
     fn cast(array: &ExtensionArray, dtype: &DType) -> vortex_error::VortexResult<Option<ArrayRef>> {

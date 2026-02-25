@@ -11,9 +11,9 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
-use crate::expr::CompareKernel;
-use crate::expr::CompareOperator;
-use crate::expr::Operator;
+use crate::scalar_fn::CompareKernel;
+use crate::scalar_fn::CompareOperator;
+use crate::scalar_fn::Operator;
 
 impl CompareKernel for DictVTable {
     fn compare(

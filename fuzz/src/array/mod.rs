@@ -45,9 +45,9 @@ use vortex_array::arrays::arbitrary::ArbitraryArray;
 use vortex_array::compute::MinMaxResult;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::CompareOperator;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::arbitrary::random_scalar;
+use vortex_array::scalar_fn::CompareOperator;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_btrblocks::BtrBlocksCompressor;
@@ -556,7 +556,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::min_max;
     use vortex_array::compute::sum;
-    use vortex_array::expr::Operator;
+    use vortex_array::scalar_fn::Operator;
     let FuzzArrayAction { array, actions } = fuzz_action;
     let mut current_array = array.to_array();
 

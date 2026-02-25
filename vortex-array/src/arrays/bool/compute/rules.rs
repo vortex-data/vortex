@@ -10,10 +10,10 @@ use crate::arrays::BoolVTable;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::SliceReduceAdaptor;
-use crate::expr::CastReduceAdaptor;
-use crate::expr::MaskReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::CastReduceAdaptor;
+use crate::scalar_fn::MaskReduceAdaptor;
 use crate::vtable::ValidityHelper;
 
 pub(crate) const RULES: ParentRuleSet<BoolVTable> = ParentRuleSet::new(&[

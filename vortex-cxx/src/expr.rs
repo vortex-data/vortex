@@ -12,37 +12,37 @@ pub(crate) struct Expr {
 
 pub(crate) fn literal(scalar: Box<Scalar>) -> Box<Expr> {
     Box::new(Expr {
-        inner: vortex::expr::lit(scalar.inner),
+        inner: vortex::scalar_fn::lit(scalar.inner),
     })
 }
 
 pub(crate) fn root() -> Box<Expr> {
     Box::new(Expr {
-        inner: vortex::expr::root(),
+        inner: vortex::scalar_fn::root(),
     })
 }
 
 pub(crate) fn column(name: String) -> Box<Expr> {
     Box::new(Expr {
-        inner: vortex::expr::get_item(name, vortex::expr::root()),
+        inner: vortex::scalar_fn::get_item(name, vortex::scalar_fn::root()),
     })
 }
 
 pub(crate) fn get_item(field: String, child: Box<Expr>) -> Box<Expr> {
     Box::new(Expr {
-        inner: vortex::expr::get_item(field, child.inner),
+        inner: vortex::scalar_fn::get_item(field, child.inner),
     })
 }
 
 pub(crate) fn not_(child: Box<Expr>) -> Box<Expr> {
     Box::new(Expr {
-        inner: vortex::expr::not(child.inner),
+        inner: vortex::scalar_fn::not(child.inner),
     })
 }
 
 pub(crate) fn is_null(child: Box<Expr>) -> Box<Expr> {
     Box::new(Expr {
-        inner: vortex::expr::is_null(child.inner),
+        inner: vortex::scalar_fn::is_null(child.inner),
     })
 }
 
@@ -54,7 +54,7 @@ macro_rules! binary_op {
                 rhs: Box<Expr>,
             ) -> Box<Expr> {
                 Box::new(Expr {
-                    inner: vortex::expr::$fn_name(lhs.inner, rhs.inner),
+                    inner: vortex::scalar_fn::$fn_name(lhs.inner, rhs.inner),
                 })
             }
         }
@@ -73,7 +73,7 @@ binary_op!(checked_add);
 
 pub(crate) fn select(fields: Vec<String>, child: Box<Expr>) -> Box<Expr> {
     Box::new(Expr {
-        inner: vortex::expr::select(
+        inner: vortex::scalar_fn::select(
             fields.into_iter().map(FieldName::from).collect::<Vec<_>>(),
             child.inner,
         ),

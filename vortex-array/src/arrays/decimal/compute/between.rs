@@ -14,11 +14,11 @@ use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
-use crate::expr::BetweenKernel;
-use crate::expr::BetweenOptions;
-use crate::expr::StrictComparison;
 use crate::match_each_decimal_value_type;
 use crate::scalar::Scalar;
+use crate::scalar_fn::BetweenKernel;
+use crate::scalar_fn::BetweenOptions;
+use crate::scalar_fn::StrictComparison;
 use crate::vtable::ValidityHelper;
 
 impl BetweenKernel for DecimalVTable {

@@ -7,7 +7,7 @@ use vortex_error::vortex_ensure;
 use crate::Array;
 use crate::ArrayRef;
 use crate::dtype::DType;
-use crate::expr::ScalarFn;
+use crate::scalar_fn::ScalarFn;
 use crate::stats::ArrayStats;
 
 #[derive(Clone, Debug)]

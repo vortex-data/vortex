@@ -4,13 +4,13 @@
 use vortex_array::arrays::FilterExecuteAdaptor;
 use vortex_array::arrays::SliceExecuteAdaptor;
 use vortex_array::arrays::TakeExecuteAdaptor;
-use vortex_array::expr::BetweenReduceAdaptor;
-use vortex_array::expr::CastReduceAdaptor;
-use vortex_array::expr::CompareExecuteAdaptor;
-use vortex_array::expr::MaskExecuteAdaptor;
-use vortex_array::expr::MaskReduceAdaptor;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::scalar_fn::BetweenReduceAdaptor;
+use vortex_array::scalar_fn::CastReduceAdaptor;
+use vortex_array::scalar_fn::CompareExecuteAdaptor;
+use vortex_array::scalar_fn::MaskExecuteAdaptor;
+use vortex_array::scalar_fn::MaskReduceAdaptor;
 
 use crate::ALPVTable;
 

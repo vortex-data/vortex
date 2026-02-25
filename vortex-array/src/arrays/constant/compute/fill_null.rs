@@ -6,9 +6,9 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
-use crate::expr::FillNullReduce;
-use crate::expr::fill_null_constant;
 use crate::scalar::Scalar;
+use crate::scalar_fn::FillNullReduce;
+use crate::scalar_fn::fill_null_constant;
 
 impl FillNullReduce for ConstantVTable {
     fn fill_null(array: &ConstantArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {

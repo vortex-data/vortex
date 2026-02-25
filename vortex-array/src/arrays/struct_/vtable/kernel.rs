@@ -3,9 +3,9 @@
 
 use crate::arrays::StructVTable;
 use crate::arrays::TakeExecuteAdaptor;
-use crate::expr::CastExecuteAdaptor;
-use crate::expr::ZipExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
+use crate::scalar_fn::CastExecuteAdaptor;
+use crate::scalar_fn::ZipExecuteAdaptor;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<StructVTable> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&CastExecuteAdaptor(StructVTable)),

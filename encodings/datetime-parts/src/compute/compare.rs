@@ -9,11 +9,11 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::CompareKernel;
-use vortex_array::expr::CompareOperator;
-use vortex_array::expr::Operator;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::CompareKernel;
+use vortex_array::scalar_fn::CompareOperator;
+use vortex_array::scalar_fn::Operator;
 use vortex_error::VortexResult;
 
 use crate::array::DateTimePartsArray;

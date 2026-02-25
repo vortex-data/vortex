@@ -7,9 +7,9 @@ use crate::ArrayRef;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::ScalarFnArrayExt;
-use crate::expr::EmptyOptions;
-use crate::expr::MaskReduce;
-use crate::expr::mask::Mask as MaskExpr;
+use crate::scalar_fn::EmptyOptions;
+use crate::scalar_fn::MaskReduce;
+use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

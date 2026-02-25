@@ -73,9 +73,9 @@ mod primitive {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::NativePType;
-    use vortex_array::expr::BetweenOptions;
-    use vortex_array::expr::Operator;
-    use vortex_array::expr::StrictComparison::NonStrict;
+    use vortex_array::scalar_fn::BetweenOptions;
+    use vortex_array::scalar_fn::Operator;
+    use vortex_array::scalar_fn::StrictComparison::NonStrict;
     use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
@@ -163,9 +163,9 @@ mod bitpack {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::NativePType;
-    use vortex_array::expr::BetweenOptions;
-    use vortex_array::expr::Operator;
-    use vortex_array::expr::StrictComparison::NonStrict;
+    use vortex_array::scalar_fn::BetweenOptions;
+    use vortex_array::scalar_fn::Operator;
+    use vortex_array::scalar_fn::StrictComparison::NonStrict;
     use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
@@ -254,9 +254,9 @@ mod alp {
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::NativePType;
-    use vortex_array::expr::BetweenOptions;
-    use vortex_array::expr::Operator;
-    use vortex_array::expr::StrictComparison::NonStrict;
+    use vortex_array::scalar_fn::BetweenOptions;
+    use vortex_array::scalar_fn::Operator;
+    use vortex_array::scalar_fn::StrictComparison::NonStrict;
     use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;

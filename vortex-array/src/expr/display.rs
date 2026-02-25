@@ -6,7 +6,7 @@ use std::fmt::Formatter;
 use std::ops::Deref;
 
 use crate::expr::Expression;
-use crate::expr::ScalarFn;
+use crate::scalar_fn::ScalarFn;
 
 pub enum DisplayFormat {
     Compact,
@@ -50,20 +50,20 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::BetweenOptions;
-    use crate::expr::StrictComparison;
-    use crate::expr::exprs::between::between;
-    use crate::expr::exprs::binary::and;
-    use crate::expr::exprs::binary::eq;
-    use crate::expr::exprs::binary::gt;
-    use crate::expr::exprs::cast::cast;
-    use crate::expr::exprs::get_item::get_item;
-    use crate::expr::exprs::literal::lit;
-    use crate::expr::exprs::not::not;
-    use crate::expr::exprs::pack::pack;
-    use crate::expr::exprs::root::root;
-    use crate::expr::exprs::select::select;
-    use crate::expr::exprs::select::select_exclude;
+    use crate::scalar_fn::BetweenOptions;
+    use crate::scalar_fn::StrictComparison;
+    use crate::scalar_fn::fns::between::between;
+    use crate::scalar_fn::fns::binary::and;
+    use crate::scalar_fn::fns::binary::eq;
+    use crate::scalar_fn::fns::binary::gt;
+    use crate::scalar_fn::fns::cast::cast;
+    use crate::scalar_fn::fns::get_item::get_item;
+    use crate::scalar_fn::fns::literal::lit;
+    use crate::scalar_fn::fns::not::not;
+    use crate::scalar_fn::fns::pack::pack;
+    use crate::scalar_fn::fns::root::root;
+    use crate::scalar_fn::fns::select::select;
+    use crate::scalar_fn::fns::select::select_exclude;
 
     #[test]
     fn tree_display_getitem() {

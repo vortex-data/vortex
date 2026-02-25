@@ -9,9 +9,9 @@ use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::get_item;
-use vortex_array::expr::pack;
-use vortex_array::expr::root;
+use vortex_array::scalar_fn::get_item;
+use vortex_array::scalar_fn::pack;
+use vortex_array::scalar_fn::root;
 
 fn main() {
     divan::main();

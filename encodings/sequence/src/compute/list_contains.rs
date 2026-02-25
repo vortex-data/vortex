@@ -4,7 +4,7 @@
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::BoolArray;
-use vortex_array::expr::ListContainsElementReduce;
+use vortex_array::scalar_fn::ListContainsElementReduce;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -54,10 +54,10 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType::I32;
-    use vortex_array::expr::list_contains;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::list_contains;
+    use vortex_array::scalar_fn::lit;
+    use vortex_array::scalar_fn::root;
 
     use crate::SequenceArray;
 

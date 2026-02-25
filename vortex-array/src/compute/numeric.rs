@@ -12,9 +12,9 @@ use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::Options;
-use crate::expr::Operator;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
+use crate::scalar_fn::Operator;
 
 /// Point-wise add two numeric arrays.
 ///

@@ -8,15 +8,15 @@ use arbitrary::Unstructured;
 
 use crate::dtype::DType;
 use crate::dtype::FieldName;
-use crate::expr::Binary;
 use crate::expr::Expression;
-use crate::expr::Operator;
-use crate::expr::VTableExt;
-use crate::expr::and_collect;
-use crate::expr::col;
-use crate::expr::lit;
-use crate::expr::pack;
 use crate::scalar::arbitrary::random_scalar;
+use crate::scalar_fn::Binary;
+use crate::scalar_fn::Operator;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::and_collect;
+use crate::scalar_fn::col;
+use crate::scalar_fn::lit;
+use crate::scalar_fn::pack;
 
 pub fn projection_expr(u: &mut Unstructured<'_>, dtype: &DType) -> AResult<Option<Expression>> {
     let Some(struct_dtype) = dtype.as_struct_fields_opt() else {

@@ -32,26 +32,26 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
-use vortex_array::expr::Pack;
-use vortex_array::expr::PackOptions;
-use vortex_array::expr::VTableExt;
-use vortex_array::expr::and;
-use vortex_array::expr::cast;
-use vortex_array::expr::eq;
-use vortex_array::expr::get_item;
-use vortex_array::expr::gt;
-use vortex_array::expr::gt_eq;
-use vortex_array::expr::lit;
-use vortex_array::expr::lt;
-use vortex_array::expr::lt_eq;
-use vortex_array::expr::or;
-use vortex_array::expr::root;
-use vortex_array::expr::select;
-use vortex_array::expr::session::ExprSession;
 use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::Pack;
+use vortex_array::scalar_fn::PackOptions;
+use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_array::scalar_fn::and;
+use vortex_array::scalar_fn::cast;
+use vortex_array::scalar_fn::eq;
+use vortex_array::scalar_fn::get_item;
+use vortex_array::scalar_fn::gt;
+use vortex_array::scalar_fn::gt_eq;
+use vortex_array::scalar_fn::lit;
+use vortex_array::scalar_fn::lt;
+use vortex_array::scalar_fn::lt_eq;
+use vortex_array::scalar_fn::or;
+use vortex_array::scalar_fn::root;
+use vortex_array::scalar_fn::select;
+use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStreamAdapter;
@@ -76,7 +76,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let mut session = VortexSession::empty()
         .with::<ArraySession>()
         .with::<LayoutSession>()
-        .with::<ExprSession>()
+        .with::<ScalarFnSession>()
         .with::<RuntimeSession>();
 
     crate::register_default_encodings(&mut session);

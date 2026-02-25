@@ -3,8 +3,8 @@
 
 use crate::arrays::TakeExecuteAdaptor;
 use crate::arrays::VarBinViewVTable;
-use crate::expr::ZipExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
+use crate::scalar_fn::ZipExecuteAdaptor;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<VarBinViewVTable> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&TakeExecuteAdaptor(VarBinViewVTable)),

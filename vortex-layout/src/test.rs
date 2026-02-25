@@ -3,7 +3,7 @@
 
 use std::sync::LazyLock;
 
-use vortex_array::expr::session::ExprSession;
+use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_io::session::RuntimeSession;
 use vortex_session::VortexSession;
@@ -14,6 +14,6 @@ pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     VortexSession::empty()
         .with::<ArraySession>()
         .with::<LayoutSession>()
-        .with::<ExprSession>()
+        .with::<ScalarFnSession>()
         .with::<RuntimeSession>()
 });

@@ -205,14 +205,14 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::get_item;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::root;
-    use vortex_array::expr::session::ExprSession;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::scalar::ScalarValue;
+    use vortex_array::scalar_fn::get_item;
+    use vortex_array::scalar_fn::gt;
+    use vortex_array::scalar_fn::lit;
+    use vortex_array::scalar_fn::root;
+    use vortex_array::scalar_fn::session::ScalarFnSession;
     use vortex_array::session::ArraySession;
     use vortex_array::stats::StatsSet;
     use vortex_buffer::buffer;
@@ -236,7 +236,7 @@ mod tests {
         VortexSession::empty()
             .with::<ArraySession>()
             .with::<LayoutSession>()
-            .with::<ExprSession>()
+            .with::<ScalarFnSession>()
             .with::<RuntimeSession>()
     });
 

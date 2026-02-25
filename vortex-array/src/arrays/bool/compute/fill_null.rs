@@ -10,8 +10,8 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
-use crate::expr::FillNullKernel;
 use crate::scalar::Scalar;
+use crate::scalar_fn::FillNullKernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

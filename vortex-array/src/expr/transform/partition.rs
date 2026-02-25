@@ -19,13 +19,13 @@ use crate::expr::analysis::Annotation;
 use crate::expr::analysis::AnnotationFn;
 use crate::expr::analysis::Annotations;
 use crate::expr::analysis::descendent_annotations;
-use crate::expr::exprs::get_item::get_item;
-use crate::expr::exprs::pack::pack;
-use crate::expr::exprs::root::root;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeRewriter;
 use crate::expr::traversal::Transformed;
 use crate::expr::traversal::TraversalOrder;
+use crate::scalar_fn::fns::get_item::get_item;
+use crate::scalar_fn::fns::pack::pack;
+use crate::scalar_fn::fns::root::root;
 
 /// Partition an expression into sub-expressions that are uniquely associated with an annotation.
 /// A root expression is also returned that can be used to recombine the results of the partitions
@@ -212,14 +212,14 @@ mod tests {
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
     use crate::expr::analysis::make_free_field_annotator;
-    use crate::expr::exprs::binary::and;
-    use crate::expr::exprs::get_item::col;
-    use crate::expr::exprs::get_item::get_item;
-    use crate::expr::exprs::literal::lit;
-    use crate::expr::exprs::merge::merge;
-    use crate::expr::exprs::pack::pack;
-    use crate::expr::exprs::root::root;
     use crate::expr::transform::replace::replace_root_fields;
+    use crate::scalar_fn::fns::binary::and;
+    use crate::scalar_fn::fns::get_item::col;
+    use crate::scalar_fn::fns::get_item::get_item;
+    use crate::scalar_fn::fns::literal::lit;
+    use crate::scalar_fn::fns::merge::merge;
+    use crate::scalar_fn::fns::pack::pack;
+    use crate::scalar_fn::fns::root::root;
 
     #[fixture]
     fn dtype() -> DType {

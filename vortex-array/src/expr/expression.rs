@@ -14,11 +14,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::dtype::DType;
-use crate::expr::Root;
-use crate::expr::ScalarFn;
 use crate::expr::StatsCatalog;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::stats::Stat;
+use crate::scalar_fn::Root;
+use crate::scalar_fn::ScalarFn;
 
 /// A node in a Vortex expression tree.
 ///
@@ -175,9 +175,9 @@ impl Expression {
     ///
     /// ```rust
     /// # use vortex_array::dtype::{DType, Nullability, PType};
-    /// # use vortex_array::expr::LikeOptions;
-    /// # use vortex_array::expr::VTableExt;
-    /// # use vortex_array::expr::{and, cast, eq, get_item, gt, lit, not, root, select, Like};
+    /// # use vortex_array::scalar_fn::LikeOptions;
+    /// # use vortex_array::scalar_fn::ScalarFnVTableExt;
+    /// # use vortex_array::scalar_fn::{and, cast, eq, get_item, gt, lit, not, root, select, Like};
     /// // Build a complex nested expression
     /// let complex_expr = select(
     ///     ["result"],

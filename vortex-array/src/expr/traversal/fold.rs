@@ -145,13 +145,13 @@ mod tests {
 
     use super::*;
     use crate::expr::Expression;
-    use crate::expr::exprs::binary::Binary;
-    use crate::expr::exprs::binary::checked_add;
-    use crate::expr::exprs::binary::gt;
-    use crate::expr::exprs::literal::Literal;
-    use crate::expr::exprs::literal::lit;
-    use crate::expr::exprs::operators::Operator;
     use crate::expr::traversal::NodeExt;
+    use crate::scalar_fn::fns::binary::Binary;
+    use crate::scalar_fn::fns::binary::checked_add;
+    use crate::scalar_fn::fns::binary::gt;
+    use crate::scalar_fn::fns::literal::Literal;
+    use crate::scalar_fn::fns::literal::lit;
+    use crate::scalar_fn::fns::operators::Operator;
 
     struct AddFold;
     impl NodeFolder for AddFold {

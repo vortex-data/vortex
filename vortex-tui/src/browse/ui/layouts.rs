@@ -33,9 +33,9 @@ use vortex::array::ArrayRef;
 use vortex::array::MaskFuture;
 use vortex::array::ToCanonical;
 use vortex::error::VortexExpect;
-use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
+use vortex::scalar_fn::root;
 
 use crate::browse::app::AppState;
 use crate::browse::app::LayoutCursor;

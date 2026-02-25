@@ -21,15 +21,15 @@ use crate::arrays::ScalarFnVTable;
 use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::StructArray;
 use crate::dtype::DType;
-use crate::expr::Pack;
-use crate::expr::ReduceCtx;
-use crate::expr::ReduceNode;
-use crate::expr::ReduceNodeRef;
-use crate::expr::ScalarFn;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
+use crate::scalar_fn::Pack;
+use crate::scalar_fn::ReduceCtx;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeRef;
+use crate::scalar_fn::ScalarFn;
 use crate::validity::Validity;
 
 pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> = ReduceRuleSet::new(&[
@@ -233,9 +233,9 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::cast;
-    use crate::expr::is_null;
-    use crate::expr::root;
+    use crate::scalar_fn::cast;
+    use crate::scalar_fn::is_null;
+    use crate::scalar_fn::root;
 
     #[test]
     fn test_empty_constants() {

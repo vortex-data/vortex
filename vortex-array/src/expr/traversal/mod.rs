@@ -545,17 +545,17 @@ mod tests {
     use super::TraversalOrder;
     use super::visitor::pre_order_visit_down;
     use crate::expr::Expression;
-    use crate::expr::exprs::binary::Binary;
-    use crate::expr::exprs::binary::and;
-    use crate::expr::exprs::binary::eq;
-    use crate::expr::exprs::binary::not_eq;
-    use crate::expr::exprs::get_item::GetItem;
-    use crate::expr::exprs::get_item::col;
-    use crate::expr::exprs::literal::Literal;
-    use crate::expr::exprs::literal::lit;
-    use crate::expr::exprs::operators::Operator;
-    use crate::expr::exprs::root::is_root;
-    use crate::expr::exprs::root::root;
+    use crate::scalar_fn::fns::binary::Binary;
+    use crate::scalar_fn::fns::binary::and;
+    use crate::scalar_fn::fns::binary::eq;
+    use crate::scalar_fn::fns::binary::not_eq;
+    use crate::scalar_fn::fns::get_item::GetItem;
+    use crate::scalar_fn::fns::get_item::col;
+    use crate::scalar_fn::fns::literal::Literal;
+    use crate::scalar_fn::fns::literal::lit;
+    use crate::scalar_fn::fns::operators::Operator;
+    use crate::scalar_fn::fns::root::is_root;
+    use crate::scalar_fn::fns::root::root;
 
     #[derive(Default)]
     pub struct ExprLitCollector<'a>(pub Vec<&'a Expression>);

@@ -10,8 +10,8 @@ use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;
 use crate::compute::is_constant;
-use crate::expr::Operator;
 use crate::register_kernel;
+use crate::scalar_fn::Operator;
 
 const SMALL_ARRAY_THRESHOLD: usize = 64;
 

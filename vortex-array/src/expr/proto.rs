@@ -9,9 +9,9 @@ use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
-use crate::expr::ExprId;
 use crate::expr::Expression;
-use crate::expr::session::ExprSessionExt;
+use crate::scalar_fn::ScalarFnId;
+use crate::scalar_fn::session::ScalarFnSessionExt;
 
 pub trait ExprSerializeProtoExt {
     /// Serialize the expression to its protobuf representation.
@@ -40,9 +40,9 @@ impl ExprSerializeProtoExt for Expression {
 
 impl Expression {
     pub fn from_proto(expr: &pb::Expr, session: &VortexSession) -> VortexResult<Expression> {
-        let expr_id = ExprId::new_arc(Arc::from(expr.id.to_string()));
+        let expr_id = ScalarFnId::new_arc(Arc::from(expr.id.to_string()));
         let vtable = session
-            .expressions()
+            .scalar_fns()
             .registry()
             .find(&expr_id)
             .ok_or_else(|| vortex_err!("unknown expression id: {}", expr_id))?;
@@ -73,16 +73,16 @@ mod tests {
 
     use super::ExprSerializeProtoExt;
     use crate::LEGACY_SESSION;
-    use crate::expr::BetweenOptions;
     use crate::expr::Expression;
-    use crate::expr::StrictComparison;
-    use crate::expr::exprs::between::between;
-    use crate::expr::exprs::binary::and;
-    use crate::expr::exprs::binary::eq;
-    use crate::expr::exprs::binary::or;
-    use crate::expr::exprs::get_item::get_item;
-    use crate::expr::exprs::literal::lit;
-    use crate::expr::exprs::root::root;
+    use crate::scalar_fn::BetweenOptions;
+    use crate::scalar_fn::StrictComparison;
+    use crate::scalar_fn::fns::between::between;
+    use crate::scalar_fn::fns::binary::and;
+    use crate::scalar_fn::fns::binary::eq;
+    use crate::scalar_fn::fns::binary::or;
+    use crate::scalar_fn::fns::get_item::get_item;
+    use crate::scalar_fn::fns::literal::lit;
+    use crate::scalar_fn::fns::root::root;
 
     #[test]
     fn expression_serde() {

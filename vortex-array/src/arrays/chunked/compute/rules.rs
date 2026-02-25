@@ -12,12 +12,12 @@ use crate::arrays::ChunkedVTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::ScalarFnArray;
-use crate::expr::CastReduceAdaptor;
-use crate::expr::FillNullReduceAdaptor;
-use crate::expr::ZipReduceAdaptor;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::CastReduceAdaptor;
+use crate::scalar_fn::FillNullReduceAdaptor;
+use crate::scalar_fn::ZipReduceAdaptor;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<ChunkedVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&CastReduceAdaptor(ChunkedVTable)),

@@ -275,13 +275,13 @@ mod tests {
     use vortex_array::dtype::FieldPathSet;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::gt;
-    use vortex_array::expr::gt_eq;
-    use vortex_array::expr::lit;
-    use vortex_array::expr::lt;
     use vortex_array::expr::pruning::checked_pruning_expr;
-    use vortex_array::expr::root;
     use vortex_array::expr::stats::Stat;
+    use vortex_array::scalar_fn::gt;
+    use vortex_array::scalar_fn::gt_eq;
+    use vortex_array::scalar_fn::lit;
+    use vortex_array::scalar_fn::lt;
+    use vortex_array::scalar_fn::root;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;

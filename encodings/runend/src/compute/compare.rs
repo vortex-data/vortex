@@ -8,9 +8,9 @@ use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::expr::CompareKernel;
-use vortex_array::expr::CompareOperator;
-use vortex_array::expr::Operator;
+use vortex_array::scalar_fn::CompareKernel;
+use vortex_array::scalar_fn::CompareOperator;
+use vortex_array::scalar_fn::Operator;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;
@@ -52,7 +52,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
-    use vortex_array::expr::Operator;
+    use vortex_array::scalar_fn::Operator;
 
     use crate::RunEndArray;
 
