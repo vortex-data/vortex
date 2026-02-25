@@ -70,7 +70,7 @@ pub fn is_root(expr: &Expression) -> bool {
 /// use vortex_array::arrays::PrimitiveArray;
 /// use vortex_array::dtype::Nullability;
 /// use vortex_array::expr::lit;
-/// use vortex_array::scalar_fn::Literal;
+/// use vortex_array::scalar_fn::fns::literal::Literal;
 /// use vortex_array::scalar::Scalar;
 ///
 /// let number = lit(34i32);
@@ -408,8 +408,8 @@ pub fn not(operand: Expression) -> Expression {
 /// The comparison strictness is controlled by the options parameter.
 ///
 /// ```rust
-/// # use vortex_array::scalar_fn::BetweenOptions;
-/// # use vortex_array::scalar_fn::StrictComparison;
+/// # use vortex_array::scalar_fn::fns::between::BetweenOptions;
+/// # use vortex_array::scalar_fn::fns::between::StrictComparison;
 /// # use vortex_array::expr::{between, lit, root};
 /// let opts = BetweenOptions {
 ///     lower_strict: StrictComparison::NonStrict,

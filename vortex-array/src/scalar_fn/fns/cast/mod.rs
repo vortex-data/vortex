@@ -47,6 +47,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 
 /// A cast expression that converts values to a target data type.
+#[derive(Clone)]
 pub struct Cast;
 
 impl ScalarFnVTable for Cast {

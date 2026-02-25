@@ -18,6 +18,7 @@ use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+#[derive(Clone)]
 pub struct RowIdx;
 
 impl ScalarFnVTable for RowIdx {

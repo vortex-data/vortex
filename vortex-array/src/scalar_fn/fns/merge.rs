@@ -42,6 +42,7 @@ use crate::validity::Validity;
 ///
 /// NOTE: Fields are not recursively merged, i.e. the later field REPLACES the earlier field.
 /// This makes struct fields behaviour consistent with other dtypes.
+#[derive(Clone)]
 pub struct Merge;
 
 impl ScalarFnVTable for Merge {

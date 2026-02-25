@@ -15,36 +15,29 @@ use vortex_session::VortexSession;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::typed::DynScalarFn;
-use crate::scalar_fn::typed::ScalarFnInner;
+use crate::scalar_fn::typed::DynScalarFnVTable;
+use crate::scalar_fn::typed::ScalarFnVTableAdapter;
 
-/// A Vortex scalar function vtable plugin, used to deserialize or instantiate scalar functions dynamically.
+/// A Vortex scalar function vtable plugin, used to deserialize or instantiate scalar functions
+/// dynamically.
 #[derive(Clone)]
-pub struct ScalarFnPlugin(ArcRef<dyn DynScalarFn>);
+pub struct ScalarFnPlugin(ArcRef<dyn DynScalarFnVTable>);
 
 impl ScalarFnPlugin {
-    /// Only the vortex-array crate can actually invoke the vtable methods.
-    /// All other users must go via session extensions.
-    pub(crate) fn as_dyn(&self) -> &dyn DynScalarFn {
-        self.0.as_ref()
-    }
-
-    /// Return the vtable as an Any reference.
-    pub fn as_any(&self) -> &dyn Any {
-        self.0.as_any()
-    }
-
     /// Creates a new [`ScalarFnPlugin`] from a vtable.
     pub fn new<V: ScalarFnVTable>(vtable: V) -> Self {
-        Self(ArcRef::new_arc(std::sync::Arc::new(ScalarFnInner(vtable))))
+        Self(ArcRef::new_arc(std::sync::Arc::new(ScalarFnVTableAdapter(
+            vtable,
+        ))))
     }
 
     /// Creates a new [`ScalarFnPlugin`] from a static reference to a vtable.
     pub const fn new_static<V: ScalarFnVTable>(vtable: &'static V) -> Self {
-        // SAFETY: We can safely cast the vtable to a ScalarFnInner since it has the same layout.
-        let adapted: &'static ScalarFnInner<V> =
-            unsafe { &*(vtable as *const V as *const ScalarFnInner<V>) };
-        Self(ArcRef::new_ref(adapted as &'static dyn DynScalarFn))
+        // SAFETY: We can safely cast the vtable to a ScalarFnVTableAdapter since it has the same
+        // layout (#[repr(transparent)]).
+        let adapted: &'static ScalarFnVTableAdapter<V> =
+            unsafe { &*(vtable as *const V as *const ScalarFnVTableAdapter<V>) };
+        Self(ArcRef::new_ref(adapted as &'static dyn DynScalarFnVTable))
     }
 
     /// Returns the ID of this vtable.
@@ -57,18 +50,20 @@ impl ScalarFnPlugin {
         self.0.as_any().is::<V>()
     }
 
-    /// Deserialize options of this scalar function vtable from metadata.
+    /// Return the vtable as an Any reference.
+    pub fn as_any(&self) -> &dyn Any {
+        self.0.as_any()
+    }
+
+    /// Deserialize options of this scalar function vtable from metadata, returning a bound
+    /// [`ScalarFnRef`].
     pub fn deserialize(
         &self,
         metadata: &[u8],
         session: &VortexSession,
     ) -> VortexResult<ScalarFnRef> {
-        Ok(unsafe {
-            ScalarFnRef::new_unchecked(
-                self.clone(),
-                self.as_dyn().options_deserialize(metadata, session)?,
-            )
-        })
+        let options = self.0.options_deserialize(metadata, session)?;
+        Ok(self.0.bind_deserialized(options))
     }
 }
 
@@ -87,12 +82,12 @@ impl Hash for ScalarFnPlugin {
 
 impl Display for ScalarFnPlugin {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_dyn().id())
+        write!(f, "{}", self.0.id())
     }
 }
 
 impl Debug for ScalarFnPlugin {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_dyn().id())
+        write!(f, "{}", self.0.id())
     }
 }

@@ -36,6 +36,7 @@ use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::pack::Pack;
 
+#[derive(Clone)]
 pub struct GetItem;
 
 impl ScalarFnVTable for GetItem {

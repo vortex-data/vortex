@@ -39,6 +39,7 @@ pub enum FieldSelection {
     Exclude(FieldNames),
 }
 
+#[derive(Clone)]
 pub struct Select;
 
 impl ScalarFnVTable for Select {

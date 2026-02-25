@@ -37,7 +37,6 @@ use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
-use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::serde::ArrayChildren;
 use crate::vtable;
@@ -154,12 +153,12 @@ impl VTable for ScalarFnVTable {
 /// Array factory functions for scalar functions.
 pub trait ScalarFnArrayExt: scalar_fn::ScalarFnVTable {
     fn try_new_array(
-        &'static self,
+        &self,
         len: usize,
         options: Self::Options,
         children: impl Into<Vec<ArrayRef>>,
     ) -> VortexResult<ArrayRef> {
-        let scalar_fn = ScalarFnRef::new_static(self, options);
+        let scalar_fn = scalar_fn::ScalarFn::new(self.clone(), options).erased();
 
         let children = children.into();
         vortex_ensure!(
@@ -212,15 +211,11 @@ impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
         let scalar_fn_array = array.as_opt::<ScalarFnVTable>()?;
         let scalar_fn_vtable = scalar_fn_array
             .scalar_fn
-            .vtable()
-            .as_any()
-            .downcast_ref::<F>()
+            .vtable_ref::<F>()
             .vortex_expect("ScalarFn VTable type mismatch in ExactScalarFn matcher");
         let scalar_fn_options = scalar_fn_array
             .scalar_fn
-            .options()
-            .as_any()
-            .downcast_ref::<F::Options>()
+            .as_opt::<F>()
             .vortex_expect("ScalarFn options type mismatch in ExactScalarFn matcher");
         Some(ScalarFnArrayView {
             array,
@@ -245,6 +240,7 @@ impl<F: scalar_fn::ScalarFnVTable> Deref for ScalarFnArrayView<'_, F> {
 }
 
 // Used only in this method to allow constrained using of Expression evaluate.
+#[derive(Clone)]
 struct ArrayExpr;
 
 #[derive(Clone, Debug)]

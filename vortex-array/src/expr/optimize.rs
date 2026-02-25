@@ -60,14 +60,14 @@ impl Expression {
             let mut changed = false;
 
             // Try simplify_untyped
-            if let Some(simplified) = current.vtable().as_dyn().simplify_untyped(&current)? {
+            if let Some(simplified) = current.scalar_fn().simplify_untyped(&current)? {
                 current = simplified;
                 changed = true;
                 any_optimizations = true;
             }
 
             // Try simplify (typed)
-            if let Some(simplified) = current.vtable().as_dyn().simplify(&current, &cache)? {
+            if let Some(simplified) = current.scalar_fn().simplify(&current, &cache)? {
                 current = simplified;
                 changed = true;
                 any_optimizations = true;
@@ -183,19 +183,17 @@ impl Expression {
                 let new_expr = expr.clone().with_children(new_children)?;
                 Ok(Some(
                     new_expr
-                        .vtable()
-                        .as_dyn()
+                        .scalar_fn()
                         .simplify_untyped(&new_expr)?
                         .unwrap_or(new_expr),
                 ))
             } else {
-                expr.vtable().as_dyn().simplify_untyped(expr)
+                expr.scalar_fn().simplify_untyped(expr)
             }
         }
 
         let simplified = self
-            .vtable()
-            .as_dyn()
+            .scalar_fn()
             .simplify_untyped(self)?
             .unwrap_or_else(|| self.clone());
 

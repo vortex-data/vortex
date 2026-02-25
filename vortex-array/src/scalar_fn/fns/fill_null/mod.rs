@@ -32,6 +32,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 
 /// An expression that replaces null values in the input with a fill value.
+#[derive(Clone)]
 pub struct FillNull;
 
 impl ScalarFnVTable for FillNull {

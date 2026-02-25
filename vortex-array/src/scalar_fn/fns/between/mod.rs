@@ -189,6 +189,7 @@ fn between_canonical(
 ///
 /// NOTE: this expression will shortly be removed in favor of pipelined computation of two
 /// separate comparisons combined with a logical AND.
+#[derive(Clone)]
 pub struct Between;
 
 impl ScalarFnVTable for Between {

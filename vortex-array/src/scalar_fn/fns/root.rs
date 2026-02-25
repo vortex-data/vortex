@@ -22,6 +22,7 @@ use crate::scalar_fn::ScalarFnVTable;
 
 /// An expression that returns the full scope of the expression evaluation.
 // TODO(ngates): rename to "Scope"
+#[derive(Clone)]
 pub struct Root;
 
 impl ScalarFnVTable for Root {

@@ -38,6 +38,7 @@ use crate::scalar_fn::fns::literal::Literal;
 ///
 /// Where the mask is true, the input value is retained; where the mask is false, the output is
 /// null. In other words, this performs an intersection of the input's validity with the mask.
+#[derive(Clone)]
 pub struct Mask;
 
 impl ScalarFnVTable for Mask {

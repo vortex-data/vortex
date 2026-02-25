@@ -38,6 +38,7 @@ use crate::scalar_fn::fns::operators::Operator;
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT
 /// operation and is able to progressively tighten the bounds of the filter.
+#[derive(Clone)]
 pub struct DynamicComparison;
 
 impl ScalarFnVTable for DynamicComparison {

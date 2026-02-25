@@ -30,6 +30,7 @@ fn lit(value: impl Into<Scalar>) -> Expression {
 }
 
 /// Expression that represents a literal scalar value.
+#[derive(Clone)]
 pub struct Literal;
 
 impl ScalarFnVTable for Literal {

@@ -21,6 +21,7 @@ use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
 use crate::expr::stats::Stat;
+use crate::scalar_fn::ScalarFn;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 
@@ -35,7 +36,7 @@ use crate::scalar_fn::ScalarFnRef;
 /// The [`ScalarFnVTable`] trait should be implemented for a struct that holds global data across
 /// all instances of the expression. In almost all cases, this struct will be an empty unit
 /// struct, since most expressions do not require any global state.
-pub trait ScalarFnVTable: 'static + Sized + Send + Sync {
+pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Options for this expression.
     type Options: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Eq + Hash;
 
@@ -308,16 +309,16 @@ impl Display for EmptyOptions {
     }
 }
 
-/// Factory functions for static vtables.
+/// Factory functions for vtables.
 pub trait ScalarFnVTableExt: ScalarFnVTable {
     /// Bind this vtable with the given options into a [`ScalarFnRef`].
-    fn bind(&'static self, options: Self::Options) -> ScalarFnRef {
-        ScalarFnRef::new_static(self, options)
+    fn bind(&self, options: Self::Options) -> ScalarFnRef {
+        ScalarFn::new(self.clone(), options).erased()
     }
 
     /// Create a new expression with this vtable and the given options and children.
     fn new_expr(
-        &'static self,
+        &self,
         options: Self::Options,
         children: impl IntoIterator<Item = Expression>,
     ) -> Expression {
@@ -326,7 +327,7 @@ pub trait ScalarFnVTableExt: ScalarFnVTable {
 
     /// Try to create a new expression with this vtable and the given options and children.
     fn try_new_expr(
-        &'static self,
+        &self,
         options: Self::Options,
         children: impl IntoIterator<Item = Expression>,
     ) -> VortexResult<Expression> {

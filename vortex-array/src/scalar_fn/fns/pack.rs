@@ -29,6 +29,7 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::validity::Validity;
 
 /// Pack zero or more expressions into a structure with named fields.
+#[derive(Clone)]
 pub struct Pack;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
