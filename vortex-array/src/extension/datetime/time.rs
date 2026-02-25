@@ -98,12 +98,12 @@ impl ExtVTable for Time {
         Ok(())
     }
 
-    fn validate_scalar_value(
+    fn unpack_native(
         &self,
         metadata: &Self::Metadata,
         _storage_dtype: &DType,
         storage_value: &ScalarValue,
-    ) -> VortexResult<()> {
+    ) -> VortexResult<Self::NativeValue<'_>> {
         let length_of_time = storage_value.as_primitive().cast::<i64>()?;
 
         // Validate the storage value is within the valid range for Time.
@@ -119,37 +119,20 @@ impl ExtVTable for Time {
             .checked_add(span)
             .map_err(|e| vortex_err!("Invalid time scalar: {}", e))?;
 
-        Ok(())
-    }
-
-    fn unpack_native(
-        &self,
-        metadata: &Self::Metadata,
-        _storage_dtype: &DType,
-        storage_value: &ScalarValue,
-    ) -> Self::NativeValue<'_> {
         match metadata {
-            TimeUnit::Seconds => {
-                TimeValue::Seconds(storage_value.as_primitive().cast::<i32>().vortex_expect(
-                    "The Scalar validation already checked that the value must be an i32",
-                ))
-            }
-            TimeUnit::Milliseconds => {
-                TimeValue::Milliseconds(storage_value.as_primitive().cast::<i32>().vortex_expect(
-                    "The Scalar validation already checked that the value must be an i32",
-                ))
-            }
-            TimeUnit::Microseconds => {
-                TimeValue::Microseconds(storage_value.as_primitive().cast::<i64>().vortex_expect(
-                    "The Scalar validation already checked that the value must be an i64",
-                ))
-            }
-            TimeUnit::Nanoseconds => {
-                TimeValue::Nanoseconds(storage_value.as_primitive().cast::<i64>().vortex_expect(
-                    "The Scalar validation already checked that the value must be an i64",
-                ))
-            }
-            _ => unreachable!(),
+            TimeUnit::Seconds => Ok(TimeValue::Seconds(
+                storage_value.as_primitive().cast::<i32>()?,
+            )),
+            TimeUnit::Milliseconds => Ok(TimeValue::Milliseconds(
+                storage_value.as_primitive().cast::<i32>()?,
+            )),
+            TimeUnit::Microseconds => Ok(TimeValue::Microseconds(
+                storage_value.as_primitive().cast::<i64>()?,
+            )),
+            TimeUnit::Nanoseconds => Ok(TimeValue::Nanoseconds(
+                storage_value.as_primitive().cast::<i64>()?,
+            )),
+            d => vortex_bail!("Time type does not support time unit {d}"),
         }
     }
 }

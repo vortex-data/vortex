@@ -9,6 +9,7 @@ use std::sync::Arc;
 use jiff::Span;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -181,21 +182,21 @@ impl ExtVTable for Timestamp {
         Ok(())
     }
 
-    fn validate_scalar_value(
+    fn unpack_native<'a>(
         &self,
-        metadata: &Self::Metadata,
-        _storage_dtype: &DType,
-        storage_value: &ScalarValue,
-    ) -> VortexResult<()> {
-        let length_of_time = storage_value.as_primitive().cast::<i64>()?;
+        metadata: &'a Self::Metadata,
+        _storage_dtype: &'a DType,
+        storage_value: &'a ScalarValue,
+    ) -> VortexResult<Self::NativeValue<'a>> {
+        let ts_value = storage_value.as_primitive().cast::<i64>()?;
 
         // Validate the storage value is within the valid range for Timestamp.
         let span = match metadata.unit {
-            TimeUnit::Nanoseconds => Span::new().nanoseconds(length_of_time),
-            TimeUnit::Microseconds => Span::new().microseconds(length_of_time),
-            TimeUnit::Milliseconds => Span::new().milliseconds(length_of_time),
-            TimeUnit::Seconds => Span::new().seconds(length_of_time),
-            TimeUnit::Days => Span::new().days(length_of_time),
+            TimeUnit::Nanoseconds => Span::new().nanoseconds(ts_value),
+            TimeUnit::Microseconds => Span::new().microseconds(ts_value),
+            TimeUnit::Milliseconds => Span::new().milliseconds(ts_value),
+            TimeUnit::Seconds => Span::new().seconds(ts_value),
+            TimeUnit::Days => Span::new().days(ts_value),
         };
 
         let ts = jiff::Timestamp::UNIX_EPOCH
@@ -207,27 +208,14 @@ impl ExtVTable for Timestamp {
                 .map_err(|e| vortex_err!("Invalid timezone for timestamp scalar: {}", e))?;
         }
 
-        Ok(())
-    }
-
-    fn unpack_native<'a>(
-        &self,
-        metadata: &'a Self::Metadata,
-        _storage_dtype: &'a DType,
-        storage_value: &'a ScalarValue,
-    ) -> Self::NativeValue<'a> {
-        let ts_value = storage_value
-            .as_primitive()
-            .cast::<i64>()
-            .vortex_expect("The Scalar validation already checked that the value must be an i64");
         let tz = metadata.tz.as_ref();
 
         match metadata.unit {
-            TimeUnit::Nanoseconds => TimestampValue::Nanoseconds(ts_value, tz),
-            TimeUnit::Microseconds => TimestampValue::Microseconds(ts_value, tz),
-            TimeUnit::Milliseconds => TimestampValue::Milliseconds(ts_value, tz),
-            TimeUnit::Seconds => TimestampValue::Seconds(ts_value, tz),
-            TimeUnit::Days => unreachable!(),
+            TimeUnit::Nanoseconds => Ok(TimestampValue::Nanoseconds(ts_value, tz)),
+            TimeUnit::Microseconds => Ok(TimestampValue::Microseconds(ts_value, tz)),
+            TimeUnit::Milliseconds => Ok(TimestampValue::Milliseconds(ts_value, tz)),
+            TimeUnit::Seconds => Ok(TimestampValue::Seconds(ts_value, tz)),
+            TimeUnit::Days => vortex_bail!("Timestamp does not support Days time unit"),
         }
     }
 }

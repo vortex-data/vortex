@@ -6,6 +6,7 @@ use std::fmt;
 use jiff::Span;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
@@ -94,38 +95,18 @@ impl ExtVTable for Date {
         Ok(())
     }
 
-    fn validate_scalar_value(
-        &self,
-        _metadata: &Self::Metadata,
-        _storage_dtype: &DType,
-        _storage_value: &ScalarValue,
-    ) -> VortexResult<()> {
-        // We know that the dtype is correct for this extension type (primitive) by the
-        // precondition that `validate_dtype` has already been called successfully, and we know that
-        // the `Scalar` we came from has verified that the storage value is a primitive.
-        // We also say that any i32 or i64 is a valid date value, so we do not need to verify the
-        // values at all.
-        Ok(())
-    }
-
     fn unpack_native(
         &self,
         metadata: &Self::Metadata,
         _storage_dtype: &DType,
         storage_value: &ScalarValue,
-    ) -> Self::NativeValue<'_> {
+    ) -> VortexResult<Self::NativeValue<'_>> {
         match metadata {
-            TimeUnit::Milliseconds => {
-                DateValue::Milliseconds(storage_value.as_primitive().cast::<i64>().vortex_expect(
-                    "The Scalar validation already checked that the value must be an i64",
-                ))
-            }
-            TimeUnit::Days => {
-                DateValue::Days(storage_value.as_primitive().cast::<i32>().vortex_expect(
-                    "The Scalar validation already checked that the value must be an i32",
-                ))
-            }
-            _ => unreachable!(),
+            TimeUnit::Milliseconds => Ok(DateValue::Milliseconds(
+                storage_value.as_primitive().cast::<i64>()?,
+            )),
+            TimeUnit::Days => Ok(DateValue::Days(storage_value.as_primitive().cast::<i32>()?)),
+            _ => vortex_bail!("Date type does not support time unit {}", metadata),
         }
     }
 }

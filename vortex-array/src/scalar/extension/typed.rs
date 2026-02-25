@@ -5,6 +5,7 @@ use std::any::Any;
 use std::fmt;
 use std::sync::Arc;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -80,7 +81,8 @@ impl<V: ExtVTable> DynExtScalarValue for ExtScalarValueInner<V> {
             ext_dtype.metadata::<V>(),
             ext_dtype.storage_dtype(),
             &self.storage,
-        );
+        )
+        .vortex_expect("invalid extension dtype for this extension scalar value");
 
         write!(f, "{value}")
     }
@@ -121,8 +123,7 @@ impl<V: ExtVTable> ExtScalarValue<V> {
     /// Returns an error if [`ExtVTable::validate_scalar_value`] fails for the given
     /// storage value and extension dtype.
     pub fn try_new(ext_dtype: ExtDType<V>, storage: ScalarValue) -> VortexResult<Self> {
-        ExtVTable::validate_scalar_value(
-            ext_dtype.vtable(),
+        ext_dtype.vtable().validate_scalar_value(
             ext_dtype.metadata(),
             ext_dtype.storage_dtype(),
             &storage,

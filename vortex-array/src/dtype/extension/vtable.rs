@@ -42,12 +42,9 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
 
     // Methods related to the extension scalar values.
 
-    // TODO(connor): more docs because it is not super obvious how to implement this at first.
     /// Validate the given storage value is compatible with the extension type.
     ///
-    /// Note that [`ExtVTable::validate_dtype`] is always called first to validate the storage
-    /// [`DType`], and the [`Scalar`](crate::scalar::Scalar) implementation will verify that the
-    /// storage value is compatible with the storage dtype on construction.
+    /// By default, this calls [`unpack_native()`](ExtVTable::unpack_native) and discards the result.
     ///
     /// # Errors
     ///
@@ -57,16 +54,24 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
         metadata: &Self::Metadata,
         storage_dtype: &DType,
         storage_value: &ScalarValue,
-    ) -> VortexResult<()>;
+    ) -> VortexResult<()> {
+        self.unpack_native(metadata, storage_dtype, storage_value)
+            .map(|_| ())
+    }
 
-    /// Unpack a native value from the storage ScalarValue.
+    /// Validate and unpack a native value from the storage [`ScalarValue`].
     ///
-    /// This call is infallible assuming the [`ExtVTable::validate_scalar_value`] function has been
-    /// called previously.
+    /// Note that [`ExtVTable::validate_dtype()`] is always called first to validate the storage
+    /// [`DType`], and the [`Scalar`](crate::scalar::Scalar) implementation will verify that the
+    /// storage value is compatible with the storage dtype on construction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the storage [`ScalarValue`] is not compatible with the extension type.
     fn unpack_native<'a>(
         &self,
         metadata: &'a Self::Metadata,
         storage_dtype: &'a DType,
         storage_value: &'a ScalarValue,
-    ) -> Self::NativeValue<'a>;
+    ) -> VortexResult<Self::NativeValue<'a>>;
 }

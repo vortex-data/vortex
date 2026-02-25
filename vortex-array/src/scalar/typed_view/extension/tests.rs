@@ -42,22 +42,13 @@ impl ExtVTable for TestI32Ext {
         Ok(())
     }
 
-    fn validate_scalar_value(
-        &self,
-        _metadata: &Self::Metadata,
-        _storage_dtype: &DType,
-        _storage_value: &ScalarValue,
-    ) -> VortexResult<()> {
-        Ok(())
-    }
-
     fn unpack_native<'a>(
         &self,
         _metadata: &'a Self::Metadata,
         _storage_dtype: &'a DType,
         _storage_value: &'a ScalarValue,
-    ) -> Self::NativeValue<'a> {
-        ""
+    ) -> VortexResult<Self::NativeValue<'a>> {
+        Ok("")
     }
 }
 
@@ -140,22 +131,13 @@ fn test_ext_scalar_partial_ord_different_types() {
             Ok(())
         }
 
-        fn validate_scalar_value(
-            &self,
-            _metadata: &Self::Metadata,
-            _storage_dtype: &DType,
-            _storage_value: &ScalarValue,
-        ) -> VortexResult<()> {
-            Ok(())
-        }
-
         fn unpack_native<'a>(
             &self,
             _metadata: &'a Self::Metadata,
             _storage_dtype: &'a DType,
             _storage_value: &'a ScalarValue,
-        ) -> Self::NativeValue<'a> {
-            ""
+        ) -> VortexResult<Self::NativeValue<'a>> {
+            Ok("")
         }
     }
 
@@ -346,22 +328,13 @@ fn test_ext_scalar_with_metadata() {
             Ok(())
         }
 
-        fn validate_scalar_value(
-            &self,
-            _metadata: &Self::Metadata,
-            _storage_dtype: &DType,
-            _storage_value: &ScalarValue,
-        ) -> VortexResult<()> {
-            Ok(())
-        }
-
         fn unpack_native<'a>(
             &self,
             _metadata: &'a Self::Metadata,
             _storage_dtype: &'a DType,
             _storage_value: &'a ScalarValue,
-        ) -> Self::NativeValue<'a> {
-            ""
+        ) -> VortexResult<Self::NativeValue<'a>> {
+            Ok("")
         }
     }
 
