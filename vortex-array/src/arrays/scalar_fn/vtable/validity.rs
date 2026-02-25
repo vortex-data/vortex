@@ -12,11 +12,11 @@ use crate::arrays::scalar_fn::vtable::ArrayExpr;
 use crate::arrays::scalar_fn::vtable::FakeEq;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::expr::Expression;
+use crate::expr::lit;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::Literal;
 use crate::scalar_fn::Root;
 use crate::scalar_fn::ScalarFn;
-use crate::scalar_fn::lit;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
 

@@ -15,6 +15,8 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
+use crate::expr::eq;
+use crate::expr::lit;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -22,9 +24,6 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::binary::eq;
-use crate::scalar_fn::fns::literal::lit;
 use crate::validity::Validity;
 
 /// Expression that checks for null values.
@@ -109,18 +108,6 @@ impl ScalarFnVTable for IsNull {
     }
 }
 
-/// Creates an expression that checks for null values.
-///
-/// Returns a boolean array indicating which positions contain null values.
-///
-/// ```rust
-/// # use vortex_array::scalar_fn::{is_null, root};
-/// let expr = is_null(root());
-/// ```
-pub fn is_null(child: Expression) -> Expression {
-    IsNull.new_expr(EmptyOptions, vec![child])
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
@@ -128,7 +115,6 @@ mod tests {
     use vortex_utils::aliases::hash_map::HashMap;
     use vortex_utils::aliases::hash_set::HashSet;
 
-    use super::is_null;
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -137,15 +123,16 @@ mod tests {
     use crate::dtype::FieldPath;
     use crate::dtype::FieldPathSet;
     use crate::dtype::Nullability;
+    use crate::expr::col;
+    use crate::expr::eq;
+    use crate::expr::get_item;
+    use crate::expr::is_null;
+    use crate::expr::lit;
     use crate::expr::pruning::checked_pruning_expr;
+    use crate::expr::root;
     use crate::expr::stats::Stat;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::binary::eq;
-    use crate::scalar_fn::fns::get_item::col;
-    use crate::scalar_fn::fns::get_item::get_item;
-    use crate::scalar_fn::fns::literal::lit;
-    use crate::scalar_fn::fns::root::root;
 
     #[test]
     fn dtype() {

@@ -187,10 +187,10 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::dtype::FieldNames;
-    use vortex_array::scalar_fn::gt;
-    use vortex_array::scalar_fn::lit;
-    use vortex_array::scalar_fn::root;
-    use vortex_array::scalar_fn::select;
+    use vortex_array::expr::gt;
+    use vortex_array::expr::lit;
+    use vortex_array::expr::root;
+    use vortex_array::expr::select;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;

@@ -86,9 +86,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scalar_fn::fns::binary::eq;
-    use crate::scalar_fn::fns::get_item::col;
-    use crate::scalar_fn::fns::literal::lit;
+    use crate::expr::col;
+    use crate::expr::eq;
+    use crate::expr::lit;
 
     #[test]
     fn test_tree_depth() {

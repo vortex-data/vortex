@@ -28,7 +28,6 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::Literal;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::SimplifyCtx;
 
 /// An expression that conditionally selects between two arrays based on a boolean mask.
@@ -214,16 +213,6 @@ fn zip_impl_with_builder(
     }
 }
 
-/// Creates a zip expression that conditionally selects between two arrays.
-///
-/// ```rust
-/// # use vortex_array::scalar_fn::{zip_expr, root, lit};
-/// let expr = zip_expr(root(), lit(0i32), lit(true));
-/// ```
-pub fn zip_expr(if_true: Expression, if_false: Expression, mask: Expression) -> Expression {
-    Zip.new_expr(EmptyOptions, [if_true, if_false, mask])
-}
-
 #[cfg(test)]
 mod tests {
     use arrow_array::cast::AsArray;
@@ -231,7 +220,6 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
-    use super::zip_expr;
     use crate::Array;
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
@@ -247,9 +235,10 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::lit;
+    use crate::expr::root;
+    use crate::expr::zip_expr;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::literal::lit;
-    use crate::scalar_fn::fns::root::root;
 
     #[test]
     fn dtype() {

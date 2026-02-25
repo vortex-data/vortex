@@ -233,9 +233,9 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::scalar_fn::cast;
-    use crate::scalar_fn::is_null;
-    use crate::scalar_fn::root;
+    use crate::expr::cast;
+    use crate::expr::is_null;
+    use crate::expr::root;
 
     #[test]
     fn test_empty_constants() {

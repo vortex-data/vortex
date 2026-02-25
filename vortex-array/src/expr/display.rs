@@ -50,20 +50,20 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::and;
+    use crate::expr::between;
+    use crate::expr::cast;
+    use crate::expr::eq;
+    use crate::expr::get_item;
+    use crate::expr::gt;
+    use crate::expr::lit;
+    use crate::expr::not;
+    use crate::expr::pack;
+    use crate::expr::root;
+    use crate::expr::select;
+    use crate::expr::select_exclude;
     use crate::scalar_fn::BetweenOptions;
     use crate::scalar_fn::StrictComparison;
-    use crate::scalar_fn::fns::between::between;
-    use crate::scalar_fn::fns::binary::and;
-    use crate::scalar_fn::fns::binary::eq;
-    use crate::scalar_fn::fns::binary::gt;
-    use crate::scalar_fn::fns::cast::cast;
-    use crate::scalar_fn::fns::get_item::get_item;
-    use crate::scalar_fn::fns::literal::lit;
-    use crate::scalar_fn::fns::not::not;
-    use crate::scalar_fn::fns::pack::pack;
-    use crate::scalar_fn::fns::root::root;
-    use crate::scalar_fn::fns::select::select;
-    use crate::scalar_fn::fns::select::select_exclude;
 
     #[test]
     fn tree_display_getitem() {

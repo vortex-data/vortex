@@ -33,7 +33,9 @@ use crate::arrays::VarBinViewVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::StatsCatalog;
+use crate::expr::cast;
 use crate::expr::expression::Expression;
+use crate::expr::lit;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -43,8 +45,6 @@ use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::lit;
 
 /// A cast expression that converts values to a target data type.
 pub struct Cast;
@@ -222,35 +222,21 @@ fn cast_constant(array: &ConstantArray, dtype: &DType) -> VortexResult<Option<Ar
     <ConstantVTable as CastReduce>::cast(array, dtype)
 }
 
-/// Creates an expression that casts values to a target data type.
-///
-/// Converts the input expression's values to the specified target type.
-///
-/// ```rust
-/// # use vortex_array::dtype::{DType, Nullability, PType};
-/// # use vortex_array::scalar_fn::{cast, root};
-/// let expr = cast(root(), DType::Primitive(PType::I64, Nullability::NonNullable));
-/// ```
-pub fn cast(child: Expression, target: DType) -> Expression {
-    Cast.try_new_expr(target, [child])
-        .vortex_expect("Failed to create Cast expression")
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect as _;
 
-    use super::cast;
     use crate::IntoArray;
     use crate::arrays::StructArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::expr::Expression;
+    use crate::expr::cast;
+    use crate::expr::get_item;
+    use crate::expr::root;
     use crate::expr::test_harness;
-    use crate::scalar_fn::fns::get_item::get_item;
-    use crate::scalar_fn::fns::root::root;
 
     #[test]
     fn dtype() {

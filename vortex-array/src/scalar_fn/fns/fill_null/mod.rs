@@ -30,7 +30,6 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 
 /// An expression that replaces null values in the input with a fill value.
 pub struct FillNull;
@@ -181,22 +180,11 @@ fn fill_null_canonical(
     }
 }
 
-/// Creates an expression that replaces null values with a fill value.
-///
-/// ```rust
-/// # use vortex_array::scalar_fn::{fill_null, root, lit};
-/// let expr = fill_null(root(), lit(0i32));
-/// ```
-pub fn fill_null(child: Expression, fill_value: Expression) -> Expression {
-    FillNull.new_expr(EmptyOptions, [child, fill_value])
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
 
-    use super::fill_null;
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -204,9 +192,10 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::scalar_fn::fns::get_item::get_item;
-    use crate::scalar_fn::fns::literal::lit;
-    use crate::scalar_fn::fns::root::root;
+    use crate::expr::fill_null;
+    use crate::expr::get_item;
+    use crate::expr::lit;
+    use crate::expr::root;
 
     #[test]
     fn dtype() {

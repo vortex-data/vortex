@@ -6,6 +6,7 @@ use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
 
 use crate::scalar_fn::ScalarFnPlugin;
+use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::cast::Cast;
@@ -36,45 +37,35 @@ impl ScalarFnSession {
     }
 
     /// Register a scalar function vtable in the session, replacing any existing vtable with the same ID.
-    pub fn register(&self, expr: ScalarFnPlugin) {
-        self.registry.register(expr.id(), expr)
-    }
-
-    /// Register scalar function vtables in the session, replacing any existing vtables with the same IDs.
-    pub fn register_many(&self, exprs: impl IntoIterator<Item = ScalarFnPlugin>) {
-        for expr in exprs {
-            self.registry.register(expr.id(), expr)
-        }
+    pub fn register<V: ScalarFnVTable>(&self, vtable: V) {
+        let plugin = ScalarFnPlugin::new(vtable);
+        self.registry.register(plugin.id(), plugin);
     }
 }
 
 impl Default for ScalarFnSession {
     fn default() -> Self {
-        let expressions = ScalarFnRegistry::default();
+        let this = Self {
+            registry: ScalarFnRegistry::default(),
+        };
 
-        // Register built-in expressions here if needed.
-        for expr in [
-            ScalarFnPlugin::new_static(&Between),
-            ScalarFnPlugin::new_static(&Binary),
-            ScalarFnPlugin::new_static(&Cast),
-            ScalarFnPlugin::new_static(&FillNull),
-            ScalarFnPlugin::new_static(&GetItem),
-            ScalarFnPlugin::new_static(&IsNull),
-            ScalarFnPlugin::new_static(&Like),
-            ScalarFnPlugin::new_static(&ListContains),
-            ScalarFnPlugin::new_static(&Literal),
-            ScalarFnPlugin::new_static(&Merge),
-            ScalarFnPlugin::new_static(&Not),
-            ScalarFnPlugin::new_static(&Pack),
-            ScalarFnPlugin::new_static(&Root),
-            ScalarFnPlugin::new_static(&Select),
-        ] {
-            expressions.register(expr.id(), expr);
-        }
+        // Register built-in expressions.
+        this.register(Between);
+        this.register(Binary);
+        this.register(Cast);
+        this.register(FillNull);
+        this.register(GetItem);
+        this.register(IsNull);
+        this.register(Like);
+        this.register(ListContains);
+        this.register(Literal);
+        this.register(Merge);
+        this.register(Not);
+        this.register(Pack);
+        this.register(Root);
+        this.register(Select);
 
-        Self {
-            registry: expressions,
-        }
+        this
     }
 }
 

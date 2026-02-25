@@ -167,32 +167,12 @@ impl ScalarFnVTable for DynamicComparison {
     }
 }
 
-pub fn dynamic(
-    operator: CompareOperator,
-    rhs_value: impl Fn() -> Option<ScalarValue> + Send + Sync + 'static,
-    rhs_dtype: DType,
-    default: bool,
-    lhs: Expression,
-) -> Expression {
-    DynamicComparison.new_expr(
-        DynamicComparisonExpr {
-            operator,
-            rhs: Arc::new(Rhs {
-                value: Arc::new(rhs_value),
-                dtype: rhs_dtype,
-            }),
-            default,
-        },
-        [lhs],
-    )
-}
-
 #[derive(Clone, Debug)]
 pub struct DynamicComparisonExpr {
-    operator: CompareOperator,
-    rhs: Arc<Rhs>,
+    pub(crate) operator: CompareOperator,
+    pub(crate) rhs: Arc<Rhs>,
     // Default value for the dynamic comparison.
-    default: bool,
+    pub(crate) default: bool,
 }
 
 impl DynamicComparisonExpr {
@@ -235,11 +215,11 @@ impl Hash for DynamicComparisonExpr {
 
 /// Hash and PartialEq are implemented based on the ptr of the value function, such that the
 /// internal value doesn't impact the hash of an expression tree.
-struct Rhs {
+pub(crate) struct Rhs {
     // The right-hand side value is a function that returns an `Option<ScalarValue>`.
-    value: Arc<dyn Fn() -> Option<ScalarValue> + Send + Sync>,
+    pub(crate) value: Arc<dyn Fn() -> Option<ScalarValue> + Send + Sync>,
     // The data type of the right-hand side value.
-    dtype: DType,
+    pub(crate) dtype: DType,
 }
 
 impl Rhs {
@@ -344,8 +324,8 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::scalar_fn::fns::root::root;
-
+    use crate::expr::dynamic;
+    use crate::expr::root;
     #[test]
     fn return_dtype_bool() -> VortexResult<()> {
         let expr = dynamic(

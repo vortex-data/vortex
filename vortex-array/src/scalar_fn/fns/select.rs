@@ -23,16 +23,15 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::expr::expression::Expression;
 use crate::expr::field::DisplayFieldNames;
+use crate::expr::get_item;
+use crate::expr::pack;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::Pack;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::SimplifyCtx;
-use crate::scalar_fn::fns::get_item::get_item;
-use crate::scalar_fn::fns::pack::pack;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -241,33 +240,6 @@ impl ScalarFnVTable for Select {
     }
 }
 
-/// Creates an expression that selects (includes) specific fields from an array.
-///
-/// Projects only the specified fields from the child expression, which must be of DType struct.
-/// ```rust
-/// # use vortex_array::scalar_fn::{select, root};
-/// let expr = select(["name", "age"], root());
-/// ```
-pub fn select(field_names: impl Into<FieldNames>, child: Expression) -> Expression {
-    Select
-        .try_new_expr(FieldSelection::Include(field_names.into()), [child])
-        .vortex_expect("Failed to create Select expression")
-}
-
-/// Creates an expression that excludes specific fields from an array.
-///
-/// Projects all fields except the specified ones from the input struct expression.
-///
-/// ```rust
-/// # use vortex_array::scalar_fn::{select_exclude, root};
-/// let expr = select_exclude(["internal_id", "metadata"], root());
-/// ```
-pub fn select_exclude(fields: impl Into<FieldNames>, child: Expression) -> Expression {
-    Select
-        .try_new_expr(FieldSelection::Exclude(fields.into()), [child])
-        .vortex_expect("Failed to create Select expression")
-}
-
 impl FieldSelection {
     pub fn include(columns: FieldNames) -> Self {
         assert_eq!(columns.iter().unique().collect_vec().len(), columns.len());
@@ -334,8 +306,6 @@ impl Display for FieldSelection {
 mod tests {
     use vortex_buffer::buffer;
 
-    use super::select;
-    use super::select_exclude;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::StructArray;
@@ -346,8 +316,10 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
+    use crate::expr::root;
+    use crate::expr::select;
+    use crate::expr::select_exclude;
     use crate::expr::test_harness;
-    use crate::scalar_fn::fns::root::root;
     use crate::scalar_fn::fns::select::Select;
 
     fn test_array() -> StructArray {
@@ -454,7 +426,7 @@ mod tests {
 
     #[test]
     fn test_remove_select_rule_exclude_fields() {
-        use crate::scalar_fn::fns::select::select_exclude;
+        use crate::expr::select_exclude;
 
         let dtype = DType::Struct(
             StructFields::new(

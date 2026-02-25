@@ -20,13 +20,12 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::expr::Expression;
+use crate::expr::lit;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::lit;
 use crate::validity::Validity;
 
 /// Pack zero or more expressions into a structure with named fields.
@@ -149,30 +148,6 @@ impl ScalarFnVTable for Pack {
     }
 }
 
-/// Creates an expression that packs values into a struct with named fields.
-///
-/// ```rust
-/// # use vortex_array::dtype::Nullability;
-/// # use vortex_array::scalar_fn::{pack, col, lit};
-/// let expr = pack([("id", col("user_id")), ("constant", lit(42))], Nullability::NonNullable);
-/// ```
-pub fn pack(
-    elements: impl IntoIterator<Item = (impl Into<FieldName>, Expression)>,
-    nullability: Nullability,
-) -> Expression {
-    let (names, values): (Vec<_>, Vec<_>) = elements
-        .into_iter()
-        .map(|(name, value)| (name.into(), value))
-        .unzip();
-    Pack.new_expr(
-        PackOptions {
-            names: names.into(),
-            nullability,
-        },
-        values,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
@@ -181,7 +156,6 @@ mod tests {
 
     use super::Pack;
     use super::PackOptions;
-    use super::pack;
     use crate::Array;
     use crate::ArrayRef;
     use crate::IntoArray;
@@ -190,8 +164,9 @@ mod tests {
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
+    use crate::expr::col;
+    use crate::expr::pack;
     use crate::scalar_fn::ScalarFnVTableExt;
-    use crate::scalar_fn::fns::get_item::col;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 

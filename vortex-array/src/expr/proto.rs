@@ -74,15 +74,15 @@ mod tests {
     use super::ExprSerializeProtoExt;
     use crate::LEGACY_SESSION;
     use crate::expr::Expression;
+    use crate::expr::and;
+    use crate::expr::between;
+    use crate::expr::eq;
+    use crate::expr::get_item;
+    use crate::expr::lit;
+    use crate::expr::or;
+    use crate::expr::root;
     use crate::scalar_fn::BetweenOptions;
     use crate::scalar_fn::StrictComparison;
-    use crate::scalar_fn::fns::between::between;
-    use crate::scalar_fn::fns::binary::and;
-    use crate::scalar_fn::fns::binary::eq;
-    use crate::scalar_fn::fns::binary::or;
-    use crate::scalar_fn::fns::get_item::get_item;
-    use crate::scalar_fn::fns::literal::lit;
-    use crate::scalar_fn::fns::root::root;
 
     #[test]
     fn expression_serde() {

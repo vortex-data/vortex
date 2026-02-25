@@ -27,7 +27,6 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 
 /// Expression that logically inverts boolean values.
 pub struct Not;
@@ -114,29 +113,17 @@ impl ScalarFnVTable for Not {
     }
 }
 
-/// Creates an expression that logically inverts boolean values.
-///
-/// Returns the logical negation of the input boolean expression.
-///
-/// ```rust
-/// # use vortex_array::scalar_fn::{not, root};
-/// let expr = not(root());
-/// ```
-pub fn not(operand: Expression) -> Expression {
-    Not.new_expr(EmptyOptions, vec![operand])
-}
-
 #[cfg(test)]
 mod tests {
-    use super::not;
     use crate::ToCanonical;
     use crate::arrays::BoolArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::expr::col;
+    use crate::expr::get_item;
+    use crate::expr::not;
+    use crate::expr::root;
     use crate::expr::test_harness;
-    use crate::scalar_fn::fns::get_item::col;
-    use crate::scalar_fn::fns::get_item::get_item;
-    use crate::scalar_fn::fns::root::root;
 
     #[test]
     fn invert_booleans() {

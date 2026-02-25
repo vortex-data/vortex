@@ -8,7 +8,6 @@ pub use boolean::and_kleene;
 #[expect(deprecated)]
 pub use boolean::or_kleene;
 use prost::Message;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
@@ -17,15 +16,22 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::expr::StatsCatalog;
+use crate::expr::and;
+use crate::expr::and_collect;
+use crate::expr::eq;
 use crate::expr::expression::Expression;
+use crate::expr::gt;
+use crate::expr::gt_eq;
+use crate::expr::lit;
+use crate::expr::lt;
+use crate::expr::lt_eq;
+use crate::expr::or_collect;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::literal::lit;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -282,295 +288,25 @@ impl ScalarFnVTable for Binary {
     }
 }
 
-/// Create a new [`Binary`] using the [`Eq`](crate::scalar_fn::fns::operators::Operator::Eq) operator.
-///
-/// ## Example usage
-///
-/// ```
-/// # use vortex_array::arrays::{BoolArray, PrimitiveArray};
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
-/// # use vortex_array::validity::Validity;
-/// # use vortex_buffer::buffer;
-/// # use vortex_array::scalar_fn::{eq, root, lit};
-/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.to_array().apply(&eq(root(), lit(3))).unwrap();
-///
-/// assert_eq!(
-///     result.to_bool().to_bit_buffer(),
-///     BoolArray::from_iter(vec![false, false, true]).to_bit_buffer(),
-/// );
-/// ```
-pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Eq, [lhs, rhs])
-        .vortex_expect("Failed to create Eq binary expression")
-}
-
-/// Create a new [`Binary`] using the [`NotEq`](crate::scalar_fn::fns::operators::Operator::NotEq) operator.
-///
-/// ## Example usage
-///
-/// ```
-/// # use vortex_array::arrays::{BoolArray, PrimitiveArray};
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
-/// # use vortex_array::validity::Validity;
-/// # use vortex_buffer::buffer;
-/// # use vortex_array::scalar_fn::{root, lit, not_eq};
-/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.to_array().apply(&not_eq(root(), lit(3))).unwrap();
-///
-/// assert_eq!(
-///     result.to_bool().to_bit_buffer(),
-///     BoolArray::from_iter(vec![true, true, false]).to_bit_buffer(),
-/// );
-/// ```
-pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::NotEq, [lhs, rhs])
-        .vortex_expect("Failed to create NotEq binary expression")
-}
-
-/// Create a new [`Binary`] using the [`Gte`](crate::scalar_fn::fns::operators::Operator::Gte) operator.
-///
-/// ## Example usage
-///
-/// ```
-/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
-/// # use vortex_array::validity::Validity;
-/// # use vortex_buffer::buffer;
-/// # use vortex_array::scalar_fn::{gt_eq, root, lit};
-/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.to_array().apply(&gt_eq(root(), lit(3))).unwrap();
-///
-/// assert_eq!(
-///     result.to_bool().to_bit_buffer(),
-///     BoolArray::from_iter(vec![false, false, true]).to_bit_buffer(),
-/// );
-/// ```
-pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Gte, [lhs, rhs])
-        .vortex_expect("Failed to create Gte binary expression")
-}
-
-/// Create a new [`Binary`] using the [`Gt`](crate::scalar_fn::fns::operators::Operator::Gt) operator.
-///
-/// ## Example usage
-///
-/// ```
-/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
-/// # use vortex_array::validity::Validity;
-/// # use vortex_buffer::buffer;
-/// # use vortex_array::scalar_fn::{gt, root, lit};
-/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.to_array().apply(&gt(root(), lit(2))).unwrap();
-///
-/// assert_eq!(
-///     result.to_bool().to_bit_buffer(),
-///     BoolArray::from_iter(vec![false, false, true]).to_bit_buffer(),
-/// );
-/// ```
-pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Gt, [lhs, rhs])
-        .vortex_expect("Failed to create Gt binary expression")
-}
-
-/// Create a new [`Binary`] using the [`Lte`](crate::scalar_fn::fns::operators::Operator::Lte) operator.
-///
-/// ## Example usage
-///
-/// ```
-/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
-/// # use vortex_array::validity::Validity;
-/// # use vortex_buffer::buffer;
-/// # use vortex_array::scalar_fn::{root, lit, lt_eq};
-/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.to_array().apply(&lt_eq(root(), lit(2))).unwrap();
-///
-/// assert_eq!(
-///     result.to_bool().to_bit_buffer(),
-///     BoolArray::from_iter(vec![true, true, false]).to_bit_buffer(),
-/// );
-/// ```
-pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Lte, [lhs, rhs])
-        .vortex_expect("Failed to create Lte binary expression")
-}
-
-/// Create a new [`Binary`] using the [`Lt`](crate::scalar_fn::fns::operators::Operator::Lt) operator.
-///
-/// ## Example usage
-///
-/// ```
-/// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
-/// # use vortex_array::validity::Validity;
-/// # use vortex_buffer::buffer;
-/// # use vortex_array::scalar_fn::{root, lit, lt};
-/// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.to_array().apply(&lt(root(), lit(3))).unwrap();
-///
-/// assert_eq!(
-///     result.to_bool().to_bit_buffer(),
-///     BoolArray::from_iter(vec![true, true, false]).to_bit_buffer(),
-/// );
-/// ```
-pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Lt, [lhs, rhs])
-        .vortex_expect("Failed to create Lt binary expression")
-}
-
-/// Create a new [`Binary`] using the [`Or`](crate::scalar_fn::fns::operators::Operator::Or) operator.
-///
-/// ## Example usage
-///
-/// ```
-/// # use vortex_array::arrays::BoolArray;
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
-/// # use vortex_array::scalar_fn::{root, lit, or};
-/// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = xs.to_array().apply(&or(root(), lit(false))).unwrap();
-///
-/// assert_eq!(
-///     result.to_bool().to_bit_buffer(),
-///     BoolArray::from_iter(vec![true, false, true]).to_bit_buffer(),
-/// );
-/// ```
-pub fn or(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Or, [lhs, rhs])
-        .vortex_expect("Failed to create Or binary expression")
-}
-
-/// Collects a list of `or`ed values into a single expression using a balanced tree.
-///
-/// This creates a balanced binary tree to avoid deep nesting that could cause
-/// stack overflow during drop or evaluation.
-///
-/// [a, b, c, d] => or(or(a, b), or(c, d))
-pub fn or_collect<I>(iter: I) -> Option<Expression>
-where
-    I: IntoIterator<Item = Expression>,
-{
-    let exprs: Vec<_> = iter.into_iter().collect();
-    balanced_reduce(exprs, or)
-}
-
-/// Create a new [`Binary`] using the [`And`](crate::scalar_fn::fns::operators::Operator::And) operator.
-///
-/// ## Example usage
-///
-/// ```
-/// # use vortex_array::arrays::BoolArray;
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
-/// # use vortex_array::scalar_fn::{and, root, lit};
-/// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = xs.to_array().apply(&and(root(), lit(true))).unwrap();
-///
-/// assert_eq!(
-///     result.to_bool().to_bit_buffer(),
-///     BoolArray::from_iter(vec![true, false, true]).to_bit_buffer(),
-/// );
-/// ```
-pub fn and(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::And, [lhs, rhs])
-        .vortex_expect("Failed to create And binary expression")
-}
-
-/// Collects a list of `and`ed values into a single expression using a balanced tree.
-///
-/// This creates a balanced binary tree to avoid deep nesting that could cause
-/// stack overflow during drop or evaluation.
-///
-/// [a, b, c, d] => and(and(a, b), and(c, d))
-pub fn and_collect<I>(iter: I) -> Option<Expression>
-where
-    I: IntoIterator<Item = Expression>,
-{
-    let exprs: Vec<_> = iter.into_iter().collect();
-    balanced_reduce(exprs, and)
-}
-
-/// Helper function to reduce a list of expressions into a balanced binary tree.
-fn balanced_reduce<F>(mut exprs: Vec<Expression>, combine: F) -> Option<Expression>
-where
-    F: Fn(Expression, Expression) -> Expression + Copy,
-{
-    if exprs.is_empty() {
-        return None;
-    }
-    if exprs.len() == 1 {
-        return exprs.pop();
-    }
-
-    while exprs.len() > 1 {
-        let exprs_len = exprs.len();
-
-        for target_idx in 0..(exprs.len() / 2) {
-            let item_idx = target_idx * 2;
-            let new = combine(exprs[item_idx].clone(), exprs[item_idx + 1].clone());
-            exprs[target_idx] = new;
-        }
-
-        if !exprs.len().is_multiple_of(2) {
-            // We want the odd nodes to be inside the tree and not at root
-            let lhs = exprs[(exprs.len() / 2) - 1].clone();
-            let rhs = exprs[exprs.len() - 1].clone();
-            exprs[exprs_len / 2 - 1] = combine(lhs, rhs);
-        }
-
-        exprs.truncate(exprs_len / 2);
-    }
-
-    exprs.pop()
-}
-
-/// Create a new [`Binary`] using the [`Add`](crate::scalar_fn::fns::operators::Operator::Add) operator.
-///
-/// ## Example usage
-///
-/// ```
-/// # use vortex_array::{Array, IntoArray};
-/// # use vortex_array::arrow::IntoArrowArray as _;
-/// # use vortex_buffer::buffer;
-/// # use vortex_array::scalar_fn::{checked_add, lit, root};
-/// let xs = buffer![1, 2, 3].into_array();
-/// let result = xs.apply(&checked_add(root(), lit(5))).unwrap();
-///
-/// assert_eq!(
-///     &result.into_arrow_preferred().unwrap(),
-///     &buffer![6, 7, 8]
-///         .into_array()
-///         .into_arrow_preferred()
-///         .unwrap()
-/// );
-/// ```
-pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Add, [lhs, rhs])
-        .vortex_expect("Failed to create Add binary expression")
-}
-
 #[cfg(test)]
 mod tests {
+    use vortex_error::VortexExpect;
+
     use super::*;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::expr::Expression;
+    use crate::expr::and_collect;
+    use crate::expr::col;
+    use crate::expr::lit;
+    use crate::expr::lt;
+    use crate::expr::not_eq;
+    use crate::expr::or;
+    use crate::expr::or_collect;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::get_item::col;
-    use crate::scalar_fn::fns::literal::lit;
-
     #[test]
     fn and_collect_balanced() {
         let values = vec![lit(1), lit(2), lit(3), lit(4), lit(5)];
@@ -757,7 +493,7 @@ mod tests {
         use crate::IntoArray;
         use crate::arrays::BoolArray;
         use crate::arrays::StructArray;
-        use crate::scalar_fn::fns::get_item::col;
+        use crate::expr::col;
 
         let struct_arr = StructArray::from_fields(&[
             ("a", BoolArray::from_iter([Some(true)]).into_array()),

@@ -50,8 +50,8 @@ session.arrays().register(MyEncoding::ID, &MyEncoding);
 // Register a custom layout
 session.layouts().register(MyLayout::encoding());
 
-// Register a custom expression
-session.expressions().register(MyExprVTable);
+// Register a custom scalar function
+session.expressions().register(MyScalarFnVTable);
 ```
 
 Crates that bundle multiple plugins typically expose an `initialize` function that registers

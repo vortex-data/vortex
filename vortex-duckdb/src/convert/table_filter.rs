@@ -10,17 +10,17 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::expr::Expression;
+use vortex::expr::and_collect;
+use vortex::expr::get_item;
+use vortex::expr::is_null;
+use vortex::expr::list_contains;
+use vortex::expr::lit;
+use vortex::expr::not;
+use vortex::expr::or_collect;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::Binary;
 use vortex::scalar_fn::CompareOperator;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::and_collect;
-use vortex::scalar_fn::get_item;
-use vortex::scalar_fn::is_null;
-use vortex::scalar_fn::list_contains;
-use vortex::scalar_fn::lit;
-use vortex::scalar_fn::not;
-use vortex::scalar_fn::or_collect;
 
 use crate::cpp::DUCKDB_VX_EXPR_TYPE;
 use crate::duckdb::TableFilterClass;
@@ -103,7 +103,7 @@ pub fn try_from_table_filter(
             };
             let data = dynamic.data;
 
-            vortex::scalar_fn::dynamic(
+            vortex::expr::dynamic(
                 op,
                 move || {
                     let value = data.latest()?;

@@ -20,6 +20,7 @@ use crate::dtype::FieldPath;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
+use crate::expr::lit;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -34,8 +35,6 @@ use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::fns::root::root;
-use crate::scalar_fn::lit;
 
 pub struct GetItem;
 
@@ -213,30 +212,6 @@ impl ScalarFnVTable for GetItem {
     }
 }
 
-/// Creates an expression that accesses a field from the root array.
-///
-/// Equivalent to `get_item(field, root())` - extracts a named field from the input array.
-///
-/// ```rust
-/// # use vortex_array::scalar_fn::col;
-/// let expr = col("name");
-/// ```
-pub fn col(field: impl Into<FieldName>) -> Expression {
-    GetItem.new_expr(field.into(), vec![root()])
-}
-
-/// Creates an expression that extracts a named field from a struct expression.
-///
-/// Accesses the specified field from the result of the child expression.
-///
-/// ```rust
-/// # use vortex_array::scalar_fn::{get_item, root};
-/// let expr = get_item("user_id", root());
-/// ```
-pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
-    GetItem.new_expr(field.into(), vec![child])
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
@@ -250,11 +225,11 @@ mod tests {
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::scalar_fn::fns::binary::checked_add;
-    use crate::scalar_fn::fns::get_item::get_item;
-    use crate::scalar_fn::fns::literal::lit;
-    use crate::scalar_fn::fns::pack::pack;
-    use crate::scalar_fn::fns::root::root;
+    use crate::expr::checked_add;
+    use crate::expr::get_item;
+    use crate::expr::lit;
+    use crate::expr::pack;
+    use crate::expr::root;
     use crate::validity::Validity;
 
     fn test_array() -> StructArray {

@@ -22,6 +22,8 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
+use crate::expr::and;
+use crate::expr::lit;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -30,10 +32,7 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::Literal;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::SimplifyCtx;
-use crate::scalar_fn::and;
-use crate::scalar_fn::lit;
 
 /// An expression that masks an input based on a boolean mask.
 ///
@@ -185,11 +184,6 @@ fn execute_canonical(
     Ok(mask_validity_canonical(canonical, &validity_mask, ctx)?.into_array())
 }
 
-/// Creates a mask expression that applies the given boolean mask to the input array.
-pub fn mask(array: Expression, mask: Expression) -> Expression {
-    Mask.new_expr(EmptyOptions, [array, mask])
-}
-
 #[cfg(test)]
 mod test {
     use vortex_error::VortexExpect;
@@ -197,9 +191,9 @@ mod test {
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;
+    use crate::expr::lit;
+    use crate::expr::mask;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::literal::lit;
-    use crate::scalar_fn::fns::mask::mask;
 
     #[test]
     fn test_simplify() {

@@ -23,10 +23,10 @@ pub fn label_null_sensitive(expr: &Expression) -> BooleanLabels<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scalar_fn::fns::binary::eq;
-    use crate::scalar_fn::fns::get_item::col;
-    use crate::scalar_fn::fns::is_null::is_null;
-    use crate::scalar_fn::fns::literal::lit;
+    use crate::expr::col;
+    use crate::expr::eq;
+    use crate::expr::is_null;
+    use crate::expr::lit;
 
     #[test]
     fn test_null_sensitive_with_is_null() {

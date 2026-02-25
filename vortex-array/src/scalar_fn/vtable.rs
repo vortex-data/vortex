@@ -24,7 +24,7 @@ use crate::expr::stats::Stat;
 use crate::scalar_fn::ScalarFn;
 use crate::scalar_fn::ScalarFnId;
 
-/// This trait defines the interface for expression vtables, including methods for
+/// This trait defines the interface for scalar function vtables, including methods for
 /// serialization, deserialization, validation, child naming, return type computation,
 /// and evaluation.
 ///
@@ -39,7 +39,7 @@ pub trait ScalarFnVTable: 'static + Sized + Send + Sync {
     /// Options for this expression.
     type Options: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Eq + Hash;
 
-    /// Returns the ID of the expr vtable.
+    /// Returns the ID of the scalar function vtable.
     fn id(&self) -> ScalarFnId;
 
     /// Serialize the options for this expression.

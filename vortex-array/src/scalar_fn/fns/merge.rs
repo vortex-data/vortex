@@ -21,6 +21,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::expr::Expression;
+use crate::expr::lit;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -33,7 +34,6 @@ use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::lit;
 use crate::validity::Validity;
 
 /// Merge zero or more expressions that ALL return structs.
@@ -275,36 +275,12 @@ impl Display for DuplicateHandling {
     }
 }
 
-/// Creates an expression that merges struct expressions into a single struct.
-///
-/// Combines fields from all input expressions. If field names are duplicated,
-/// later expressions win. Fields are not recursively merged.
-///
-/// ```rust
-/// # use vortex_array::dtype::Nullability;
-/// # use vortex_array::scalar_fn::{merge, get_item, root};
-/// let expr = merge([get_item("a", root()), get_item("b", root())]);
-/// ```
-pub fn merge(elements: impl IntoIterator<Item = impl Into<Expression>>) -> Expression {
-    let values = elements.into_iter().map(|value| value.into()).collect_vec();
-    Merge.new_expr(DuplicateHandling::default(), values)
-}
-
-pub fn merge_opts(
-    elements: impl IntoIterator<Item = impl Into<Expression>>,
-    duplicate_handling: DuplicateHandling,
-) -> Expression {
-    let values = elements.into_iter().map(|value| value.into()).collect_vec();
-    Merge.new_expr(duplicate_handling, values)
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
 
-    use super::merge;
     use crate::Array;
     use crate::IntoArray;
     use crate::ToCanonical;
@@ -318,11 +294,12 @@ mod tests {
     use crate::dtype::PType::U32;
     use crate::dtype::PType::U64;
     use crate::expr::Expression;
+    use crate::expr::get_item;
+    use crate::expr::merge;
+    use crate::expr::merge_opts;
+    use crate::expr::root;
     use crate::scalar_fn::Pack;
-    use crate::scalar_fn::fns::get_item::get_item;
     use crate::scalar_fn::fns::merge::DuplicateHandling;
-    use crate::scalar_fn::fns::merge::merge_opts;
-    use crate::scalar_fn::fns::root::root;
 
     fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();

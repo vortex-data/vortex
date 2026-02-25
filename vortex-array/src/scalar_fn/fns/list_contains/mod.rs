@@ -32,6 +32,11 @@ use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
+use crate::expr::and_collect;
+use crate::expr::gt;
+use crate::expr::lit;
+use crate::expr::lt;
+use crate::expr::or;
 use crate::match_each_integer_ptype;
 use crate::scalar::ListScalar;
 use crate::scalar::Scalar;
@@ -43,13 +48,7 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::Operator;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::and_collect;
-use crate::scalar_fn::fns::binary::gt;
-use crate::scalar_fn::fns::binary::lt;
-use crate::scalar_fn::fns::binary::or;
 use crate::scalar_fn::fns::literal::Literal;
-use crate::scalar_fn::fns::literal::lit;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -425,18 +424,6 @@ fn list_is_not_empty(
     .into_array())
 }
 
-/// Creates an expression that checks if a value is contained in a list.
-///
-/// Returns a boolean array indicating whether the value appears in each list.
-///
-/// ```rust
-/// # use vortex_array::scalar_fn::{list_contains, lit, root};
-/// let expr = list_contains(root(), lit(42));
-/// ```
-pub fn list_contains(list: Expression, value: Expression) -> Expression {
-    ListContains.new_expr(EmptyOptions, [list, value])
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -448,7 +435,6 @@ mod tests {
     use vortex_utils::aliases::hash_map::HashMap;
     use vortex_utils::aliases::hash_set::HashSet;
 
-    use super::list_contains;
     use crate::Array;
     use crate::ArrayRef;
     use crate::IntoArray;
@@ -469,17 +455,18 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
+    use crate::expr::and;
+    use crate::expr::col;
+    use crate::expr::get_item;
+    use crate::expr::gt;
+    use crate::expr::list_contains;
+    use crate::expr::lit;
+    use crate::expr::lt;
+    use crate::expr::or;
     use crate::expr::pruning::checked_pruning_expr;
+    use crate::expr::root;
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::binary::and;
-    use crate::scalar_fn::fns::binary::gt;
-    use crate::scalar_fn::fns::binary::lt;
-    use crate::scalar_fn::fns::binary::or;
-    use crate::scalar_fn::fns::get_item::col;
-    use crate::scalar_fn::fns::get_item::get_item;
-    use crate::scalar_fn::fns::literal::lit;
-    use crate::scalar_fn::fns::root::root;
     use crate::validity::Validity;
 
     fn test_array() -> ArrayRef {

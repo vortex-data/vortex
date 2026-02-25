@@ -29,6 +29,7 @@ pub mod analysis;
 pub mod arbitrary;
 pub mod display;
 pub(crate) mod expression;
+mod exprs;
 pub(crate) mod field;
 pub mod forms;
 mod optimize;
@@ -40,6 +41,7 @@ pub mod traversal;
 
 pub use analysis::*;
 pub use expression::*;
+pub use exprs::*;
 pub use pruning::StatsCatalog;
 
 pub trait VortexExprExt {
@@ -125,22 +127,22 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::expr::and;
+    use crate::expr::col;
+    use crate::expr::eq;
+    use crate::expr::get_item;
+    use crate::expr::gt;
+    use crate::expr::gt_eq;
+    use crate::expr::lit;
+    use crate::expr::lt;
+    use crate::expr::lt_eq;
+    use crate::expr::not;
+    use crate::expr::not_eq;
+    use crate::expr::or;
+    use crate::expr::root;
+    use crate::expr::select;
+    use crate::expr::select_exclude;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::binary::and;
-    use crate::scalar_fn::fns::binary::eq;
-    use crate::scalar_fn::fns::binary::gt;
-    use crate::scalar_fn::fns::binary::gt_eq;
-    use crate::scalar_fn::fns::binary::lt;
-    use crate::scalar_fn::fns::binary::lt_eq;
-    use crate::scalar_fn::fns::binary::not_eq;
-    use crate::scalar_fn::fns::binary::or;
-    use crate::scalar_fn::fns::get_item::col;
-    use crate::scalar_fn::fns::get_item::get_item;
-    use crate::scalar_fn::fns::literal::lit;
-    use crate::scalar_fn::fns::not::not;
-    use crate::scalar_fn::fns::root::root;
-    use crate::scalar_fn::fns::select::select;
-    use crate::scalar_fn::fns::select::select_exclude;
 
     #[test]
     fn basic_expr_split_test() {

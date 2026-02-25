@@ -3,7 +3,6 @@
 
 use std::fmt::Formatter;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
@@ -20,7 +19,6 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 
 /// An expression that returns the full scope of the expression evaluation.
 // TODO(ngates): rename to "Scope"
@@ -90,18 +88,4 @@ impl ScalarFnVTable for Root {
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
     }
-}
-
-/// Creates an expression that references the root scope.
-///
-/// Returns the entire input array as passed to the expression evaluator.
-/// This is commonly used as the starting point for field access and other operations.
-pub fn root() -> Expression {
-    Root.try_new_expr(EmptyOptions, vec![])
-        .vortex_expect("Failed to create Root expression")
-}
-
-/// Return whether the expression is a root expression.
-pub fn is_root(expr: &Expression) -> bool {
-    expr.is::<Root>()
 }

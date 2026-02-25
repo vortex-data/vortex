@@ -25,6 +25,10 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 
+fn lit(value: impl Into<Scalar>) -> Expression {
+    Literal.new_expr(value.into(), [])
+}
+
 /// Expression that represents a literal scalar value.
 pub struct Literal;
 
@@ -144,33 +148,13 @@ impl ScalarFnVTable for Literal {
     }
 }
 
-/// Create a new `Literal` expression from a type that coerces to `Scalar`.
-///
-///
-/// ## Example usage
-///
-/// ```
-/// use vortex_array::arrays::PrimitiveArray;
-/// use vortex_array::dtype::Nullability;
-/// use vortex_array::scalar_fn::{lit, Literal};
-/// use vortex_array::scalar::Scalar;
-///
-/// let number = lit(34i32);
-///
-/// let scalar = number.as_::<Literal>();
-/// assert_eq!(scalar, &Scalar::primitive(34i32, Nullability::NonNullable));
-/// ```
-pub fn lit(value: impl Into<Scalar>) -> Expression {
-    Literal.new_expr(value.into(), [])
-}
-
 #[cfg(test)]
 mod tests {
-    use super::lit;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::expr::lit;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
 

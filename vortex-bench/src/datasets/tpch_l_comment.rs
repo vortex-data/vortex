@@ -13,9 +13,9 @@ use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::ChunkedArray;
 use vortex::dtype::Nullability::NonNullable;
+use vortex::expr::col;
+use vortex::expr::pack;
 use vortex::file::OpenOptionsSessionExt;
-use vortex::scalar_fn::col;
-use vortex::scalar_fn::pack;
 
 use crate::Format;
 use crate::IdempotentPath;

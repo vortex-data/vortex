@@ -17,10 +17,10 @@ use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::warm_up_vtables;
+use vortex_array::expr::eq;
+use vortex_array::expr::lit;
+use vortex_array::expr::root;
 use vortex_array::scalar_fn::Operator;
-use vortex_array::scalar_fn::eq;
-use vortex_array::scalar_fn::lit;
-use vortex_array::scalar_fn::root;
 use vortex_session::VortexSession;
 
 fn main() {

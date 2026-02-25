@@ -138,12 +138,11 @@ The reference implementation. All components follow the convention:
 - File layout: `vtable.rs`, `plugin.rs`, `typed.rs`, `erased.rs`, `matcher.rs`
 - `ExtDTypeMetadata` wrapper removed; methods inlined on `ExtDTypeRef`
 
-### Expr -- Not started
+### ScalarFn -- Done
 
-Currently uses `VTable` (unqualified), `VTableAdapter`, `DynExprVTable` (sealed trait),
-and `ExprVTable` (confusingly, the erased ref). Needs renaming to `ExprVTable`, `ExprInner`,
-`DynExpr`, `ExprRef`. Typed wrapper `Expr<V>` does not exist yet. See
-`docs/developer-guide/internals/expressions.md` for the target expression design.
+Follows the convention with `ScalarFnVTable`, `ScalarFnPlugin`, `ScalarFnInner`, `DynScalarFn`,
+`ScalarFn`. File layout: `vtable.rs`, `plugin.rs`, `typed.rs`, `erased.rs`.
+Factory functions (e.g. `root()`, `lit()`, `eq()`) live in `expr/exprs.rs`.
 
 ### Layout -- Not started
 

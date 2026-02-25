@@ -9,15 +9,15 @@ use pyo3::types::*;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::expr;
 use vortex::expr::Expression;
-use vortex::scalar_fn;
+use vortex::expr::and;
+use vortex::expr::lit;
+use vortex::expr::not;
 use vortex::scalar_fn::Binary;
 use vortex::scalar_fn::GetItem;
 use vortex::scalar_fn::Operator;
 use vortex::scalar_fn::ScalarFnVTableExt;
-use vortex::scalar_fn::and;
-use vortex::scalar_fn::lit;
-use vortex::scalar_fn::not;
 
 use crate::dtype::PyDType;
 use crate::install_module;
@@ -255,7 +255,7 @@ pub fn literal<'py>(
 #[pyfunction]
 pub fn root() -> PyExpr {
     PyExpr {
-        inner: scalar_fn::root(),
+        inner: expr::root(),
     }
 }
 
@@ -289,7 +289,7 @@ pub fn column<'py>(name: &Bound<'py, PyString>) -> PyResult<Bound<'py, PyExpr>> 
     Bound::new(
         py,
         PyExpr {
-            inner: scalar_fn::get_item(name, scalar_fn::root()),
+            inner: expr::get_item(name, expr::root()),
         },
     )
 }
@@ -401,7 +401,7 @@ pub fn and_(left: PyExpr, right: PyExpr) -> PyResult<PyExpr> {
 #[pyfunction]
 pub fn cast(child: PyExpr, dtype: PyDType) -> PyResult<PyExpr> {
     Ok(PyExpr {
-        inner: scalar_fn::cast(child.into_inner(), dtype.into_inner()),
+        inner: expr::cast(child.into_inner(), dtype.into_inner()),
     })
 }
 
@@ -419,6 +419,6 @@ pub fn cast(child: PyExpr, dtype: PyDType) -> PyResult<PyExpr> {
 #[pyfunction]
 pub fn is_null(child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
-        inner: scalar_fn::is_null(child.into_inner()),
+        inner: expr::is_null(child.into_inner()),
     })
 }

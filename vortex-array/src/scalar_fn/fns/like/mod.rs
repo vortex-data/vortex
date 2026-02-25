@@ -21,6 +21,12 @@ use crate::arrow::from_arrow_array_with_len;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
+use crate::expr::and;
+use crate::expr::gt;
+use crate::expr::gt_eq;
+use crate::expr::lit;
+use crate::expr::lt;
+use crate::expr::or;
 use crate::scalar::StringLike;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -28,13 +34,6 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::Literal;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
-use crate::scalar_fn::and;
-use crate::scalar_fn::gt;
-use crate::scalar_fn::gt_eq;
-use crate::scalar_fn::lit;
-use crate::scalar_fn::lt;
-use crate::scalar_fn::or;
 
 /// Options for SQL LIKE function
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -252,63 +251,23 @@ impl<'a> LikeVariant<'a> {
     }
 }
 
-pub fn like(child: Expression, pattern: Expression) -> Expression {
-    Like.new_expr(
-        LikeOptions {
-            negated: false,
-            case_insensitive: false,
-        },
-        [child, pattern],
-    )
-}
-
-pub fn ilike(child: Expression, pattern: Expression) -> Expression {
-    Like.new_expr(
-        LikeOptions {
-            negated: false,
-            case_insensitive: true,
-        },
-        [child, pattern],
-    )
-}
-
-pub fn not_like(child: Expression, pattern: Expression) -> Expression {
-    Like.new_expr(
-        LikeOptions {
-            negated: true,
-            case_insensitive: false,
-        },
-        [child, pattern],
-    )
-}
-
-pub fn not_ilike(child: Expression, pattern: Expression) -> Expression {
-    Like.new_expr(
-        LikeOptions {
-            negated: true,
-            case_insensitive: true,
-        },
-        [child, pattern],
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::expr::col;
+    use crate::expr::get_item;
+    use crate::expr::ilike;
+    use crate::expr::like;
+    use crate::expr::lit;
+    use crate::expr::not;
+    use crate::expr::not_ilike;
+    use crate::expr::not_like;
     use crate::expr::pruning::pruning_expr::TrackingStatsCatalog;
-    use crate::scalar_fn::col;
-    use crate::scalar_fn::fns::get_item::get_item;
+    use crate::expr::root;
     use crate::scalar_fn::fns::like::LikeVariant;
-    use crate::scalar_fn::fns::like::like;
-    use crate::scalar_fn::fns::literal::lit;
-    use crate::scalar_fn::fns::not::not;
-    use crate::scalar_fn::fns::root::root;
-    use crate::scalar_fn::ilike;
-    use crate::scalar_fn::not_ilike;
-    use crate::scalar_fn::not_like;
 
     #[test]
     fn invert_booleans() {

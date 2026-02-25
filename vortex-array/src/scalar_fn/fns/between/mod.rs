@@ -9,7 +9,6 @@ use std::fmt::Formatter;
 
 pub use kernel::*;
 use prost::Message;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -345,32 +344,6 @@ impl ScalarFnVTable for Between {
     }
 }
 
-/// Creates an expression that checks if values are between two bounds.
-///
-/// Returns a boolean array indicating which values fall within the specified range.
-/// The comparison strictness is controlled by the options parameter.
-///
-/// ```rust
-/// # use vortex_array::scalar_fn::BetweenOptions;
-/// # use vortex_array::scalar_fn::StrictComparison;
-/// # use vortex_array::scalar_fn::{between, lit, root};
-/// let opts = BetweenOptions {
-///     lower_strict: StrictComparison::NonStrict,
-///     upper_strict: StrictComparison::NonStrict,
-/// };
-/// let expr = between(root(), lit(10), lit(20), opts);
-/// ```
-pub fn between(
-    arr: Expression,
-    lower: Expression,
-    upper: Expression,
-    options: BetweenOptions,
-) -> Expression {
-    Between
-        .try_new_expr(options, [arr, lower, upper])
-        .vortex_expect("Failed to create Between expression")
-}
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -388,11 +361,12 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::between;
+    use crate::expr::get_item;
+    use crate::expr::lit;
+    use crate::expr::root;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::fns::get_item::get_item;
-    use crate::scalar_fn::fns::literal::lit;
-    use crate::scalar_fn::fns::root::root;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;
 
