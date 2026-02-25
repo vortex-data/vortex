@@ -44,6 +44,8 @@ mod typed_view;
 pub use scalar_value::*;
 pub use typed_view::*;
 
+pub mod extension;
+
 #[cfg(test)]
 mod tests;
 mod truncation;
