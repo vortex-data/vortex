@@ -83,21 +83,19 @@ impl CopyFunction for VortexCopyFunction {
 
     fn copy_to_sink(
         bind_data: &Self::BindData,
-        init_global: &mut Self::GlobalState,
+        init_global: &Self::GlobalState,
         _init_local: &mut Self::LocalState,
         chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
         let chunk = data_chunk_to_vortex(bind_data.fields.names(), chunk);
-        RUNTIME.block_on(async {
-            init_global
-                .sink
-                .as_mut()
-                .vortex_expect("sink closed early")
-                .send(chunk)
-                .await
-                .map_err(|e| vortex_err!("send error {}", e.to_string()))
-        })?;
-
+        let mut sink = init_global
+            .sink
+            .as_ref()
+            .ok_or_else(|| vortex_err!("sink closed early"))?
+            .clone();
+        RUNTIME
+            .block_on(sink.send(chunk))
+            .map_err(|e| vortex_err!("send error {}", e.to_string()))?;
         Ok(())
     }
 

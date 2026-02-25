@@ -17,10 +17,9 @@ use custom_labels::CURRENT_LABELSET;
 use futures::StreamExt;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::ExecutionCtx;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ScalarFnVTable;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::StructVTable;
@@ -43,10 +42,10 @@ use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scan::api::DataSourceRef;
 use vortex::scan::api::ScanRequest;
-use vortex::session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::RUNTIME;
+use crate::SESSION;
 use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_table_filter;
 use crate::duckdb::BindInputRef;
@@ -131,7 +130,6 @@ impl Debug for DataSourceBindData {
 pub struct DataSourceGlobal {
     iterator: ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>,
     batch_id: AtomicU64,
-    ctx: ExecutionCtx,
     bytes_total: Arc<AtomicU64>,
     bytes_read: AtomicU64,
 }
@@ -273,7 +271,6 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         Ok(DataSourceGlobal {
             iterator,
             batch_id: AtomicU64::new(0),
-            ctx: ExecutionCtx::new(VortexSession::default()),
             bytes_total: Arc::new(AtomicU64::new(0)),
             bytes_read: AtomicU64::new(0),
         })
@@ -281,7 +278,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 
     fn init_local(
         _init: &TableInitInput<Self>,
-        global: &mut Self::GlobalState,
+        global: &Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
         unsafe {
             use custom_labels::sys;
@@ -309,11 +306,12 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         _client_context: &ClientContextRef,
         _bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
-        global_state: &mut Self::GlobalState,
+        global_state: &Self::GlobalState,
         chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
         loop {
             if local_state.exporter.is_none() {
+                let mut ctx = SESSION.create_execution_ctx();
                 let Some(result) = local_state.iterator.next() else {
                     return Ok(());
                 };
@@ -332,15 +330,13 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                         pack_options.nullability.into(),
                     )
                 } else {
-                    array_result
-                        .execute::<Canonical>(&mut global_state.ctx)?
-                        .into_struct()
+                    array_result.execute::<Canonical>(&mut ctx)?.into_struct()
                 };
 
                 local_state.exporter = Some(ArrayExporter::try_new(
                     &array_result,
                     &conversion_cache,
-                    &mut global_state.ctx,
+                    ctx,
                 )?);
                 // Relaxed since there is no intra-instruction ordering required.
                 local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
@@ -372,8 +368,8 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 
     fn table_scan_progress(
         _client_context: &ClientContextRef,
-        _bind_data: &mut Self::BindData,
-        global_state: &mut Self::GlobalState,
+        _bind_data: &Self::BindData,
+        global_state: &Self::GlobalState,
     ) -> f64 {
         progress(&global_state.bytes_read, &global_state.bytes_total)
     }
@@ -409,7 +405,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 
     fn partition_data(
         _bind_data: &Self::BindData,
-        _global_init_data: &mut Self::GlobalState,
+        _global_init_data: &Self::GlobalState,
         local_init_data: &mut Self::LocalState,
     ) -> VortexResult<u64> {
         local_init_data

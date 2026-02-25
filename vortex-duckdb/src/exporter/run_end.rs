@@ -54,7 +54,13 @@ pub(crate) fn new_exporter(
 }
 
 impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         let ends_slice = self.ends.as_slice::<E>();
 
         // Adjust offset to account for the run-end offset.
@@ -115,7 +121,7 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
 
         // Export the run-end values into the vector, and then turn it into a dictionary vector.
         self.values_exporter
-            .export(start_run_idx, values_len as usize, vector)?;
+            .export(start_run_idx, values_len as usize, vector, ctx)?;
         vector.dictionary(vector, values_len as usize, &sel_vec, len as _);
 
         Ok(())

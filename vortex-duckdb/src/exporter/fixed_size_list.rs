@@ -60,7 +60,13 @@ pub(crate) fn new_exporter(
 impl ColumnExporter for FixedSizeListExporter {
     // TODO(connor): Should `export` be `unsafe` instead? We have no way to verify this without
     // making an assertion.
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         // Verify that offset + len doesn't exceed the validity mask length.
         assert!(
             offset + len <= self.len,
@@ -75,7 +81,7 @@ impl ColumnExporter for FixedSizeListExporter {
         // Get the child vector for array elements and export the elements directly.
         let elements_vector = vector.array_vector_get_child_mut();
         self.elements_exporter
-            .export(offset * list_size, len * list_size, elements_vector)?;
+            .export(offset * list_size, len * list_size, elements_vector, ctx)?;
 
         // TODO(connor): We must flatten the child vector to ensure any child dictionary views
         // (namely UTF-8 string views in dictionaries) are materialized.
@@ -113,15 +119,12 @@ mod tests {
 
         // TODO(connor): This mutable API is brittle. Maybe bundle this logic?
         let mut chunk = DataChunk::new([array_type]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(
-            fsl,
-            &ConversionCache::default(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-        .export(offset, len, chunk.get_vector_mut(0))
-        .unwrap();
+        new_exporter(fsl, &ConversionCache::default(), &mut ctx)
+            .unwrap()
+            .export(offset, len, chunk.get_vector_mut(0), &mut ctx)
+            .unwrap();
         chunk.set_len(len);
 
         chunk
@@ -329,14 +332,11 @@ mod tests {
         let outer_array_type = create_nested_array_type(2, 3);
         let mut chunk = DataChunk::new([outer_array_type]);
 
-        new_exporter(
-            outer_fsl,
-            &ConversionCache::default(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-        .export(0, 2, chunk.get_vector_mut(0))
-        .unwrap();
+        let mut ctx = SESSION.create_execution_ctx();
+        new_exporter(outer_fsl, &ConversionCache::default(), &mut ctx)
+            .unwrap()
+            .export(0, 2, chunk.get_vector_mut(0), &mut ctx)
+            .unwrap();
         chunk.set_len(2);
 
         assert_eq!(chunk.len(), 2);
@@ -386,14 +386,11 @@ mod tests {
         let outer_array_type = create_nested_array_type(2, 3);
         let mut chunk = DataChunk::new([outer_array_type]);
 
-        new_exporter(
-            outer_fsl,
-            &ConversionCache::default(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-        .export(0, 3, chunk.get_vector_mut(0))
-        .unwrap();
+        let mut ctx = SESSION.create_execution_ctx();
+        new_exporter(outer_fsl, &ConversionCache::default(), &mut ctx)
+            .unwrap()
+            .export(0, 3, chunk.get_vector_mut(0), &mut ctx)
+            .unwrap();
         chunk.set_len(3);
 
         assert_eq!(chunk.len(), 3);
