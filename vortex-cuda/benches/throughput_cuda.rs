@@ -51,9 +51,9 @@ fn transfer_mix_timed(
         .device_alloc::<u32>((output_bytes / size_of::<u32>()).max(1))
         .unwrap();
 
-    let src_ptr = dtod_src.device_ptr(&in_stream).0;
-    let dst_ptr = dtod_dst.device_ptr_mut(&in_stream).0;
-    let memset_ptr = memset_dst.device_ptr_mut(&out_stream).0;
+    let (src_ptr, record_src) = dtod_src.device_ptr(&in_stream);
+    let (dst_ptr, record_dst) = dtod_dst.device_ptr_mut(&in_stream);
+    let (memset_ptr, record_memset) = memset_dst.device_ptr_mut(&out_stream);
 
     in_stream.synchronize().unwrap();
     out_stream.synchronize().unwrap();
@@ -76,6 +76,7 @@ fn transfer_mix_timed(
                 .unwrap();
         }
     }
+    drop((record_src, record_dst, record_memset));
 
     let end_in = in_stream
         .record_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))

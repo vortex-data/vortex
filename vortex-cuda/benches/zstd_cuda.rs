@@ -78,22 +78,28 @@ async fn execute_zstd_kernel(
         .record(stream)
         .map_err(|e| vortex_err!("Failed to record start event: {:?}", e))?;
 
+    let (device_actual_sizes_ptr, record_actual_sizes) =
+        exec.device_actual_sizes.device_ptr_mut(stream);
+    let (nvcomp_temp_buffer_ptr, record_temp) = exec.nvcomp_temp_buffer.device_ptr_mut(stream);
+    let (device_statuses_ptr, record_statuses) = exec.device_statuses.device_ptr_mut(stream);
+
     // Launch the kernel
     unsafe {
         nvcomp_zstd::decompress_async(
             exec.frame_ptrs_ptr as _,
             exec.frame_sizes_ptr as _,
             exec.output_sizes_ptr as _,
-            exec.device_actual_sizes.device_ptr_mut(stream).0 as _,
+            device_actual_sizes_ptr as _,
             exec.num_frames,
-            exec.nvcomp_temp_buffer.device_ptr_mut(stream).0 as _,
+            nvcomp_temp_buffer_ptr as _,
             exec.nvcomp_temp_buffer_size,
             exec.output_ptrs_ptr as _,
-            exec.device_statuses.device_ptr_mut(stream).0 as _,
+            device_statuses_ptr as _,
             stream.cu_stream().cast(),
         )
         .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))?;
     }
+    drop((record_actual_sizes, record_temp, record_statuses));
 
     let end_event = ctx
         .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))

@@ -122,16 +122,15 @@ pub async fn zstd_kernel_prepare(
     // Device pointers for all compressed frames.
     let frame_ptrs = device_frame_handles
         .iter()
-        .map(|handle| {
-            handle
-                .cuda_view::<u8>()
-                .map(|view| view.device_ptr(ctx.stream()).0)
-        })
+        .map(|handle| handle.cuda_device_ptr())
         .collect::<VortexResult<Vec<_>>>()?;
 
     // Build output_ptrs from output base pointer + offsets.
     let output_ptrs = {
-        let base_ptr = device_output.device_ptr(ctx.stream()).0;
+        // We only need the allocation address here to build pointer metadata.
+        // The actual device write is tracked by `record_device_output` around
+        // `decompress_async`, so this guard can be dropped immediately.
+        let (base_ptr, _) = device_output.device_ptr(ctx.stream());
         output_sizes
             .iter()
             .scan(0u64, |offset, &size| {
@@ -155,16 +154,10 @@ pub async fn zstd_kernel_prepare(
     let device_statuses: CudaSlice<nvcompStatus_t> = ctx.device_alloc(num_frames)?;
     let nvcomp_temp_buffer: CudaSlice<u8> = ctx.device_alloc(nvcomp_temp_buffer_size)?;
 
-    macro_rules! device_ptr {
-        ($handle:expr, $type:ty) => {
-            $handle.cuda_view::<$type>()?.device_ptr(ctx.stream()).0
-        };
-    }
-
-    let frame_ptrs_ptr = device_ptr!(frame_ptrs_handle, u64);
-    let frame_sizes_ptr = device_ptr!(frame_sizes_handle, usize);
-    let output_sizes_ptr = device_ptr!(output_sizes_handle, usize);
-    let output_ptrs_ptr = device_ptr!(output_ptrs_handle, u64);
+    let frame_ptrs_ptr = frame_ptrs_handle.cuda_device_ptr()?;
+    let frame_sizes_ptr = frame_sizes_handle.cuda_device_ptr()?;
+    let output_sizes_ptr = output_sizes_handle.cuda_device_ptr()?;
+    let output_ptrs_ptr = output_ptrs_handle.cuda_device_ptr()?;
 
     // Return device pointers and handles to keep device memory alive
     Ok(ZstdKernelPrep {
@@ -252,25 +245,65 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
     let mut exec = zstd_kernel_prepare(frames, &metadata, ctx).await?;
 
     let stream = ctx.stream();
+    let frame_views = exec
+        .device_frame_handles
+        .iter()
+        .map(|handle| handle.cuda_view::<u8>())
+        .collect::<VortexResult<Vec<_>>>()?;
+    let mut frame_ptr_records = Vec::with_capacity(frame_views.len());
+    for view in &frame_views {
+        let (_frame_ptr, record_frame_ptr) = view.device_ptr(stream);
+        frame_ptr_records.push(record_frame_ptr);
+    }
+
+    let frame_ptrs_view = exec.frame_ptrs_handle.cuda_view::<u64>()?;
+    let frame_sizes_view = exec.frame_sizes_handle.cuda_view::<usize>()?;
+    let output_sizes_view = exec.output_sizes_handle.cuda_view::<usize>()?;
+    let output_ptrs_view = exec.output_ptrs_handle.cuda_view::<u64>()?;
+
+    let (frame_ptrs_ptr, record_frame_ptrs) = frame_ptrs_view.device_ptr(stream);
+    let (frame_sizes_ptr, record_frame_sizes) = frame_sizes_view.device_ptr(stream);
+    let (output_sizes_ptr, record_output_sizes) = output_sizes_view.device_ptr(stream);
+    let (output_ptrs_ptr, record_output_ptrs) = output_ptrs_view.device_ptr(stream);
+
+    // Track writes to the output allocation at the actual enqueue point.
+    // This guard intentionally outlives the pointer-metadata construction above.
+    let (_device_output_ptr, record_device_output) = exec.device_output.device_ptr_mut(stream);
+    let (device_actual_sizes_ptr, record_actual_sizes) =
+        exec.device_actual_sizes.device_ptr_mut(stream);
+    let (nvcomp_temp_buffer_ptr, record_temp) = exec.nvcomp_temp_buffer.device_ptr_mut(stream);
+    let (device_statuses_ptr, record_statuses) = exec.device_statuses.device_ptr_mut(stream);
 
     ctx.launch_external(n_rows, || {
         // SAFETY: zstd_kernel_prepare makes sure to return valid kernel params.
         unsafe {
             nvcomp_zstd::decompress_async(
-                exec.frame_ptrs_ptr as _,
-                exec.frame_sizes_ptr as _,
-                exec.output_sizes_ptr as _,
-                exec.device_actual_sizes.device_ptr_mut(stream).0 as _,
+                frame_ptrs_ptr as _,
+                frame_sizes_ptr as _,
+                output_sizes_ptr as _,
+                device_actual_sizes_ptr as _,
                 exec.num_frames,
-                exec.nvcomp_temp_buffer.device_ptr_mut(stream).0 as _,
+                nvcomp_temp_buffer_ptr as _,
                 exec.nvcomp_temp_buffer_size,
-                exec.output_ptrs_ptr as _,
-                exec.device_statuses.device_ptr_mut(stream).0 as _,
+                output_ptrs_ptr as _,
+                device_statuses_ptr as _,
                 stream.cu_stream().cast(),
             )
             .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))
         }
     })?;
+    drop(frame_ptr_records);
+    drop(frame_views);
+    drop((
+        record_frame_ptrs,
+        record_frame_sizes,
+        record_output_sizes,
+        record_output_ptrs,
+        record_device_output,
+        record_actual_sizes,
+        record_temp,
+        record_statuses,
+    ));
 
     // Unconditionally copy back to the host as Zstd arrays are fully
     // self-contained. They neither have any parent or child encodings.

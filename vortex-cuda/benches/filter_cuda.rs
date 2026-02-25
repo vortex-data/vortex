@@ -86,26 +86,33 @@ async fn run_filter_timed<T: CubFilterable + cudarc::driver::DeviceRepr>(
 
     // Get raw pointers
     let stream_ptr = stream.cu_stream() as cudaStream_t;
-    let d_input_ptr = d_input.device_ptr(stream).0 as *const T;
-    let d_bitmask_ptr = d_bitmask.device_ptr(stream).0 as *const u8;
-    let d_output_ptr = d_output.device_ptr_mut(stream).0 as *mut T;
-    let d_temp_ptr = d_temp.device_ptr_mut(stream).0 as *mut c_void;
-    let d_num_selected_ptr = d_num_selected.device_ptr_mut(stream).0 as *mut i64;
+    let (d_input_ptr, record_d_input) = d_input.device_ptr(stream);
+    let (d_bitmask_ptr, record_d_bitmask) = d_bitmask.device_ptr(stream);
+    let (d_output_ptr, record_d_output) = d_output.device_ptr_mut(stream);
+    let (d_temp_ptr, record_d_temp) = d_temp.device_ptr_mut(stream);
+    let (d_num_selected_ptr, record_d_num_selected) = d_num_selected.device_ptr_mut(stream);
 
     unsafe {
         T::filter_bitmask(
-            d_temp_ptr,
+            d_temp_ptr as *mut c_void,
             temp_bytes,
-            d_input_ptr,
-            d_bitmask_ptr,
+            d_input_ptr as *const T,
+            d_bitmask_ptr as *const u8,
             0, // bit_offset
-            d_output_ptr,
-            d_num_selected_ptr,
+            d_output_ptr as *mut T,
+            d_num_selected_ptr as *mut i64,
             num_items,
             stream_ptr,
         )
         .map_err(|e| vortex_err!("Filter kernel execution failed: {}", e))?;
     }
+    drop((
+        record_d_input,
+        record_d_bitmask,
+        record_d_output,
+        record_d_temp,
+        record_d_num_selected,
+    ));
 
     let end_event = ctx
         .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))

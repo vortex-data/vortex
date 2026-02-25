@@ -66,12 +66,13 @@ impl VortexCudaStream {
     {
         let host_slice: &[T] = data.as_ref();
         let mut cuda_slice: CudaSlice<T> = self.device_alloc(host_slice.len())?;
-        let device_ptr = cuda_slice.device_ptr_mut(&self.0).0;
+        let (device_ptr, record_write) = cuda_slice.device_ptr_mut(&self.0);
 
         unsafe {
             memcpy_htod_async(device_ptr, host_slice, self.0.cu_stream())
                 .map_err(|e| vortex_err!("Failed to schedule async copy to device: {}", e))?;
         }
+        drop(record_write);
 
         let cuda_buf = CudaDeviceBuffer::new(cuda_slice);
         let stream = Arc::clone(&self.0);
