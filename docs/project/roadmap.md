@@ -40,8 +40,8 @@ ecosystem:
 - **Other languages** (e.g. Java) will initially focus on reading and writing Arrow data to and
   from Vortex files.
 
-See the [Bindings Evolution](bindings-evolution.md) design doc for the full tier model, per-language
-migration plans, and phased roadmap.
+See the [Bindings Evolution](bindings.md) design doc for the full tier model, per-language migration
+plans, and phased roadmap.
 
 ### Tensor Extension DType
 

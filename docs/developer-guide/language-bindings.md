@@ -90,10 +90,11 @@ formalizing which APIs are stable vs experimental and exposing plugin registrati
 
 ### C
 
-The C API (generated via cbindgen) is the **stability boundary** for all non-Rust bindings. It
-currently provides Tier ~1 capabilities (file I/O and basic scan). The target is Tier 2, which
-requires array stream export, encoding-aware accessors, and stabilized error handling and memory
-ownership conventions.
+The C API (generated via cbindgen) is the **foundation ABI** for non-Rust bindings. It currently
+provides Tier ~1 capabilities (file I/O and basic scan). The C API is not yet ABI-stable — it
+evolves with the project and should be statically linked. In the future, a subset of the API will
+be flagged as stable for use via dynamic linking. The target is Tier 2, which requires array tree
+inspection, compute execution, and stabilized error handling and memory ownership conventions.
 
 ### C++
 
@@ -110,5 +111,6 @@ connectors.
 
 A new binding layer using Java's Foreign Function & Memory API (Panama) to call the C API
 directly. Panama enables native array access without JNI overhead, targeting Tier 2. Requires
-JDK 22+. Spark and Trino connectors will abstract over the binding layer so they can use JNI or
-Panama transparently depending on the runtime environment.
+JDK 22+. Trino already supports JDK 22 and can adopt Panama immediately. Spark targets older LTS
+releases and will not support Panama for some time, so the JNI path remains essential for Spark
+integration.
