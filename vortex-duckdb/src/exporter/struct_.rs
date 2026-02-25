@@ -58,9 +58,15 @@ pub(crate) fn new_exporter(
 }
 
 impl ColumnExporter for StructExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         for (idx, child) in self.children.iter().enumerate() {
-            child.export(offset, len, vector.struct_vector_get_child_mut(idx))?;
+            child.export(offset, len, vector.struct_vector_get_child_mut(idx), ctx)?;
         }
         Ok(())
     }
@@ -104,14 +110,11 @@ mod tests {
         )
         .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
 
-        new_exporter(
-            arr,
-            &ConversionCache::default(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-        .export(0, 10, chunk.get_vector_mut(0))
-        .unwrap();
+        let mut ctx = SESSION.create_execution_ctx();
+        new_exporter(arr, &ConversionCache::default(), &mut ctx)
+            .unwrap()
+            .export(0, 10, chunk.get_vector_mut(0), &mut ctx)
+            .unwrap();
         chunk.set_len(10);
 
         assert_eq!(
@@ -168,14 +171,11 @@ mod tests {
         )
         .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
 
-        new_exporter(
-            arr,
-            &ConversionCache::default(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-        .export(0, 10, chunk.get_vector_mut(0))
-        .unwrap();
+        let mut ctx = SESSION.create_execution_ctx();
+        new_exporter(arr, &ConversionCache::default(), &mut ctx)
+            .unwrap()
+            .export(0, 10, chunk.get_vector_mut(0), &mut ctx)
+            .unwrap();
         chunk.set_len(10);
 
         assert_eq!(
@@ -213,14 +213,11 @@ mod tests {
         )
         .vortex_expect("LogicalTypeRef creation should succeed for test data")]);
 
-        new_exporter(
-            arr,
-            &ConversionCache::default(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-        .export(0, 10, chunk.get_vector_mut(0))
-        .unwrap();
+        let mut ctx = SESSION.create_execution_ctx();
+        new_exporter(arr, &ConversionCache::default(), &mut ctx)
+            .unwrap()
+            .export(0, 10, chunk.get_vector_mut(0), &mut ctx)
+            .unwrap();
         chunk.set_len(10);
 
         assert_eq!(

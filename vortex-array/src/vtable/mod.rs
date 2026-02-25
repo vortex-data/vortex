@@ -22,6 +22,7 @@ use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -88,8 +89,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let array = Self::execute(array, ctx)?;
-        builder.extend_from_array(array.as_ref());
+        let canonical = array.to_array().execute::<Canonical>(ctx)?;
+        builder.extend_from_array(canonical.as_ref());
         Ok(())
     }
 

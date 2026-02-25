@@ -26,7 +26,6 @@
 
 use std::any::Any;
 use std::collections::VecDeque;
-use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -36,8 +35,6 @@ use futures::stream;
 use tracing::Instrument;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
-use vortex_array::expr::Expression;
-use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::ArrayStreamAdapter;
@@ -51,7 +48,6 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::ScanBuilder;
-use crate::Selection;
 use crate::api::DataSource;
 use crate::api::DataSourceScan;
 use crate::api::DataSourceScanRef;
@@ -98,7 +94,7 @@ impl MultiLayoutDataSource {
     ///
     /// The first reader determines the dtype. Remaining readers are opened lazily during
     /// scanning via their factories.
-    pub fn with_first(
+    pub fn new_with_first(
         first: LayoutReaderRef,
         remaining: Vec<Arc<dyn LayoutReaderFactory>>,
         session: &VortexSession,
@@ -125,7 +121,7 @@ impl MultiLayoutDataSource {
     /// The dtype must be provided externally since there is no pre-opened reader to infer it
     /// from. This avoids eagerly opening any file when the schema is already known (e.g. from
     /// a catalog or a prior scan).
-    pub fn all_deferred(
+    pub fn new_deferred(
         dtype: DType,
         factories: Vec<Arc<dyn LayoutReaderFactory>>,
         session: &VortexSession,
@@ -213,13 +209,11 @@ impl DataSource for MultiLayoutDataSource {
             }
         }
 
-        let projection = scan_request.projection.clone().unwrap_or_else(root);
-        let dtype = projection.return_dtype(&self.dtype)?;
+        let dtype = scan_request.projection.return_dtype(&self.dtype)?;
 
         Ok(Box::new(MultiLayoutScan {
             session: self.session.clone(),
             dtype,
-            projection,
             request: scan_request,
             ready,
             deferred,
@@ -236,7 +230,6 @@ impl DataSource for MultiLayoutDataSource {
 struct MultiLayoutScan {
     session: VortexSession,
     dtype: DType,
-    projection: Expression,
     request: ScanRequest,
     ready: VecDeque<LayoutReaderRef>,
     deferred: VecDeque<Arc<dyn LayoutReaderFactory>>,
@@ -262,7 +255,6 @@ impl DataSourceScan for MultiLayoutScan {
         let Self {
             session,
             dtype: _,
-            projection,
             request,
             ready,
             deferred,
@@ -270,28 +262,46 @@ impl DataSourceScan for MultiLayoutScan {
             concurrency,
         } = *self;
 
+        let ordered = request.ordered;
+
         // Pre-opened readers are immediately available.
         let ready_stream = stream::iter(ready).map(Ok);
 
-        // Deferred readers are opened concurrently via spawned tasks, mirroring the DuckDB
-        // scan pattern of `buffer_unordered(num_workers * 2)`.
-        let deferred_stream = stream::iter(deferred)
-            .map(move |factory| {
-                handle.spawn(async move {
-                    factory
-                        .open()
-                        .instrument(tracing::info_span!("LayoutReaderFactory::open"))
-                        .await
-                })
+        // Deferred readers are opened concurrently via spawned tasks.
+        // When ordered, we use `buffered` to preserve the original partition order.
+        // When unordered, we use `buffer_unordered` to yield partitions as they open.
+        let spawned = stream::iter(deferred).map(move |factory| {
+            handle.spawn(async move {
+                factory
+                    .open()
+                    .instrument(tracing::info_span!("LayoutReaderFactory::open"))
+                    .await
             })
-            .buffer_unordered(concurrency)
-            .filter_map(|result| async move {
-                match result {
-                    Ok(Some(reader)) => Some(Ok(reader)),
-                    Ok(None) => None,
-                    Err(e) => Some(Err(e)),
-                }
-            });
+        });
+
+        let deferred_stream = if ordered {
+            spawned
+                .buffered(concurrency)
+                .filter_map(|result| async move {
+                    match result {
+                        Ok(Some(reader)) => Some(Ok(reader)),
+                        Ok(None) => None,
+                        Err(e) => Some(Err(e)),
+                    }
+                })
+                .boxed()
+        } else {
+            spawned
+                .buffer_unordered(concurrency)
+                .filter_map(|result| async move {
+                    match result {
+                        Ok(Some(reader)) => Some(Ok(reader)),
+                        Ok(None) => None,
+                        Err(e) => Some(Err(e)),
+                    }
+                })
+                .boxed()
+        };
 
         // For each reader (ready or just-opened), generate a partition.
         // Partition generation is synchronous (just creates structs with row ranges), so
@@ -299,9 +309,7 @@ impl DataSourceScan for MultiLayoutScan {
         ready_stream
             .chain(deferred_stream)
             .flat_map(move |reader_result| match reader_result {
-                Ok(reader) => {
-                    reader_partition(reader, session.clone(), projection.clone(), request.clone())
-                }
+                Ok(reader) => reader_partition(reader, session.clone(), request.clone()),
                 Err(e) => stream::once(async move { Err(e) }).boxed(),
             })
             .boxed()
@@ -311,12 +319,11 @@ impl DataSourceScan for MultiLayoutScan {
 /// Generates a partition stream for a single layout reader.
 ///
 /// Checks file-level pruning first (via `pruning_evaluation`). If the filter proves no rows
-/// can match, returns an empty stream. Otherwise yields a single partition covering the
+/// can match, returns an empty stream. Otherwise, yields a single partition covering the
 /// reader's full row range.
 fn reader_partition(
     reader: LayoutReaderRef,
     session: VortexSession,
-    projection: Expression,
     request: ScanRequest,
 ) -> PartitionStream {
     let row_count = reader.row_count();
@@ -339,12 +346,10 @@ fn reader_partition(
         Ok(Box::new(MultiLayoutPartition {
             reader,
             session,
-            projection,
-            filter: request.filter,
-            limit: request.limit,
-            ordered: request.ordered,
-            row_range,
-            selection: request.selection,
+            request: ScanRequest {
+                row_range: Some(row_range),
+                ..request
+            },
         }) as PartitionRef)
     })
     .boxed()
@@ -357,12 +362,7 @@ fn reader_partition(
 struct MultiLayoutPartition {
     reader: LayoutReaderRef,
     session: VortexSession,
-    projection: Expression,
-    filter: Option<Expression>,
-    limit: Option<u64>,
-    ordered: bool,
-    row_range: Range<u64>,
-    selection: Selection,
+    request: ScanRequest,
 }
 
 impl Partition for MultiLayoutPartition {
@@ -371,11 +371,15 @@ impl Partition for MultiLayoutPartition {
     }
 
     fn row_count(&self) -> Option<Precision<u64>> {
-        let row_count = self.row_range.end - self.row_range.start;
-        let row_count = self.selection.row_count(row_count);
-        let row_count = self.limit.map_or(row_count, |limit| row_count.min(limit));
+        let row_range = self.request.row_range.as_ref()?;
+        let row_count = row_range.end - row_range.start;
+        let row_count = self.request.selection.row_count(row_count);
+        let row_count = self
+            .request
+            .limit
+            .map_or(row_count, |limit| row_count.min(limit));
 
-        Some(if self.filter.is_some() {
+        Some(if self.request.filter.is_some() {
             Precision::inexact(row_count)
         } else {
             Precision::exact(row_count)
@@ -387,13 +391,17 @@ impl Partition for MultiLayoutPartition {
     }
 
     fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
-        let builder = ScanBuilder::new(self.session, self.reader)
-            .with_row_range(self.row_range)
-            .with_selection(self.selection)
-            .with_projection(self.projection)
-            .with_some_filter(self.filter)
-            .with_some_limit(self.limit)
-            .with_ordered(self.ordered);
+        let request = self.request;
+        let mut builder = ScanBuilder::new(self.session, self.reader)
+            .with_selection(request.selection)
+            .with_projection(request.projection)
+            .with_some_filter(request.filter)
+            .with_some_limit(request.limit)
+            .with_ordered(request.ordered);
+
+        if let Some(row_range) = request.row_range {
+            builder = builder.with_row_range(row_range);
+        }
 
         let dtype = builder.dtype()?;
         let stream = builder.into_stream()?;

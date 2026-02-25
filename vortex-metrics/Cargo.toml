@@ -17,7 +17,6 @@ version = { workspace = true }
 getrandom_v03 = { workspace = true }
 parking_lot = { workspace = true }
 sketches-ddsketch = { workspace = true }
-vortex-session = { workspace = true }
 
 [lints]
 workspace = true

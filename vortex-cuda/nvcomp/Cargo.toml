@@ -23,6 +23,6 @@ vortex-cuda-macros = { workspace = true }
 
 [build-dependencies]
 bindgen = { workspace = true }
+liblzma = { workspace = true }
 reqwest = { workspace = true }
 tar = { workspace = true }
-liblzma = { workspace = true }

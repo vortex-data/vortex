@@ -11,7 +11,6 @@ mod database;
 mod ddb_string;
 mod expr;
 mod file_system;
-pub mod footer_cache;
 mod logical_type;
 mod macro_;
 mod object_cache;

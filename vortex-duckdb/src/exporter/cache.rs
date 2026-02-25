@@ -19,19 +19,4 @@ use crate::duckdb::Vector;
 pub struct ConversionCache {
     pub values_cache: DashMap<usize, (ArrayRef, Arc<Mutex<Vector>>)>,
     pub canonical_cache: DashMap<usize, (ArrayRef, Canonical)>,
-    // A value which must be unique for a given DuckDB operator.
-    instance_id: u64,
-}
-
-impl ConversionCache {
-    pub fn new(id: u64) -> Self {
-        Self {
-            instance_id: id,
-            ..Self::default()
-        }
-    }
-
-    pub fn instance_id(&self) -> u64 {
-        self.instance_id
-    }
 }

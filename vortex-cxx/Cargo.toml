@@ -30,6 +30,3 @@ futures = { workspace = true }
 paste = { workspace = true }
 take_mut = { workspace = true }
 vortex = { workspace = true }
-
-[build-dependencies]
-cxx-build = "1.0"

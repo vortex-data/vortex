@@ -89,7 +89,7 @@ pub trait TableFunction: Sized + Debug {
         client_context: &ClientContextRef,
         bind_data: &Self::BindData,
         init_local: &mut Self::LocalState,
-        init_global: &mut Self::GlobalState,
+        init_global: &Self::GlobalState,
         chunk: &mut DataChunkRef,
     ) -> VortexResult<()>;
 
@@ -105,14 +105,14 @@ pub trait TableFunction: Sized + Debug {
     /// is thread-local.
     fn init_local(
         init: &TableInitInput<Self>,
-        global: &mut Self::GlobalState,
+        global: &Self::GlobalState,
     ) -> VortexResult<Self::LocalState>;
 
     /// Return table scanning progress from 0. to 100.
     fn table_scan_progress(
         client_context: &ClientContextRef,
-        bind_data: &mut Self::BindData,
-        global_state: &mut Self::GlobalState,
+        bind_data: &Self::BindData,
+        global_state: &Self::GlobalState,
     ) -> f64;
 
     /// Pushes down a filter expression to the table function.
@@ -136,7 +136,7 @@ pub trait TableFunction: Sized + Debug {
     /// This *must* be globally unique.
     fn partition_data(
         _bind_data: &Self::BindData,
-        _global_init_data: &mut Self::GlobalState,
+        _global_init_data: &Self::GlobalState,
         _local_init_data: &mut Self::LocalState,
     ) -> VortexResult<u64>;
 
@@ -256,7 +256,7 @@ unsafe extern "C-unwind" fn function<T: TableFunction>(
 ) {
     let client_context = unsafe { ClientContext::borrow(duckdb_client_context) };
     let bind_data = unsafe { &*(bind_data as *const T::BindData) };
-    let global_init_data = unsafe { global_init_data.cast::<T::GlobalState>().as_mut() }
+    let global_init_data = unsafe { global_init_data.cast::<T::GlobalState>().as_ref() }
         .vortex_expect("global_init_data null pointer");
     let local_init_data = unsafe { local_init_data.cast::<T::LocalState>().as_mut() }
         .vortex_expect("local_init_data null pointer");

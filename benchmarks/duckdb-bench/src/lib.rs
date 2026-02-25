@@ -87,10 +87,6 @@ impl DuckClient {
         let connection = db.connect()?;
         vortex_duckdb::initialize(&db)?;
 
-        // Install and load httpfs so DuckDB can access remote files (S3, GCS, HTTP).
-        connection.query("INSTALL httpfs;")?;
-        connection.query("LOAD httpfs;")?;
-
         // Enable Parquet metadata cache for all benchmark runs.
         //
         // `parquet_metadata_cache` is an extension-specific option that's

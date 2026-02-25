@@ -10,7 +10,7 @@ pub vortex_scan::api::ScanRequest::limit: core::option::Option<u64>
 
 pub vortex_scan::api::ScanRequest::ordered: bool
 
-pub vortex_scan::api::ScanRequest::projection: core::option::Option<vortex_array::expr::expression::Expression>
+pub vortex_scan::api::ScanRequest::projection: vortex_array::expr::expression::Expression
 
 pub vortex_scan::api::ScanRequest::row_range: core::option::Option<core::ops::range::Range<u64>>
 
@@ -22,7 +22,7 @@ pub fn vortex_scan::api::ScanRequest::clone(&self) -> vortex_scan::api::ScanRequ
 
 impl core::default::Default for vortex_scan::api::ScanRequest
 
-pub fn vortex_scan::api::ScanRequest::default() -> vortex_scan::api::ScanRequest
+pub fn vortex_scan::api::ScanRequest::default() -> Self
 
 impl core::fmt::Debug for vortex_scan::api::ScanRequest
 
@@ -162,11 +162,11 @@ pub struct vortex_scan::multi::MultiLayoutDataSource
 
 impl vortex_scan::multi::MultiLayoutDataSource
 
-pub fn vortex_scan::multi::MultiLayoutDataSource::all_deferred(dtype: vortex_array::dtype::DType, factories: alloc::vec::Vec<alloc::sync::Arc<dyn vortex_scan::multi::LayoutReaderFactory>>, session: &vortex_session::VortexSession) -> Self
+pub fn vortex_scan::multi::MultiLayoutDataSource::new_deferred(dtype: vortex_array::dtype::DType, factories: alloc::vec::Vec<alloc::sync::Arc<dyn vortex_scan::multi::LayoutReaderFactory>>, session: &vortex_session::VortexSession) -> Self
+
+pub fn vortex_scan::multi::MultiLayoutDataSource::new_with_first(first: vortex_layout::reader::LayoutReaderRef, remaining: alloc::vec::Vec<alloc::sync::Arc<dyn vortex_scan::multi::LayoutReaderFactory>>, session: &vortex_session::VortexSession) -> Self
 
 pub fn vortex_scan::multi::MultiLayoutDataSource::with_concurrency(self, concurrency: usize) -> Self
-
-pub fn vortex_scan::multi::MultiLayoutDataSource::with_first(first: vortex_layout::reader::LayoutReaderRef, remaining: alloc::vec::Vec<alloc::sync::Arc<dyn vortex_scan::multi::LayoutReaderFactory>>, session: &vortex_session::VortexSession) -> Self
 
 impl vortex_scan::api::DataSource for vortex_scan::multi::MultiLayoutDataSource
 

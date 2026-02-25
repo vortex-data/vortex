@@ -93,36 +93,19 @@ __device__ inline void dynamic_source_op(const T *__restrict input,
         const uint64_t num_runs = source_op.params.runend.num_runs;
         const uint64_t offset = source_op.params.runend.offset;
 
-        // Thread 0 narrows the search to runs overlapping this chunk.
-        // Stash results in smem_output[0..1] — overwritten by decode below.
-        if (threadIdx.x == 0) {
-            uint64_t first_pos = chunk_start + offset;
-            uint64_t last_pos = chunk_start + (chunk_len - 1) + offset;
-            smem_output[0] = static_cast<T>(upper_bound(ends, num_runs, first_pos));
-            smem_output[1] = static_cast<T>(upper_bound(ends, num_runs, last_pos));
-        }
-        __syncthreads();
+        // Each thread binary-searches for its first position's run, then
+        // forward-scans for subsequent positions. Strided positions are
+        // monotonically increasing per thread, so current_run only advances.
+        uint64_t current_run = upper_bound(ends, num_runs, chunk_start + threadIdx.x + offset);
 
-        const uint32_t block_first_run = static_cast<uint32_t>(smem_output[0]);
-        const uint32_t block_num_runs = static_cast<uint32_t>(smem_output[1]) - block_first_run + 1;
-
-        // Forward scan: each thread's strided positions are monotonically
-        // increasing, so current_run only advances forward.
-        uint32_t current_run = 0;
         for (uint32_t i = threadIdx.x; i < chunk_len; i += blockDim.x) {
             uint64_t pos = chunk_start + i + offset;
 
-            while (current_run < block_num_runs && (block_first_run + current_run) < num_runs &&
-                   static_cast<uint64_t>(ends[block_first_run + current_run]) <= pos) {
+            while (current_run < num_runs && static_cast<uint64_t>(ends[current_run]) <= pos) {
                 current_run++;
             }
 
-            uint64_t run_idx = block_first_run + current_run;
-            // The last run covers all remaining positions.
-            if (run_idx >= num_runs) {
-                run_idx = num_runs - 1;
-            }
-            smem_output[i] = values[run_idx];
+            smem_output[i] = values[min(current_run, num_runs - 1)];
         }
         break;
     }

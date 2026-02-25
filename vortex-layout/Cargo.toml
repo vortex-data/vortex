@@ -39,7 +39,6 @@ uuid = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-decimal-byte-parts = { workspace = true }
 vortex-error = { workspace = true }
 vortex-flatbuffers = { workspace = true, features = ["layout"] }
 vortex-io = { workspace = true }

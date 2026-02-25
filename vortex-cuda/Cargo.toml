@@ -24,22 +24,14 @@ unstable_encodings = ["vortex/unstable_encodings"]
 
 [dependencies]
 arc-swap = { workspace = true }
-arrow-data = { workspace = true, features = ["ffi"] }
-arrow-schema = { workspace = true, features = ["ffi"] }
 async-trait = { workspace = true }
 cudarc = { workspace = true, features = ["f16"] }
-fastlanes = { workspace = true }
-flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 kanal = { workspace = true }
-paste = { workspace = true }
 prost = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true, features = ["std", "attributes"] }
 vortex = { workspace = true, features = ["zstd"] }
-# Keep vortex-array and vortex-error as direct deps for macro hygiene: encoding
-# macros (e.g. `match_each_alp_float_ptype!`) expand to bare `vortex_array::`
-# and `vortex_error::` paths that must resolve as crate names at the call site.
 vortex-array = { workspace = true, features = ["cudarc"] }
 vortex-cub = { path = "cub" }
 vortex-cuda-macros = { workspace = true }

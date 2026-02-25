@@ -73,3 +73,10 @@ By default, our tests use a precompiled build which means you don't get an
 
 ./target/release/duckdb will be a duckdb instance with vortex-duckdb already
 loaded.
+
+## Testing a custom DuckDB tag
+
+Change `DUCKDB_VERSION` environment variable value to a preferred hash or commit
+(local build), or change build.rs (for testing in CI). If you use a commit,
+DuckDB needs to link httpfs statically so you also need to install CURL
+development headers (e.g. `libcurl4-openssl-dev`).

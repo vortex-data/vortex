@@ -29,8 +29,5 @@ tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 vortex-bench = { workspace = true }
 
-[build-dependencies]
-get_dir = { workspace = true }
-
 [lints]
 workspace = true

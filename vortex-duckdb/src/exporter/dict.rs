@@ -37,7 +37,6 @@ struct DictExporter<I: IntegerPType> {
     values_len: u32,
     codes: PrimitiveArray,
     codes_type: PhantomData<I>,
-    cache_id: u64,
     value_id: usize,
 }
 
@@ -115,6 +114,7 @@ pub(crate) fn new_exporter_with_flatten(
                     0,
                     values.len(),
                     &mut vector,
+                    ctx,
                 )?;
 
                 let vector = Arc::new(Mutex::new(vector));
@@ -133,14 +133,19 @@ pub(crate) fn new_exporter_with_flatten(
             values_len: values.len().as_u32(),
             codes,
             codes_type: PhantomData::<I>,
-            cache_id: cache.instance_id(),
             value_id: values_key,
         }))
     })
 }
 
 impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         // Create a selection vector from the codes.
         let mut sel_vec = SelectionVector::with_capacity(len);
         let mut_sel_vec = unsafe { sel_vec.as_slice_mut(len) };
@@ -167,7 +172,7 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
 
         // Use a unique id for each dictionary data array -- telling duckdb that
         // the dict value vector is the same as reuse the hash in a join.
-        vector.set_dictionary_id(format!("{}-{}", self.cache_id, self.value_id));
+        vector.set_dictionary_id(format!("{}", self.value_id));
 
         Ok(())
     }
@@ -213,7 +218,12 @@ mod tests {
 
         new_exporter(&arr, &ConversionCache::default())
             .unwrap()
-            .export(0, 2, chunk.get_vector_mut(0))
+            .export(
+                0,
+                2,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(2);
 
@@ -237,7 +247,7 @@ mod tests {
         let mut ctx = ExecutionCtx::new(VortexSession::default());
         new_exporter_with_flatten(&arr, &ConversionCache::default(), &mut ctx, false)
             .unwrap()
-            .export(0, 2, chunk.get_vector_mut(0))
+            .export(0, 2, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
         chunk.set_len(2);
 
@@ -260,7 +270,12 @@ mod tests {
 
         new_exporter(&arr, &ConversionCache::default())
             .unwrap()
-            .export(0, 3, chunk.get_vector_mut(0))
+            .export(
+                0,
+                3,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(3);
 
@@ -274,15 +289,12 @@ mod tests {
 
         let mut flat_chunk =
             DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        new_array_exporter(
-            arr.into_array(),
-            &ConversionCache::default(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-        .export(0, 3, flat_chunk.get_vector_mut(0))
-        .unwrap();
+        new_array_exporter(arr.into_array(), &ConversionCache::default(), &mut ctx)
+            .unwrap()
+            .export(0, 3, flat_chunk.get_vector_mut(0), &mut ctx)
+            .unwrap();
         flat_chunk.set_len(3);
 
         assert_eq!(
@@ -305,7 +317,12 @@ mod tests {
 
         new_exporter(&arr, &ConversionCache::default())
             .unwrap()
-            .export(0, 0, chunk.get_vector_mut(0))
+            .export(
+                0,
+                0,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(0);
 
