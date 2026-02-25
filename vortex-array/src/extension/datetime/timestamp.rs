@@ -196,7 +196,7 @@ impl ExtVTable for Timestamp {
             TimeUnit::Microseconds => Span::new().microseconds(ts_value),
             TimeUnit::Milliseconds => Span::new().milliseconds(ts_value),
             TimeUnit::Seconds => Span::new().seconds(ts_value),
-            TimeUnit::Days => Span::new().days(ts_value),
+            TimeUnit::Days => vortex_bail!("Timestamp does not support Days time unit"),
         };
 
         let ts = jiff::Timestamp::UNIX_EPOCH
@@ -215,7 +215,7 @@ impl ExtVTable for Timestamp {
             TimeUnit::Microseconds => Ok(TimestampValue::Microseconds(ts_value, tz)),
             TimeUnit::Milliseconds => Ok(TimestampValue::Milliseconds(ts_value, tz)),
             TimeUnit::Seconds => Ok(TimestampValue::Seconds(ts_value, tz)),
-            TimeUnit::Days => vortex_bail!("Timestamp does not support Days time unit"),
+            TimeUnit::Days => unreachable!("Timestamp does not support Days time unit"),
         }
     }
 }

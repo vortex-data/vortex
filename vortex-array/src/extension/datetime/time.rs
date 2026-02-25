@@ -23,10 +23,18 @@ use crate::scalar::ScalarValue;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Time;
 
+fn time_ptype(time_unit: &TimeUnit) -> Option<PType> {
+    Some(match time_unit {
+        TimeUnit::Nanoseconds | TimeUnit::Microseconds => PType::I64,
+        TimeUnit::Milliseconds | TimeUnit::Seconds => PType::I32,
+        TimeUnit::Days => return None,
+    })
+}
+
 impl Time {
     /// Creates a new Time extension dtype with the given time unit and nullability.
     ///
-    /// Note that only Milliseconds and Days time units are supported for Time.
+    /// Note that Days units are not supported for Time.
     pub fn try_new(time_unit: TimeUnit, nullability: Nullability) -> VortexResult<ExtDType<Self>> {
         let ptype = time_ptype(&time_unit)
             .ok_or_else(|| vortex_err!("Time type does not support time unit {}", time_unit))?;
@@ -106,41 +114,33 @@ impl ExtVTable for Time {
     ) -> VortexResult<Self::NativeValue<'_>> {
         let length_of_time = storage_value.as_primitive().cast::<i64>()?;
 
-        // Validate the storage value is within the valid range for Time.
-        let span = match *metadata {
-            TimeUnit::Nanoseconds => Span::new().nanoseconds(length_of_time),
-            TimeUnit::Microseconds => Span::new().microseconds(length_of_time),
-            TimeUnit::Milliseconds => Span::new().milliseconds(length_of_time),
-            TimeUnit::Seconds => Span::new().seconds(length_of_time),
+        let (span, value) = match *metadata {
+            TimeUnit::Seconds => {
+                let v = i32::try_from(length_of_time)
+                    .map_err(|e| vortex_err!("Time seconds value out of i32 range: {e}"))?;
+                (Span::new().seconds(v), TimeValue::Seconds(v))
+            }
+            TimeUnit::Milliseconds => {
+                let v = i32::try_from(length_of_time)
+                    .map_err(|e| vortex_err!("Time milliseconds value out of i32 range: {e}"))?;
+                (Span::new().milliseconds(v), TimeValue::Milliseconds(v))
+            }
+            TimeUnit::Microseconds => (
+                Span::new().microseconds(length_of_time),
+                TimeValue::Microseconds(length_of_time),
+            ),
+            TimeUnit::Nanoseconds => (
+                Span::new().nanoseconds(length_of_time),
+                TimeValue::Nanoseconds(length_of_time),
+            ),
             d @ TimeUnit::Days => vortex_bail!("Time type does not support time unit {d}"),
         };
 
+        // Validate the storage value is within the valid range for Time.
         jiff::civil::Time::MIN
             .checked_add(span)
             .map_err(|e| vortex_err!("Invalid time scalar: {}", e))?;
 
-        match metadata {
-            TimeUnit::Seconds => Ok(TimeValue::Seconds(
-                storage_value.as_primitive().cast::<i32>()?,
-            )),
-            TimeUnit::Milliseconds => Ok(TimeValue::Milliseconds(
-                storage_value.as_primitive().cast::<i32>()?,
-            )),
-            TimeUnit::Microseconds => Ok(TimeValue::Microseconds(
-                storage_value.as_primitive().cast::<i64>()?,
-            )),
-            TimeUnit::Nanoseconds => Ok(TimeValue::Nanoseconds(
-                storage_value.as_primitive().cast::<i64>()?,
-            )),
-            d => vortex_bail!("Time type does not support time unit {d}"),
-        }
+        Ok(value)
     }
-}
-
-fn time_ptype(time_unit: &TimeUnit) -> Option<PType> {
-    Some(match time_unit {
-        TimeUnit::Nanoseconds | TimeUnit::Microseconds => PType::I64,
-        TimeUnit::Milliseconds | TimeUnit::Seconds => PType::I32,
-        TimeUnit::Days => return None,
-    })
 }

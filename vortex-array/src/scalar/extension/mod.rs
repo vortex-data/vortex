@@ -12,17 +12,6 @@
 //! [`ScalarValue`]: crate::scalar::ScalarValue
 //! [`DType`]: crate::dtype::DType
 //! [`ExtDTypeRef`]: crate::dtype::extension::ExtDTypeRef
-//!
-//! ## File layout convention
-//!
-//! Note that there is a single unified vtable for working with extension types
-//! [`ExtVTable`](crate::dtype::extension::ExtVTable).
-
-// TODO(connor): Docs on file structure.
-
-// TODO(connor): Figure out what this should look like.
-// mod plugin;
-// pub use plugin::ExtScalarValuePlugin;
 
 mod typed;
 pub use typed::ExtScalarValue;

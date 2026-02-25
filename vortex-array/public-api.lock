@@ -6368,11 +6368,11 @@ pub type vortex_array::dtype::extension::ExtVTable::Metadata: 'static + core::ma
 
 pub type vortex_array::dtype::extension::ExtVTable::NativeValue<'a>: core::fmt::Display
 
-pub fn vortex_array::dtype::extension::ExtVTable::deserialize(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::dtype::extension::ExtVTable::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::dtype::extension::ExtVTable::id(&self) -> vortex_array::dtype::extension::ExtId
 
-pub fn vortex_array::dtype::extension::ExtVTable::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+pub fn vortex_array::dtype::extension::ExtVTable::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
 pub fn vortex_array::dtype::extension::ExtVTable::unpack_native<'a>(&self, metadata: &'a Self::Metadata, storage_dtype: &'a vortex_array::dtype::DType, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -6386,11 +6386,11 @@ pub type vortex_array::extension::datetime::Date::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Date::NativeValue<'a> = vortex_array::extension::datetime::DateValue
 
-pub fn vortex_array::extension::datetime::Date::deserialize(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::extension::datetime::Date::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Date::id(&self) -> vortex_array::dtype::extension::ExtId
 
-pub fn vortex_array::extension::datetime::Date::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+pub fn vortex_array::extension::datetime::Date::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
 pub fn vortex_array::extension::datetime::Date::unpack_native(&self, metadata: &Self::Metadata, _storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -6402,11 +6402,11 @@ pub type vortex_array::extension::datetime::Time::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Time::NativeValue<'a> = vortex_array::extension::datetime::TimeValue
 
-pub fn vortex_array::extension::datetime::Time::deserialize(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::extension::datetime::Time::deserialize_metadata(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Time::id(&self) -> vortex_array::dtype::extension::ExtId
 
-pub fn vortex_array::extension::datetime::Time::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+pub fn vortex_array::extension::datetime::Time::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
 pub fn vortex_array::extension::datetime::Time::unpack_native(&self, metadata: &Self::Metadata, _storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -6418,11 +6418,11 @@ pub type vortex_array::extension::datetime::Timestamp::Metadata = vortex_array::
 
 pub type vortex_array::extension::datetime::Timestamp::NativeValue<'a> = vortex_array::extension::datetime::TimestampValue<'a>
 
-pub fn vortex_array::extension::datetime::Timestamp::deserialize(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::extension::datetime::Timestamp::deserialize_metadata(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Timestamp::id(&self) -> vortex_array::dtype::extension::ExtId
 
-pub fn vortex_array::extension::datetime::Timestamp::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+pub fn vortex_array::extension::datetime::Timestamp::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
 pub fn vortex_array::extension::datetime::Timestamp::unpack_native<'a>(&self, metadata: &'a Self::Metadata, _storage_dtype: &'a vortex_array::dtype::DType, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -12408,11 +12408,11 @@ pub type vortex_array::extension::datetime::Date::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Date::NativeValue<'a> = vortex_array::extension::datetime::DateValue
 
-pub fn vortex_array::extension::datetime::Date::deserialize(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::extension::datetime::Date::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Date::id(&self) -> vortex_array::dtype::extension::ExtId
 
-pub fn vortex_array::extension::datetime::Date::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+pub fn vortex_array::extension::datetime::Date::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
 pub fn vortex_array::extension::datetime::Date::unpack_native(&self, metadata: &Self::Metadata, _storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -12456,11 +12456,11 @@ pub type vortex_array::extension::datetime::Time::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Time::NativeValue<'a> = vortex_array::extension::datetime::TimeValue
 
-pub fn vortex_array::extension::datetime::Time::deserialize(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::extension::datetime::Time::deserialize_metadata(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Time::id(&self) -> vortex_array::dtype::extension::ExtId
 
-pub fn vortex_array::extension::datetime::Time::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+pub fn vortex_array::extension::datetime::Time::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
 pub fn vortex_array::extension::datetime::Time::unpack_native(&self, metadata: &Self::Metadata, _storage_dtype: &vortex_array::dtype::DType, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -12506,11 +12506,11 @@ pub type vortex_array::extension::datetime::Timestamp::Metadata = vortex_array::
 
 pub type vortex_array::extension::datetime::Timestamp::NativeValue<'a> = vortex_array::extension::datetime::TimestampValue<'a>
 
-pub fn vortex_array::extension::datetime::Timestamp::deserialize(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::extension::datetime::Timestamp::deserialize_metadata(&self, data: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Timestamp::id(&self) -> vortex_array::dtype::extension::ExtId
 
-pub fn vortex_array::extension::datetime::Timestamp::serialize(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+pub fn vortex_array::extension::datetime::Timestamp::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
 pub fn vortex_array::extension::datetime::Timestamp::unpack_native<'a>(&self, metadata: &'a Self::Metadata, _storage_dtype: &'a vortex_array::dtype::DType, storage_value: &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
@@ -13116,7 +13116,7 @@ pub fn vortex_array::scalar::extension::ExtScalarValue<V>::id(&self) -> vortex_a
 
 pub fn vortex_array::scalar::extension::ExtScalarValue<V>::storage_value(&self) -> &vortex_array::scalar::ScalarValue
 
-pub fn vortex_array::scalar::extension::ExtScalarValue<V>::try_new(ext_dtype: vortex_array::dtype::extension::ExtDType<V>, storage: vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::scalar::extension::ExtScalarValue<V>::try_new(ext_dtype: &vortex_array::dtype::extension::ExtDType<V>, storage: vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::scalar::extension::ExtScalarValue<V>::vtable(&self) -> &V
 

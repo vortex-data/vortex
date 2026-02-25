@@ -26,6 +26,16 @@ const EPOCH: jiff::civil::Date = jiff::civil::Date::constant(1970, 1, 1);
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Date;
 
+fn date_ptype(time_unit: &TimeUnit) -> Option<PType> {
+    match time_unit {
+        TimeUnit::Nanoseconds => None,
+        TimeUnit::Microseconds => None,
+        TimeUnit::Milliseconds => Some(PType::I64),
+        TimeUnit::Seconds => None,
+        TimeUnit::Days => Some(PType::I32),
+    }
+}
+
 impl Date {
     /// Creates a new Date extension dtype with the given time unit and nullability.
     ///
@@ -108,15 +118,5 @@ impl ExtVTable for Date {
             TimeUnit::Days => Ok(DateValue::Days(storage_value.as_primitive().cast::<i32>()?)),
             _ => vortex_bail!("Date type does not support time unit {}", metadata),
         }
-    }
-}
-
-fn date_ptype(time_unit: &TimeUnit) -> Option<PType> {
-    match time_unit {
-        TimeUnit::Nanoseconds => None,
-        TimeUnit::Microseconds => None,
-        TimeUnit::Milliseconds => Some(PType::I64),
-        TimeUnit::Seconds => None,
-        TimeUnit::Days => Some(PType::I32),
     }
 }

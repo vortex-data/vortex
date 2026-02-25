@@ -98,7 +98,7 @@ impl<V: ExtVTable> DynExtScalarValue for ExtScalarValueInner<V> {
 pub(super) trait DynExtScalarValue: super::sealed::Sealed + 'static + Send + Sync {
     /// Returns `self` as a trait object for downcasting.
     fn as_any(&self) -> &dyn Any;
-    /// Returns the [`ExtID`] identifying this extension type.
+    /// Returns the [`ExtId`] identifying this extension type.
     fn id(&self) -> ExtId;
     /// Returns the vtable as a trait object for downcasting.
     fn vtable_any(&self) -> &dyn Any;
@@ -122,7 +122,7 @@ impl<V: ExtVTable> ExtScalarValue<V> {
     ///
     /// Returns an error if [`ExtVTable::validate_scalar_value`] fails for the given
     /// storage value and extension dtype.
-    pub fn try_new(ext_dtype: ExtDType<V>, storage: ScalarValue) -> VortexResult<Self> {
+    pub fn try_new(ext_dtype: &ExtDType<V>, storage: ScalarValue) -> VortexResult<Self> {
         ext_dtype.vtable().validate_scalar_value(
             ext_dtype.metadata(),
             ext_dtype.storage_dtype(),
