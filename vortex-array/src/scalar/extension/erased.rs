@@ -111,6 +111,7 @@ impl Eq for ExtScalarValueRef {}
 
 impl PartialOrd for ExtScalarValueRef {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        // TODO(connor): Should this check if the IDs are equal before ordering?
         self.0.storage_value().partial_cmp(other.0.storage_value())
     }
 }

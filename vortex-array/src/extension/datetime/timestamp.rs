@@ -99,11 +99,10 @@ impl fmt::Display for TimestampValue<'_> {
         let ts = jiff::Timestamp::UNIX_EPOCH + span;
 
         match tz {
-            None => {
-                write!(f, "{}", ts)
-            }
+            None => write!(f, "{ts}"),
             Some(tz) => {
-                write!(f, "{}", ts.in_tz(tz.as_ref()).map_err(|_| fmt::Error)?)
+                let adjusted_ts = ts.in_tz(tz.as_ref()).vortex_expect("unknown timezone");
+                write!(f, "{adjusted_ts}",)
             }
         }
     }
@@ -189,33 +188,38 @@ impl ExtVTable for Timestamp {
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {
         let ts_value = storage_value.as_primitive().cast::<i64>()?;
+        let tz = metadata.tz.as_ref();
 
-        // Validate the storage value is within the valid range for Timestamp.
-        let span = match metadata.unit {
-            TimeUnit::Nanoseconds => Span::new().nanoseconds(ts_value),
-            TimeUnit::Microseconds => Span::new().microseconds(ts_value),
-            TimeUnit::Milliseconds => Span::new().milliseconds(ts_value),
-            TimeUnit::Seconds => Span::new().seconds(ts_value),
+        let (span, value) = match metadata.unit {
+            TimeUnit::Nanoseconds => (
+                Span::new().nanoseconds(ts_value),
+                TimestampValue::Nanoseconds(ts_value, tz),
+            ),
+            TimeUnit::Microseconds => (
+                Span::new().microseconds(ts_value),
+                TimestampValue::Microseconds(ts_value, tz),
+            ),
+            TimeUnit::Milliseconds => (
+                Span::new().milliseconds(ts_value),
+                TimestampValue::Milliseconds(ts_value, tz),
+            ),
+            TimeUnit::Seconds => (
+                Span::new().seconds(ts_value),
+                TimestampValue::Seconds(ts_value, tz),
+            ),
             TimeUnit::Days => vortex_bail!("Timestamp does not support Days time unit"),
         };
 
+        // Validate the storage value is within the valid range for Timestamp.
         let ts = jiff::Timestamp::UNIX_EPOCH
             .checked_add(span)
             .map_err(|e| vortex_err!("Invalid timestamp scalar: {}", e))?;
 
-        if let Some(tz) = &metadata.tz {
+        if let Some(tz) = tz {
             ts.in_tz(tz.as_ref())
                 .map_err(|e| vortex_err!("Invalid timezone for timestamp scalar: {}", e))?;
         }
 
-        let tz = metadata.tz.as_ref();
-
-        match metadata.unit {
-            TimeUnit::Nanoseconds => Ok(TimestampValue::Nanoseconds(ts_value, tz)),
-            TimeUnit::Microseconds => Ok(TimestampValue::Microseconds(ts_value, tz)),
-            TimeUnit::Milliseconds => Ok(TimestampValue::Milliseconds(ts_value, tz)),
-            TimeUnit::Seconds => Ok(TimestampValue::Seconds(ts_value, tz)),
-            TimeUnit::Days => unreachable!("Timestamp does not support Days time unit"),
-        }
+        Ok(value)
     }
 }
