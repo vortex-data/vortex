@@ -212,6 +212,7 @@ mod tests {
     use crate::extension::datetime::TimestampOptions;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
 
     #[test]
     fn test_null_scalar_to_arrow() {
@@ -449,6 +450,7 @@ mod tests {
         struct SomeExt;
         impl ExtVTable for SomeExt {
             type Metadata = String;
+            type Value<'a> = &'a str;
 
             fn id(&self) -> ExtId {
                 ExtId::new_ref("some_ext")
@@ -468,6 +470,24 @@ mod tests {
                 _storage_dtype: &DType,
             ) -> VortexResult<()> {
                 Ok(())
+            }
+
+            fn validate_scalar_value(
+                &self,
+                _metadata: &Self::Metadata,
+                _storage_dtype: &DType,
+                _storage_value: &ScalarValue,
+            ) -> VortexResult<()> {
+                Ok(())
+            }
+
+            fn unpack<'a>(
+                &self,
+                _metadata: &'a Self::Metadata,
+                _storage_dtype: &'a DType,
+                _storage_value: &'a ScalarValue,
+            ) -> Self::Value<'a> {
+                ""
             }
         }
 

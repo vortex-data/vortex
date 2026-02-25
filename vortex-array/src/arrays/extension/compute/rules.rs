@@ -75,14 +75,24 @@ mod tests {
     use crate::extension::EmptyMetadata;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
 
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct TestExt;
     impl ExtVTable for TestExt {
         type Metadata = EmptyMetadata;
+        type Value<'a> = &'a str;
 
         fn id(&self) -> ExtId {
             ExtId::new_ref("test_ext")
+        }
+
+        fn serialize(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            Ok(vec![])
+        }
+
+        fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            Ok(EmptyMetadata)
         }
 
         fn validate_dtype(
@@ -91,6 +101,24 @@ mod tests {
             _storage_dtype: &DType,
         ) -> VortexResult<()> {
             Ok(())
+        }
+
+        fn validate_scalar_value(
+            &self,
+            _metadata: &Self::Metadata,
+            _storage_dtype: &DType,
+            _storage_value: &ScalarValue,
+        ) -> VortexResult<()> {
+            Ok(())
+        }
+
+        fn unpack<'a>(
+            &self,
+            _metadata: &'a Self::Metadata,
+            _storage_dtype: &'a DType,
+            _storage_value: &'a ScalarValue,
+        ) -> Self::Value<'a> {
+            ""
         }
     }
 
@@ -164,9 +192,18 @@ mod tests {
         struct TestExt2;
         impl ExtVTable for TestExt2 {
             type Metadata = EmptyMetadata;
+            type Value<'a> = &'a str;
 
             fn id(&self) -> ExtId {
                 ExtId::new_ref("test_ext_2")
+            }
+
+            fn serialize(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+                Ok(vec![])
+            }
+
+            fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+                Ok(EmptyMetadata)
             }
 
             fn validate_dtype(
@@ -175,6 +212,24 @@ mod tests {
                 _storage_dtype: &DType,
             ) -> VortexResult<()> {
                 Ok(())
+            }
+
+            fn validate_scalar_value(
+                &self,
+                _metadata: &Self::Metadata,
+                _storage_dtype: &DType,
+                _storage_value: &ScalarValue,
+            ) -> VortexResult<()> {
+                Ok(())
+            }
+
+            fn unpack<'a>(
+                &self,
+                _metadata: &'a Self::Metadata,
+                _storage_dtype: &'a DType,
+                _storage_value: &'a ScalarValue,
+            ) -> Self::Value<'a> {
+                ""
             }
         }
 

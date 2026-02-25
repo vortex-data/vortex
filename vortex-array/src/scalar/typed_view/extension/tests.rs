@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -19,9 +20,18 @@ use crate::scalar::ScalarValue;
 struct TestI32Ext;
 impl ExtVTable for TestI32Ext {
     type Metadata = EmptyMetadata;
+    type Value<'a> = &'a str;
 
     fn id(&self) -> ExtId {
         ExtId::new_ref("test_ext")
+    }
+
+    fn serialize(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+        Ok(vec![])
+    }
+
+    fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+        Ok(EmptyMetadata)
     }
 
     fn validate_dtype(
@@ -30,6 +40,24 @@ impl ExtVTable for TestI32Ext {
         _storage_dtype: &DType,
     ) -> VortexResult<()> {
         Ok(())
+    }
+
+    fn validate_scalar_value(
+        &self,
+        _metadata: &Self::Metadata,
+        _storage_dtype: &DType,
+        _storage_value: &ScalarValue,
+    ) -> VortexResult<()> {
+        Ok(())
+    }
+
+    fn unpack<'a>(
+        &self,
+        _metadata: &'a Self::Metadata,
+        _storage_dtype: &'a DType,
+        _storage_value: &'a ScalarValue,
+    ) -> Self::Value<'a> {
+        ""
     }
 }
 
@@ -90,9 +118,18 @@ fn test_ext_scalar_partial_ord_different_types() {
     struct TestExt2;
     impl ExtVTable for TestExt2 {
         type Metadata = EmptyMetadata;
+        type Value<'a> = &'a str;
 
         fn id(&self) -> ExtId {
             ExtId::new_ref("test_ext_2")
+        }
+
+        fn serialize(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            Ok(vec![])
+        }
+
+        fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            Ok(EmptyMetadata)
         }
 
         fn validate_dtype(
@@ -101,6 +138,24 @@ fn test_ext_scalar_partial_ord_different_types() {
             _storage_dtype: &DType,
         ) -> VortexResult<()> {
             Ok(())
+        }
+
+        fn validate_scalar_value(
+            &self,
+            _metadata: &Self::Metadata,
+            _storage_dtype: &DType,
+            _storage_value: &ScalarValue,
+        ) -> VortexResult<()> {
+            Ok(())
+        }
+
+        fn unpack<'a>(
+            &self,
+            _metadata: &'a Self::Metadata,
+            _storage_dtype: &'a DType,
+            _storage_value: &'a ScalarValue,
+        ) -> Self::Value<'a> {
+            ""
         }
     }
 
@@ -269,9 +324,18 @@ fn test_ext_scalar_with_metadata() {
     struct TestExtMetadata;
     impl ExtVTable for TestExtMetadata {
         type Metadata = usize;
+        type Value<'a> = &'a str;
 
         fn id(&self) -> ExtId {
             ExtId::new_ref("test_ext_metadata")
+        }
+
+        fn serialize(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            vortex_bail!("not implemented")
+        }
+
+        fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            vortex_bail!("not implemented")
         }
 
         fn validate_dtype(
@@ -280,6 +344,24 @@ fn test_ext_scalar_with_metadata() {
             _storage_dtype: &DType,
         ) -> VortexResult<()> {
             Ok(())
+        }
+
+        fn validate_scalar_value(
+            &self,
+            _metadata: &Self::Metadata,
+            _storage_dtype: &DType,
+            _storage_value: &ScalarValue,
+        ) -> VortexResult<()> {
+            Ok(())
+        }
+
+        fn unpack<'a>(
+            &self,
+            _metadata: &'a Self::Metadata,
+            _storage_dtype: &'a DType,
+            _storage_value: &'a ScalarValue,
+        ) -> Self::Value<'a> {
+            ""
         }
     }
 
