@@ -135,7 +135,7 @@ impl MultiFileDataSource {
             })
             .collect();
 
-        let inner = MultiLayoutDataSource::with_first(first_reader, factories, &self.session);
+        let inner = MultiLayoutDataSource::new_with_first(first_reader, factories, &self.session);
 
         debug!(file_count, dtype = %inner.dtype(), "built MultiFileDataSource");
 

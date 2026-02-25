@@ -278,7 +278,7 @@ impl DataSource for VortexDataSource {
         // Build the scan request with pushed-down projection, filter, and limit.
         // The projection is included so the scan can prune columns at the I/O level.
         let scan_request = ScanRequest {
-            projection: Some(self.projected_projection.clone()),
+            projection: self.projected_projection.clone(),
             filter: self.filter.clone(),
             limit: self.limit.map(|l| u64::try_from(l).unwrap_or(u64::MAX)),
             ordered: self.ordered,

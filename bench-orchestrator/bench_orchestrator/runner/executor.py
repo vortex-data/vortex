@@ -87,6 +87,10 @@ class BenchmarkExecutor:
             else:
                 cmd = cmd_prefix + cmd
 
+        if samply and self.engine == Engine.DUCKDB:
+            # Re-use the same DuckDB instance across runs make samply output readable
+            cmd += ["--reuse"]
+
         if self.verbose:
             console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
 

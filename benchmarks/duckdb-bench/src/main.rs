@@ -73,6 +73,14 @@ struct Args {
     /// Print EXPLAIN output for each query instead of running benchmarks.
     #[arg(long, default_value_t = false)]
     explain: bool,
+
+    #[arg(
+        long,
+        default_value_t = false,
+        help = "Whether to reuse the DuckDB connection across iterations. Helpful when profiling \
+        to keep all work on the same threads"
+    )]
+    reuse: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -187,8 +195,11 @@ fn main() -> anyhow::Result<()> {
                 ("benchmark_name", benchmark_name.clone()),
                 ("query_idx", query_idx.to_string()),
             ]);
+
             // Make sure to reopen the duckdb connection between iterations
-            ctx.reopen()?;
+            if !args.reuse {
+                ctx.reopen()?;
+            }
             ctx.execute_query(query)
         },
     )?;

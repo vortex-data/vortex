@@ -63,7 +63,7 @@ pub(super) fn resolve_filesystem(
             ctx.erase_lifetime()
         }))
     } else if fs_config.as_str() == "vortex" {
-        tracing::info!(
+        tracing::debug!(
             "Using Vortex's object store filesystem for URL scheme '{}'",
             base_url.scheme()
         );

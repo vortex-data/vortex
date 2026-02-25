@@ -10261,6 +10261,7 @@ dependencies = [
  "futures",
  "itertools 0.14.0",
  "jiff",
+ "kanal",
  "num-traits",
  "object_store",
  "once_cell",

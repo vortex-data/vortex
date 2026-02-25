@@ -37,7 +37,6 @@ struct DictExporter<I: IntegerPType> {
     values_len: u32,
     codes: PrimitiveArray,
     codes_type: PhantomData<I>,
-    cache_id: u64,
     value_id: usize,
 }
 
@@ -133,7 +132,6 @@ pub(crate) fn new_exporter_with_flatten(
             values_len: values.len().as_u32(),
             codes,
             codes_type: PhantomData::<I>,
-            cache_id: cache.instance_id(),
             value_id: values_key,
         }))
     })
@@ -167,7 +165,7 @@ impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
 
         // Use a unique id for each dictionary data array -- telling duckdb that
         // the dict value vector is the same as reuse the hash in a join.
-        vector.set_dictionary_id(format!("{}-{}", self.cache_id, self.value_id));
+        vector.set_dictionary_id(format!("{}", self.value_id));
 
         Ok(())
     }
