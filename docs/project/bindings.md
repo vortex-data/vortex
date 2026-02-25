@@ -7,14 +7,14 @@ roadmap. For the tier model and API surface definitions, see the
 
 ## Current State
 
-| Language | Technology | API Surface |
-|---|---|---|
-| Rust | Native | Full access (Tier 3). All array plugins, compute plugins, layouts, and extension DTypes. |
-| Python | PyO3 | Near Tier 2. Native expression construction, array access, file I/O. |
-| C | cbindgen | Tier ~1. File I/O, basic scan, Arrow stream export. |
-| C++ | cxx | Tier ~1. Wraps Rust via cxx bridge. File I/O and scan. |
-| Java (JNI) | JNI | Tier ~1. Arrow-based file I/O and basic scan via JNI. |
-| Java (Panama) | Panama FFI | Not yet implemented. Target Tier 2 via direct C ABI access. Requires JDK 22+. |
+| Language      | Technology | API Surface                                                                              |
+|---------------|------------|------------------------------------------------------------------------------------------|
+| Rust          | Native     | Full access (Tier 3). All array plugins, compute plugins, layouts, and extension DTypes. |
+| Python        | PyO3       | Near Tier 2. Native expression construction, array access, file I/O.                     |
+| C             | cbindgen   | Tier ~1. File I/O, basic scan, Arrow stream export.                                      |
+| C++           | cxx        | Tier ~1. Wraps Rust via cxx bridge. File I/O and scan.                                   |
+| Java (JNI)    | JNI        | Tier ~1. Arrow-based file I/O and basic scan via JNI.                                    |
+| Java (Panama) | Panama FFI | Not yet implemented. Target Tier 2 via direct C ABI access. Requires JDK 22+.            |
 
 ## Architecture Principle
 
