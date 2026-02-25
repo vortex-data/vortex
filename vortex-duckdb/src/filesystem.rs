@@ -124,7 +124,7 @@ impl FileSystem for DuckDbFileSystem {
     fn list(&self, prefix: &str) -> BoxStream<'_, VortexResult<FileListing>> {
         let mut directory_url = self.base_url.clone();
         if !prefix.is_empty() {
-            directory_url.set_path(prefix);
+            directory_url.set_path(&format!("{}/{}", directory_url.path(), prefix));
         }
 
         // DuckDB's ListFiles expects bare paths for local files, but full URLs
@@ -159,7 +159,7 @@ impl FileSystem for DuckDbFileSystem {
 
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
         let mut url = self.base_url.clone();
-        url.set_path(path);
+        url.set_path(&format!("{}/{}", url.path(), path));
         let reader = unsafe { DuckDbFsReader::open_url(self.ctx.as_ptr(), &url)? };
         Ok(Arc::new(reader))
     }

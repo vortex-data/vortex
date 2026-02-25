@@ -29,6 +29,8 @@ pub fn generate_tpcds(base_dir: PathBuf, scale_factor: String) -> Result<PathBuf
     let sql_script = format!(
         "SET autoinstall_known_extensions=1;\
         SET autoload_known_extensions=1;\
+        INSTALL tpcds;\
+        LOAD tpcds;\
         CALL dsdgen(sf={scale_factor});\
         EXPORT DATABASE '{output_dir}' (FORMAT PARQUET);",
         scale_factor = scale_factor,
