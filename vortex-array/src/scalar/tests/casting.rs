@@ -29,7 +29,7 @@ mod tests {
 
     impl ExtVTable for Apples {
         type Metadata = usize;
-        type Value<'a> = &'a str;
+        type NativeValue<'a> = &'a str;
 
         fn id(&self) -> ExtId {
             ExtId::new_ref("apples")
@@ -60,12 +60,12 @@ mod tests {
             Ok(())
         }
 
-        fn unpack<'a>(
+        fn unpack_native<'a>(
             &self,
             _metadata: &'a Self::Metadata,
             _storage_dtype: &'a DType,
             _storage_value: &'a ScalarValue,
-        ) -> Self::Value<'a> {
+        ) -> Self::NativeValue<'a> {
             ""
         }
     }
@@ -259,7 +259,7 @@ mod tests {
         struct F16Ext;
         impl ExtVTable for F16Ext {
             type Metadata = usize;
-            type Value<'a> = &'a str;
+            type NativeValue<'a> = &'a str;
 
             fn id(&self) -> ExtId {
                 ExtId::new_ref("f16_ext")
@@ -290,12 +290,12 @@ mod tests {
                 Ok(())
             }
 
-            fn unpack<'a>(
+            fn unpack_native<'a>(
                 &self,
                 _metadata: &'a Self::Metadata,
                 _storage_dtype: &'a DType,
                 _storage_value: &'a ScalarValue,
-            ) -> Self::Value<'a> {
+            ) -> Self::NativeValue<'a> {
                 ""
             }
         }
@@ -331,7 +331,7 @@ mod tests {
         struct StructExt;
         impl ExtVTable for StructExt {
             type Metadata = usize;
-            type Value<'a> = &'a str;
+            type NativeValue<'a> = &'a str;
 
             fn id(&self) -> ExtId {
                 ExtId::new_ref("struct_ext")
@@ -362,12 +362,12 @@ mod tests {
                 Ok(())
             }
 
-            fn unpack<'a>(
+            fn unpack_native<'a>(
                 &self,
                 _metadata: &'a Self::Metadata,
                 _storage_dtype: &'a DType,
                 _storage_value: &'a ScalarValue,
-            ) -> Self::Value<'a> {
+            ) -> Self::NativeValue<'a> {
                 ""
             }
         }

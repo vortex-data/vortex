@@ -69,7 +69,7 @@ impl fmt::Display for TimeValue {
 impl ExtVTable for Time {
     type Metadata = TimeUnit;
 
-    type Value<'a> = TimeValue;
+    type NativeValue<'a> = TimeValue;
 
     fn id(&self) -> ExtId {
         ExtId::new_ref("vortex.time")
@@ -122,12 +122,12 @@ impl ExtVTable for Time {
         Ok(())
     }
 
-    fn unpack(
+    fn unpack_native(
         &self,
         metadata: &Self::Metadata,
         _storage_dtype: &DType,
         storage_value: &ScalarValue,
-    ) -> Self::Value<'_> {
+    ) -> Self::NativeValue<'_> {
         match metadata {
             TimeUnit::Seconds => {
                 TimeValue::Seconds(storage_value.as_primitive().cast::<i32>().vortex_expect(

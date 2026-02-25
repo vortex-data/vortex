@@ -81,7 +81,7 @@ mod tests {
     struct TestExt;
     impl ExtVTable for TestExt {
         type Metadata = EmptyMetadata;
-        type Value<'a> = &'a str;
+        type NativeValue<'a> = &'a str;
 
         fn id(&self) -> ExtId {
             ExtId::new_ref("test_ext")
@@ -112,12 +112,12 @@ mod tests {
             Ok(())
         }
 
-        fn unpack<'a>(
+        fn unpack_native<'a>(
             &self,
             _metadata: &'a Self::Metadata,
             _storage_dtype: &'a DType,
             _storage_value: &'a ScalarValue,
-        ) -> Self::Value<'a> {
+        ) -> Self::NativeValue<'a> {
             ""
         }
     }
@@ -192,7 +192,7 @@ mod tests {
         struct TestExt2;
         impl ExtVTable for TestExt2 {
             type Metadata = EmptyMetadata;
-            type Value<'a> = &'a str;
+            type NativeValue<'a> = &'a str;
 
             fn id(&self) -> ExtId {
                 ExtId::new_ref("test_ext_2")
@@ -223,12 +223,12 @@ mod tests {
                 Ok(())
             }
 
-            fn unpack<'a>(
+            fn unpack_native<'a>(
                 &self,
                 _metadata: &'a Self::Metadata,
                 _storage_dtype: &'a DType,
                 _storage_value: &'a ScalarValue,
-            ) -> Self::Value<'a> {
+            ) -> Self::NativeValue<'a> {
                 ""
             }
         }

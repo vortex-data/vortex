@@ -22,7 +22,7 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     /// A native Rust value that represents a scalar of the extension type.
     ///
     /// The value only represents non-null values. We denote nullable values as `Option<Value>`.
-    type Value<'a>: Display;
+    type NativeValue<'a>: Display;
 
     /// Returns the ID for this extension type.
     fn id(&self) -> ExtId;
@@ -63,10 +63,10 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     ///
     /// This call is infallible assuming the [`ExtVTable::validate_scalar_value`] function has been
     /// called previously.
-    fn unpack<'a>(
+    fn unpack_native<'a>(
         &self,
         metadata: &'a Self::Metadata,
         storage_dtype: &'a DType,
         storage_value: &'a ScalarValue,
-    ) -> Self::Value<'a>;
+    ) -> Self::NativeValue<'a>;
 }

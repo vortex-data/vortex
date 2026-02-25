@@ -75,7 +75,7 @@ impl<V: ExtVTable> DynExtScalarValue for ExtScalarValueInner<V> {
         ext_dtype: &ExtDTypeRef,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {
-        let value = V::unpack(
+        let value = V::unpack_native(
             &self.vtable,
             ext_dtype.metadata::<V>(),
             ext_dtype.storage_dtype(),

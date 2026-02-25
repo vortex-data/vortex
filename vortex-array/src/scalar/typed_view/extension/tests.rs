@@ -20,7 +20,7 @@ use crate::scalar::ScalarValue;
 struct TestI32Ext;
 impl ExtVTable for TestI32Ext {
     type Metadata = EmptyMetadata;
-    type Value<'a> = &'a str;
+    type NativeValue<'a> = &'a str;
 
     fn id(&self) -> ExtId {
         ExtId::new_ref("test_ext")
@@ -51,12 +51,12 @@ impl ExtVTable for TestI32Ext {
         Ok(())
     }
 
-    fn unpack<'a>(
+    fn unpack_native<'a>(
         &self,
         _metadata: &'a Self::Metadata,
         _storage_dtype: &'a DType,
         _storage_value: &'a ScalarValue,
-    ) -> Self::Value<'a> {
+    ) -> Self::NativeValue<'a> {
         ""
     }
 }
@@ -118,7 +118,7 @@ fn test_ext_scalar_partial_ord_different_types() {
     struct TestExt2;
     impl ExtVTable for TestExt2 {
         type Metadata = EmptyMetadata;
-        type Value<'a> = &'a str;
+        type NativeValue<'a> = &'a str;
 
         fn id(&self) -> ExtId {
             ExtId::new_ref("test_ext_2")
@@ -149,12 +149,12 @@ fn test_ext_scalar_partial_ord_different_types() {
             Ok(())
         }
 
-        fn unpack<'a>(
+        fn unpack_native<'a>(
             &self,
             _metadata: &'a Self::Metadata,
             _storage_dtype: &'a DType,
             _storage_value: &'a ScalarValue,
-        ) -> Self::Value<'a> {
+        ) -> Self::NativeValue<'a> {
             ""
         }
     }
@@ -324,7 +324,7 @@ fn test_ext_scalar_with_metadata() {
     struct TestExtMetadata;
     impl ExtVTable for TestExtMetadata {
         type Metadata = usize;
-        type Value<'a> = &'a str;
+        type NativeValue<'a> = &'a str;
 
         fn id(&self) -> ExtId {
             ExtId::new_ref("test_ext_metadata")
@@ -355,12 +355,12 @@ fn test_ext_scalar_with_metadata() {
             Ok(())
         }
 
-        fn unpack<'a>(
+        fn unpack_native<'a>(
             &self,
             _metadata: &'a Self::Metadata,
             _storage_dtype: &'a DType,
             _storage_value: &'a ScalarValue,
-        ) -> Self::Value<'a> {
+        ) -> Self::NativeValue<'a> {
             ""
         }
     }

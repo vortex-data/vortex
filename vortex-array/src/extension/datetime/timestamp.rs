@@ -111,7 +111,7 @@ impl fmt::Display for TimestampValue<'_> {
 impl ExtVTable for Timestamp {
     type Metadata = TimestampOptions;
 
-    type Value<'a> = TimestampValue<'a>;
+    type NativeValue<'a> = TimestampValue<'a>;
 
     fn id(&self) -> ExtId {
         ExtId::new_ref("vortex.timestamp")
@@ -210,12 +210,12 @@ impl ExtVTable for Timestamp {
         Ok(())
     }
 
-    fn unpack<'a>(
+    fn unpack_native<'a>(
         &self,
         metadata: &'a Self::Metadata,
         _storage_dtype: &'a DType,
         storage_value: &'a ScalarValue,
-    ) -> Self::Value<'a> {
+    ) -> Self::NativeValue<'a> {
         let ts_value = storage_value
             .as_primitive()
             .cast::<i64>()
