@@ -134,6 +134,7 @@ impl ExtScalarValueRef {
     }
 }
 
+// TODO(connor): Do we disallow this because we do not have an extdtype?
 impl fmt::Display for ExtScalarValueRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}({})", self.0.id(), self.0.storage_value())
@@ -148,6 +149,8 @@ impl fmt::Debug for ExtScalarValueRef {
             .finish()
     }
 }
+
+// TODO(connor): I feel like there is something wrong with these...
 
 impl PartialEq for ExtScalarValueRef {
     fn eq(&self, other: &Self) -> bool {

@@ -153,33 +153,4 @@ impl<V: ExtVTable> ExtScalarValue<V> {
     pub fn storage_value(&self) -> &ScalarValue {
         self.0.storage_value()
     }
-
-    // pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-    //     if self.value.is_none() && !dtype.is_nullable() {
-    //         vortex_bail!(
-    //             "cannot cast extension dtype with id {} and storage type {} to {}",
-    //             self.ext_dtype.id(),
-    //             self.ext_dtype.storage_dtype(),
-    //             dtype
-    //         );
-    //     }
-    //
-    //     if self.ext_dtype.storage_dtype().eq_ignore_nullability(dtype) {
-    //         // Casting from an extension type to the underlying storage type is OK.
-    //         return Ok(Scalar::new(dtype.clone(), self.value.clone()));
-    //     }
-    //
-    //     if let DType::Extension(ext_dtype) = dtype
-    //         && self.ext_dtype.eq_ignore_nullability(ext_dtype)
-    //     {
-    //         return Ok(Scalar::new(dtype.clone(), self.value.clone()));
-    //     }
-    //
-    //     vortex_bail!(
-    //         "cannot cast extension dtype with id {} and storage type {} to {}",
-    //         self.ext_dtype.id(),
-    //         self.ext_dtype.storage_dtype(),
-    //         dtype
-    //     );
-    // }
 }

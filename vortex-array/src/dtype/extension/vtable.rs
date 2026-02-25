@@ -42,13 +42,12 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
 
     // Methods related to the extension scalar values.
 
+    // TODO(connor): more docs because it is not super obvious how to implement this at first.
     /// Validate the given storage value is compatible with the extension type.
     ///
     /// Note that [`ExtVTable::validate_dtype`] is always called first to validate the storage
     /// [`DType`], and the [`Scalar`](crate::scalar::Scalar) implementation will verify that the
     /// storage value is compatible with the storage dtype on construction.
-    ///
-    /// TODO more docs because it is not super obvious how to implement this at first.
     ///
     /// # Errors
     ///

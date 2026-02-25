@@ -96,7 +96,7 @@ impl ExtVTable for Date {
 
     fn validate_scalar_value(
         &self,
-        _metadata: &<Self as ExtVTable>::Metadata,
+        _metadata: &Self::Metadata,
         _storage_dtype: &DType,
         _storage_value: &ScalarValue,
     ) -> VortexResult<()> {

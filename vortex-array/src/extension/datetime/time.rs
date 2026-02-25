@@ -6,6 +6,7 @@ use std::fmt;
 use jiff::Span;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
@@ -111,7 +112,7 @@ impl ExtVTable for Time {
             TimeUnit::Microseconds => Span::new().microseconds(length_of_time),
             TimeUnit::Milliseconds => Span::new().milliseconds(length_of_time),
             TimeUnit::Seconds => Span::new().seconds(length_of_time),
-            TimeUnit::Days => Span::new().days(length_of_time),
+            d @ TimeUnit::Days => vortex_bail!("Time type does not support time unit {d}"),
         };
 
         jiff::civil::Time::MIN

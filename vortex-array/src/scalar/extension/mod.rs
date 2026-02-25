@@ -17,13 +17,10 @@
 //!
 //! Note that there is a single unified vtable for working with extension types
 //! [`ExtVTable`](crate::dtype::extension::ExtVTable).
-//!
-//! Every other vtable-backed concept `FooScalarValue` follows this module structure:
-//!
-//! - `plugin.rs`: TODO
-//! - `typed.rs`: TODO
-//! - `erased.rs`: TODO
 
+// TODO(connor): Docs on file structure.
+
+// TODO(connor): Figure out what this should look like.
 // mod plugin;
 // pub use plugin::ExtScalarValuePlugin;
 
