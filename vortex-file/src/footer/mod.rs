@@ -68,6 +68,11 @@ impl Footer {
         }
     }
 
+    pub(crate) fn with_approx_byte_size(mut self, approx_byte_size: usize) -> Self {
+        self.approx_byte_size = Some(approx_byte_size);
+        self
+    }
+
     /// Read the [`Footer`] from a flatbuffer.
     pub(crate) fn from_flatbuffer(
         footer_bytes: FlatBuffer,

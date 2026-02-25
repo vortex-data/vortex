@@ -12,7 +12,7 @@ use crate::row_mask::RowMask;
 
 /// A selection identifies a set of rows to include in the scan (in addition to applying any
 /// filter predicates).
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub enum Selection {
     /// No selection, all rows are included.
     #[default]
@@ -22,14 +22,23 @@ pub enum Selection {
     /// A selection of sorted rows to exclude by index.
     ExcludeByIndex(Buffer<u64>),
     /// A selection of rows to include using a [`roaring::RoaringTreemap`].
-    #[cfg(feature = "roaring")]
     IncludeRoaring(roaring::RoaringTreemap),
     /// A selection of rows to exclude using a [`roaring::RoaringTreemap`].
-    #[cfg(feature = "roaring")]
     ExcludeRoaring(roaring::RoaringTreemap),
 }
 
 impl Selection {
+    /// Return the row count for this selection.
+    pub fn row_count(&self, total_rows: u64) -> u64 {
+        match self {
+            Selection::All => total_rows,
+            Selection::IncludeByIndex(include) => include.len() as u64,
+            Selection::ExcludeByIndex(exclude) => total_rows.saturating_sub(exclude.len() as u64),
+            Selection::IncludeRoaring(roaring) => roaring.len(),
+            Selection::ExcludeRoaring(roaring) => total_rows.saturating_sub(roaring.len()),
+        }
+    }
+
     /// Extract the [`RowMask`] for the given range from this selection.
     pub(crate) fn row_mask(&self, range: &Range<u64>) -> RowMask {
         // Saturating subtraction to prevent underflow, though range should be valid
@@ -81,7 +90,6 @@ impl Selection {
                     .clone();
                 RowMask::new(range.start, mask.not())
             }
-            #[cfg(feature = "roaring")]
             Selection::IncludeRoaring(roaring) => {
                 use std::ops::BitAnd;
 
@@ -113,7 +121,6 @@ impl Selection {
 
                 RowMask::new(range.start, mask)
             }
-            #[cfg(feature = "roaring")]
             Selection::ExcludeRoaring(roaring) => {
                 use std::ops::BitAnd;
 
@@ -220,7 +227,6 @@ mod tests {
         assert_eq!(row_mask.mask().values().unwrap().indices(), &[0]);
     }
 
-    #[cfg(feature = "roaring")]
     mod roaring_tests {
         use roaring::RoaringTreemap;
 

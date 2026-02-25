@@ -23,6 +23,11 @@ impl VortexAccessPlan {
 }
 
 impl VortexAccessPlan {
+    /// Returns the selection, if one was set.
+    pub fn selection(&self) -> Option<&Selection> {
+        self.selection.as_ref()
+    }
+
     /// Apply the plan to the scan's builder.
     pub fn apply_to_builder<A>(&self, mut scan_builder: ScanBuilder<A>) -> ScanBuilder<A>
     where

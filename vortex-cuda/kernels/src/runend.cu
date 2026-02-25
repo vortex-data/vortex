@@ -74,8 +74,9 @@ __device__ void runend_decode_kernel(const EndsT *const __restrict ends,
     const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * elements_per_block;
     const uint64_t block_end = min(block_start + elements_per_block, output_len);
 
-    if (block_start >= output_len)
+    if (block_start >= output_len) {
         return;
+    }
 
     // Thread 0 finds the run range for this block.
     if (threadIdx.x == 0) {
@@ -118,8 +119,9 @@ __device__ void runend_decode_kernel(const EndsT *const __restrict ends,
         for (uint64_t idx = block_start + threadIdx.x; idx < block_end; idx += blockDim.x) {
             uint64_t pos = idx + offset;
             uint64_t run_idx = upper_bound(ends, num_runs, pos);
-            if (run_idx >= num_runs)
+            if (run_idx >= num_runs) {
                 run_idx = num_runs - 1;
+            }
             output[idx] = values[run_idx];
         }
     }

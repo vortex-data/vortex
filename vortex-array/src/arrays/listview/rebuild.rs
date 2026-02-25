@@ -106,11 +106,91 @@ impl ListViewArray {
         })
     }
 
-    // TODO(connor)[ListView]: We should benchmark if it is faster to use `take` on the elements
-    // instead of using a builder.
-    /// The inner function for `rebuild_zero_copy_to_list`, which rebuilds a `ListViewArray` piece
-    /// by piece.
+    /// Picks between [`rebuild_with_take`](Self::rebuild_with_take) and
+    /// [`rebuild_list_by_list`](Self::rebuild_list_by_list) based on element dtype and average
+    /// list size.
     fn naive_rebuild<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
+        &self,
+    ) -> VortexResult<ListViewArray> {
+        let sizes_canonical = self.sizes().to_primitive();
+        let total: u64 = sizes_canonical
+            .as_slice::<S>()
+            .iter()
+            .map(|s| (*s).as_() as u64)
+            .sum();
+        if Self::should_use_take(total, self.len()) {
+            self.rebuild_with_take::<O, NewOffset, S>()
+        } else {
+            self.rebuild_list_by_list::<O, NewOffset, S>()
+        }
+    }
+
+    /// Returns `true` when we are confident that `rebuild_with_take` will
+    /// outperform `rebuild_list_by_list`.
+    ///
+    /// Take is dramatically faster for small lists (often 10-100×) because it
+    /// avoids per-list builder overhead. LBL is the safer default for larger
+    /// lists since its sequential memcpy scales well. We only choose take when
+    /// the average list size is small enough that take clearly dominates.
+    fn should_use_take(total_output_elements: u64, num_lists: usize) -> bool {
+        if num_lists == 0 {
+            return true;
+        }
+        let avg = total_output_elements / num_lists as u64;
+        avg < 128
+    }
+
+    /// Rebuilds elements using a single bulk `take`: collect all element indices into a flat
+    /// `BufferMut<u64>`, perform a single `take`.
+    fn rebuild_with_take<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
+        &self,
+    ) -> VortexResult<ListViewArray> {
+        let offsets_canonical = self.offsets().to_primitive();
+        let offsets_slice = offsets_canonical.as_slice::<O>();
+        let sizes_canonical = self.sizes().to_primitive();
+        let sizes_slice = sizes_canonical.as_slice::<S>();
+
+        let len = offsets_slice.len();
+
+        let mut new_offsets = BufferMut::<NewOffset>::with_capacity(len);
+        let mut new_sizes = BufferMut::<S>::with_capacity(len);
+        let mut take_indices = BufferMut::<u64>::with_capacity(self.elements().len());
+
+        let mut n_elements = NewOffset::zero();
+        for index in 0..len {
+            if !self.is_valid(index)? {
+                new_offsets.push(n_elements);
+                new_sizes.push(S::zero());
+                continue;
+            }
+
+            let offset = offsets_slice[index];
+            let size = sizes_slice[index];
+            let start = offset.as_();
+            let stop = start + size.as_();
+
+            new_offsets.push(n_elements);
+            new_sizes.push(size);
+            take_indices.extend(start as u64..stop as u64);
+            n_elements += num_traits::cast(size).vortex_expect("Cast failed");
+        }
+
+        let elements = self.elements().take(take_indices.into_array())?;
+        let offsets = new_offsets.into_array();
+        let sizes = new_sizes.into_array();
+
+        // SAFETY: same invariants as `rebuild_list_by_list` — offsets are sequential and
+        // non-overlapping, all (offset, size) pairs reference valid elements, and the validity
+        // array is preserved from the original.
+        Ok(unsafe {
+            ListViewArray::new_unchecked(elements, offsets, sizes, self.validity.clone())
+                .with_zero_copy_to_list(true)
+        })
+    }
+
+    /// Rebuilds elements list-by-list: canonicalize elements upfront, then for each list `slice`
+    /// the relevant range and `extend_from_array` into a typed builder.
+    fn rebuild_list_by_list<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
     ) -> VortexResult<ListViewArray> {
         let element_dtype = self
@@ -273,6 +353,7 @@ impl ListViewArray {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_error::VortexResult;
@@ -458,5 +539,20 @@ mod tests {
             PrimitiveArray::from_iter([3i32, 4])
         );
         Ok(())
+    }
+
+    // ── should_use_take heuristic tests ────────────────────────────────────
+
+    #[test]
+    fn heuristic_zero_lists_uses_take() {
+        assert!(ListViewArray::should_use_take(0, 0));
+    }
+
+    #[test]
+    fn heuristic_small_lists_use_take() {
+        // avg = 127 → take
+        assert!(ListViewArray::should_use_take(127_000, 1_000));
+        // avg = 128 → LBL
+        assert!(!ListViewArray::should_use_take(128_000, 1_000));
     }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::iter;
@@ -10,7 +11,6 @@ use flatbuffers::FlatBufferBuilder;
 use flatbuffers::Follow;
 use flatbuffers::WIPOffset;
 use flatbuffers::root;
-use itertools::Itertools;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexError;
@@ -331,15 +331,13 @@ impl ArrayParts {
             .find(&encoding_id)
             .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
 
-        let buffers: Vec<_> = (0..self.nbuffers())
-            .map(|idx| self.buffer(idx))
-            .try_collect()?;
-
         let children = ArrayPartsChildren {
             parts: self,
             ctx,
             session,
         };
+
+        let buffers = self.collect_buffers()?;
 
         let decoded = vtable.build(
             encoding_id.clone(),
@@ -445,6 +443,43 @@ impl ArrayParts {
                     self.nbuffers()
                 )
             })
+    }
+
+    /// Returns all buffers for the current array node.
+    ///
+    /// If buffer indices are contiguous, returns a zero-copy borrowed slice.
+    /// Otherwise falls back to collecting each buffer individually.
+    fn collect_buffers(&self) -> VortexResult<Cow<'_, [BufferHandle]>> {
+        let Some(fb_buffers) = self.flatbuffer().buffers() else {
+            return Ok(Cow::Borrowed(&[]));
+        };
+        let count = fb_buffers.len();
+        if count == 0 {
+            return Ok(Cow::Borrowed(&[]));
+        }
+        let start = fb_buffers.get(0) as usize;
+        let contiguous = fb_buffers
+            .iter()
+            .enumerate()
+            .all(|(i, idx)| idx as usize == start + i);
+        if contiguous {
+            self.buffers.get(start..start + count).map_or_else(
+                || {
+                    vortex_bail!(
+                        "buffer indices {}..{} out of range for {} buffers",
+                        start,
+                        start + count,
+                        self.buffers.len()
+                    )
+                },
+                |slice| Ok(Cow::Borrowed(slice)),
+            )
+        } else {
+            (0..count)
+                .map(|idx| self.buffer(idx))
+                .collect::<VortexResult<Vec<_>>>()
+                .map(Cow::Owned)
+        }
     }
 
     /// Returns the buffer lengths as stored in the flatbuffer metadata.

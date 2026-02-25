@@ -22,9 +22,9 @@ bytes = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
 getrandom_v03 = { workspace = true }                              # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
-glob = { workspace = true }
 itertools = { workspace = true }
 kanal = { workspace = true }
+moka = { workspace = true, features = ["sync"] }
 object_store = { workspace = true, optional = true }
 oneshot.workspace = true
 parking_lot = { workspace = true }
@@ -46,6 +46,7 @@ vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
+vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-pco = { workspace = true }
 vortex-runend = { workspace = true }
@@ -61,6 +62,7 @@ vortex-zstd = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-io = { workspace = true, features = ["tokio"] }
+vortex-layout = { workspace = true, features = ["_test-harness"] }
 vortex-scan = { workspace = true }
 
 [lints]

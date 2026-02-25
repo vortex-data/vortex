@@ -17,19 +17,13 @@ publish = false
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
-custom-labels = { workspace = true }
 similar = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-url = { workspace = true }
 vortex = { workspace = true }
 vortex-bench = { workspace = true }
 vortex-cuda = { workspace = true, optional = true }
 vortex-duckdb = { workspace = true }
-
-[build-dependencies]
-get_dir = { workspace = true }
-custom-labels = { workspace = true }
 
 [features]
 cuda = ["dep:vortex-cuda"]

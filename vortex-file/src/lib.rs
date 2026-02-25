@@ -93,6 +93,7 @@
 mod counting;
 mod file;
 mod footer;
+pub mod multi;
 mod open;
 mod pruning;
 mod read;
@@ -100,6 +101,7 @@ pub mod segments;
 mod strategy;
 #[cfg(test)]
 mod tests;
+pub mod v2;
 mod writer;
 
 pub use file::*;

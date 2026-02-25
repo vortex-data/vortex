@@ -28,11 +28,7 @@ fn shared_array_caches_on_canonicalize() -> VortexResult<()> {
     // Second call should return cached without invoking the closure.
     let second = shared.get_or_compute(|_| panic!("should not execute twice"))?;
 
-    assert!(
-        first
-            .as_ref()
-            .array_eq(second.as_ref(), HashPrecision::Value)
-    );
+    assert!(first.array_eq(&second, HashPrecision::Value));
 
     Ok(())
 }
