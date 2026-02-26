@@ -12,14 +12,14 @@ use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::ToI256;
-use vortex_array::expr::CompareKernel;
-use vortex_array::expr::CompareOperator;
-use vortex_array::expr::Operator;
 use vortex_array::match_each_decimal_value;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
+use vortex_array::scalar_fn::fns::binary::CompareKernel;
+use vortex_array::scalar_fn::fns::operators::CompareOperator;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -150,9 +150,9 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::Operator;
     use vortex_array::scalar::DecimalValue;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;

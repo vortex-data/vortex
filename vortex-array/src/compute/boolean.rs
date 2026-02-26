@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use crate::Array;
 use crate::ArrayRef;
 use crate::builtins::ArrayBuiltins;
-use crate::expr::Operator;
+use crate::scalar_fn::fns::operators::Operator;
 
 /// Point-wise Kleene logical _and_ between two Boolean arrays.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]

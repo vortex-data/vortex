@@ -8,7 +8,7 @@ use crate::IntoArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::dtype::DType;
-use crate::expr::CastReduce;
+use crate::scalar_fn::fns::cast::CastReduce;
 use crate::vtable::ValidityHelper;
 
 impl CastReduce for VarBinViewVTable {

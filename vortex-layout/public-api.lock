@@ -596,19 +596,23 @@ pub mod vortex_layout::layouts::row_idx
 
 pub struct vortex_layout::layouts::row_idx::RowIdx
 
-impl vortex_array::expr::vtable::VTable for vortex_layout::layouts::row_idx::RowIdx
+impl core::clone::Clone for vortex_layout::layouts::row_idx::RowIdx
 
-pub type vortex_layout::layouts::row_idx::RowIdx::Options = vortex_array::expr::vtable::EmptyOptions
+pub fn vortex_layout::layouts::row_idx::RowIdx::clone(&self) -> vortex_layout::layouts::row_idx::RowIdx
 
-pub fn vortex_layout::layouts::row_idx::RowIdx::arity(&self, _options: &Self::Options) -> vortex_array::expr::vtable::Arity
+impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_layout::layouts::row_idx::RowIdx
 
-pub fn vortex_layout::layouts::row_idx::RowIdx::child_name(&self, _instance: &Self::Options, _child_idx: usize) -> vortex_array::expr::vtable::ChildName
+pub type vortex_layout::layouts::row_idx::RowIdx::Options = vortex_array::scalar_fn::vtable::EmptyOptions
 
-pub fn vortex_layout::layouts::row_idx::RowIdx::execute(&self, _options: &Self::Options, _args: vortex_array::expr::vtable::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_layout::layouts::row_idx::RowIdx::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::vtable::Arity
+
+pub fn vortex_layout::layouts::row_idx::RowIdx::child_name(&self, _instance: &Self::Options, _child_idx: usize) -> vortex_array::scalar_fn::vtable::ChildName
+
+pub fn vortex_layout::layouts::row_idx::RowIdx::execute(&self, _options: &Self::Options, _args: vortex_array::scalar_fn::vtable::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 pub fn vortex_layout::layouts::row_idx::RowIdx::fmt_sql(&self, _options: &Self::Options, _expr: &vortex_array::expr::expression::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_layout::layouts::row_idx::RowIdx::id(&self) -> vortex_array::expr::ExprId
+pub fn vortex_layout::layouts::row_idx::RowIdx::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
 pub fn vortex_layout::layouts::row_idx::RowIdx::return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 

@@ -29,11 +29,11 @@ use crate::builtins::ArrayBuiltins;
 use crate::compute::sum;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::expr::Binary;
-use crate::expr::Operator;
 use crate::optimizer::ArrayOptimizer;
 use crate::patches::Patches;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::operators::Operator;
 
 /// Validity information for an array
 #[derive(Clone, Debug)]

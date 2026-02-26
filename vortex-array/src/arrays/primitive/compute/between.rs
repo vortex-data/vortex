@@ -13,10 +13,10 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
-use crate::expr::BetweenKernel;
-use crate::expr::BetweenOptions;
-use crate::expr::StrictComparison;
 use crate::match_each_native_ptype;
+use crate::scalar_fn::fns::between::BetweenKernel;
+use crate::scalar_fn::fns::between::BetweenOptions;
+use crate::scalar_fn::fns::between::StrictComparison;
 use crate::vtable::ValidityHelper;
 
 impl BetweenKernel for PrimitiveVTable {

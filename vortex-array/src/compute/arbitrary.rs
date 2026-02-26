@@ -4,7 +4,7 @@
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
 
-use crate::expr::CompareOperator;
+use crate::scalar_fn::fns::operators::CompareOperator;
 
 impl<'a> Arbitrary<'a> for CompareOperator {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {

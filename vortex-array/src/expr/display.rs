@@ -6,7 +6,7 @@ use std::fmt::Formatter;
 use std::ops::Deref;
 
 use crate::expr::Expression;
-use crate::expr::ScalarFn;
+use crate::scalar_fn::ScalarFnRef;
 
 pub enum DisplayFormat {
     Compact,
@@ -19,7 +19,7 @@ impl Display for DisplayTreeExpr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         pub use termtree::Tree;
         fn make_tree(expr: &Expression) -> Result<Tree<String>, std::fmt::Error> {
-            let scalar_fn: &ScalarFn = expr.deref();
+            let scalar_fn: &ScalarFnRef = expr.deref();
             let node_name = format!("{}", scalar_fn);
 
             // Get child names for display purposes
@@ -50,20 +50,20 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::expr::BetweenOptions;
-    use crate::expr::StrictComparison;
-    use crate::expr::exprs::between::between;
-    use crate::expr::exprs::binary::and;
-    use crate::expr::exprs::binary::eq;
-    use crate::expr::exprs::binary::gt;
-    use crate::expr::exprs::cast::cast;
-    use crate::expr::exprs::get_item::get_item;
-    use crate::expr::exprs::literal::lit;
-    use crate::expr::exprs::not::not;
-    use crate::expr::exprs::pack::pack;
-    use crate::expr::exprs::root::root;
-    use crate::expr::exprs::select::select;
-    use crate::expr::exprs::select::select_exclude;
+    use crate::expr::and;
+    use crate::expr::between;
+    use crate::expr::cast;
+    use crate::expr::eq;
+    use crate::expr::get_item;
+    use crate::expr::gt;
+    use crate::expr::lit;
+    use crate::expr::not;
+    use crate::expr::pack;
+    use crate::expr::root;
+    use crate::expr::select;
+    use crate::expr::select_exclude;
+    use crate::scalar_fn::fns::between::BetweenOptions;
+    use crate::scalar_fn::fns::between::StrictComparison;
 
     #[test]
     fn tree_display_getitem() {

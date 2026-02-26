@@ -9,9 +9,9 @@ use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::dtype::DType;
-use vortex_array::expr::CastReduce;
-use vortex_array::expr::MaskReduce;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
@@ -98,7 +98,7 @@ mod tests {
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::Operator;
+    use vortex_array::scalar_fn::fns::operators::Operator;
 
     use super::*;
 

@@ -10,7 +10,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::expr::CastReduce;
+use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for DictVTable {
     fn cast(array: &DictArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

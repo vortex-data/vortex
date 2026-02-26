@@ -4,6 +4,8 @@ pub use vortex::compute
 
 pub use vortex::expr
 
+pub use vortex::scalar_fn
+
 pub mod vortex::array
 
 pub use vortex::array::<<vortex_array::*>>

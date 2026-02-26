@@ -15,7 +15,7 @@ use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::expr::ZipKernel;
+use crate::scalar_fn::fns::zip::ZipKernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

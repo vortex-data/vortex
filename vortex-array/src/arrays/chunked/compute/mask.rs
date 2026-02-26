@@ -9,9 +9,9 @@ use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::ScalarFnArrayExt;
-use crate::expr::EmptyOptions;
-use crate::expr::MaskKernel;
-use crate::expr::mask::Mask as MaskExpr;
+use crate::scalar_fn::EmptyOptions;
+use crate::scalar_fn::fns::mask::Mask as MaskExpr;
+use crate::scalar_fn::fns::mask::MaskKernel;
 
 impl MaskKernel for ChunkedVTable {
     fn mask(

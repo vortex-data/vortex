@@ -22,12 +22,7 @@ use itertools::Itertools;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::expr::Binary;
 use vortex::expr::Expression;
-use vortex::expr::Like;
-use vortex::expr::LikeOptions;
-use vortex::expr::Operator;
-use vortex::expr::VTableExt;
 use vortex::expr::and_collect;
 use vortex::expr::cast;
 use vortex::expr::get_item;
@@ -38,6 +33,11 @@ use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::scalar::Scalar;
+use vortex::scalar_fn::ScalarFnVTableExt;
+use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::like::Like;
+use vortex::scalar_fn::fns::like::LikeOptions;
+use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::convert::FromDataFusion;
 

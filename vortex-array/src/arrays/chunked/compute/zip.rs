@@ -10,7 +10,7 @@ use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::expr::ZipReduce;
+use crate::scalar_fn::fns::zip::ZipReduce;
 
 // Push down the zip call to the chunks. Without this rule
 // the default implementation canonicalises the chunked array

@@ -4,7 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
-use vortex_array::expr::MaskReduce;
+use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_error::VortexResult;
 
 use crate::DateTimePartsArray;

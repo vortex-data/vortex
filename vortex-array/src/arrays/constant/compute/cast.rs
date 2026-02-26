@@ -8,7 +8,7 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::dtype::DType;
-use crate::expr::CastReduce;
+use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for ConstantVTable {
     fn cast(array: &ConstantArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

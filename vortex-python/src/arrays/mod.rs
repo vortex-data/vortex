@@ -31,9 +31,9 @@ use vortex::array::match_each_integer_ptype;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
-use vortex::expr::Operator;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
+use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::PyVortex;
 use crate::arrays::native::PyNativeArray;

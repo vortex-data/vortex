@@ -5,9 +5,9 @@ use crate::arrays::FilterReduceAdaptor;
 use crate::arrays::NullVTable;
 use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::TakeReduceAdaptor;
-use crate::expr::CastReduceAdaptor;
-use crate::expr::MaskReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<NullVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FilterReduceAdaptor(NullVTable)),

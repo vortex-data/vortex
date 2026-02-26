@@ -19,9 +19,9 @@ use crate::expr::analysis::Annotation;
 use crate::expr::analysis::AnnotationFn;
 use crate::expr::analysis::Annotations;
 use crate::expr::analysis::descendent_annotations;
-use crate::expr::exprs::get_item::get_item;
-use crate::expr::exprs::pack::pack;
-use crate::expr::exprs::root::root;
+use crate::expr::get_item;
+use crate::expr::pack;
+use crate::expr::root;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::NodeRewriter;
 use crate::expr::traversal::Transformed;
@@ -212,13 +212,13 @@ mod tests {
     use crate::dtype::PType::I32;
     use crate::dtype::StructFields;
     use crate::expr::analysis::make_free_field_annotator;
-    use crate::expr::exprs::binary::and;
-    use crate::expr::exprs::get_item::col;
-    use crate::expr::exprs::get_item::get_item;
-    use crate::expr::exprs::literal::lit;
-    use crate::expr::exprs::merge::merge;
-    use crate::expr::exprs::pack::pack;
-    use crate::expr::exprs::root::root;
+    use crate::expr::and;
+    use crate::expr::col;
+    use crate::expr::get_item;
+    use crate::expr::lit;
+    use crate::expr::merge;
+    use crate::expr::pack;
+    use crate::expr::root;
     use crate::expr::transform::replace::replace_root_fields;
 
     #[fixture]

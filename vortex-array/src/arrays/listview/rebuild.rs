@@ -16,9 +16,9 @@ use crate::builtins::ArrayBuiltins;
 use crate::compute;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
-use crate::expr::Operator;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::vtable::ValidityHelper;
 
 /// Modes for rebuilding a [`ListViewArray`].

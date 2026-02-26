@@ -9,7 +9,7 @@ use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::expr::CastReduce;
+use crate::scalar_fn::fns::cast::CastReduce;
 use crate::vtable::ValidityHelper;
 
 impl CastReduce for ListViewVTable {

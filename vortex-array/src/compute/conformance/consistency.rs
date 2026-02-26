@@ -34,7 +34,7 @@ use crate::compute::mask;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::expr::Operator;
+use crate::scalar_fn::fns::operators::Operator;
 
 /// Tests that filter and take operations produce consistent results.
 ///

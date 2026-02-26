@@ -10,14 +10,14 @@ use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::expr;
-use vortex::expr::Binary;
 use vortex::expr::Expression;
-use vortex::expr::GetItem;
-use vortex::expr::Operator;
-use vortex::expr::VTableExt;
 use vortex::expr::and;
 use vortex::expr::lit;
 use vortex::expr::not;
+use vortex::scalar_fn::ScalarFnVTableExt;
+use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::get_item::GetItem;
+use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::dtype::PyDType;
 use crate::install_module;

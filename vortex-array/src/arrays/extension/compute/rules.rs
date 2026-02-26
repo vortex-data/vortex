@@ -11,10 +11,10 @@ use crate::arrays::FilterArray;
 use crate::arrays::FilterReduceAdaptor;
 use crate::arrays::FilterVTable;
 use crate::arrays::SliceReduceAdaptor;
-use crate::expr::CastReduceAdaptor;
-use crate::expr::MaskReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<ExtensionVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ExtensionFilterPushDownRule),
@@ -70,12 +70,12 @@ mod tests {
     use crate::dtype::extension::ExtDTypeRef;
     use crate::dtype::extension::ExtId;
     use crate::dtype::extension::ExtVTable;
-    use crate::expr::Binary;
-    use crate::expr::Operator;
     use crate::extension::EmptyMetadata;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+    use crate::scalar_fn::fns::binary::Binary;
+    use crate::scalar_fn::fns::operators::Operator;
 
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct TestExt;

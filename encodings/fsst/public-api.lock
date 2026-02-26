@@ -104,11 +104,11 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_fsst::FSSTVTable
 
 pub fn vortex_fsst::FSSTVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::expr::exprs::binary::compare::CompareKernel for vortex_fsst::FSSTVTable
+impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_fsst::FSSTVTable
 
-pub fn vortex_fsst::FSSTVTable::compare(lhs: &vortex_fsst::FSSTArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::expr::exprs::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fsst::FSSTVTable::compare(lhs: &vortex_fsst::FSSTArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_fsst::FSSTVTable
+impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fsst::FSSTVTable
 
 pub fn vortex_fsst::FSSTVTable::cast(array: &vortex_fsst::FSSTArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 

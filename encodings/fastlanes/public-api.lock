@@ -204,7 +204,7 @@ impl vortex_array::compute::is_constant::IsConstantKernel for vortex_fastlanes::
 
 pub fn vortex_fastlanes::BitPackedVTable::is_constant(&self, array: &vortex_fastlanes::BitPackedArray, opts: &vortex_array::compute::is_constant::IsConstantOpts) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_fastlanes::BitPackedVTable
+impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fastlanes::BitPackedVTable
 
 pub fn vortex_fastlanes::BitPackedVTable::cast(array: &vortex_fastlanes::BitPackedArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -336,7 +336,7 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_fastlanes::DeltaVTable
 
 pub fn vortex_fastlanes::DeltaVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_fastlanes::DeltaVTable
+impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fastlanes::DeltaVTable
 
 pub fn vortex_fastlanes::DeltaVTable::cast(array: &vortex_fastlanes::DeltaArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -470,11 +470,11 @@ pub fn vortex_fastlanes::FoRVTable::is_sorted(&self, array: &vortex_fastlanes::F
 
 pub fn vortex_fastlanes::FoRVTable::is_strict_sorted(&self, array: &vortex_fastlanes::FoRArray) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-impl vortex_array::expr::exprs::binary::compare::CompareKernel for vortex_fastlanes::FoRVTable
+impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_fastlanes::FoRVTable
 
-pub fn vortex_fastlanes::FoRVTable::compare(lhs: &vortex_fastlanes::FoRArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::expr::exprs::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::FoRVTable::compare(lhs: &vortex_fastlanes::FoRArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_fastlanes::FoRVTable
+impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fastlanes::FoRVTable
 
 pub fn vortex_fastlanes::FoRVTable::cast(array: &vortex_fastlanes::FoRArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -610,7 +610,7 @@ impl vortex_array::arrays::slice::SliceKernel for vortex_fastlanes::RLEVTable
 
 pub fn vortex_fastlanes::RLEVTable::slice(array: &vortex_fastlanes::RLEArray, range: core::ops::range::Range<usize>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_fastlanes::RLEVTable
+impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fastlanes::RLEVTable
 
 pub fn vortex_fastlanes::RLEVTable::cast(array: &vortex_fastlanes::RLEArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 

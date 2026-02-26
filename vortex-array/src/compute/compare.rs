@@ -11,7 +11,7 @@ use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 
 use crate::dtype::IntegerPType;
-use crate::expr::CompareOperator;
+use crate::scalar_fn::fns::operators::CompareOperator;
 
 /// Helper function to compare empty values with arrays that have external value length information
 /// like `VarBin`.

@@ -10,9 +10,9 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::expr::CompareKernel;
-use crate::expr::CompareOperator;
-use crate::expr::Operator;
+use crate::scalar_fn::fns::binary::CompareKernel;
+use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::fns::operators::Operator;
 
 impl CompareKernel for ExtensionVTable {
     fn compare(

@@ -13,8 +13,8 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::FieldNames;
-use vortex_array::expr::session::ExprSession;
 use vortex_array::field_path;
+use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::ByteBuffer;
@@ -31,7 +31,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let mut session = VortexSession::empty()
         .with::<ArraySession>()
         .with::<LayoutSession>()
-        .with::<ExprSession>()
+        .with::<ScalarFnSession>()
         .with::<RuntimeSession>();
 
     vortex_file::register_default_encodings(&mut session);

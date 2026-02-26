@@ -13,10 +13,10 @@ use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::SliceReduce;
 use crate::arrays::SliceReduceAdaptor;
-use crate::expr::MaskReduceAdaptor;
 use crate::match_each_decimal_value_type;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::vtable::ValidityHelper;
 
 pub(crate) static RULES: ParentRuleSet<DecimalVTable> = ParentRuleSet::new(&[
