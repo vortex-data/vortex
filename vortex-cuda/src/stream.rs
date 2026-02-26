@@ -68,6 +68,9 @@ impl VortexCudaStream {
         let mut cuda_slice: CudaSlice<T> = self.device_alloc(host_slice.len())?;
         let (device_ptr, record_write) = cuda_slice.device_ptr_mut(&self.0);
 
+        // calling the unsafe memcpy_htod_async expects the cuda context thread local
+        // to be set. To avoid invalid context error from the cuda call we set it
+        // explicitly here.
         self.0
             .context()
             .bind_to_thread()
