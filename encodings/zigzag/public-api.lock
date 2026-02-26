@@ -78,13 +78,19 @@ pub type vortex_zigzag::ZigZagVTable::OperationsVTable = vortex_zigzag::ZigZagVT
 
 pub type vortex_zigzag::ZigZagVTable::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
 
-pub type vortex_zigzag::ZigZagVTable::VisitorVTable = vortex_zigzag::ZigZagVTable
-
 pub fn vortex_zigzag::ZigZagVTable::array_eq(array: &vortex_zigzag::ZigZagArray, other: &vortex_zigzag::ZigZagArray, precision: vortex_array::hash::Precision) -> bool
 
 pub fn vortex_zigzag::ZigZagVTable::array_hash<H: core::hash::Hasher>(array: &vortex_zigzag::ZigZagArray, state: &mut H, precision: vortex_array::hash::Precision)
 
+pub fn vortex_zigzag::ZigZagVTable::buffer(_array: &vortex_zigzag::ZigZagArray, idx: usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_zigzag::ZigZagVTable::buffer_name(_array: &vortex_zigzag::ZigZagArray, idx: usize) -> core::option::Option<alloc::string::String>
+
 pub fn vortex_zigzag::ZigZagVTable::build(dtype: &vortex_array::dtype::DType, len: usize, _metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_zigzag::ZigZagArray>
+
+pub fn vortex_zigzag::ZigZagVTable::child(array: &vortex_zigzag::ZigZagArray, idx: usize) -> vortex_array::array::ArrayRef
+
+pub fn vortex_zigzag::ZigZagVTable::child_name(_array: &vortex_zigzag::ZigZagArray, idx: usize) -> alloc::string::String
 
 pub fn vortex_zigzag::ZigZagVTable::deserialize(_bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
@@ -99,6 +105,10 @@ pub fn vortex_zigzag::ZigZagVTable::id(_array: &Self::Array) -> vortex_array::vt
 pub fn vortex_zigzag::ZigZagVTable::len(array: &vortex_zigzag::ZigZagArray) -> usize
 
 pub fn vortex_zigzag::ZigZagVTable::metadata(_array: &vortex_zigzag::ZigZagArray) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_zigzag::ZigZagVTable::nbuffers(_array: &vortex_zigzag::ZigZagArray) -> usize
+
+pub fn vortex_zigzag::ZigZagVTable::nchildren(_array: &vortex_zigzag::ZigZagArray) -> usize
 
 pub fn vortex_zigzag::ZigZagVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -115,16 +125,6 @@ pub fn vortex_zigzag::ZigZagVTable::scalar_at(array: &vortex_zigzag::ZigZagArray
 impl vortex_array::vtable::validity::ValidityChild<vortex_zigzag::ZigZagVTable> for vortex_zigzag::ZigZagVTable
 
 pub fn vortex_zigzag::ZigZagVTable::validity_child(array: &vortex_zigzag::ZigZagArray) -> &vortex_array::array::ArrayRef
-
-impl vortex_array::vtable::visitor::VisitorVTable<vortex_zigzag::ZigZagVTable> for vortex_zigzag::ZigZagVTable
-
-pub fn vortex_zigzag::ZigZagVTable::nbuffers(_array: &vortex_zigzag::ZigZagArray) -> usize
-
-pub fn vortex_zigzag::ZigZagVTable::nchildren(_array: &vortex_zigzag::ZigZagArray) -> usize
-
-pub fn vortex_zigzag::ZigZagVTable::visit_buffers(_array: &vortex_zigzag::ZigZagArray, _visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
-
-pub fn vortex_zigzag::ZigZagVTable::visit_children(array: &vortex_zigzag::ZigZagArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
 
 pub fn vortex_zigzag::zigzag_decode(parray: vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_array::arrays::primitive::array::PrimitiveArray
 

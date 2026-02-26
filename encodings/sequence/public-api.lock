@@ -110,13 +110,19 @@ pub type vortex_sequence::SequenceVTable::OperationsVTable = vortex_sequence::Se
 
 pub type vortex_sequence::SequenceVTable::ValidityVTable = vortex_sequence::SequenceVTable
 
-pub type vortex_sequence::SequenceVTable::VisitorVTable = vortex_sequence::SequenceVTable
-
 pub fn vortex_sequence::SequenceVTable::array_eq(array: &vortex_sequence::SequenceArray, other: &vortex_sequence::SequenceArray, _precision: vortex_array::hash::Precision) -> bool
 
 pub fn vortex_sequence::SequenceVTable::array_hash<H: core::hash::Hasher>(array: &vortex_sequence::SequenceArray, state: &mut H, _precision: vortex_array::hash::Precision)
 
+pub fn vortex_sequence::SequenceVTable::buffer(_array: &vortex_sequence::SequenceArray, idx: usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_sequence::SequenceVTable::buffer_name(_array: &vortex_sequence::SequenceArray, idx: usize) -> core::option::Option<alloc::string::String>
+
 pub fn vortex_sequence::SequenceVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_sequence::SequenceArray>
+
+pub fn vortex_sequence::SequenceVTable::child(_array: &vortex_sequence::SequenceArray, idx: usize) -> vortex_array::array::ArrayRef
+
+pub fn vortex_sequence::SequenceVTable::child_name(_array: &vortex_sequence::SequenceArray, idx: usize) -> alloc::string::String
 
 pub fn vortex_sequence::SequenceVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
@@ -131,6 +137,10 @@ pub fn vortex_sequence::SequenceVTable::id(_array: &Self::Array) -> vortex_array
 pub fn vortex_sequence::SequenceVTable::len(array: &vortex_sequence::SequenceArray) -> usize
 
 pub fn vortex_sequence::SequenceVTable::metadata(array: &vortex_sequence::SequenceArray) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_sequence::SequenceVTable::nbuffers(_array: &vortex_sequence::SequenceArray) -> usize
+
+pub fn vortex_sequence::SequenceVTable::nchildren(_array: &vortex_sequence::SequenceArray) -> usize
 
 pub fn vortex_sequence::SequenceVTable::reduce_parent(array: &vortex_sequence::SequenceArray, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -147,15 +157,5 @@ pub fn vortex_sequence::SequenceVTable::scalar_at(array: &vortex_sequence::Seque
 impl vortex_array::vtable::validity::ValidityVTable<vortex_sequence::SequenceVTable> for vortex_sequence::SequenceVTable
 
 pub fn vortex_sequence::SequenceVTable::validity(_array: &vortex_sequence::SequenceArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
-
-impl vortex_array::vtable::visitor::VisitorVTable<vortex_sequence::SequenceVTable> for vortex_sequence::SequenceVTable
-
-pub fn vortex_sequence::SequenceVTable::nbuffers(_array: &vortex_sequence::SequenceArray) -> usize
-
-pub fn vortex_sequence::SequenceVTable::nchildren(_array: &vortex_sequence::SequenceArray) -> usize
-
-pub fn vortex_sequence::SequenceVTable::visit_buffers(_array: &vortex_sequence::SequenceArray, _visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
-
-pub fn vortex_sequence::SequenceVTable::visit_children(_array: &vortex_sequence::SequenceArray, _visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
 
 pub fn vortex_sequence::sequence_encode(primitive_array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>

@@ -178,13 +178,19 @@ pub type vortex_alp::ALPRDVTable::OperationsVTable = vortex_alp::ALPRDVTable
 
 pub type vortex_alp::ALPRDVTable::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
 
-pub type vortex_alp::ALPRDVTable::VisitorVTable = vortex_alp::ALPRDVTable
-
 pub fn vortex_alp::ALPRDVTable::array_eq(array: &vortex_alp::ALPRDArray, other: &vortex_alp::ALPRDArray, precision: vortex_array::hash::Precision) -> bool
 
 pub fn vortex_alp::ALPRDVTable::array_hash<H: core::hash::Hasher>(array: &vortex_alp::ALPRDArray, state: &mut H, precision: vortex_array::hash::Precision)
 
+pub fn vortex_alp::ALPRDVTable::buffer(_array: &vortex_alp::ALPRDArray, idx: usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_alp::ALPRDVTable::buffer_name(_array: &vortex_alp::ALPRDArray, _idx: usize) -> core::option::Option<alloc::string::String>
+
 pub fn vortex_alp::ALPRDVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_alp::ALPRDArray>
+
+pub fn vortex_alp::ALPRDVTable::child(array: &vortex_alp::ALPRDArray, idx: usize) -> vortex_array::array::ArrayRef
+
+pub fn vortex_alp::ALPRDVTable::child_name(array: &vortex_alp::ALPRDArray, idx: usize) -> alloc::string::String
 
 pub fn vortex_alp::ALPRDVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
@@ -199,6 +205,10 @@ pub fn vortex_alp::ALPRDVTable::id(_array: &Self::Array) -> vortex_array::vtable
 pub fn vortex_alp::ALPRDVTable::len(array: &vortex_alp::ALPRDArray) -> usize
 
 pub fn vortex_alp::ALPRDVTable::metadata(array: &vortex_alp::ALPRDArray) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_alp::ALPRDVTable::nbuffers(_array: &vortex_alp::ALPRDArray) -> usize
+
+pub fn vortex_alp::ALPRDVTable::nchildren(array: &vortex_alp::ALPRDArray) -> usize
 
 pub fn vortex_alp::ALPRDVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -215,16 +225,6 @@ pub fn vortex_alp::ALPRDVTable::scalar_at(array: &vortex_alp::ALPRDArray, index:
 impl vortex_array::vtable::validity::ValidityChild<vortex_alp::ALPRDVTable> for vortex_alp::ALPRDVTable
 
 pub fn vortex_alp::ALPRDVTable::validity_child(array: &vortex_alp::ALPRDArray) -> &vortex_array::array::ArrayRef
-
-impl vortex_array::vtable::visitor::VisitorVTable<vortex_alp::ALPRDVTable> for vortex_alp::ALPRDVTable
-
-pub fn vortex_alp::ALPRDVTable::nbuffers(_array: &vortex_alp::ALPRDArray) -> usize
-
-pub fn vortex_alp::ALPRDVTable::nchildren(array: &vortex_alp::ALPRDArray) -> usize
-
-pub fn vortex_alp::ALPRDVTable::visit_buffers(_array: &vortex_alp::ALPRDArray, _visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
-
-pub fn vortex_alp::ALPRDVTable::visit_children(array: &vortex_alp::ALPRDArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
 
 pub struct vortex_alp::ALPVTable
 
@@ -282,13 +282,19 @@ pub type vortex_alp::ALPVTable::OperationsVTable = vortex_alp::ALPVTable
 
 pub type vortex_alp::ALPVTable::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
 
-pub type vortex_alp::ALPVTable::VisitorVTable = vortex_alp::ALPVTable
-
 pub fn vortex_alp::ALPVTable::array_eq(array: &vortex_alp::ALPArray, other: &vortex_alp::ALPArray, precision: vortex_array::hash::Precision) -> bool
 
 pub fn vortex_alp::ALPVTable::array_hash<H: core::hash::Hasher>(array: &vortex_alp::ALPArray, state: &mut H, precision: vortex_array::hash::Precision)
 
+pub fn vortex_alp::ALPVTable::buffer(_array: &vortex_alp::ALPArray, idx: usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_alp::ALPVTable::buffer_name(_array: &vortex_alp::ALPArray, _idx: usize) -> core::option::Option<alloc::string::String>
+
 pub fn vortex_alp::ALPVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_alp::ALPArray>
+
+pub fn vortex_alp::ALPVTable::child(array: &vortex_alp::ALPArray, idx: usize) -> vortex_array::array::ArrayRef
+
+pub fn vortex_alp::ALPVTable::child_name(array: &vortex_alp::ALPArray, idx: usize) -> alloc::string::String
 
 pub fn vortex_alp::ALPVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
@@ -303,6 +309,10 @@ pub fn vortex_alp::ALPVTable::id(_array: &Self::Array) -> vortex_array::vtable::
 pub fn vortex_alp::ALPVTable::len(array: &vortex_alp::ALPArray) -> usize
 
 pub fn vortex_alp::ALPVTable::metadata(array: &vortex_alp::ALPArray) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_alp::ALPVTable::nbuffers(_array: &vortex_alp::ALPArray) -> usize
+
+pub fn vortex_alp::ALPVTable::nchildren(array: &vortex_alp::ALPArray) -> usize
 
 pub fn vortex_alp::ALPVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -319,16 +329,6 @@ pub fn vortex_alp::ALPVTable::scalar_at(array: &vortex_alp::ALPArray, index: usi
 impl vortex_array::vtable::validity::ValidityChild<vortex_alp::ALPVTable> for vortex_alp::ALPVTable
 
 pub fn vortex_alp::ALPVTable::validity_child(array: &vortex_alp::ALPArray) -> &vortex_array::array::ArrayRef
-
-impl vortex_array::vtable::visitor::VisitorVTable<vortex_alp::ALPVTable> for vortex_alp::ALPVTable
-
-pub fn vortex_alp::ALPVTable::nbuffers(_array: &vortex_alp::ALPArray) -> usize
-
-pub fn vortex_alp::ALPVTable::nchildren(array: &vortex_alp::ALPArray) -> usize
-
-pub fn vortex_alp::ALPVTable::visit_buffers(_array: &vortex_alp::ALPArray, _visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
-
-pub fn vortex_alp::ALPVTable::visit_children(array: &vortex_alp::ALPArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
 
 pub struct vortex_alp::Exponents
 

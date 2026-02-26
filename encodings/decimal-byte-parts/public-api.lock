@@ -90,13 +90,19 @@ pub type vortex_decimal_byte_parts::DecimalBytePartsVTable::OperationsVTable = v
 
 pub type vortex_decimal_byte_parts::DecimalBytePartsVTable::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
 
-pub type vortex_decimal_byte_parts::DecimalBytePartsVTable::VisitorVTable = vortex_decimal_byte_parts::DecimalBytePartsVTable
-
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::array_eq(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, other: &vortex_decimal_byte_parts::DecimalBytePartsArray, precision: vortex_array::hash::Precision) -> bool
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::array_hash<H: core::hash::Hasher>(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, state: &mut H, precision: vortex_array::hash::Precision)
 
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::buffer(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray, idx: usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::buffer_name(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray, idx: usize) -> core::option::Option<alloc::string::String>
+
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_decimal_byte_parts::DecimalBytePartsArray>
+
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::child(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, idx: usize) -> vortex_array::array::ArrayRef
+
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::child_name(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray, idx: usize) -> alloc::string::String
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
@@ -111,6 +117,10 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::id(_array: &Self::Arra
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::len(array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> usize
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::metadata(array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::nbuffers(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> usize
+
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::nchildren(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> usize
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -127,16 +137,6 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::scalar_at(array: &vort
 impl vortex_array::vtable::validity::ValidityChild<vortex_decimal_byte_parts::DecimalBytePartsVTable> for vortex_decimal_byte_parts::DecimalBytePartsVTable
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::validity_child(array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> &vortex_array::array::ArrayRef
-
-impl vortex_array::vtable::visitor::VisitorVTable<vortex_decimal_byte_parts::DecimalBytePartsVTable> for vortex_decimal_byte_parts::DecimalBytePartsVTable
-
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::nbuffers(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> usize
-
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::nchildren(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> usize
-
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::visit_buffers(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray, _visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
-
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::visit_children(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
 
 pub struct vortex_decimal_byte_parts::DecimalBytesPartsMetadata
 

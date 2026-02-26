@@ -86,13 +86,19 @@ pub type vortex_bytebool::ByteBoolVTable::OperationsVTable = vortex_bytebool::By
 
 pub type vortex_bytebool::ByteBoolVTable::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromValidityHelper
 
-pub type vortex_bytebool::ByteBoolVTable::VisitorVTable = vortex_bytebool::ByteBoolVTable
-
 pub fn vortex_bytebool::ByteBoolVTable::array_eq(array: &vortex_bytebool::ByteBoolArray, other: &vortex_bytebool::ByteBoolArray, precision: vortex_array::hash::Precision) -> bool
 
 pub fn vortex_bytebool::ByteBoolVTable::array_hash<H: core::hash::Hasher>(array: &vortex_bytebool::ByteBoolArray, state: &mut H, precision: vortex_array::hash::Precision)
 
+pub fn vortex_bytebool::ByteBoolVTable::buffer(array: &vortex_bytebool::ByteBoolArray, idx: usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_bytebool::ByteBoolVTable::buffer_name(_array: &vortex_bytebool::ByteBoolArray, idx: usize) -> core::option::Option<alloc::string::String>
+
 pub fn vortex_bytebool::ByteBoolVTable::build(dtype: &vortex_array::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_bytebool::ByteBoolArray>
+
+pub fn vortex_bytebool::ByteBoolVTable::child(array: &vortex_bytebool::ByteBoolArray, idx: usize) -> vortex_array::array::ArrayRef
+
+pub fn vortex_bytebool::ByteBoolVTable::child_name(_array: &vortex_bytebool::ByteBoolArray, idx: usize) -> alloc::string::String
 
 pub fn vortex_bytebool::ByteBoolVTable::deserialize(_bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
@@ -108,6 +114,10 @@ pub fn vortex_bytebool::ByteBoolVTable::len(array: &vortex_bytebool::ByteBoolArr
 
 pub fn vortex_bytebool::ByteBoolVTable::metadata(_array: &vortex_bytebool::ByteBoolArray) -> vortex_error::VortexResult<Self::Metadata>
 
+pub fn vortex_bytebool::ByteBoolVTable::nbuffers(_array: &vortex_bytebool::ByteBoolArray) -> usize
+
+pub fn vortex_bytebool::ByteBoolVTable::nchildren(array: &vortex_bytebool::ByteBoolArray) -> usize
+
 pub fn vortex_bytebool::ByteBoolVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_bytebool::ByteBoolVTable::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
@@ -119,13 +129,3 @@ pub fn vortex_bytebool::ByteBoolVTable::with_children(array: &mut Self::Array, c
 impl vortex_array::vtable::operations::OperationsVTable<vortex_bytebool::ByteBoolVTable> for vortex_bytebool::ByteBoolVTable
 
 pub fn vortex_bytebool::ByteBoolVTable::scalar_at(array: &vortex_bytebool::ByteBoolArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-impl vortex_array::vtable::visitor::VisitorVTable<vortex_bytebool::ByteBoolVTable> for vortex_bytebool::ByteBoolVTable
-
-pub fn vortex_bytebool::ByteBoolVTable::nbuffers(_array: &vortex_bytebool::ByteBoolArray) -> usize
-
-pub fn vortex_bytebool::ByteBoolVTable::nchildren(array: &vortex_bytebool::ByteBoolArray) -> usize
-
-pub fn vortex_bytebool::ByteBoolVTable::visit_buffers(array: &vortex_bytebool::ByteBoolArray, visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
-
-pub fn vortex_bytebool::ByteBoolVTable::visit_children(array: &vortex_bytebool::ByteBoolArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
