@@ -316,7 +316,7 @@ mod tests {
         data: &[u32],
     ) -> VortexResult<(u64, Arc<cudarc::driver::CudaSlice<u32>>)> {
         let device_buf = Arc::new(cuda_ctx.stream().clone_htod(data).expect("htod"));
-        let (ptr, _record_ptr) = device_buf.device_ptr(cuda_ctx.stream());
+        let (ptr, _) = device_buf.device_ptr(cuda_ctx.stream());
         Ok((ptr, device_buf))
     }
 
