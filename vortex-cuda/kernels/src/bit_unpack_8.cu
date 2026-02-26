@@ -5,7 +5,7 @@
 #include "fastlanes_common.cuh"
 #include "patches.h"
 
-__device__ void _bit_unpack_8_0bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
+__device__ void _bit_unpack_8_0bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 128;
     
     out[INDEX(0, lane)] = reference;
@@ -18,7 +18,7 @@ __device__ void _bit_unpack_8_0bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = reference;
 }
 
-__device__ void _bit_unpack_8_1bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
+__device__ void _bit_unpack_8_1bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 128;
     uint8_t src;
     uint8_t tmp;
@@ -42,7 +42,7 @@ __device__ void _bit_unpack_8_1bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_8_2bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
+__device__ void _bit_unpack_8_2bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 128;
     uint8_t src;
     uint8_t tmp;
@@ -68,7 +68,7 @@ __device__ void _bit_unpack_8_2bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_8_3bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
+__device__ void _bit_unpack_8_3bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 128;
     uint8_t src;
     uint8_t tmp;
@@ -96,7 +96,7 @@ __device__ void _bit_unpack_8_3bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_8_4bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
+__device__ void _bit_unpack_8_4bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 128;
     uint8_t src;
     uint8_t tmp;
@@ -126,7 +126,7 @@ __device__ void _bit_unpack_8_4bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_8_5bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
+__device__ void _bit_unpack_8_5bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 128;
     uint8_t src;
     uint8_t tmp;
@@ -158,7 +158,7 @@ __device__ void _bit_unpack_8_5bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_8_6bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
+__device__ void _bit_unpack_8_6bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 128;
     uint8_t src;
     uint8_t tmp;
@@ -192,7 +192,7 @@ __device__ void _bit_unpack_8_6bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_8_7bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
+__device__ void _bit_unpack_8_7bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 128;
     uint8_t src;
     uint8_t tmp;
@@ -228,7 +228,7 @@ __device__ void _bit_unpack_8_7bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_8_8bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
+__device__ void _bit_unpack_8_8bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 128;
     
     out[INDEX(0, lane)] = in[LANE_COUNT * 0 + lane] + reference;
@@ -251,15 +251,15 @@ __device__ inline void bit_unpack_8_lane(
     GPUPatches patches
 ) {
     switch (bit_width) {
-        case 0: _bit_unpack_8_0bw_lane(in, out, reference, lane); break;
-        case 1: _bit_unpack_8_1bw_lane(in, out, reference, lane); break;
-        case 2: _bit_unpack_8_2bw_lane(in, out, reference, lane); break;
-        case 3: _bit_unpack_8_3bw_lane(in, out, reference, lane); break;
-        case 4: _bit_unpack_8_4bw_lane(in, out, reference, lane); break;
-        case 5: _bit_unpack_8_5bw_lane(in, out, reference, lane); break;
-        case 6: _bit_unpack_8_6bw_lane(in, out, reference, lane); break;
-        case 7: _bit_unpack_8_7bw_lane(in, out, reference, lane); break;
-        case 8: _bit_unpack_8_8bw_lane(in, out, reference, lane); break;
+        case 0: _bit_unpack_8_0bw_lane(in, out, reference, lane, patches); break;
+        case 1: _bit_unpack_8_1bw_lane(in, out, reference, lane, patches); break;
+        case 2: _bit_unpack_8_2bw_lane(in, out, reference, lane, patches); break;
+        case 3: _bit_unpack_8_3bw_lane(in, out, reference, lane, patches); break;
+        case 4: _bit_unpack_8_4bw_lane(in, out, reference, lane, patches); break;
+        case 5: _bit_unpack_8_5bw_lane(in, out, reference, lane, patches); break;
+        case 6: _bit_unpack_8_6bw_lane(in, out, reference, lane, patches); break;
+        case 7: _bit_unpack_8_7bw_lane(in, out, reference, lane, patches); break;
+        case 8: _bit_unpack_8_8bw_lane(in, out, reference, lane, patches); break;
     }
 }
 

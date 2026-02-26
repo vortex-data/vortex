@@ -5,7 +5,7 @@
 #include "fastlanes_common.cuh"
 #include "patches.h"
 
-__device__ void _bit_unpack_16_0bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_0bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     
     out[INDEX(0, lane)] = reference;
@@ -26,7 +26,7 @@ __device__ void _bit_unpack_16_0bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = reference;
 }
 
-__device__ void _bit_unpack_16_1bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_1bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
@@ -66,7 +66,7 @@ __device__ void _bit_unpack_16_1bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_16_2bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_2bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
@@ -108,7 +108,7 @@ __device__ void _bit_unpack_16_2bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_16_3bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_3bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
@@ -152,7 +152,7 @@ __device__ void _bit_unpack_16_3bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_16_4bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_4bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
@@ -198,7 +198,7 @@ __device__ void _bit_unpack_16_4bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_16_5bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_5bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
@@ -246,7 +246,7 @@ __device__ void _bit_unpack_16_5bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_16_6bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_6bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
@@ -296,7 +296,7 @@ __device__ void _bit_unpack_16_6bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_16_7bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_7bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
@@ -348,7 +348,7 @@ __device__ void _bit_unpack_16_7bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_16_8bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_8bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
@@ -402,7 +402,7 @@ __device__ void _bit_unpack_16_8bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_16_9bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_9bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
@@ -458,7 +458,7 @@ __device__ void _bit_unpack_16_9bw_lane(const uint16_t *__restrict in, uint16_t 
     out[INDEX(15, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_16_10bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_10bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
@@ -516,7 +516,7 @@ __device__ void _bit_unpack_16_10bw_lane(const uint16_t *__restrict in, uint16_t
     out[INDEX(15, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_16_11bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_11bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
@@ -576,7 +576,7 @@ __device__ void _bit_unpack_16_11bw_lane(const uint16_t *__restrict in, uint16_t
     out[INDEX(15, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_16_12bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_12bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
@@ -638,7 +638,7 @@ __device__ void _bit_unpack_16_12bw_lane(const uint16_t *__restrict in, uint16_t
     out[INDEX(15, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_16_13bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_13bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
@@ -702,7 +702,7 @@ __device__ void _bit_unpack_16_13bw_lane(const uint16_t *__restrict in, uint16_t
     out[INDEX(15, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_16_14bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_14bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
@@ -768,7 +768,7 @@ __device__ void _bit_unpack_16_14bw_lane(const uint16_t *__restrict in, uint16_t
     out[INDEX(15, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_16_15bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_15bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     uint16_t src;
     uint16_t tmp;
@@ -836,7 +836,7 @@ __device__ void _bit_unpack_16_15bw_lane(const uint16_t *__restrict in, uint16_t
     out[INDEX(15, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_16_16bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane) {
+__device__ void _bit_unpack_16_16bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
     
     out[INDEX(0, lane)] = in[LANE_COUNT * 0 + lane] + reference;
@@ -867,23 +867,23 @@ __device__ inline void bit_unpack_16_lane(
     GPUPatches patches
 ) {
     switch (bit_width) {
-        case 0: _bit_unpack_16_0bw_lane(in, out, reference, lane); break;
-        case 1: _bit_unpack_16_1bw_lane(in, out, reference, lane); break;
-        case 2: _bit_unpack_16_2bw_lane(in, out, reference, lane); break;
-        case 3: _bit_unpack_16_3bw_lane(in, out, reference, lane); break;
-        case 4: _bit_unpack_16_4bw_lane(in, out, reference, lane); break;
-        case 5: _bit_unpack_16_5bw_lane(in, out, reference, lane); break;
-        case 6: _bit_unpack_16_6bw_lane(in, out, reference, lane); break;
-        case 7: _bit_unpack_16_7bw_lane(in, out, reference, lane); break;
-        case 8: _bit_unpack_16_8bw_lane(in, out, reference, lane); break;
-        case 9: _bit_unpack_16_9bw_lane(in, out, reference, lane); break;
-        case 10: _bit_unpack_16_10bw_lane(in, out, reference, lane); break;
-        case 11: _bit_unpack_16_11bw_lane(in, out, reference, lane); break;
-        case 12: _bit_unpack_16_12bw_lane(in, out, reference, lane); break;
-        case 13: _bit_unpack_16_13bw_lane(in, out, reference, lane); break;
-        case 14: _bit_unpack_16_14bw_lane(in, out, reference, lane); break;
-        case 15: _bit_unpack_16_15bw_lane(in, out, reference, lane); break;
-        case 16: _bit_unpack_16_16bw_lane(in, out, reference, lane); break;
+        case 0: _bit_unpack_16_0bw_lane(in, out, reference, lane, patches); break;
+        case 1: _bit_unpack_16_1bw_lane(in, out, reference, lane, patches); break;
+        case 2: _bit_unpack_16_2bw_lane(in, out, reference, lane, patches); break;
+        case 3: _bit_unpack_16_3bw_lane(in, out, reference, lane, patches); break;
+        case 4: _bit_unpack_16_4bw_lane(in, out, reference, lane, patches); break;
+        case 5: _bit_unpack_16_5bw_lane(in, out, reference, lane, patches); break;
+        case 6: _bit_unpack_16_6bw_lane(in, out, reference, lane, patches); break;
+        case 7: _bit_unpack_16_7bw_lane(in, out, reference, lane, patches); break;
+        case 8: _bit_unpack_16_8bw_lane(in, out, reference, lane, patches); break;
+        case 9: _bit_unpack_16_9bw_lane(in, out, reference, lane, patches); break;
+        case 10: _bit_unpack_16_10bw_lane(in, out, reference, lane, patches); break;
+        case 11: _bit_unpack_16_11bw_lane(in, out, reference, lane, patches); break;
+        case 12: _bit_unpack_16_12bw_lane(in, out, reference, lane, patches); break;
+        case 13: _bit_unpack_16_13bw_lane(in, out, reference, lane, patches); break;
+        case 14: _bit_unpack_16_14bw_lane(in, out, reference, lane, patches); break;
+        case 15: _bit_unpack_16_15bw_lane(in, out, reference, lane, patches); break;
+        case 16: _bit_unpack_16_16bw_lane(in, out, reference, lane, patches); break;
     }
 }
 
