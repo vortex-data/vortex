@@ -65,7 +65,12 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::scalar_fn::array::ScalarFnArray;
     use crate::assert_arrays_eq;
+    use crate::dtype::Nullability;
+    use crate::scalar::Scalar;
     use crate::scalar_fn::ScalarFn;
+    use crate::scalar_fn::fns::between::Between;
+    use crate::scalar_fn::fns::between::BetweenOptions;
+    use crate::scalar_fn::fns::between::StrictComparison;
     use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::operators::Operator;
     use crate::validity::Validity;
@@ -134,6 +139,35 @@ mod tests {
         let result = scalar_fn_array.to_canonical()?.into_array();
         let expected = BoolArray::from_iter([false, true, false]).into_array();
         assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_scalar_fn_scalar_at() -> VortexResult<()> {
+        let array = buffer![4i32, 4, 4].into_array();
+        let lower = buffer![4i32, 2, 3].into_array();
+        let upper = buffer![4i32, 5, 6].into_array();
+        let scalar_fn = ScalarFn::new(
+            Between,
+            BetweenOptions {
+                lower_strict: StrictComparison::Strict,
+                upper_strict: StrictComparison::Strict,
+            },
+        )
+        .erased();
+
+        let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![array, lower, upper], 3)?;
+
+        assert_eq!(
+            scalar_fn_array.scalar_at(0)?,
+            Scalar::bool(false, Nullability::NonNullable)
+        );
+
+        assert_eq!(
+            scalar_fn_array.scalar_at(1)?,
+            Scalar::bool(true, Nullability::NonNullable)
+        );
 
         Ok(())
     }

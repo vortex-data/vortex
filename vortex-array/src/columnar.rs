@@ -22,7 +22,7 @@ use crate::dtype::DType;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
 
-/// Represents a columnnar array of data, either in canonical form or as a constant array.
+/// Represents a columnar array of data, either in canonical form or as a constant array.
 ///
 /// Since the [`Canonical`] enum has one variant per logical data type, it is inefficient for
 /// representing constant arrays. The [`Columnar`] enum allows holding an array of data in either

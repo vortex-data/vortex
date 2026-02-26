@@ -20,9 +20,9 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::ConstantArray;
 use crate::arrays::DecimalVTable;
 use crate::arrays::PrimitiveVTable;
+use crate::arrays::{ConstantArray, ConstantVTable};
 use crate::builtins::ArrayBuiltins;
 use crate::compute::Options;
 use crate::dtype::DType;
@@ -300,7 +300,20 @@ impl ScalarFnVTable for Between {
             .try_into()
             .map_err(|_| vortex_err!("Expected 3 arguments for Between expression",))?;
 
-        // canonicalize the arr and we might be able to run a between kernels over that.
+        // Fast path for constant
+        if let Some(constant) = arr.as_opt::<ConstantVTable>()
+            && let Some(result) = <ConstantVTable as BetweenKernel>::between(
+                constant,
+                lower.as_ref(),
+                upper.as_ref(),
+                options,
+                args.ctx,
+            )?
+        {
+            return Ok(result);
+        }
+
+        // canonicalize the arr , we might be able to run a between kernels over that.
         if !arr.is_canonical() {
             return arr.execute::<Canonical>(args.ctx)?.into_array().between(
                 lower,
