@@ -28,10 +28,6 @@ use vortex::io::std_file::read_exact_at;
 use crate::pinned::PinnedByteBufferPool;
 use crate::stream::VortexCudaStream;
 
-const FILE_COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
-    distance: 1024 * 1024,     // 1MB
-    max_size: 4 * 1024 * 1024, // 4MB
-};
 /// Default number of concurrent requests to allow for local file I/O.
 pub const DEFAULT_FILE_CONCURRENCY: usize = 32;
 /// Default number of concurrent requests to allow for object store I/O.
@@ -78,7 +74,7 @@ impl VortexReadAt for PooledFileReadAt {
     }
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
-        Some(FILE_COALESCING_CONFIG)
+        Some(CoalesceConfig::file())
     }
 
     fn concurrency(&self) -> usize {
@@ -103,12 +99,10 @@ impl VortexReadAt for PooledFileReadAt {
         let file = Arc::clone(&self.file);
         let handle = self.handle.clone();
         let stream = self.stream.clone();
-        let mut target = match self.pool.get(length) {
-            Ok(target) => target,
-            Err(err) => return async move { Err(err) }.boxed(),
-        };
+        let pool = Arc::clone(&self.pool);
 
         async move {
+            let mut target = pool.get(length)?;
             let target = handle
                 .spawn_blocking(move || {
                     read_exact_at(&file, target.as_mut_slice(), offset)?;
@@ -218,26 +212,18 @@ impl VortexReadAt for PooledObjectStoreReadAt {
         let path = self.path.clone();
         let handle = self.handle.clone();
         let stream = self.stream.clone();
-        let mut target = match self.pool.get(length) {
-            Ok(target) => target,
-            Err(err) => return async move { Err(err) }.boxed(),
-        };
-        let end = match offset.checked_add(length as u64) {
-            Some(end) => end,
-            None => {
-                return async move {
-                    Err(vortex_err!(
-                        "Object store read range overflow: offset={}, length={}",
-                        offset,
-                        length
-                    ))
-                }
-                .boxed();
-            }
-        };
-        let range = offset..end;
+        let pool = Arc::clone(&self.pool);
 
         async move {
+            let end = offset.checked_add(length as u64).ok_or_else(|| {
+                vortex_err!(
+                    "Object store read range overflow: offset={}, length={}",
+                    offset,
+                    length
+                )
+            })?;
+            let range = offset..end;
+            let mut target = pool.get(length)?;
             let response = store
                 .get_opts(
                     &path,
