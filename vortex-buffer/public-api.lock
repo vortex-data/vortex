@@ -930,6 +930,10 @@ pub fn vortex_buffer::AlignedBuf::copy_to_const_aligned<const A: usize>(&mut sel
 
 impl<B: bytes::buf::buf_impl::Buf> vortex_buffer::AlignedBuf for B
 
+pub fn B::copy_to_aligned(&mut self, len: usize, alignment: vortex_buffer::Alignment) -> vortex_buffer::ByteBuffer
+
+pub fn B::copy_to_const_aligned<const A: usize>(&mut self, len: usize) -> vortex_buffer::ConstByteBuffer<A>
+
 pub fn vortex_buffer::get_bit(buf: &[u8], index: usize) -> bool
 
 pub unsafe fn vortex_buffer::get_bit_unchecked(buf: *const u8, index: usize) -> bool

@@ -58,7 +58,11 @@ pub fn vortex_scan::layout::LayoutReaderDataSource::row_count(&self) -> core::op
 
 pub fn vortex_scan::layout::LayoutReaderDataSource::scan<'life0, 'async_trait>(&'life0 self, scan_request: vortex_scan::api::ScanRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_scan::api::DataSourceScanRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 
+pub fn vortex_scan::layout::LayoutReaderDataSource::serialize(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
 impl vortex_scan::api::DataSource for vortex_scan::multi::MultiLayoutDataSource
+
+pub fn vortex_scan::multi::MultiLayoutDataSource::byte_size(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
 pub fn vortex_scan::multi::MultiLayoutDataSource::deserialize_partition(&self, _data: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_scan::api::PartitionRef>
 
@@ -69,6 +73,8 @@ pub fn vortex_scan::multi::MultiLayoutDataSource::field_statistics<'life0, 'life
 pub fn vortex_scan::multi::MultiLayoutDataSource::row_count(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
 pub fn vortex_scan::multi::MultiLayoutDataSource::scan<'life0, 'async_trait>(&'life0 self, scan_request: vortex_scan::api::ScanRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_scan::api::DataSourceScanRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+
+pub fn vortex_scan::multi::MultiLayoutDataSource::serialize(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub trait vortex_scan::api::DataSourceOpener: 'static
 
@@ -156,6 +162,8 @@ pub fn vortex_scan::layout::LayoutReaderDataSource::row_count(&self) -> core::op
 
 pub fn vortex_scan::layout::LayoutReaderDataSource::scan<'life0, 'async_trait>(&'life0 self, scan_request: vortex_scan::api::ScanRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_scan::api::DataSourceScanRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 
+pub fn vortex_scan::layout::LayoutReaderDataSource::serialize(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
 pub mod vortex_scan::multi
 
 pub struct vortex_scan::multi::MultiLayoutDataSource
@@ -170,6 +178,8 @@ pub fn vortex_scan::multi::MultiLayoutDataSource::with_concurrency(self, concurr
 
 impl vortex_scan::api::DataSource for vortex_scan::multi::MultiLayoutDataSource
 
+pub fn vortex_scan::multi::MultiLayoutDataSource::byte_size(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
+
 pub fn vortex_scan::multi::MultiLayoutDataSource::deserialize_partition(&self, _data: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_scan::api::PartitionRef>
 
 pub fn vortex_scan::multi::MultiLayoutDataSource::dtype(&self) -> &vortex_array::dtype::DType
@@ -179,6 +189,8 @@ pub fn vortex_scan::multi::MultiLayoutDataSource::field_statistics<'life0, 'life
 pub fn vortex_scan::multi::MultiLayoutDataSource::row_count(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
 pub fn vortex_scan::multi::MultiLayoutDataSource::scan<'life0, 'async_trait>(&'life0 self, scan_request: vortex_scan::api::ScanRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_scan::api::DataSourceScanRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+
+pub fn vortex_scan::multi::MultiLayoutDataSource::serialize(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub trait vortex_scan::multi::LayoutReaderFactory: 'static + core::marker::Send + core::marker::Sync
 
