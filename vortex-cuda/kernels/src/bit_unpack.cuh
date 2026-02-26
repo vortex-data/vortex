@@ -11,6 +11,7 @@
 #include "bit_unpack_16.cu"
 #include "bit_unpack_32.cu"
 #include "bit_unpack_64.cu"
+#include "patches.h"
 
 /// Decodes a single lane of packed data.
 ///
@@ -41,7 +42,8 @@ __device__ inline void bit_unpack_lane(const T *__restrict packed_chunk,
                                                            uint##bits##_t reference,                         \
                                                            unsigned int lane,                                \
                                                            uint32_t bw) {                                    \
-        bit_unpack_##bits##_lane(in, out, reference, lane, bw);                                              \
+	const GPUPatches empty{0, 0, nullptr, nullptr, nullptr};                                             \
+        bit_unpack_##bits##_lane(in, out, reference, lane, bw, empty);                                       \
     }
 
 BIT_UNPACK_LANE(8)

@@ -20,7 +20,7 @@ fn generate_lane_decoder<T: FastLanes, W: Write>(
 
     writeln!(
         output,
-        "__device__ void _{func_name}(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, unsigned int lane) {{"
+        "__device__ void _{func_name}(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, unsigned int lane, GPUPatches patches) {{"
     )?;
 
     output.indent(|output| {
@@ -106,7 +106,7 @@ fn generate_lane_dispatch<T: FastLanes, W: Write>(
             for bw in 0..=bits {
                 writeln!(
                     output,
-                    "case {bw}: _bit_unpack_{bits}_{bw}bw_lane(in, out, reference, lane); break;"
+                    "case {bw}: _bit_unpack_{bits}_{bw}bw_lane(in, out, reference, lane, patches); break;"
                 )?;
             }
             Ok(())
