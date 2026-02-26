@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use num_traits::AsPrimitive;
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
@@ -21,24 +22,21 @@ pub(crate) fn varbin_to_canonical(
     array: &VarBinArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<VarBinViewArray> {
-    // Zero the offsets first to ensure the bytes buffer starts at 0
-    let array = array.clone().zero_offsets();
-    let (dtype, bytes, offsets, validity) = array.into_parts();
+    let (dtype, bytes, offsets, validity) = array.clone().into_parts();
 
-    // offsets_to_lengths
     let offsets = offsets.execute::<PrimitiveArray>(ctx)?;
-    let bytes = bytes.unwrap_host().into_mut();
 
     match_each_integer_ptype!(offsets.ptype(), |P| {
-        let lens = offsets_to_lengths(offsets.as_slice::<P>());
+        let offsets_slice = offsets.as_slice::<P>();
+        let first: usize = offsets_slice[0].as_();
+        let last: usize = offsets_slice[offsets_slice.len() - 1].as_();
+        let bytes = bytes.unwrap_host().slice(first..last).into_mut();
+
+        let lens = offsets_to_lengths(offsets_slice);
         let (buffers, views) = build_views(0, MAX_BUFFER_LEN, bytes, lens.as_slice());
 
-        let varbinview =
-            unsafe { VarBinViewArray::new_unchecked(views, Arc::from(buffers), dtype, validity) };
-
-        // Create VarBinViewArray with the original bytes buffer and computed views
         // SAFETY: views are correctly computed from valid offsets
-        Ok(varbinview)
+        Ok(unsafe { VarBinViewArray::new_unchecked(views, Arc::from(buffers), dtype, validity) })
     })
 }
 
@@ -46,7 +44,10 @@ pub(crate) fn varbin_to_canonical(
 mod tests {
     use rstest::rstest;
 
+    use crate::arrays::VarBinViewArray;
+    use crate::arrays::varbin::VarBinArray;
     use crate::arrays::varbin::builder::VarBinBuilder;
+    use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -54,7 +55,7 @@ mod tests {
     #[rstest]
     #[case(DType::Utf8(Nullability::Nullable))]
     #[case(DType::Binary(Nullability::Nullable))]
-    fn test_canonical_varbin(#[case] dtype: DType) {
+    fn test_canonical_varbin_sliced(#[case] dtype: DType) {
         let mut varbin = VarBinBuilder::<i32>::with_capacity(10);
         varbin.append_null();
         varbin.append_null();
@@ -78,5 +79,27 @@ mod tests {
         // Second value is not inlined (13 bytes)
         assert!(!canonical.views()[2].is_inlined());
         assert_eq!(canonical.bytes_at(2).as_slice(), "1234567890123".as_bytes());
+    }
+
+    #[rstest]
+    #[case(DType::Utf8(Nullability::NonNullable))]
+    #[case(DType::Binary(Nullability::NonNullable))]
+    fn test_canonical_varbin_unsliced(#[case] dtype: DType) {
+        let varbin = VarBinArray::from_iter_nonnull(["foo", "bar", "baz"], dtype.clone());
+        let canonical = varbin.to_varbinview();
+        let expected = match dtype {
+            DType::Utf8(_) => VarBinViewArray::from_iter_str(["foo", "bar", "baz"]),
+            _ => VarBinViewArray::from_iter_bin(["foo", "bar", "baz"]),
+        };
+        assert_arrays_eq!(canonical, expected);
+    }
+
+    // Empty array: offsets has exactly one element; no elements to canonicalize.
+    #[test]
+    fn test_canonical_varbin_empty() {
+        let varbin =
+            VarBinArray::from_iter_nonnull([] as [&str; 0], DType::Utf8(Nullability::NonNullable));
+        let canonical = varbin.to_varbinview();
+        assert_eq!(canonical.len(), 0);
     }
 }
