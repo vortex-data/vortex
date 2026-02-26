@@ -561,8 +561,10 @@ mod tests {
     #[rstest]
     #[case(TimeUnit::Nanoseconds, "UTC", 1234567890000000000i64)]
     #[case(TimeUnit::Microseconds, "EST", 1234567890000000i64)]
-    #[case(TimeUnit::Milliseconds, "ABC", 1234567890000i64)]
-    #[case(TimeUnit::Seconds, "UTC", 1234567890i64)]
+    #[case(TimeUnit::Microseconds, "Asia/Qatar", 1234567890000000i64)]
+    #[case(TimeUnit::Microseconds, "Australia/Sydney", 1234567890000000i64)]
+    #[case(TimeUnit::Milliseconds, "HST", 1234567890000i64)]
+    #[case(TimeUnit::Seconds, "GMT", 1234567890i64)]
     fn test_temporal_timestamp_tz_to_arrow(
         #[case] time_unit: TimeUnit,
         #[case] tz: &str,

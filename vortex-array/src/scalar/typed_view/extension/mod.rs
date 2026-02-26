@@ -3,8 +3,7 @@
 
 //! [`ExtScalar`] typed view implementation.
 
-use std::fmt::Display;
-use std::fmt::Formatter;
+use std::fmt;
 use std::hash::Hash;
 
 use vortex_error::VortexExpect;
@@ -14,7 +13,6 @@ use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
-use crate::extension::datetime::AnyTemporal;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -36,27 +34,13 @@ pub struct ExtScalar<'a> {
     value: Option<&'a ScalarValue>,
 }
 
-impl Display for ExtScalar<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // TODO(connor): Use the vtable fmt implementation.
+impl fmt::Display for ExtScalar<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Some(value) = self.value else {
+            return write!(f, "null");
+        };
 
-        // Specialized handling for date/time/timestamp builtin extension types.
-        if let Some(temporal) = self.ext_dtype.metadata_opt::<AnyTemporal>() {
-            let maybe_timestamp = self
-                .to_storage_scalar()
-                .as_primitive()
-                .as_::<i64>()
-                .map(|maybe_timestamp| temporal.to_jiff(maybe_timestamp))
-                .transpose()
-                .map_err(|_| std::fmt::Error)?;
-
-            match maybe_timestamp {
-                None => write!(f, "null"),
-                Some(v) => write!(f, "{v}"),
-            }
-        } else {
-            write!(f, "{}({})", self.ext_dtype().id(), self.to_storage_scalar())
-        }
+        self.ext_dtype.fmt_value(f, value)
     }
 }
 

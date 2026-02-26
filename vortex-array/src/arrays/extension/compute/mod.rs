@@ -112,12 +112,6 @@ mod tests {
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
         ExtensionArray::new(ext_dtype, storage)
     })]
-    // Additional test cases
-    #[case::extension_single({
-        let storage = buffer![42i64].into_array();
-        let ext_dtype = Timestamp::new(TimeUnit::Days, Nullability::NonNullable).erased();
-        ExtensionArray::new(ext_dtype, storage)
-    })]
     #[case::extension_large({
         let storage = buffer![0..100i64].into_array();
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();

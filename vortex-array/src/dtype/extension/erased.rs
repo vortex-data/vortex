@@ -4,9 +4,7 @@
 //! Type-erased extension dtype ([`ExtDTypeRef`]).
 
 use std::any::type_name;
-use std::fmt::Debug;
-use std::fmt::Display;
-use std::fmt::Formatter;
+use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
@@ -23,6 +21,7 @@ use crate::dtype::extension::ExtVTable;
 use crate::dtype::extension::Matcher;
 use crate::dtype::extension::typed::DynExtDType;
 use crate::dtype::extension::typed::ExtDTypeInner;
+use crate::scalar::ScalarValue;
 
 /// A type-erased extension dtype.
 ///
@@ -47,6 +46,20 @@ impl ExtDTypeRef {
     /// Returns the storage dtype of the extension type.
     pub fn storage_dtype(&self) -> &DType {
         self.0.storage_dtype()
+    }
+
+    /// Validates that the given storage scalar value is valid for this dtype.
+    pub fn validate_scalar_value(&self, storage_value: &ScalarValue) -> VortexResult<()> {
+        self.0.validate_scalar_value(storage_value)
+    }
+
+    /// Formats an extension scalar value using the current dtype for metadata context.
+    pub fn fmt_value(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+        storage_value: &ScalarValue,
+    ) -> fmt::Result {
+        self.0.fmt_value(f, storage_value)
     }
 
     /// Returns the nullability of the storage dtype.
@@ -74,7 +87,7 @@ impl ExtDTypeRef {
     }
 
     /// Returns a `Display`-able view of just the metadata.
-    pub fn display_metadata(&self) -> impl Display + '_ {
+    pub fn display_metadata(&self) -> impl fmt::Display + '_ {
         MetadataDisplay(&*self.0)
     }
 
@@ -142,8 +155,8 @@ impl ExtDTypeRef {
     }
 }
 
-impl Display for ExtDTypeRef {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ExtDTypeRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let metadata = self.display_metadata().to_string();
         if metadata.is_empty() {
             write!(f, "{}", self.id())?;
@@ -154,8 +167,8 @@ impl Display for ExtDTypeRef {
     }
 }
 
-impl Debug for ExtDTypeRef {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for ExtDTypeRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExtDType")
             .field("id", &self.id())
             .field("metadata", &MetadataDebug(&*self.0))
@@ -185,16 +198,16 @@ impl Hash for ExtDTypeRef {
 
 struct MetadataDisplay<'a>(&'a dyn DynExtDType);
 
-impl Display for MetadataDisplay<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for MetadataDisplay<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.metadata_display(f)
     }
 }
 
 struct MetadataDebug<'a>(&'a dyn DynExtDType);
 
-impl Debug for MetadataDebug<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for MetadataDebug<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.metadata_debug(f)
     }
 }
