@@ -71,6 +71,8 @@ impl VortexCudaStream {
         // calling the unsafe memcpy_htod_async expects the cuda context thread local
         // to be set. To avoid invalid context error from the cuda call we set it
         // explicitly here.
+        // TODO(os): wrap calling unsafe cudarc functions with something that binds always
+        //           so we don't forget
         self.0
             .context()
             .bind_to_thread()
