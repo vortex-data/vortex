@@ -58,23 +58,27 @@ macro_rules! assert_arrays_eq {
                 right.dtype(),
                 left.display_values(),
                 right.display_values()
-            )
-        }
+           )
+       }
 
-        if left.len() != right.len() {
-            panic!(
-                "assertion left == right failed: arrays differ in length: {} != {}.\n  left: {}\n right: {}",
-                left.len(),
-                right.len(),
-                left.display_values(),
-                right.display_values()
-            )
-        }
-        let n = left.len();
-        let mismatched_indices = (0..n)
-            .filter(|i| left.scalar_at(*i).unwrap() != right.scalar_at(*i).unwrap())
+       if left.len() != right.len() {
+           panic!(
+               "assertion left == right failed: arrays differ in length: {} != {}.\n  left: {}\n right: {}",
+               left.len(),
+               right.len(),
+               left.display_values(),
+               right.display_values()
+           )
+       }
+
+       let n = left.len();
+       let mismatched_indices = (0..n)
+       .filter(|i| left.scalar_at(*i).unwrap() != right.scalar_at(*i).unwrap())
             .collect::<Vec<_>>();
-        if mismatched_indices.len() != 0 {
+       if mismatched_indices.len() != 0 {
+        eprintln!("mismatched values: {:?}", mismatched_indices.iter()
+            .map(|i| (left.scalar_at(*i).unwrap(), right.scalar_at(*i).unwrap()))
+            .collect::<Vec<_>>());
             panic!(
                 "assertion left == right failed: arrays do not match at indices: {}.\n  left: {}\n right: {}",
                 $crate::arrays::format_indices(mismatched_indices),

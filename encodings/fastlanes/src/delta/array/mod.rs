@@ -3,15 +3,13 @@
 
 use fastlanes::FastLanes;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::stats::ArrayStats;
-use vortex_array::validity::Validity;
-use vortex_buffer::Buffer;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -21,14 +19,22 @@ pub mod delta_decompress;
 
 /// A FastLanes-style delta-encoded array of primitive values.
 ///
-/// A [`DeltaArray`] comprises a sequence of _chunks_ each representing 1,024 delta-encoded values,
-/// except the last chunk which may represent from one to 1,024 values.
+/// A [`DeltaArray`] comprises a sequence of _chunks_ each representing exactly 1,024
+/// delta-encoded values. If the input array length is not a multiple of 1,024, the last chunk
+/// is padded with zeros to fill a complete 1,024-element chunk.
 ///
 /// # Examples
 ///
-/// ```
+/// ```no_run
+/// use vortex_array::arrays::PrimitiveArray;
+/// use vortex_array::VortexSessionExecute;
+/// use vortex_array::session::ArraySession;
+/// use vortex_session::VortexSession;
 /// use vortex_fastlanes::DeltaArray;
-/// let array = DeltaArray::try_from_vec(vec![1_u32, 2, 3, 5, 10, 11]).unwrap();
+///
+/// let session = VortexSession::empty().with::<ArraySession>();
+/// let primitive = PrimitiveArray::from_iter([1_u32, 2, 3, 5, 10, 11]);
+/// let array = DeltaArray::try_from_primitive_array(&primitive, &mut session.create_execution_ctx()).unwrap();
 /// ```
 ///
 /// # Details
@@ -41,16 +47,13 @@ pub mod delta_decompress;
 /// 1,024 values. The `logical_len` is the number of logical values following the `offset`, which
 /// may be less than the number of physically stored values.
 ///
-/// Each chunk is stored as a vector of bases and a vector of deltas. If the chunk physically
-/// contains 1,024 values, then there are as many bases as there are _lanes_ of this type in a
-/// 1024-bit register. For example, for 64-bit values, there are 16 bases because there are 16
-/// _lanes_. Each lane is a [delta-encoding](https://en.wikipedia.org/wiki/Delta_encoding) `1024 /
-/// bit_width` long vector of values. The deltas are stored in the
+/// Each chunk is stored as a vector of bases and a vector of deltas. There are as many bases as
+/// there are _lanes_ of this type in a 1024-bit register. For example, for 64-bit values, there
+/// are 16 bases because there are 16 _lanes_. Each lane is a
+/// [delta-encoding](https://en.wikipedia.org/wiki/Delta_encoding) `1024 / bit_width` long vector
+/// of values. The deltas are stored in the
 /// [FastLanes](https://www.vldb.org/pvldb/vol16/p2132-afroozeh.pdf) order which splits the 1,024
 /// values into one contiguous sub-sequence per-lane, thus permitting delta encoding.
-///
-/// If the chunk physically has fewer than 1,024 values, then it is stored as a traditional,
-/// non-SIMD-amenable, delta-encoded vector.
 ///
 /// Note the validity is stored in the deltas array.
 #[derive(Clone, Debug)]
@@ -64,18 +67,14 @@ pub struct DeltaArray {
 }
 
 impl DeltaArray {
-    // TODO(ngates): remove constructing from vec
-    pub fn try_from_vec<T: NativePType>(vec: Vec<T>) -> VortexResult<Self> {
-        Self::try_from_primitive_array(&PrimitiveArray::new(
-            Buffer::copy_from(vec),
-            Validity::NonNullable,
-        ))
-    }
+    pub fn try_from_primitive_array(
+        array: &PrimitiveArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
+        let logical_len = array.len();
+        let (bases, deltas) = delta_compress::delta_compress(array, ctx)?;
 
-    pub fn try_from_primitive_array(array: &PrimitiveArray) -> VortexResult<Self> {
-        let (bases, deltas) = delta_compress::delta_compress(array)?;
-
-        Self::try_from_delta_compress_parts(bases.into_array(), deltas.into_array())
+        Self::try_new(bases.into_array(), deltas.into_array(), 0, logical_len)
     }
 
     /// Create a [`DeltaArray`] from the given `bases` and `deltas` arrays.
@@ -122,10 +121,15 @@ impl DeltaArray {
 
         let lanes = lane_count(ptype);
 
-        if deltas.len().is_multiple_of(1024) != bases.len().is_multiple_of(lanes) {
+        if !deltas.len().is_multiple_of(1024) {
             vortex_bail!(
-                "deltas length ({}) is a multiple of 1024 iff bases length ({}) is a multiple of LANES ({})",
+                "deltas length ({}) must be a multiple of 1024",
                 deltas.len(),
+            );
+        }
+        if !bases.len().is_multiple_of(lanes) {
+            vortex_bail!(
+                "bases length ({}) must be a multiple of LANES ({})",
                 bases.len(),
                 lanes,
             );
