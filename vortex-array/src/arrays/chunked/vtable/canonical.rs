@@ -71,10 +71,14 @@ fn pack_struct_chunks(
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut field_arrays = Vec::new();
 
+    let executed_chunks: Vec<StructArray> = chunks
+        .iter()
+        .map(|c| c.clone().execute::<StructArray>(ctx))
+        .collect::<VortexResult<_>>()?;
+
     for (field_idx, field_dtype) in struct_dtype.fields().enumerate() {
         let mut field_chunks = Vec::with_capacity(chunks.len());
-        for c in chunks {
-            let struct_array = c.clone().execute::<StructArray>(ctx)?;
+        for struct_array in &executed_chunks {
             let field = struct_array
                 .unmasked_fields()
                 .get(field_idx)
