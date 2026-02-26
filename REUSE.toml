@@ -17,11 +17,6 @@ path = "benchmarks-website/**"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
 
-[[annotations]]
-path = "benchmarks-website-v2/**"
-SPDX-FileCopyrightText = "Copyright the Vortex contributors"
-SPDX-License-Identifier = "CC-BY-4.0"
-
 # Golden files are licensed under CC-BY-4.0.
 [[annotations]]
 path = "**/goldenfiles/**"
