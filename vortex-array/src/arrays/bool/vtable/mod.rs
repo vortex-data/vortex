@@ -21,15 +21,19 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-
-mod array;
 mod canonical;
 mod kernel;
 mod operations;
 mod validity;
 mod visitor;
 
+use std::hash::Hash;
+
+use crate::Precision;
 use crate::arrays::bool::compute::rules::RULES;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
+use crate::stats::StatsSetRef;
 use crate::vtable::ArrayId;
 
 vtable!(Bool);
@@ -45,14 +49,40 @@ impl VTable for BoolVTable {
     type Array = BoolArray;
 
     type Metadata = ProstMetadata<BoolMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &BoolArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &BoolArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &BoolArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &BoolArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.to_bit_buffer().array_hash(state, precision);
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &BoolArray, other: &BoolArray, precision: Precision) -> bool {
+        if array.dtype != other.dtype {
+            return false;
+        }
+        array
+            .to_bit_buffer()
+            .array_eq(&other.to_bit_buffer(), precision)
+            && array.validity.array_eq(&other.validity, precision)
     }
 
     fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {

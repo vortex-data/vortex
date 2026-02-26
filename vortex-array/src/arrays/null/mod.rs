@@ -23,7 +23,6 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::BaseArrayVTable;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
@@ -37,14 +36,32 @@ impl VTable for NullVTable {
     type Array = NullArray;
 
     type Metadata = EmptyMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &NullArray) -> usize {
+        array.len
+    }
+
+    fn dtype(_array: &NullArray) -> &DType {
+        &DType::Null
+    }
+
+    fn stats(array: &NullArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &NullArray, state: &mut H, _precision: Precision) {
+        array.len.hash(state);
+    }
+
+    fn array_eq(array: &NullArray, other: &NullArray, _precision: Precision) -> bool {
+        array.len == other.len
     }
 
     fn metadata(_array: &NullArray) -> VortexResult<Self::Metadata> {
@@ -145,29 +162,6 @@ impl NullArray {
         }
     }
 }
-
-impl BaseArrayVTable<NullVTable> for NullVTable {
-    fn len(array: &NullArray) -> usize {
-        array.len
-    }
-
-    fn dtype(_array: &NullArray) -> &DType {
-        &DType::Null
-    }
-
-    fn stats(array: &NullArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &NullArray, state: &mut H, _precision: Precision) {
-        array.len.hash(state);
-    }
-
-    fn array_eq(array: &NullArray, other: &NullArray, _precision: Precision) -> bool {
-        array.len == other.len
-    }
-}
-
 impl VisitorVTable<NullVTable> for NullVTable {
     fn visit_buffers(_array: &NullArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 

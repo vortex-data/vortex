@@ -33,7 +33,6 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::BaseArrayVTable;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
@@ -51,13 +50,34 @@ impl SliceVTable {
 impl VTable for SliceVTable {
     type Array = SliceArray;
     type Metadata = SliceMetadata;
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         SliceVTable::ID
+    }
+
+    fn len(array: &SliceArray) -> usize {
+        array.range.len()
+    }
+
+    fn dtype(array: &SliceArray) -> &DType {
+        array.child.dtype()
+    }
+
+    fn stats(array: &SliceArray) -> StatsSetRef<'_> {
+        array.stats.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: Hasher>(array: &SliceArray, state: &mut H, precision: Precision) {
+        array.child.array_hash(state, precision);
+        array.range.start.hash(state);
+        array.range.end.hash(state);
+    }
+
+    fn array_eq(array: &SliceArray, other: &SliceArray, precision: Precision) -> bool {
+        array.child.array_eq(&other.child, precision) && array.range == other.range
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -133,31 +153,6 @@ impl VTable for SliceVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
-
-impl BaseArrayVTable<SliceVTable> for SliceVTable {
-    fn len(array: &SliceArray) -> usize {
-        array.range.len()
-    }
-
-    fn dtype(array: &SliceArray) -> &DType {
-        array.child.dtype()
-    }
-
-    fn stats(array: &SliceArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: Hasher>(array: &SliceArray, state: &mut H, precision: Precision) {
-        array.child.array_hash(state, precision);
-        array.range.start.hash(state);
-        array.range.end.hash(state);
-    }
-
-    fn array_eq(array: &SliceArray, other: &SliceArray, precision: Precision) -> bool {
-        array.child.array_eq(&other.child, precision) && array.range == other.range
-    }
-}
-
 impl OperationsVTable<SliceVTable> for SliceVTable {
     fn scalar_at(array: &SliceArray, index: usize) -> VortexResult<Scalar> {
         array.child.scalar_at(array.range.start + index)

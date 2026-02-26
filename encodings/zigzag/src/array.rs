@@ -23,7 +23,6 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -47,14 +46,33 @@ impl VTable for ZigZagVTable {
     type Array = ZigZagArray;
 
     type Metadata = EmptyMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ZigZagArray) -> usize {
+        array.encoded.len()
+    }
+
+    fn dtype(array: &ZigZagArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ZigZagArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ZigZagArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.encoded.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ZigZagArray, other: &ZigZagArray, precision: Precision) -> bool {
+        array.dtype == other.dtype && array.encoded.array_eq(&other.encoded, precision)
     }
 
     fn metadata(_array: &ZigZagArray) -> VortexResult<Self::Metadata> {
@@ -166,29 +184,6 @@ impl ZigZagArray {
 
     pub fn encoded(&self) -> &ArrayRef {
         &self.encoded
-    }
-}
-
-impl BaseArrayVTable<ZigZagVTable> for ZigZagVTable {
-    fn len(array: &ZigZagArray) -> usize {
-        array.encoded.len()
-    }
-
-    fn dtype(array: &ZigZagArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ZigZagArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &ZigZagArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
-        array.encoded.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &ZigZagArray, other: &ZigZagArray, precision: Precision) -> bool {
-        array.dtype == other.dtype && array.encoded.array_eq(&other.encoded, precision)
     }
 }
 

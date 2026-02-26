@@ -96,8 +96,6 @@ impl vortex_array::vtable::VTable for vortex_sparse::SparseVTable
 
 pub type vortex_sparse::SparseVTable::Array = vortex_sparse::SparseArray
 
-pub type vortex_sparse::SparseVTable::ArrayVTable = vortex_sparse::SparseVTable
-
 pub type vortex_sparse::SparseVTable::Metadata = vortex_array::metadata::ProstMetadata<vortex_sparse::SparseMetadata>
 
 pub type vortex_sparse::SparseVTable::OperationsVTable = vortex_sparse::SparseVTable
@@ -106,9 +104,15 @@ pub type vortex_sparse::SparseVTable::ValidityVTable = vortex_sparse::SparseVTab
 
 pub type vortex_sparse::SparseVTable::VisitorVTable = vortex_sparse::SparseVTable
 
+pub fn vortex_sparse::SparseVTable::array_eq(array: &vortex_sparse::SparseArray, other: &vortex_sparse::SparseArray, precision: vortex_array::hash::Precision) -> bool
+
+pub fn vortex_sparse::SparseVTable::array_hash<H: core::hash::Hasher>(array: &vortex_sparse::SparseArray, state: &mut H, precision: vortex_array::hash::Precision)
+
 pub fn vortex_sparse::SparseVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_sparse::SparseArray>
 
 pub fn vortex_sparse::SparseVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_sparse::SparseVTable::dtype(array: &vortex_sparse::SparseArray) -> &vortex_array::dtype::DType
 
 pub fn vortex_sparse::SparseVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
@@ -116,25 +120,17 @@ pub fn vortex_sparse::SparseVTable::execute_parent(array: &Self::Array, parent: 
 
 pub fn vortex_sparse::SparseVTable::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
 
+pub fn vortex_sparse::SparseVTable::len(array: &vortex_sparse::SparseArray) -> usize
+
 pub fn vortex_sparse::SparseVTable::metadata(array: &vortex_sparse::SparseArray) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_sparse::SparseVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_sparse::SparseVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_sparse::SparseVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
-
-impl vortex_array::vtable::array::BaseArrayVTable<vortex_sparse::SparseVTable> for vortex_sparse::SparseVTable
-
-pub fn vortex_sparse::SparseVTable::array_eq(array: &vortex_sparse::SparseArray, other: &vortex_sparse::SparseArray, precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_sparse::SparseVTable::array_hash<H: core::hash::Hasher>(array: &vortex_sparse::SparseArray, state: &mut H, precision: vortex_array::hash::Precision)
-
-pub fn vortex_sparse::SparseVTable::dtype(array: &vortex_sparse::SparseArray) -> &vortex_array::dtype::DType
-
-pub fn vortex_sparse::SparseVTable::len(array: &vortex_sparse::SparseArray) -> usize
-
 pub fn vortex_sparse::SparseVTable::stats(array: &vortex_sparse::SparseArray) -> vortex_array::stats::array::StatsSetRef<'_>
+
+pub fn vortex_sparse::SparseVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_sparse::SparseVTable> for vortex_sparse::SparseVTable
 

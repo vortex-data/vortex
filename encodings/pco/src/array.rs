@@ -39,7 +39,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
@@ -88,14 +87,65 @@ impl VTable for PcoVTable {
     type Array = PcoArray;
 
     type Metadata = ProstMetadata<PcoMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &PcoArray) -> usize {
+        array.slice_stop - array.slice_start
+    }
+
+    fn dtype(array: &PcoArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &PcoArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &PcoArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.unsliced_validity.array_hash(state, precision);
+        array.unsliced_n_rows.hash(state);
+        array.slice_start.hash(state);
+        array.slice_stop.hash(state);
+        // Hash chunk_metas and pages using pointer-based hashing
+        for chunk_meta in &array.chunk_metas {
+            chunk_meta.array_hash(state, precision);
+        }
+        for page in &array.pages {
+            page.array_hash(state, precision);
+        }
+    }
+
+    fn array_eq(array: &PcoArray, other: &PcoArray, precision: Precision) -> bool {
+        if array.dtype != other.dtype
+            || !array
+                .unsliced_validity
+                .array_eq(&other.unsliced_validity, precision)
+            || array.unsliced_n_rows != other.unsliced_n_rows
+            || array.slice_start != other.slice_start
+            || array.slice_stop != other.slice_stop
+            || array.chunk_metas.len() != other.chunk_metas.len()
+            || array.pages.len() != other.pages.len()
+        {
+            return false;
+        }
+        for (a, b) in array.chunk_metas.iter().zip(&other.chunk_metas) {
+            if !a.array_eq(b, precision) {
+                return false;
+            }
+        }
+        for (a, b) in array.pages.iter().zip(&other.pages) {
+            if !a.array_eq(b, precision) {
+                return false;
+            }
+        }
+        true
     }
 
     fn metadata(array: &PcoArray) -> VortexResult<Self::Metadata> {
@@ -473,61 +523,6 @@ impl PcoArray {
 impl ValiditySliceHelper for PcoArray {
     fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize) {
         (&self.unsliced_validity, self.slice_start, self.slice_stop)
-    }
-}
-
-impl BaseArrayVTable<PcoVTable> for PcoVTable {
-    fn len(array: &PcoArray) -> usize {
-        array.slice_stop - array.slice_start
-    }
-
-    fn dtype(array: &PcoArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &PcoArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &PcoArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
-        array.unsliced_validity.array_hash(state, precision);
-        array.unsliced_n_rows.hash(state);
-        array.slice_start.hash(state);
-        array.slice_stop.hash(state);
-        // Hash chunk_metas and pages using pointer-based hashing
-        for chunk_meta in &array.chunk_metas {
-            chunk_meta.array_hash(state, precision);
-        }
-        for page in &array.pages {
-            page.array_hash(state, precision);
-        }
-    }
-
-    fn array_eq(array: &PcoArray, other: &PcoArray, precision: Precision) -> bool {
-        if array.dtype != other.dtype
-            || !array
-                .unsliced_validity
-                .array_eq(&other.unsliced_validity, precision)
-            || array.unsliced_n_rows != other.unsliced_n_rows
-            || array.slice_start != other.slice_start
-            || array.slice_stop != other.slice_stop
-            || array.chunk_metas.len() != other.chunk_metas.len()
-            || array.pages.len() != other.pages.len()
-        {
-            return false;
-        }
-        for (a, b) in array.chunk_metas.iter().zip(&other.chunk_metas) {
-            if !a.array_eq(b, precision) {
-                return false;
-            }
-        }
-        for (a, b) in array.pages.iter().zip(&other.pages) {
-            if !a.array_eq(b, precision) {
-                return false;
-            }
-        }
-        true
     }
 }
 

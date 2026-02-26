@@ -3,16 +3,15 @@
 
 //! This module contains the VTable definitions for a Vortex encoding.
 
-mod array;
 mod dyn_;
 mod operations;
 mod validity;
 mod visitor;
 
 use std::fmt::Debug;
+use std::hash::Hasher;
 use std::ops::Deref;
 
-pub use array::*;
 pub use dyn_::*;
 pub use operations::*;
 pub use validity::*;
@@ -24,11 +23,13 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::Precision;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
+use crate::stats::StatsSetRef;
 
 /// The array [`VTable`] encapsulates logic for an Array type within Vortex.
 ///
@@ -47,13 +48,27 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Array> + IntoArray;
     type Metadata: Debug;
 
-    type ArrayVTable: BaseArrayVTable<Self>;
     type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
     type VisitorVTable: VisitorVTable<Self>;
 
     /// Returns the ID of the array.
     fn id(array: &Self::Array) -> ArrayId;
+
+    /// Returns the length of the array.
+    fn len(array: &Self::Array) -> usize;
+
+    /// Returns the DType of the array.
+    fn dtype(array: &Self::Array) -> &DType;
+
+    /// Returns the stats set for the array.
+    fn stats(array: &Self::Array) -> StatsSetRef<'_>;
+
+    /// Hashes the array contents.
+    fn array_hash<H: Hasher>(array: &Self::Array, state: &mut H, precision: Precision);
+
+    /// Compares two arrays of the same type for equality.
+    fn array_eq(array: &Self::Array, other: &Self::Array, precision: Precision) -> bool;
 
     /// Exports metadata for an array.
     ///

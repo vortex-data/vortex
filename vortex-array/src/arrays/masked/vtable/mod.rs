@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-
-mod array;
 mod canonical;
 mod operations;
 mod validity;
@@ -39,6 +37,12 @@ use crate::vtable::validity_to_child;
 
 mod kernel;
 
+use std::hash::Hash;
+
+use crate::Precision;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
+use crate::stats::StatsSetRef;
 vtable!(Masked);
 
 #[derive(Debug)]
@@ -73,14 +77,36 @@ impl VTable for MaskedVTable {
     type Array = MaskedArray;
 
     type Metadata = EmptyMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &MaskedArray) -> usize {
+        array.child.len()
+    }
+
+    fn dtype(array: &MaskedArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &MaskedArray) -> StatsSetRef<'_> {
+        array.stats.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &MaskedArray, state: &mut H, precision: Precision) {
+        array.child.array_hash(state, precision);
+        array.validity.array_hash(state, precision);
+        array.dtype.hash(state);
+    }
+
+    fn array_eq(array: &MaskedArray, other: &MaskedArray, precision: Precision) -> bool {
+        array.child.array_eq(&other.child, precision)
+            && array.validity.array_eq(&other.validity, precision)
+            && array.dtype == other.dtype
     }
 
     fn metadata(_array: &MaskedArray) -> VortexResult<Self::Metadata> {

@@ -34,7 +34,6 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::BaseArrayVTable;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
@@ -52,13 +51,33 @@ impl FilterVTable {
 impl VTable for FilterVTable {
     type Array = FilterArray;
     type Metadata = FilterMetadata;
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &FilterArray) -> usize {
+        array.mask.true_count()
+    }
+
+    fn dtype(array: &FilterArray) -> &DType {
+        array.child.dtype()
+    }
+
+    fn stats(array: &FilterArray) -> StatsSetRef<'_> {
+        array.stats.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: Hasher>(array: &FilterArray, state: &mut H, precision: Precision) {
+        array.child.array_hash(state, precision);
+        array.mask.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &FilterArray, other: &FilterArray, precision: Precision) -> bool {
+        array.child.array_eq(&other.child, precision) && array.mask.array_eq(&other.mask, precision)
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -134,30 +153,6 @@ impl VTable for FilterVTable {
         RULES.evaluate(array)
     }
 }
-
-impl BaseArrayVTable<FilterVTable> for FilterVTable {
-    fn len(array: &FilterArray) -> usize {
-        array.mask.true_count()
-    }
-
-    fn dtype(array: &FilterArray) -> &DType {
-        array.child.dtype()
-    }
-
-    fn stats(array: &FilterArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: Hasher>(array: &FilterArray, state: &mut H, precision: Precision) {
-        array.child.array_hash(state, precision);
-        array.mask.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &FilterArray, other: &FilterArray, precision: Precision) -> bool {
-        array.child.array_eq(&other.child, precision) && array.mask.array_eq(&other.mask, precision)
-    }
-}
-
 impl OperationsVTable<FilterVTable> for FilterVTable {
     fn scalar_at(array: &FilterArray, index: usize) -> VortexResult<Scalar> {
         let rank_idx = array.mask.rank(index);

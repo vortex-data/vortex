@@ -21,7 +21,6 @@ use vortex::array::stats::StatsSetRef;
 use vortex::array::validity::Validity;
 use vortex::array::vtable;
 use vortex::array::vtable::ArrayId;
-use vortex::array::vtable::BaseArrayVTable;
 use vortex::array::vtable::OperationsVTable;
 use vortex::array::vtable::VTable;
 use vortex::array::vtable::ValidityVTable;
@@ -45,14 +44,38 @@ impl VTable for PythonVTable {
     type Array = PythonArray;
 
     type Metadata = RawMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
 
     fn id(array: &Self::Array) -> ArrayId {
         array.id.clone()
+    }
+
+    fn len(array: &PythonArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &PythonArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &PythonArray) -> StatsSetRef<'_> {
+        array.stats.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H, _precision: Precision) {
+        Arc::as_ptr(&array.object).hash(state);
+        array.id.hash(state);
+        array.len.hash(state);
+        array.dtype.hash(state);
+    }
+
+    fn array_eq(array: &PythonArray, other: &PythonArray, _precision: Precision) -> bool {
+        Arc::ptr_eq(&array.object, &other.object)
+            && array.id == other.id
+            && array.len == other.len
+            && array.dtype == other.dtype
     }
 
     fn metadata(array: &PythonArray) -> VortexResult<Self::Metadata> {
@@ -113,34 +136,6 @@ impl VTable for PythonVTable {
 
     fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         todo!()
-    }
-}
-
-impl BaseArrayVTable<PythonVTable> for PythonVTable {
-    fn len(array: &PythonArray) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &PythonArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &PythonArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H, _precision: Precision) {
-        Arc::as_ptr(&array.object).hash(state);
-        array.id.hash(state);
-        array.len.hash(state);
-        array.dtype.hash(state);
-    }
-
-    fn array_eq(array: &PythonArray, other: &PythonArray, _precision: Precision) -> bool {
-        Arc::ptr_eq(&array.object, &other.object)
-            && array.id == other.id
-            && array.len == other.len
-            && array.dtype == other.dtype
     }
 }
 

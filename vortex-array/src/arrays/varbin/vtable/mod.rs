@@ -23,19 +23,23 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-
-mod array;
 mod canonical;
 mod kernel;
 mod operations;
 mod validity;
 mod visitor;
 
+use std::hash::Hash;
+
 use canonical::varbin_to_canonical;
 use kernel::PARENT_KERNELS;
 use vortex_session::VortexSession;
 
+use crate::Precision;
 use crate::arrays::varbin::compute::rules::PARENT_RULES;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
+use crate::stats::StatsSetRef;
 
 vtable!(VarBin);
 
@@ -49,14 +53,38 @@ impl VTable for VarBinVTable {
     type Array = VarBinArray;
 
     type Metadata = ProstMetadata<VarBinMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &VarBinArray) -> usize {
+        array.offsets().len().saturating_sub(1)
+    }
+
+    fn dtype(array: &VarBinArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &VarBinArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &VarBinArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.bytes().array_hash(state, precision);
+        array.offsets().array_hash(state, precision);
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &VarBinArray, other: &VarBinArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.bytes().array_eq(other.bytes(), precision)
+            && array.offsets().array_eq(other.offsets(), precision)
+            && array.validity.array_eq(&other.validity, precision)
     }
 
     fn metadata(array: &VarBinArray) -> VortexResult<Self::Metadata> {

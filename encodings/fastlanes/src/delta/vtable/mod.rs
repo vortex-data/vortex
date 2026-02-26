@@ -1,17 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
+
 use fastlanes::FastLanes;
 use prost::Message;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
@@ -24,7 +30,6 @@ use vortex_session::VortexSession;
 use crate::DeltaArray;
 use crate::delta::array::delta_decompress::delta_decompress;
 
-mod array;
 mod operations;
 mod rules;
 mod slice;
@@ -47,13 +52,40 @@ impl VTable for DeltaVTable {
 
     type Metadata = ProstMetadata<DeltaMetadata>;
 
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &DeltaArray) -> usize {
+        array.len()
+    }
+
+    fn dtype(array: &DeltaArray) -> &DType {
+        array.dtype()
+    }
+
+    fn stats(array: &DeltaArray) -> StatsSetRef<'_> {
+        array.stats_set().to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &DeltaArray, state: &mut H, precision: Precision) {
+        array.offset().hash(state);
+        array.len().hash(state);
+        array.dtype().hash(state);
+        array.bases().array_hash(state, precision);
+        array.deltas().array_hash(state, precision);
+    }
+
+    fn array_eq(array: &DeltaArray, other: &DeltaArray, precision: Precision) -> bool {
+        array.offset() == other.offset()
+            && array.len() == other.len()
+            && array.dtype() == other.dtype()
+            && array.bases().array_eq(other.bases(), precision)
+            && array.deltas().array_eq(other.deltas(), precision)
     }
 
     fn reduce_parent(

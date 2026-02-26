@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-
-mod array;
 mod operations;
 mod validity;
 mod visitor;
@@ -21,8 +19,11 @@ use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 use crate::Array;
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::Precision;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
@@ -39,6 +40,7 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::serde::ArrayChildren;
+use crate::stats::StatsSetRef;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
@@ -51,13 +53,51 @@ pub struct ScalarFnVTable;
 impl VTable for ScalarFnVTable {
     type Array = ScalarFnArray;
     type Metadata = ScalarFnMetadata;
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
 
     fn id(array: &Self::Array) -> ArrayId {
         array.scalar_fn.id()
+    }
+
+    fn len(array: &ScalarFnArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &ScalarFnArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ScalarFnArray) -> StatsSetRef<'_> {
+        array.stats.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: Hasher>(array: &ScalarFnArray, state: &mut H, precision: Precision) {
+        array.len.hash(state);
+        array.dtype.hash(state);
+        array.scalar_fn.hash(state);
+        for child in &array.children {
+            child.array_hash(state, precision);
+        }
+    }
+
+    fn array_eq(array: &ScalarFnArray, other: &ScalarFnArray, precision: Precision) -> bool {
+        if array.len != other.len {
+            return false;
+        }
+        if array.dtype != other.dtype {
+            return false;
+        }
+        if array.scalar_fn != other.scalar_fn {
+            return false;
+        }
+        for (child, other_child) in array.children.iter().zip(other.children.iter()) {
+            if !child.array_eq(other_child, precision) {
+                return false;
+            }
+        }
+        true
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {

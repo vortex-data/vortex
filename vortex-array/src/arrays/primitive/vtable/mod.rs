@@ -19,17 +19,22 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-
-mod array;
 mod kernel;
 mod operations;
 mod validity;
 mod visitor;
 
+use std::hash::Hash;
+use std::hash::Hasher;
+
 use vortex_buffer::Alignment;
 use vortex_session::VortexSession;
 
+use crate::Precision;
 use crate::arrays::primitive::compute::rules::RULES;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
+use crate::stats::StatsSetRef;
 use crate::vtable::ArrayId;
 
 vtable!(Primitive);
@@ -38,14 +43,36 @@ impl VTable for PrimitiveVTable {
     type Array = PrimitiveArray;
 
     type Metadata = EmptyMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &PrimitiveArray) -> usize {
+        array.buffer_handle().len() / array.ptype().byte_width()
+    }
+
+    fn dtype(array: &PrimitiveArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &PrimitiveArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: Hasher>(array: &PrimitiveArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.buffer.array_hash(state, precision);
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &PrimitiveArray, other: &PrimitiveArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.buffer.array_eq(&other.buffer, precision)
+            && array.validity.array_eq(&other.validity, precision)
     }
 
     fn metadata(_array: &PrimitiveArray) -> VortexResult<Self::Metadata> {

@@ -34,7 +34,6 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -64,14 +63,41 @@ impl VTable for DecimalBytePartsVTable {
     type Array = DecimalBytePartsArray;
 
     type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &DecimalBytePartsArray) -> usize {
+        array.msp.len()
+    }
+
+    fn dtype(array: &DecimalBytePartsArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &DecimalBytePartsArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &DecimalBytePartsArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
+        array.dtype.hash(state);
+        array.msp.array_hash(state, precision);
+    }
+
+    fn array_eq(
+        array: &DecimalBytePartsArray,
+        other: &DecimalBytePartsArray,
+        precision: Precision,
+    ) -> bool {
+        array.dtype == other.dtype && array.msp.array_eq(&other.msp, precision)
     }
 
     fn metadata(array: &DecimalBytePartsArray) -> VortexResult<Self::Metadata> {
@@ -221,37 +247,6 @@ pub struct DecimalBytePartsVTable;
 
 impl DecimalBytePartsVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal_byte_parts");
-}
-
-impl BaseArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    fn len(array: &DecimalBytePartsArray) -> usize {
-        array.msp.len()
-    }
-
-    fn dtype(array: &DecimalBytePartsArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &DecimalBytePartsArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        array: &DecimalBytePartsArray,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.dtype.hash(state);
-        array.msp.array_hash(state, precision);
-    }
-
-    fn array_eq(
-        array: &DecimalBytePartsArray,
-        other: &DecimalBytePartsArray,
-        precision: Precision,
-    ) -> bool {
-        array.dtype == other.dtype && array.msp.array_eq(&other.msp, precision)
-    }
 }
 
 /// Converts a DecimalBytePartsArray to its canonical DecimalArray representation.

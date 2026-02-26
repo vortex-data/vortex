@@ -23,13 +23,17 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-
-mod array;
 mod kernel;
 mod operations;
 mod validity;
 mod visitor;
 
+use std::hash::Hash;
+
+use crate::Precision;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
+use crate::stats::StatsSetRef;
 use crate::vtable::ArrayId;
 
 vtable!(Struct);
@@ -38,14 +42,45 @@ impl VTable for StructVTable {
     type Array = StructArray;
 
     type Metadata = EmptyMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &StructArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &StructArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &StructArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &StructArray, state: &mut H, precision: Precision) {
+        array.len.hash(state);
+        array.dtype.hash(state);
+        for field in array.fields.iter() {
+            field.array_hash(state, precision);
+        }
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &StructArray, other: &StructArray, precision: Precision) -> bool {
+        array.len == other.len
+            && array.dtype == other.dtype
+            && array.fields.len() == other.fields.len()
+            && array
+                .fields
+                .iter()
+                .zip(other.fields.iter())
+                .all(|(a, b)| a.array_eq(b, precision))
+            && array.validity.array_eq(&other.validity, precision)
     }
 
     fn metadata(_array: &StructArray) -> VortexResult<Self::Metadata> {

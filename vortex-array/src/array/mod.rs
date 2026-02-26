@@ -59,7 +59,6 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTableExt;
-use crate::vtable::BaseArrayVTable;
 use crate::vtable::DynVTable;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -404,7 +403,7 @@ impl<V: VTable> ReduceNode for ArrayAdapter<V> {
     }
 
     fn node_dtype(&self) -> VortexResult<DType> {
-        Ok(<V::ArrayVTable as BaseArrayVTable<V>>::dtype(&self.0).clone())
+        Ok(V::dtype(&self.0).clone())
     }
 
     fn scalar_fn(&self) -> Option<&ScalarFnRef> {
@@ -435,11 +434,11 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn len(&self) -> usize {
-        <V::ArrayVTable as BaseArrayVTable<V>>::len(&self.0)
+        V::len(&self.0)
     }
 
     fn dtype(&self) -> &DType {
-        <V::ArrayVTable as BaseArrayVTable<V>>::dtype(&self.0)
+        V::dtype(&self.0)
     }
 
     fn vtable(&self) -> &dyn DynVTable {
@@ -640,7 +639,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn statistics(&self) -> StatsSetRef<'_> {
-        <V::ArrayVTable as BaseArrayVTable<V>>::stats(&self.0)
+        V::stats(&self.0)
     }
 
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
@@ -653,13 +652,13 @@ impl<V: VTable> Array for ArrayAdapter<V> {
 impl<V: VTable> ArrayHash for ArrayAdapter<V> {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: hash::Precision) {
         self.0.encoding_id().hash(state);
-        <V::ArrayVTable as BaseArrayVTable<V>>::array_hash(&self.0, state, precision);
+        V::array_hash(&self.0, state, precision);
     }
 }
 
 impl<V: VTable> ArrayEq for ArrayAdapter<V> {
     fn array_eq(&self, other: &Self, precision: hash::Precision) -> bool {
-        <V::ArrayVTable as BaseArrayVTable<V>>::array_eq(&self.0, &other.0, precision)
+        V::array_eq(&self.0, &other.0, precision)
     }
 }
 

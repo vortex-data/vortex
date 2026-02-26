@@ -31,7 +31,6 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::BaseArrayVTable;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
@@ -43,14 +42,34 @@ impl VTable for ArrowVTable {
     type Array = ArrowArray;
 
     type Metadata = EmptyMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         ArrowVTable::ID
+    }
+
+    fn len(array: &ArrowArray) -> usize {
+        array.inner.len()
+    }
+
+    fn dtype(array: &ArrowArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ArrowArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ArrowArray, state: &mut H, _precision: Precision) {
+        array.dtype.hash(state);
+        // Hash based on pointer to the inner Arrow array since Arrow doesn't support hashing.
+        std::sync::Arc::as_ptr(&array.inner).hash(state);
+    }
+
+    fn array_eq(array: &ArrowArray, other: &ArrowArray, _precision: Precision) -> bool {
+        array.dtype == other.dtype && std::sync::Arc::ptr_eq(&array.inner, &other.inner)
     }
 
     fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -125,31 +144,6 @@ impl ArrowArray {
         &self.inner
     }
 }
-
-impl BaseArrayVTable<ArrowVTable> for ArrowVTable {
-    fn len(array: &ArrowArray) -> usize {
-        array.inner.len()
-    }
-
-    fn dtype(array: &ArrowArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ArrowArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &ArrowArray, state: &mut H, _precision: Precision) {
-        array.dtype.hash(state);
-        // Hash based on pointer to the inner Arrow array since Arrow doesn't support hashing.
-        std::sync::Arc::as_ptr(&array.inner).hash(state);
-    }
-
-    fn array_eq(array: &ArrowArray, other: &ArrowArray, _precision: Precision) -> bool {
-        array.dtype == other.dtype && std::sync::Arc::ptr_eq(&array.inner, &other.inner)
-    }
-}
-
 impl OperationsVTable<ArrowVTable> for ArrowVTable {
     fn scalar_at(_array: &ArrowArray, _index: usize) -> VortexResult<Scalar> {
         vortex_bail!("ArrowArray does not support scalar_at")

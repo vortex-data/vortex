@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-
-mod array;
 mod canonical;
 mod kernel;
 mod operations;
 mod validity;
 mod visitor;
+
+use std::hash::Hash;
 
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
@@ -18,11 +18,15 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
+use crate::Precision;
 use crate::arrays::extension::ExtensionArray;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
+use crate::stats::StatsSetRef;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
@@ -34,14 +38,37 @@ impl VTable for ExtensionVTable {
     type Array = ExtensionArray;
 
     type Metadata = EmptyMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ExtensionArray) -> usize {
+        array.storage.len()
+    }
+
+    fn dtype(array: &ExtensionArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ExtensionArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &ExtensionArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
+        array.dtype.hash(state);
+        array.storage.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ExtensionArray, other: &ExtensionArray, precision: Precision) -> bool {
+        array.dtype == other.dtype && array.storage.array_eq(&other.storage, precision)
     }
 
     fn metadata(_array: &ExtensionArray) -> VortexResult<Self::Metadata> {
