@@ -26,7 +26,6 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -50,14 +49,38 @@ impl VTable for ALPVTable {
     type Array = ALPArray;
 
     type Metadata = ProstMetadata<ALPMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ALPArray) -> usize {
+        array.encoded.len()
+    }
+
+    fn dtype(array: &ALPArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ALPArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ALPArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.encoded.array_hash(state, precision);
+        array.exponents.hash(state);
+        array.patches.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ALPArray, other: &ALPArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.encoded.array_eq(&other.encoded, precision)
+            && array.exponents == other.exponents
+            && array.patches.array_eq(&other.patches, precision)
     }
 
     fn metadata(array: &ALPArray) -> VortexResult<Self::Metadata> {
@@ -420,34 +443,6 @@ impl ALPArray {
 impl ValidityChild<ALPVTable> for ALPVTable {
     fn validity_child(array: &ALPArray) -> &ArrayRef {
         array.encoded()
-    }
-}
-
-impl BaseArrayVTable<ALPVTable> for ALPVTable {
-    fn len(array: &ALPArray) -> usize {
-        array.encoded.len()
-    }
-
-    fn dtype(array: &ALPArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ALPArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &ALPArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
-        array.encoded.array_hash(state, precision);
-        array.exponents.hash(state);
-        array.patches.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &ALPArray, other: &ALPArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.encoded.array_eq(&other.encoded, precision)
-            && array.exponents == other.exponents
-            && array.patches.array_eq(&other.patches, precision)
     }
 }
 

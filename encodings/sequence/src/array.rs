@@ -35,7 +35,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -230,14 +229,42 @@ impl VTable for SequenceVTable {
     type Array = SequenceArray;
 
     type Metadata = ProstMetadata<SequenceMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &SequenceArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &SequenceArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &SequenceArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &SequenceArray,
+        state: &mut H,
+        _precision: Precision,
+    ) {
+        array.base.hash(state);
+        array.multiplier.hash(state);
+        array.dtype.hash(state);
+        array.len.hash(state);
+    }
+
+    fn array_eq(array: &SequenceArray, other: &SequenceArray, _precision: Precision) -> bool {
+        array.base == other.base
+            && array.multiplier == other.multiplier
+            && array.dtype == other.dtype
+            && array.len == other.len
     }
 
     fn metadata(array: &SequenceArray) -> VortexResult<Self::Metadata> {
@@ -344,38 +371,6 @@ impl VTable for SequenceVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
-    }
-}
-
-impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
-    fn len(array: &SequenceArray) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &SequenceArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &SequenceArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        array: &SequenceArray,
-        state: &mut H,
-        _precision: Precision,
-    ) {
-        array.base.hash(state);
-        array.multiplier.hash(state);
-        array.dtype.hash(state);
-        array.len.hash(state);
-    }
-
-    fn array_eq(array: &SequenceArray, other: &SequenceArray, _precision: Precision) -> bool {
-        array.base == other.base
-            && array.multiplier == other.multiplier
-            && array.dtype == other.dtype
-            && array.len == other.len
     }
 }
 

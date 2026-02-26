@@ -34,7 +34,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::VisitorVTable;
@@ -71,14 +70,33 @@ impl VTable for SparseVTable {
     type Array = SparseArray;
 
     type Metadata = ProstMetadata<SparseMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &SparseArray) -> usize {
+        array.patches.array_len()
+    }
+
+    fn dtype(array: &SparseArray) -> &DType {
+        array.fill_scalar().dtype()
+    }
+
+    fn stats(array: &SparseArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &SparseArray, state: &mut H, precision: Precision) {
+        array.patches.array_hash(state, precision);
+        array.fill_value.hash(state);
+    }
+
+    fn array_eq(array: &SparseArray, other: &SparseArray, precision: Precision) -> bool {
+        array.patches.array_eq(&other.patches, precision) && array.fill_value == other.fill_value
     }
 
     fn metadata(array: &SparseArray) -> VortexResult<Self::Metadata> {
@@ -379,29 +397,6 @@ impl SparseArray {
 
         SparseArray::try_new(indices.into_array(), non_top_values, array.len(), fill)
             .map(|a| a.into_array())
-    }
-}
-
-impl BaseArrayVTable<SparseVTable> for SparseVTable {
-    fn len(array: &SparseArray) -> usize {
-        array.patches.array_len()
-    }
-
-    fn dtype(array: &SparseArray) -> &DType {
-        array.fill_scalar().dtype()
-    }
-
-    fn stats(array: &SparseArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &SparseArray, state: &mut H, precision: Precision) {
-        array.patches.array_hash(state, precision);
-        array.fill_value.hash(state);
-    }
-
-    fn array_eq(array: &SparseArray, other: &SparseArray, precision: Precision) -> bool {
-        array.patches.array_eq(&other.patches, precision) && array.fill_value == other.fill_value
     }
 }
 

@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
+
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::buffer::BufferHandle;
@@ -15,6 +20,7 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
@@ -32,7 +38,6 @@ use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 use crate::bitpacking::vtable::rules::RULES;
-mod array;
 mod kernels;
 mod operations;
 mod rules;
@@ -56,13 +61,48 @@ impl VTable for BitPackedVTable {
 
     type Metadata = ProstMetadata<BitPackedMetadata>;
 
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &BitPackedArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &BitPackedArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &BitPackedArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &BitPackedArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
+        array.offset.hash(state);
+        array.len.hash(state);
+        array.dtype.hash(state);
+        array.bit_width.hash(state);
+        array.packed.array_hash(state, precision);
+        array.patches.array_hash(state, precision);
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &BitPackedArray, other: &BitPackedArray, precision: Precision) -> bool {
+        array.offset == other.offset
+            && array.len == other.len
+            && array.dtype == other.dtype
+            && array.bit_width == other.bit_width
+            && array.packed.array_eq(&other.packed, precision)
+            && array.patches.array_eq(&other.patches, precision)
+            && array.validity.array_eq(&other.validity, precision)
     }
 
     fn reduce_parent(

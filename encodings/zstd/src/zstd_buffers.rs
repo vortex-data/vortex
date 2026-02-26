@@ -23,7 +23,6 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -330,14 +329,64 @@ impl VTable for ZstdBuffersVTable {
     type Array = ZstdBuffersArray;
 
     type Metadata = ProstMetadata<ZstdBuffersMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ZstdBuffersArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &ZstdBuffersArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ZstdBuffersArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &ZstdBuffersArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
+        array.inner_encoding_id.hash(state);
+        array.inner_metadata.hash(state);
+        for buf in &array.compressed_buffers {
+            buf.array_hash(state, precision);
+        }
+        array.uncompressed_sizes.hash(state);
+        array.buffer_alignments.hash(state);
+        array.dtype.hash(state);
+        array.len.hash(state);
+        for child in &array.children {
+            child.array_hash(state, precision);
+        }
+    }
+
+    fn array_eq(array: &ZstdBuffersArray, other: &ZstdBuffersArray, precision: Precision) -> bool {
+        array.inner_encoding_id == other.inner_encoding_id
+            && array.inner_metadata == other.inner_metadata
+            && array.compressed_buffers.len() == other.compressed_buffers.len()
+            && array
+                .compressed_buffers
+                .iter()
+                .zip(&other.compressed_buffers)
+                .all(|(a, b)| a.array_eq(b, precision))
+            && array.uncompressed_sizes == other.uncompressed_sizes
+            && array.buffer_alignments == other.buffer_alignments
+            && array.dtype == other.dtype
+            && array.len == other.len
+            && array.children.len() == other.children.len()
+            && array
+                .children
+                .iter()
+                .zip(&other.children)
+                .all(|(a, b)| a.array_eq(b, precision))
     }
 
     fn metadata(array: &ZstdBuffersArray) -> VortexResult<Self::Metadata> {
@@ -401,60 +450,6 @@ impl VTable for ZstdBuffersVTable {
         let session = ctx.session();
         let inner_array = array.decompress_and_build_inner(session)?;
         inner_array.execute::<ArrayRef>(ctx)
-    }
-}
-
-impl BaseArrayVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
-    fn len(array: &ZstdBuffersArray) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &ZstdBuffersArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ZstdBuffersArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        array: &ZstdBuffersArray,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.inner_encoding_id.hash(state);
-        array.inner_metadata.hash(state);
-        for buf in &array.compressed_buffers {
-            buf.array_hash(state, precision);
-        }
-        array.uncompressed_sizes.hash(state);
-        array.buffer_alignments.hash(state);
-        array.dtype.hash(state);
-        array.len.hash(state);
-        for child in &array.children {
-            child.array_hash(state, precision);
-        }
-    }
-
-    fn array_eq(array: &ZstdBuffersArray, other: &ZstdBuffersArray, precision: Precision) -> bool {
-        array.inner_encoding_id == other.inner_encoding_id
-            && array.inner_metadata == other.inner_metadata
-            && array.compressed_buffers.len() == other.compressed_buffers.len()
-            && array
-                .compressed_buffers
-                .iter()
-                .zip(&other.compressed_buffers)
-                .all(|(a, b)| a.array_eq(b, precision))
-            && array.uncompressed_sizes == other.uncompressed_sizes
-            && array.buffer_alignments == other.buffer_alignments
-            && array.dtype == other.dtype
-            && array.len == other.len
-            && array.children.len() == other.children.len()
-            && array
-                .children
-                .iter()
-                .zip(&other.children)
-                .all(|(a, b)| a.array_eq(b, precision))
     }
 }
 

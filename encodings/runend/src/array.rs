@@ -28,7 +28,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_error::VortexExpect as _;
@@ -60,14 +59,38 @@ impl VTable for RunEndVTable {
     type Array = RunEndArray;
 
     type Metadata = ProstMetadata<RunEndMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &RunEndArray) -> usize {
+        array.length
+    }
+
+    fn dtype(array: &RunEndArray) -> &DType {
+        array.values.dtype()
+    }
+
+    fn stats(array: &RunEndArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &RunEndArray, state: &mut H, precision: Precision) {
+        array.ends.array_hash(state, precision);
+        array.values.array_hash(state, precision);
+        array.offset.hash(state);
+        array.length.hash(state);
+    }
+
+    fn array_eq(array: &RunEndArray, other: &RunEndArray, precision: Precision) -> bool {
+        array.ends.array_eq(&other.ends, precision)
+            && array.values.array_eq(&other.values, precision)
+            && array.offset == other.offset
+            && array.length == other.length
     }
 
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {
@@ -430,34 +453,6 @@ impl RunEndArray {
             ends: self.ends,
             values: self.values,
         }
-    }
-}
-
-impl BaseArrayVTable<RunEndVTable> for RunEndVTable {
-    fn len(array: &RunEndArray) -> usize {
-        array.length
-    }
-
-    fn dtype(array: &RunEndArray) -> &DType {
-        array.values.dtype()
-    }
-
-    fn stats(array: &RunEndArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &RunEndArray, state: &mut H, precision: Precision) {
-        array.ends.array_hash(state, precision);
-        array.values.array_hash(state, precision);
-        array.offset.hash(state);
-        array.length.hash(state);
-    }
-
-    fn array_eq(array: &RunEndArray, other: &RunEndArray, precision: Precision) -> bool {
-        array.ends.array_eq(&other.ends, precision)
-            && array.values.array_eq(&other.values, precision)
-            && array.offset == other.offset
-            && array.length == other.length
     }
 }
 

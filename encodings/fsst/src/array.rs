@@ -37,7 +37,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityHelper;
@@ -79,14 +78,47 @@ impl VTable for FSSTVTable {
     type Array = FSSTArray;
 
     type Metadata = ProstMetadata<FSSTMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &FSSTArray) -> usize {
+        array.codes().len()
+    }
+
+    fn dtype(array: &FSSTArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &FSSTArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &FSSTArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.symbols.array_hash(state, precision);
+        array.symbol_lengths.array_hash(state, precision);
+        array.codes.as_ref().array_hash(state, precision);
+        array.uncompressed_lengths.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &FSSTArray, other: &FSSTArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.symbols.array_eq(&other.symbols, precision)
+            && array
+                .symbol_lengths
+                .array_eq(&other.symbol_lengths, precision)
+            && array
+                .codes
+                .as_ref()
+                .array_eq(other.codes.as_ref(), precision)
+            && array
+                .uncompressed_lengths
+                .array_eq(&other.uncompressed_lengths, precision)
     }
 
     fn metadata(array: &FSSTArray) -> VortexResult<Self::Metadata> {
@@ -431,43 +463,6 @@ impl FSSTArray {
     /// Retrieves the FSST compressor.
     pub fn compressor(&self) -> &Compressor {
         self.compressor.as_ref()
-    }
-}
-
-impl BaseArrayVTable<FSSTVTable> for FSSTVTable {
-    fn len(array: &FSSTArray) -> usize {
-        array.codes().len()
-    }
-
-    fn dtype(array: &FSSTArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &FSSTArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &FSSTArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
-        array.symbols.array_hash(state, precision);
-        array.symbol_lengths.array_hash(state, precision);
-        array.codes.as_ref().array_hash(state, precision);
-        array.uncompressed_lengths.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &FSSTArray, other: &FSSTArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.symbols.array_eq(&other.symbols, precision)
-            && array
-                .symbol_lengths
-                .array_eq(&other.symbol_lengths, precision)
-            && array
-                .codes
-                .as_ref()
-                .array_eq(other.codes.as_ref(), precision)
-            && array
-                .uncompressed_lengths
-                .array_eq(&other.uncompressed_lengths, precision)
     }
 }
 

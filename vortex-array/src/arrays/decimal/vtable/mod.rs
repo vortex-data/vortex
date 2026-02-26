@@ -25,16 +25,19 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-
-mod array;
 mod kernel;
 mod operations;
 mod validity;
 mod visitor;
 
-use crate::arrays::decimal::compute::rules::RULES;
-use crate::vtable::ArrayId;
+use std::hash::Hash;
 
+use crate::Precision;
+use crate::arrays::decimal::compute::rules::RULES;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
+use crate::stats::StatsSetRef;
+use crate::vtable::ArrayId;
 vtable!(Decimal);
 
 // The type of the values can be determined by looking at the type info...right?
@@ -48,14 +51,46 @@ impl VTable for DecimalVTable {
     type Array = DecimalArray;
 
     type Metadata = ProstMetadata<DecimalMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &DecimalArray) -> usize {
+        let divisor = match array.values_type {
+            DecimalType::I8 => 1,
+            DecimalType::I16 => 2,
+            DecimalType::I32 => 4,
+            DecimalType::I64 => 8,
+            DecimalType::I128 => 16,
+            DecimalType::I256 => 32,
+        };
+        array.values.len() / divisor
+    }
+
+    fn dtype(array: &DecimalArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &DecimalArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &DecimalArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.values.array_hash(state, precision);
+        std::mem::discriminant(&array.values_type).hash(state);
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &DecimalArray, other: &DecimalArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.values.array_eq(&other.values, precision)
+            && array.values_type == other.values_type
+            && array.validity.array_eq(&other.validity, precision)
     }
 
     fn metadata(array: &DecimalArray) -> VortexResult<Self::Metadata> {

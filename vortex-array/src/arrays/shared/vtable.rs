@@ -24,7 +24,6 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::BaseArrayVTable;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
@@ -44,14 +43,36 @@ impl SharedVTable {
 impl VTable for SharedVTable {
     type Array = SharedArray;
     type Metadata = EmptyMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &SharedArray) -> usize {
+        array.current_array_ref().len()
+    }
+
+    fn dtype(array: &SharedArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &SharedArray) -> StatsSetRef<'_> {
+        array.stats.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &SharedArray, state: &mut H, precision: Precision) {
+        let current = array.current_array_ref();
+        current.array_hash(state, precision);
+        array.dtype.hash(state);
+    }
+
+    fn array_eq(array: &SharedArray, other: &SharedArray, precision: Precision) -> bool {
+        let current = array.current_array_ref();
+        let other_current = other.current_array_ref();
+        current.array_eq(other_current, precision) && array.dtype == other.dtype
     }
 
     fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -101,33 +122,6 @@ impl VTable for SharedVTable {
         array.get_or_compute(|source| source.clone().execute::<Canonical>(ctx))
     }
 }
-
-impl BaseArrayVTable<SharedVTable> for SharedVTable {
-    fn len(array: &SharedArray) -> usize {
-        array.current_array_ref().len()
-    }
-
-    fn dtype(array: &SharedArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &SharedArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &SharedArray, state: &mut H, precision: Precision) {
-        let current = array.current_array_ref();
-        current.array_hash(state, precision);
-        array.dtype.hash(state);
-    }
-
-    fn array_eq(array: &SharedArray, other: &SharedArray, precision: Precision) -> bool {
-        let current = array.current_array_ref();
-        let other_current = other.current_array_ref();
-        current.array_eq(other_current, precision) && array.dtype == other.dtype
-    }
-}
-
 impl OperationsVTable<SharedVTable> for SharedVTable {
     fn scalar_at(array: &SharedArray, index: usize) -> VortexResult<Scalar> {
         array.current_array_ref().scalar_at(index)

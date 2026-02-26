@@ -30,7 +30,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -67,14 +66,46 @@ impl VTable for ALPRDVTable {
     type Array = ALPRDArray;
 
     type Metadata = ProstMetadata<ALPRDMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ALPRDArray) -> usize {
+        array.left_parts.len()
+    }
+
+    fn dtype(array: &ALPRDArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ALPRDArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ALPRDArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.left_parts.array_hash(state, precision);
+        array.left_parts_dictionary.array_hash(state, precision);
+        array.right_parts.array_hash(state, precision);
+        array.right_bit_width.hash(state);
+        array.left_parts_patches.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ALPRDArray, other: &ALPRDArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.left_parts.array_eq(&other.left_parts, precision)
+            && array
+                .left_parts_dictionary
+                .array_eq(&other.left_parts_dictionary, precision)
+            && array.right_parts.array_eq(&other.right_parts, precision)
+            && array.right_bit_width == other.right_bit_width
+            && array
+                .left_parts_patches
+                .array_eq(&other.left_parts_patches, precision)
     }
 
     fn metadata(array: &ALPRDArray) -> VortexResult<Self::Metadata> {
@@ -432,42 +463,6 @@ impl ALPRDArray {
 impl ValidityChild<ALPRDVTable> for ALPRDVTable {
     fn validity_child(array: &ALPRDArray) -> &ArrayRef {
         array.left_parts()
-    }
-}
-
-impl BaseArrayVTable<ALPRDVTable> for ALPRDVTable {
-    fn len(array: &ALPRDArray) -> usize {
-        array.left_parts.len()
-    }
-
-    fn dtype(array: &ALPRDArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ALPRDArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &ALPRDArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
-        array.left_parts.array_hash(state, precision);
-        array.left_parts_dictionary.array_hash(state, precision);
-        array.right_parts.array_hash(state, precision);
-        array.right_bit_width.hash(state);
-        array.left_parts_patches.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &ALPRDArray, other: &ALPRDArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.left_parts.array_eq(&other.left_parts, precision)
-            && array
-                .left_parts_dictionary
-                .array_eq(&other.left_parts_dictionary, precision)
-            && array.right_parts.array_eq(&other.right_parts, precision)
-            && array.right_bit_width == other.right_bit_width
-            && array
-                .left_parts_patches
-                .array_eq(&other.left_parts_patches, precision)
     }
 }
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -11,6 +13,7 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::Precision;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
 use crate::arrays::list::compute::PARENT_KERNELS;
@@ -20,16 +23,17 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::metadata::DeserializeMetadata;
 use crate::metadata::SerializeMetadata;
 use crate::serde::ArrayChildren;
+use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-
-mod array;
 mod operations;
 mod validity;
 mod visitor;
@@ -48,14 +52,38 @@ impl VTable for ListVTable {
     type Array = ListArray;
 
     type Metadata = ProstMetadata<ListMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ListArray) -> usize {
+        array.offsets.len().saturating_sub(1)
+    }
+
+    fn dtype(array: &ListArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ListArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ListArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.elements.array_hash(state, precision);
+        array.offsets.array_hash(state, precision);
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ListArray, other: &ListArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.elements.array_eq(&other.elements, precision)
+            && array.offsets.array_eq(&other.offsets, precision)
+            && array.validity.array_eq(&other.validity, precision)
     }
 
     fn reduce_parent(

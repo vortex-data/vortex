@@ -33,7 +33,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
@@ -87,14 +86,69 @@ impl VTable for ZstdVTable {
     type Array = ZstdArray;
 
     type Metadata = ProstMetadata<ZstdMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ZstdArray) -> usize {
+        array.slice_stop - array.slice_start
+    }
+
+    fn dtype(array: &ZstdArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ZstdArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ZstdArray, state: &mut H, precision: Precision) {
+        match &array.dictionary {
+            Some(dict) => {
+                true.hash(state);
+                dict.array_hash(state, precision);
+            }
+            None => {
+                false.hash(state);
+            }
+        }
+        for frame in &array.frames {
+            frame.array_hash(state, precision);
+        }
+        array.dtype.hash(state);
+        array.unsliced_validity.array_hash(state, precision);
+        array.unsliced_n_rows.hash(state);
+        array.slice_start.hash(state);
+        array.slice_stop.hash(state);
+    }
+
+    fn array_eq(array: &ZstdArray, other: &ZstdArray, precision: Precision) -> bool {
+        if !match (&array.dictionary, &other.dictionary) {
+            (Some(d1), Some(d2)) => d1.array_eq(d2, precision),
+            (None, None) => true,
+            _ => false,
+        } {
+            return false;
+        }
+        if array.frames.len() != other.frames.len() {
+            return false;
+        }
+        for (a, b) in array.frames.iter().zip(&other.frames) {
+            if !a.array_eq(b, precision) {
+                return false;
+            }
+        }
+        array.dtype == other.dtype
+            && array
+                .unsliced_validity
+                .array_eq(&other.unsliced_validity, precision)
+            && array.unsliced_n_rows == other.unsliced_n_rows
+            && array.slice_start == other.slice_start
+            && array.slice_stop == other.slice_stop
     }
 
     fn metadata(array: &ZstdArray) -> VortexResult<Self::Metadata> {
@@ -834,65 +888,6 @@ impl ZstdArray {
 impl ValiditySliceHelper for ZstdArray {
     fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize) {
         (&self.unsliced_validity, self.slice_start, self.slice_stop)
-    }
-}
-
-impl BaseArrayVTable<ZstdVTable> for ZstdVTable {
-    fn len(array: &ZstdArray) -> usize {
-        array.slice_stop - array.slice_start
-    }
-
-    fn dtype(array: &ZstdArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ZstdArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &ZstdArray, state: &mut H, precision: Precision) {
-        match &array.dictionary {
-            Some(dict) => {
-                true.hash(state);
-                dict.array_hash(state, precision);
-            }
-            None => {
-                false.hash(state);
-            }
-        }
-        for frame in &array.frames {
-            frame.array_hash(state, precision);
-        }
-        array.dtype.hash(state);
-        array.unsliced_validity.array_hash(state, precision);
-        array.unsliced_n_rows.hash(state);
-        array.slice_start.hash(state);
-        array.slice_stop.hash(state);
-    }
-
-    fn array_eq(array: &ZstdArray, other: &ZstdArray, precision: Precision) -> bool {
-        if !match (&array.dictionary, &other.dictionary) {
-            (Some(d1), Some(d2)) => d1.array_eq(d2, precision),
-            (None, None) => true,
-            _ => false,
-        } {
-            return false;
-        }
-        if array.frames.len() != other.frames.len() {
-            return false;
-        }
-        for (a, b) in array.frames.iter().zip(&other.frames) {
-            if !a.array_eq(b, precision) {
-                return false;
-            }
-        }
-        array.dtype == other.dtype
-            && array
-                .unsliced_validity
-                .array_eq(&other.unsliced_validity, precision)
-            && array.unsliced_n_rows == other.unsliced_n_rows
-            && array.slice_start == other.slice_start
-            && array.slice_stop == other.slice_stop
     }
 }
 

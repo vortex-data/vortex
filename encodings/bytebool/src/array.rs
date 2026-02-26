@@ -23,7 +23,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
@@ -47,14 +46,40 @@ impl VTable for ByteBoolVTable {
     type Array = ByteBoolArray;
 
     type Metadata = EmptyMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ByteBoolArray) -> usize {
+        array.buffer.len()
+    }
+
+    fn dtype(array: &ByteBoolArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ByteBoolArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &ByteBoolArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
+        array.dtype.hash(state);
+        array.buffer.array_hash(state, precision);
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ByteBoolArray, other: &ByteBoolArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.buffer.array_eq(&other.buffer, precision)
+            && array.validity.array_eq(&other.validity, precision)
     }
 
     fn metadata(_array: &ByteBoolArray) -> VortexResult<Self::Metadata> {
@@ -195,36 +220,6 @@ impl ByteBoolArray {
 impl ValidityHelper for ByteBoolArray {
     fn validity(&self) -> &Validity {
         &self.validity
-    }
-}
-
-impl BaseArrayVTable<ByteBoolVTable> for ByteBoolVTable {
-    fn len(array: &ByteBoolArray) -> usize {
-        array.buffer.len()
-    }
-
-    fn dtype(array: &ByteBoolArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ByteBoolArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        array: &ByteBoolArray,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.dtype.hash(state);
-        array.buffer.array_hash(state, precision);
-        array.validity.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &ByteBoolArray, other: &ByteBoolArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.buffer.array_eq(&other.buffer, precision)
-            && array.validity.array_eq(&other.validity, precision)
     }
 }
 
