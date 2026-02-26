@@ -3,6 +3,10 @@
 
 mod types;
 
+mod gpu {
+    include!(concat!(env!("OUT_DIR"), "/patches.rs"));
+}
+
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;

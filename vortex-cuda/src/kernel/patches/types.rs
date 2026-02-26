@@ -7,7 +7,6 @@
 
 use std::marker::PhantomData;
 use std::ops::Range;
-
 use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
 use vortex::buffer::buffer_mut;
@@ -16,8 +15,8 @@ use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_error::VortexResult;
 
-use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
+use crate::kernel::patches::gpu::GPUPatches;
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Transposed<V> {
@@ -167,7 +166,7 @@ pub struct GPUNewPatches<V> {
 pub async fn export_gpu<V: NativePType>(
     mut transposed: NewPatches<V>,
     ctx: &mut CudaExecutionCtx,
-) -> VortexResult<GPUNewPatches<V>> {
+) -> VortexResult<GPUPatches> {
     let lane_offsets = std::mem::take(&mut transposed.lane_offsets);
     let indices = std::mem::take(&mut transposed.indices);
     let values = std::mem::take(&mut transposed.values);
@@ -181,13 +180,12 @@ pub async fn export_gpu<V: NativePType>(
     let indices_handle = ctx.ensure_on_device(indices_handle).await?;
     let values_handle = ctx.ensure_on_device(values_handle).await?;
 
-    Ok(GPUNewPatches {
+    Ok(GPUPatches {
         n_chunks: transposed.n_chunks as u32,
         n_lanes: transposed.n_lanes as u32,
         lane_offsets: lane_offsets_handle,
         indices: indices_handle,
         values: values_handle,
-        _marker: PhantomData,
     })
 }
 
