@@ -9,10 +9,9 @@ use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::ArrayBufferVisitor;
-use crate::ArrayChildVisitor;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
@@ -34,7 +33,6 @@ use crate::vtable::ArrayId;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
-use crate::vtable::VisitorVTable;
 
 vtable!(Arrow);
 
@@ -44,7 +42,6 @@ impl VTable for ArrowVTable {
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         ArrowVTable::ID
@@ -70,6 +67,30 @@ impl VTable for ArrowVTable {
 
     fn array_eq(array: &ArrowArray, other: &ArrowArray, _precision: Precision) -> bool {
         array.dtype == other.dtype && std::sync::Arc::ptr_eq(&array.inner, &other.inner)
+    }
+
+    fn nbuffers(_array: &Self::Array) -> usize {
+        0
+    }
+
+    fn buffer(_array: &Self::Array, _idx: usize) -> BufferHandle {
+        vortex_panic!("ArrowArray has no buffers")
+    }
+
+    fn buffer_name(_array: &Self::Array, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(_array: &Self::Array) -> usize {
+        0
+    }
+
+    fn child(_array: &Self::Array, idx: usize) -> ArrayRef {
+        vortex_panic!("ArrowArray child index {idx} out of bounds")
+    }
+
+    fn child_name(_array: &Self::Array, idx: usize) -> String {
+        vortex_panic!("ArrowArray child_name index {idx} out of bounds")
     }
 
     fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -166,19 +187,5 @@ impl ValidityVTable<ArrowVTable> for ArrowVTable {
                 ),
             },
         })
-    }
-}
-
-impl VisitorVTable<ArrowVTable> for ArrowVTable {
-    fn visit_buffers(_array: &ArrowArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn visit_children(_array: &ArrowArray, _visitor: &mut dyn ArrayChildVisitor) {}
-
-    fn nchildren(_array: &ArrowArray) -> usize {
-        0
-    }
-
-    fn nth_child(_array: &ArrowArray, _idx: usize) -> Option<ArrayRef> {
-        None
     }
 }

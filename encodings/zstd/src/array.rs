@@ -7,8 +7,6 @@ use std::sync::Arc;
 
 use itertools::Itertools as _;
 use prost::Message as _;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -38,8 +36,8 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
-use vortex_array::vtable::VisitorVTable;
 use vortex_array::vtable::validity_nchildren;
+use vortex_array::vtable::validity_to_child;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -88,7 +86,6 @@ impl VTable for ZstdVTable {
     type Metadata = ProstMetadata<ZstdMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -149,6 +146,49 @@ impl VTable for ZstdVTable {
             && array.unsliced_n_rows == other.unsliced_n_rows
             && array.slice_start == other.slice_start
             && array.slice_stop == other.slice_stop
+    }
+
+    fn nbuffers(array: &ZstdArray) -> usize {
+        array.dictionary.is_some() as usize + array.frames.len()
+    }
+
+    fn buffer(array: &ZstdArray, idx: usize) -> BufferHandle {
+        if let Some(dict) = &array.dictionary {
+            if idx == 0 {
+                return BufferHandle::new_host(dict.clone());
+            }
+            BufferHandle::new_host(array.frames[idx - 1].clone())
+        } else {
+            BufferHandle::new_host(array.frames[idx].clone())
+        }
+    }
+
+    fn buffer_name(array: &ZstdArray, idx: usize) -> Option<String> {
+        if array.dictionary.is_some() {
+            if idx == 0 {
+                Some("dictionary".to_string())
+            } else {
+                Some(format!("frame_{}", idx - 1))
+            }
+        } else {
+            Some(format!("frame_{idx}"))
+        }
+    }
+
+    fn nchildren(array: &ZstdArray) -> usize {
+        validity_nchildren(&array.unsliced_validity)
+    }
+
+    fn child(array: &ZstdArray, idx: usize) -> ArrayRef {
+        validity_to_child(&array.unsliced_validity, array.unsliced_n_rows)
+            .unwrap_or_else(|| vortex_panic!("ZstdArray child index {idx} out of bounds"))
+    }
+
+    fn child_name(_array: &ZstdArray, idx: usize) -> String {
+        match idx {
+            0 => "validity".to_string(),
+            _ => vortex_panic!("ZstdArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(array: &ZstdArray) -> VortexResult<Self::Metadata> {
@@ -894,31 +934,5 @@ impl ValiditySliceHelper for ZstdArray {
 impl OperationsVTable<ZstdVTable> for ZstdVTable {
     fn scalar_at(array: &ZstdArray, index: usize) -> VortexResult<Scalar> {
         array._slice(index, index + 1).decompress()?.scalar_at(0)
-    }
-}
-
-impl VisitorVTable<ZstdVTable> for ZstdVTable {
-    fn visit_buffers(array: &ZstdArray, visitor: &mut dyn ArrayBufferVisitor) {
-        if let Some(buffer) = &array.dictionary {
-            visitor.visit_buffer_handle("dictionary", &BufferHandle::new_host(buffer.clone()));
-        }
-        for (i, buffer) in array.frames.iter().enumerate() {
-            visitor.visit_buffer_handle(
-                &format!("frame_{i}"),
-                &BufferHandle::new_host(buffer.clone()),
-            );
-        }
-    }
-
-    fn nbuffers(array: &ZstdArray) -> usize {
-        array.dictionary.is_some() as usize + array.frames.len()
-    }
-
-    fn visit_children(array: &ZstdArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(&array.unsliced_validity, array.unsliced_n_rows());
-    }
-
-    fn nchildren(array: &ZstdArray) -> usize {
-        validity_nchildren(&array.unsliced_validity)
     }
 }

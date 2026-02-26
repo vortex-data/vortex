@@ -9,8 +9,6 @@ use std::hash::Hash;
 
 use prost::Message as _;
 use vortex_array::Array;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -39,11 +37,11 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromChild;
-use vortex_array::vtable::VisitorVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::decimal_byte_parts::compute::kernel::PARENT_KERNELS;
@@ -65,7 +63,6 @@ impl VTable for DecimalBytePartsVTable {
     type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -98,6 +95,36 @@ impl VTable for DecimalBytePartsVTable {
         precision: Precision,
     ) -> bool {
         array.dtype == other.dtype && array.msp.array_eq(&other.msp, precision)
+    }
+
+    fn nbuffers(_array: &DecimalBytePartsArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &DecimalBytePartsArray, idx: usize) -> BufferHandle {
+        vortex_panic!("DecimalBytePartsArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &DecimalBytePartsArray, idx: usize) -> Option<String> {
+        vortex_panic!("DecimalBytePartsArray buffer_name index {idx} out of bounds")
+    }
+
+    fn nchildren(_array: &DecimalBytePartsArray) -> usize {
+        1
+    }
+
+    fn child(array: &DecimalBytePartsArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.msp.clone(),
+            _ => vortex_panic!("DecimalBytePartsArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &DecimalBytePartsArray, idx: usize) -> String {
+        match idx {
+            0 => "msp".to_string(),
+            _ => vortex_panic!("DecimalBytePartsArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(array: &DecimalBytePartsArray) -> VortexResult<Self::Metadata> {
@@ -293,22 +320,6 @@ impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn validity_child(array: &DecimalBytePartsArray) -> &ArrayRef {
         // validity stored in 0th child
         &array.msp
-    }
-}
-
-impl VisitorVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    fn visit_buffers(_array: &DecimalBytePartsArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn nbuffers(_array: &DecimalBytePartsArray) -> usize {
-        0
-    }
-
-    fn visit_children(array: &DecimalBytePartsArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("msp", &array.msp);
-    }
-
-    fn nchildren(_array: &DecimalBytePartsArray) -> usize {
-        1
     }
 }
 

@@ -6,8 +6,6 @@ use std::hash::Hash;
 
 use itertools::Itertools;
 use vortex_array::Array;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -33,12 +31,15 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
-use vortex_array::vtable::VisitorVTable;
+use vortex_array::vtable::patches_child;
+use vortex_array::vtable::patches_child_name;
+use vortex_array::vtable::patches_nchildren;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
@@ -68,7 +69,6 @@ impl VTable for ALPRDVTable {
     type Metadata = ProstMetadata<ALPRDMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -106,6 +106,48 @@ impl VTable for ALPRDVTable {
             && array
                 .left_parts_patches
                 .array_eq(&other.left_parts_patches, precision)
+    }
+
+    fn nbuffers(_array: &ALPRDArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &ALPRDArray, idx: usize) -> BufferHandle {
+        vortex_panic!("ALPRDArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &ALPRDArray, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(array: &ALPRDArray) -> usize {
+        2 + array.left_parts_patches().map_or(0, patches_nchildren)
+    }
+
+    fn child(array: &ALPRDArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.left_parts().clone(),
+            1 => array.right_parts().clone(),
+            _ => {
+                let patches = array
+                    .left_parts_patches()
+                    .unwrap_or_else(|| vortex_panic!("ALPRDArray child index {idx} out of bounds"));
+                patches_child(patches, idx - 2)
+            }
+        }
+    }
+
+    fn child_name(array: &ALPRDArray, idx: usize) -> String {
+        match idx {
+            0 => "left_parts".to_string(),
+            1 => "right_parts".to_string(),
+            _ => {
+                if array.left_parts_patches().is_none() {
+                    vortex_panic!("ALPRDArray child_name index {idx} out of bounds");
+                }
+                patches_child_name(idx - 2).to_string()
+            }
+        }
     }
 
     fn metadata(array: &ALPRDArray) -> VortexResult<Self::Metadata> {
@@ -463,29 +505,6 @@ impl ALPRDArray {
 impl ValidityChild<ALPRDVTable> for ALPRDVTable {
     fn validity_child(array: &ALPRDArray) -> &ArrayRef {
         array.left_parts()
-    }
-}
-
-impl VisitorVTable<ALPRDVTable> for ALPRDVTable {
-    fn visit_buffers(_array: &ALPRDArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn nbuffers(_array: &ALPRDArray) -> usize {
-        0
-    }
-
-    fn visit_children(array: &ALPRDArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("left_parts", array.left_parts());
-        visitor.visit_child("right_parts", array.right_parts());
-        if let Some(patches) = array.left_parts_patches() {
-            visitor.visit_patches(patches);
-        }
-    }
-
-    fn nchildren(array: &ALPRDArray) -> usize {
-        // left_parts + right_parts + optional patches (indices + values)
-        2 + array
-            .left_parts_patches()
-            .map_or(0, |p| 2 + p.chunk_offsets().is_some() as usize)
     }
 }
 

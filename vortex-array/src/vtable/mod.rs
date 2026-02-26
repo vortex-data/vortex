@@ -6,7 +6,6 @@
 mod dyn_;
 mod operations;
 mod validity;
-mod visitor;
 
 use std::fmt::Debug;
 use std::hash::Hasher;
@@ -15,8 +14,9 @@ use std::ops::Deref;
 pub use dyn_::*;
 pub use operations::*;
 pub use validity::*;
-pub use visitor::*;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::Array;
@@ -24,12 +24,15 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::Precision;
+use crate::arrays::ConstantArray;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
+use crate::patches::Patches;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
+use crate::validity::Validity;
 
 /// The array [`VTable`] encapsulates logic for an Array type within Vortex.
 ///
@@ -50,7 +53,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 
     type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
-    type VisitorVTable: VisitorVTable<Self>;
 
     /// Returns the ID of the array.
     fn id(array: &Self::Array) -> ArrayId;
@@ -70,9 +72,34 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Compares two arrays of the same type for equality.
     fn array_eq(array: &Self::Array, other: &Self::Array, precision: Precision) -> bool;
 
-    /// Exports metadata for an array.
+    /// Returns the number of buffers in the array.
+    fn nbuffers(array: &Self::Array) -> usize;
+
+    /// Returns the buffer at the given index.
     ///
-    /// All other parts of the array are exported using the [`crate::vtable::VisitorVTable`].
+    /// # Panics
+    /// Panics if `idx >= nbuffers(array)`.
+    fn buffer(array: &Self::Array, idx: usize) -> BufferHandle;
+
+    /// Returns the name of the buffer at the given index, or `None` if unnamed.
+    fn buffer_name(array: &Self::Array, idx: usize) -> Option<String>;
+
+    /// Returns the number of children in the array.
+    fn nchildren(array: &Self::Array) -> usize;
+
+    /// Returns the child at the given index.
+    ///
+    /// # Panics
+    /// Panics if `idx >= nchildren(array)`.
+    fn child(array: &Self::Array, idx: usize) -> ArrayRef;
+
+    /// Returns the name of the child at the given index.
+    ///
+    /// # Panics
+    /// Panics if `idx >= nchildren(array)`.
+    fn child_name(array: &Self::Array, idx: usize) -> String;
+
+    /// Exports metadata for an array.
     ///
     /// * If the array does not contain metadata, it should return
     ///   [`crate::metadata::EmptyMetadata`].
@@ -221,6 +248,63 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 
 /// Placeholder type used to indicate when a particular vtable is not supported by the encoding.
 pub struct NotSupported;
+
+/// Returns the validity as a child array if it produces one.
+///
+/// - `NonNullable` and `AllValid` produce no child (returns `None`)
+/// - `AllInvalid` produces a `ConstantArray` of `false` values
+/// - `Array` returns the validity array
+#[inline]
+pub fn validity_to_child(validity: &Validity, len: usize) -> Option<ArrayRef> {
+    match validity {
+        Validity::NonNullable | Validity::AllValid => None,
+        Validity::AllInvalid => Some(ConstantArray::new(false, len).into_array()),
+        Validity::Array(array) => Some(array.clone()),
+    }
+}
+
+/// Returns 1 if validity produces a child, 0 otherwise.
+#[inline]
+pub fn validity_nchildren(validity: &Validity) -> usize {
+    match validity {
+        Validity::NonNullable | Validity::AllValid => 0,
+        Validity::AllInvalid | Validity::Array(_) => 1,
+    }
+}
+
+/// Returns the number of children produced by patches.
+#[inline]
+pub fn patches_nchildren(patches: &Patches) -> usize {
+    2 + patches.chunk_offsets().is_some() as usize
+}
+
+/// Returns the child at the given index within a patches component.
+///
+/// Index 0 = patch_indices, 1 = patch_values, 2 = patch_chunk_offsets (if present).
+#[inline]
+pub fn patches_child(patches: &Patches, idx: usize) -> ArrayRef {
+    match idx {
+        0 => patches.indices().clone(),
+        1 => patches.values().clone(),
+        2 => patches
+            .chunk_offsets()
+            .as_ref()
+            .vortex_expect("patch_chunk_offsets child out of bounds")
+            .clone(),
+        _ => vortex_panic!("patches child index {idx} out of bounds"),
+    }
+}
+
+/// Returns the name of the child at the given index within a patches component.
+#[inline]
+pub fn patches_child_name(idx: usize) -> &'static str {
+    match idx {
+        0 => "patch_indices",
+        1 => "patch_values",
+        2 => "patch_chunk_offsets",
+        _ => vortex_panic!("patches child name index {idx} out of bounds"),
+    }
+}
 
 #[macro_export]
 macro_rules! vtable {

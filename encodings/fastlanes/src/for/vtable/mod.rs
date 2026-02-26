@@ -23,6 +23,7 @@ use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::FoRArray;
@@ -35,7 +36,6 @@ mod operations;
 mod rules;
 mod slice;
 mod validity;
-mod visitor;
 
 vtable!(FoR);
 
@@ -46,7 +46,6 @@ impl VTable for FoRVTable {
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -72,6 +71,36 @@ impl VTable for FoRVTable {
     fn array_eq(array: &FoRArray, other: &FoRArray, precision: Precision) -> bool {
         array.encoded().array_eq(other.encoded(), precision)
             && array.reference_scalar() == other.reference_scalar()
+    }
+
+    fn nbuffers(_array: &FoRArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &FoRArray, idx: usize) -> BufferHandle {
+        vortex_panic!("FoRArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &FoRArray, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(_array: &FoRArray) -> usize {
+        1
+    }
+
+    fn child(array: &FoRArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.encoded().clone(),
+            _ => vortex_panic!("FoRArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &FoRArray, idx: usize) -> String {
+        match idx {
+            0 => "encoded".to_string(),
+            _ => vortex_panic!("FoRArray child name index {idx} out of bounds"),
+        }
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -38,8 +39,6 @@ use crate::vtable::VTable;
 mod canonical;
 mod operations;
 mod validity;
-mod visitor;
-
 vtable!(Chunked);
 
 #[derive(Debug)]
@@ -55,8 +54,6 @@ impl VTable for ChunkedVTable {
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
-
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }
@@ -95,6 +92,36 @@ impl VTable for ChunkedVTable {
                 .iter()
                 .zip(&other.chunks)
                 .all(|(a, b)| a.array_eq(b, precision))
+    }
+
+    fn nbuffers(_array: &ChunkedArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &ChunkedArray, idx: usize) -> BufferHandle {
+        vortex_panic!("ChunkedArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &ChunkedArray, idx: usize) -> Option<String> {
+        vortex_panic!("ChunkedArray buffer_name index {idx} out of bounds")
+    }
+
+    fn nchildren(array: &ChunkedArray) -> usize {
+        1 + array.chunks().len()
+    }
+
+    fn child(array: &ChunkedArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.chunk_offsets.to_array(),
+            n => array.chunks()[n - 1].clone(),
+        }
+    }
+
+    fn child_name(_array: &ChunkedArray, idx: usize) -> String {
+        match idx {
+            0 => "chunk_offsets".to_string(),
+            n => format!("chunks[{}]", n - 1),
+        }
     }
 
     fn metadata(_array: &ChunkedArray) -> VortexResult<Self::Metadata> {

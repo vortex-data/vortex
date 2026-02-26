@@ -7,6 +7,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -25,10 +26,11 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::vtable::validity_nchildren;
+use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
-mod visitor;
 
 use std::hash::Hash;
 
@@ -53,7 +55,6 @@ impl VTable for DecimalVTable {
     type Metadata = ProstMetadata<DecimalMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -91,6 +92,40 @@ impl VTable for DecimalVTable {
             && array.values.array_eq(&other.values, precision)
             && array.values_type == other.values_type
             && array.validity.array_eq(&other.validity, precision)
+    }
+
+    fn nbuffers(_array: &DecimalArray) -> usize {
+        1
+    }
+
+    fn buffer(array: &DecimalArray, idx: usize) -> BufferHandle {
+        match idx {
+            0 => array.values.clone(),
+            _ => vortex_panic!("DecimalArray buffer index {idx} out of bounds"),
+        }
+    }
+
+    fn buffer_name(_array: &DecimalArray, idx: usize) -> Option<String> {
+        match idx {
+            0 => Some("values".to_string()),
+            _ => None,
+        }
+    }
+
+    fn nchildren(array: &DecimalArray) -> usize {
+        validity_nchildren(&array.validity)
+    }
+
+    fn child(array: &DecimalArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => validity_to_child(&array.validity, array.len())
+                .vortex_expect("DecimalArray child index out of bounds"),
+            _ => vortex_panic!("DecimalArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &DecimalArray, _idx: usize) -> String {
+        "validity".to_string()
     }
 
     fn metadata(array: &DecimalArray) -> VortexResult<Self::Metadata> {

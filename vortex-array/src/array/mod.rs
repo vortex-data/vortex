@@ -63,7 +63,6 @@ use crate::vtable::DynVTable;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
-use crate::vtable::VisitorVTable;
 
 /// The public API trait for all Vortex arrays.
 pub trait Array:
@@ -664,126 +663,57 @@ impl<V: VTable> ArrayEq for ArrayAdapter<V> {
 
 impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
     fn children(&self) -> Vec<ArrayRef> {
-        struct ChildrenCollector {
-            children: Vec<ArrayRef>,
-        }
-
-        impl ArrayChildVisitorUnnamed for ChildrenCollector {
-            fn visit_child(&mut self, array: &ArrayRef) {
-                self.children.push(array.clone());
-            }
-        }
-
-        let mut collector = ChildrenCollector {
-            children: Vec::new(),
-        };
-        <V::VisitorVTable as VisitorVTable<V>>::visit_children_unnamed(&self.0, &mut collector);
-        collector.children
+        (0..V::nchildren(&self.0))
+            .map(|i| V::child(&self.0, i))
+            .collect()
     }
 
     fn nchildren(&self) -> usize {
-        <V::VisitorVTable as VisitorVTable<V>>::nchildren(&self.0)
+        V::nchildren(&self.0)
     }
 
     fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
-        <V::VisitorVTable as VisitorVTable<V>>::nth_child(&self.0, idx)
+        (idx < V::nchildren(&self.0)).then(|| V::child(&self.0, idx))
     }
 
     fn children_names(&self) -> Vec<String> {
-        struct ChildNameCollector {
-            names: Vec<String>,
-        }
-
-        impl ArrayChildVisitor for ChildNameCollector {
-            fn visit_child(&mut self, name: &str, _array: &ArrayRef) {
-                self.names.push(name.to_string());
-            }
-        }
-
-        let mut collector = ChildNameCollector { names: Vec::new() };
-        <V::VisitorVTable as VisitorVTable<V>>::visit_children(&self.0, &mut collector);
-        collector.names
+        (0..V::nchildren(&self.0))
+            .map(|i| V::child_name(&self.0, i))
+            .collect()
     }
 
     fn named_children(&self) -> Vec<(String, ArrayRef)> {
-        struct NamedChildrenCollector {
-            children: Vec<(String, ArrayRef)>,
-        }
-
-        impl ArrayChildVisitor for NamedChildrenCollector {
-            fn visit_child(&mut self, name: &str, array: &ArrayRef) {
-                self.children.push((name.to_string(), array.to_array()));
-            }
-        }
-
-        let mut collector = NamedChildrenCollector {
-            children: Vec::new(),
-        };
-
-        <V::VisitorVTable as VisitorVTable<V>>::visit_children(&self.0, &mut collector);
-        collector.children
+        (0..V::nchildren(&self.0))
+            .map(|i| (V::child_name(&self.0, i), V::child(&self.0, i)))
+            .collect()
     }
 
     fn buffers(&self) -> Vec<ByteBuffer> {
-        struct BufferCollector {
-            buffers: Vec<ByteBuffer>,
-        }
-
-        impl ArrayBufferVisitor for BufferCollector {
-            fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle) {
-                self.buffers.push(handle.to_host_sync());
-            }
-        }
-
-        let mut collector = BufferCollector {
-            buffers: Vec::new(),
-        };
-        <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&self.0, &mut collector);
-        collector.buffers
+        (0..V::nbuffers(&self.0))
+            .map(|i| V::buffer(&self.0, i).to_host_sync())
+            .collect()
     }
 
     fn buffer_handles(&self) -> Vec<BufferHandle> {
-        struct BufferHandleCollector {
-            handles: Vec<BufferHandle>,
-        }
-
-        impl ArrayBufferVisitor for BufferHandleCollector {
-            fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle) {
-                self.handles.push(handle.clone());
-            }
-        }
-
-        let mut collector = BufferHandleCollector {
-            handles: Vec::new(),
-        };
-        <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&self.0, &mut collector);
-        collector.handles
+        (0..V::nbuffers(&self.0))
+            .map(|i| V::buffer(&self.0, i))
+            .collect()
     }
 
     fn buffer_names(&self) -> Vec<String> {
-        <V::VisitorVTable as VisitorVTable<V>>::buffer_names(&self.0)
+        (0..V::nbuffers(&self.0))
+            .filter_map(|i| V::buffer_name(&self.0, i))
+            .collect()
     }
 
     fn named_buffers(&self) -> Vec<(String, BufferHandle)> {
-        struct NamedBufferCollector {
-            buffers: Vec<(String, BufferHandle)>,
-        }
-
-        impl ArrayBufferVisitor for NamedBufferCollector {
-            fn visit_buffer_handle(&mut self, name: &str, handle: &BufferHandle) {
-                self.buffers.push((name.to_string(), handle.clone()));
-            }
-        }
-
-        let mut collector = NamedBufferCollector {
-            buffers: Vec::new(),
-        };
-        <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&self.0, &mut collector);
-        collector.buffers
+        (0..V::nbuffers(&self.0))
+            .filter_map(|i| V::buffer_name(&self.0, i).map(|name| (name, V::buffer(&self.0, i))))
+            .collect()
     }
 
     fn nbuffers(&self) -> usize {
-        <V::VisitorVTable as VisitorVTable<V>>::nbuffers(&self.0)
+        V::nbuffers(&self.0)
     }
 
     fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {

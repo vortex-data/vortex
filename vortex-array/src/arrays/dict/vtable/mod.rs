@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use super::DictArray;
@@ -39,7 +40,6 @@ use crate::vtable::VTable;
 mod kernel;
 mod operations;
 mod validity;
-mod visitor;
 
 vtable!(Dict);
 
@@ -56,7 +56,6 @@ impl VTable for DictVTable {
     type Metadata = ProstMetadata<DictMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -84,6 +83,38 @@ impl VTable for DictVTable {
         array.dtype == other.dtype
             && array.codes.array_eq(&other.codes, precision)
             && array.values.array_eq(&other.values, precision)
+    }
+
+    fn nbuffers(_array: &DictArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &DictArray, idx: usize) -> BufferHandle {
+        vortex_panic!("DictArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &DictArray, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(_array: &DictArray) -> usize {
+        2
+    }
+
+    fn child(array: &DictArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.codes().clone(),
+            1 => array.values().clone(),
+            _ => vortex_panic!("DictArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &DictArray, idx: usize) -> String {
+        match idx {
+            0 => "codes".to_string(),
+            1 => "values".to_string(),
+            _ => vortex_panic!("DictArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(array: &DictArray) -> VortexResult<Self::Metadata> {

@@ -25,6 +25,7 @@ use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::DeltaArray;
@@ -34,7 +35,6 @@ mod operations;
 mod rules;
 mod slice;
 mod validity;
-mod visitor;
 
 vtable!(Delta);
 
@@ -54,7 +54,6 @@ impl VTable for DeltaVTable {
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -86,6 +85,38 @@ impl VTable for DeltaVTable {
             && array.dtype() == other.dtype()
             && array.bases().array_eq(other.bases(), precision)
             && array.deltas().array_eq(other.deltas(), precision)
+    }
+
+    fn nbuffers(_array: &DeltaArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &DeltaArray, idx: usize) -> BufferHandle {
+        vortex_panic!("DeltaArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &DeltaArray, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(_array: &DeltaArray) -> usize {
+        2
+    }
+
+    fn child(array: &DeltaArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.bases().clone(),
+            1 => array.deltas().clone(),
+            _ => vortex_panic!("DeltaArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &DeltaArray, idx: usize) -> String {
+        match idx {
+            0 => "bases".to_string(),
+            1 => "deltas".to_string(),
+            _ => vortex_panic!("DeltaArray child name index {idx} out of bounds"),
+        }
     }
 
     fn reduce_parent(

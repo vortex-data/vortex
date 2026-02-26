@@ -160,8 +160,9 @@ trait doubling as public API), `ArrayRef`, and `DynVTable`. In addition to renam
 1. **Standardize data storage.** Replace per-encoding array structs with a common inner
    struct holding `(dtype, len, V::Metadata, buffers, children, stats)`. Per-encoding typed
    accessors (e.g. `DictArray::codes()`) become methods on `Array<DictVTable>`.
-2. **Collapse sub-vtables.** Fold `BaseArrayVTable`, `OperationsVTable`, `ValidityVTable`, and
-   `VisitorVTable` into `ArrayVTable`. Many methods become trivial or generic once data
-   storage is standardized.
+2. **Collapse sub-vtables.** Fold `BaseArrayVTable`, `OperationsVTable`, and `ValidityVTable`
+   into `ArrayVTable`. Many methods become trivial or generic once data
+   storage is standardized. (`VisitorVTable` has already been replaced with index-based
+   `nbuffers`/`buffer`/`nchildren`/`child` methods on the main `VTable` trait.)
 3. **Introduce typed wrapper.** Add `Array<V>` analogous to `ExtDType<V>`, replacing the
    current `type Array` associated type on the vtable.

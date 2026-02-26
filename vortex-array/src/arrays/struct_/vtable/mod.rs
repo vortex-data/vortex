@@ -9,6 +9,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -23,11 +24,11 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::vtable::validity_nchildren;
+use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
-mod visitor;
-
 use std::hash::Hash;
 
 use crate::Precision;
@@ -44,8 +45,6 @@ impl VTable for StructVTable {
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    type VisitorVTable = Self;
-
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }
@@ -81,6 +80,41 @@ impl VTable for StructVTable {
                 .zip(other.fields.iter())
                 .all(|(a, b)| a.array_eq(b, precision))
             && array.validity.array_eq(&other.validity, precision)
+    }
+
+    fn nbuffers(_array: &StructArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &StructArray, idx: usize) -> BufferHandle {
+        vortex_panic!("StructArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &StructArray, idx: usize) -> Option<String> {
+        vortex_panic!("StructArray buffer_name index {idx} out of bounds")
+    }
+
+    fn nchildren(array: &StructArray) -> usize {
+        validity_nchildren(&array.validity) + array.unmasked_fields().len()
+    }
+
+    fn child(array: &StructArray, idx: usize) -> ArrayRef {
+        let vc = validity_nchildren(&array.validity);
+        if idx < vc {
+            validity_to_child(&array.validity, array.len())
+                .vortex_expect("StructArray validity child out of bounds")
+        } else {
+            array.unmasked_fields()[idx - vc].clone()
+        }
+    }
+
+    fn child_name(array: &StructArray, idx: usize) -> String {
+        let vc = validity_nchildren(&array.validity);
+        if idx < vc {
+            "validity".to_string()
+        } else {
+            array.names()[idx - vc].as_ref().to_string()
+        }
     }
 
     fn metadata(_array: &StructArray) -> VortexResult<Self::Metadata> {

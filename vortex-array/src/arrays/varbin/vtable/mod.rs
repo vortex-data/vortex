@@ -5,6 +5,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
@@ -23,12 +24,12 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::vtable::validity_nchildren;
+use crate::vtable::validity_to_child;
 mod canonical;
 mod kernel;
 mod operations;
 mod validity;
-mod visitor;
-
 use std::hash::Hash;
 
 use canonical::varbin_to_canonical;
@@ -55,8 +56,6 @@ impl VTable for VarBinVTable {
     type Metadata = ProstMetadata<VarBinMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    type VisitorVTable = Self;
-
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }
@@ -85,6 +84,45 @@ impl VTable for VarBinVTable {
             && array.bytes().array_eq(other.bytes(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
             && array.validity.array_eq(&other.validity, precision)
+    }
+
+    fn nbuffers(_array: &VarBinArray) -> usize {
+        1
+    }
+
+    fn buffer(array: &VarBinArray, idx: usize) -> BufferHandle {
+        match idx {
+            0 => array.bytes_handle().clone(),
+            _ => vortex_panic!("VarBinArray buffer index {idx} out of bounds"),
+        }
+    }
+
+    fn buffer_name(_array: &VarBinArray, idx: usize) -> Option<String> {
+        match idx {
+            0 => Some("bytes".to_string()),
+            _ => vortex_panic!("VarBinArray buffer_name index {idx} out of bounds"),
+        }
+    }
+
+    fn nchildren(array: &VarBinArray) -> usize {
+        1 + validity_nchildren(&array.validity)
+    }
+
+    fn child(array: &VarBinArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.offsets().clone(),
+            1 => validity_to_child(&array.validity, array.len())
+                .vortex_expect("VarBinArray validity child out of bounds"),
+            _ => vortex_panic!("VarBinArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &VarBinArray, idx: usize) -> String {
+        match idx {
+            0 => "offsets".to_string(),
+            1 => "validity".to_string(),
+            _ => vortex_panic!("VarBinArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(array: &VarBinArray) -> VortexResult<Self::Metadata> {

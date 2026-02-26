@@ -15,8 +15,6 @@ use pco::wrapped::ChunkDecompressor;
 use pco::wrapped::FileCompressor;
 use pco::wrapped::FileDecompressor;
 use prost::Message;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -44,8 +42,8 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
-use vortex_array::vtable::VisitorVTable;
 use vortex_array::vtable::validity_nchildren;
+use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -55,6 +53,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::PcoChunkInfo;
@@ -89,7 +88,6 @@ impl VTable for PcoVTable {
     type Metadata = ProstMetadata<PcoMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -146,6 +144,43 @@ impl VTable for PcoVTable {
             }
         }
         true
+    }
+
+    fn nbuffers(array: &PcoArray) -> usize {
+        array.chunk_metas.len() + array.pages.len()
+    }
+
+    fn buffer(array: &PcoArray, idx: usize) -> BufferHandle {
+        if idx < array.chunk_metas.len() {
+            BufferHandle::new_host(array.chunk_metas[idx].clone())
+        } else {
+            let page_idx = idx - array.chunk_metas.len();
+            BufferHandle::new_host(array.pages[page_idx].clone())
+        }
+    }
+
+    fn buffer_name(array: &PcoArray, idx: usize) -> Option<String> {
+        if idx < array.chunk_metas.len() {
+            Some(format!("chunk_meta_{idx}"))
+        } else {
+            Some(format!("page_{}", idx - array.chunk_metas.len()))
+        }
+    }
+
+    fn nchildren(array: &PcoArray) -> usize {
+        validity_nchildren(&array.unsliced_validity)
+    }
+
+    fn child(array: &PcoArray, idx: usize) -> ArrayRef {
+        validity_to_child(&array.unsliced_validity, array.unsliced_n_rows)
+            .unwrap_or_else(|| vortex_panic!("PcoArray child index {idx} out of bounds"))
+    }
+
+    fn child_name(_array: &PcoArray, idx: usize) -> String {
+        match idx {
+            0 => "validity".to_string(),
+            _ => vortex_panic!("PcoArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(array: &PcoArray) -> VortexResult<Self::Metadata> {
@@ -529,35 +564,6 @@ impl ValiditySliceHelper for PcoArray {
 impl OperationsVTable<PcoVTable> for PcoVTable {
     fn scalar_at(array: &PcoArray, index: usize) -> VortexResult<Scalar> {
         array._slice(index, index + 1).decompress()?.scalar_at(0)
-    }
-}
-
-impl VisitorVTable<PcoVTable> for PcoVTable {
-    fn visit_buffers(array: &PcoArray, visitor: &mut dyn ArrayBufferVisitor) {
-        for (i, buffer) in array.chunk_metas.iter().enumerate() {
-            visitor.visit_buffer_handle(
-                &format!("chunk_meta_{i}"),
-                &BufferHandle::new_host(buffer.clone()),
-            );
-        }
-        for (i, buffer) in array.pages.iter().enumerate() {
-            visitor.visit_buffer_handle(
-                &format!("page_{i}"),
-                &BufferHandle::new_host(buffer.clone()),
-            );
-        }
-    }
-
-    fn nbuffers(array: &PcoArray) -> usize {
-        array.chunk_metas.len() + array.pages.len()
-    }
-
-    fn visit_children(array: &PcoArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(&array.unsliced_validity, array.unsliced_n_rows());
-    }
-
-    fn nchildren(array: &PcoArray) -> usize {
-        validity_nchildren(&array.unsliced_validity)
     }
 }
 

@@ -9,12 +9,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::Array;
-use crate::ArrayBufferVisitor;
-use crate::ArrayChildVisitor;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
@@ -37,7 +36,6 @@ use crate::vtable::ArrayId;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
-use crate::vtable::VisitorVTable;
 
 vtable!(Filter);
 
@@ -53,8 +51,6 @@ impl VTable for FilterVTable {
     type Metadata = FilterMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
-
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }
@@ -78,6 +74,36 @@ impl VTable for FilterVTable {
 
     fn array_eq(array: &FilterArray, other: &FilterArray, precision: Precision) -> bool {
         array.child.array_eq(&other.child, precision) && array.mask.array_eq(&other.mask, precision)
+    }
+
+    fn nbuffers(_array: &Self::Array) -> usize {
+        0
+    }
+
+    fn buffer(_array: &Self::Array, _idx: usize) -> BufferHandle {
+        vortex_panic!("FilterArray has no buffers")
+    }
+
+    fn buffer_name(_array: &Self::Array, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(_array: &Self::Array) -> usize {
+        1
+    }
+
+    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.child.clone(),
+            _ => vortex_panic!("FilterArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &Self::Array, idx: usize) -> String {
+        match idx {
+            0 => "child".to_string(),
+            _ => vortex_panic!("FilterArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -163,25 +189,6 @@ impl OperationsVTable<FilterVTable> for FilterVTable {
 impl ValidityVTable<FilterVTable> for FilterVTable {
     fn validity(array: &FilterArray) -> VortexResult<Validity> {
         array.child.validity()?.filter(&array.mask)
-    }
-}
-
-impl VisitorVTable<FilterVTable> for FilterVTable {
-    fn visit_buffers(_array: &FilterArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn visit_children(array: &FilterArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("child", &array.child);
-    }
-
-    fn nchildren(_array: &FilterArray) -> usize {
-        1
-    }
-
-    fn nth_child(array: &FilterArray, idx: usize) -> Option<ArrayRef> {
-        match idx {
-            0 => Some(array.child.clone()),
-            _ => None,
-        }
     }
 }
 

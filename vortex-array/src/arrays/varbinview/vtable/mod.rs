@@ -7,9 +7,11 @@ use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -30,11 +32,11 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::vtable::validity_nchildren;
+use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
-mod visitor;
-
 vtable!(VarBinView);
 
 #[derive(Debug)]
@@ -50,8 +52,6 @@ impl VTable for VarBinViewVTable {
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    type VisitorVTable = Self;
-
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }
@@ -91,6 +91,51 @@ impl VTable for VarBinViewVTable {
                 .all(|(a, b)| a.array_eq(b, precision))
             && array.views.array_eq(&other.views, precision)
             && array.validity.array_eq(&other.validity, precision)
+    }
+
+    fn nbuffers(array: &VarBinViewArray) -> usize {
+        array.buffers().len() + 1
+    }
+
+    fn buffer(array: &VarBinViewArray, idx: usize) -> BufferHandle {
+        let ndata = array.buffers().len();
+        if idx < ndata {
+            array.buffers()[idx].clone()
+        } else if idx == ndata {
+            array.views_handle().clone()
+        } else {
+            vortex_panic!("VarBinViewArray buffer index {idx} out of bounds")
+        }
+    }
+
+    fn buffer_name(array: &VarBinViewArray, idx: usize) -> Option<String> {
+        let ndata = array.buffers().len();
+        if idx < ndata {
+            Some(format!("buffer_{idx}"))
+        } else if idx == ndata {
+            Some("views".to_string())
+        } else {
+            vortex_panic!("VarBinViewArray buffer_name index {idx} out of bounds")
+        }
+    }
+
+    fn nchildren(array: &VarBinViewArray) -> usize {
+        validity_nchildren(&array.validity)
+    }
+
+    fn child(array: &VarBinViewArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => validity_to_child(&array.validity, array.len())
+                .vortex_expect("VarBinViewArray validity child out of bounds"),
+            _ => vortex_panic!("VarBinViewArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &VarBinViewArray, idx: usize) -> String {
+        match idx {
+            0 => "validity".to_string(),
+            _ => vortex_panic!("VarBinViewArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(_array: &VarBinViewArray) -> VortexResult<Self::Metadata> {

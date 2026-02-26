@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 mod operations;
 mod validity;
-mod visitor;
-
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
@@ -16,6 +14,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::Array;
@@ -55,8 +54,6 @@ impl VTable for ScalarFnVTable {
     type Metadata = ScalarFnMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
-
     fn id(array: &Self::Array) -> ArrayId {
         array.scalar_fn.id()
     }
@@ -98,6 +95,35 @@ impl VTable for ScalarFnVTable {
             }
         }
         true
+    }
+
+    fn nbuffers(_array: &ScalarFnArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &ScalarFnArray, idx: usize) -> BufferHandle {
+        vortex_panic!("ScalarFnArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &ScalarFnArray, idx: usize) -> Option<String> {
+        vortex_panic!("ScalarFnArray buffer_name index {idx} out of bounds")
+    }
+
+    fn nchildren(array: &ScalarFnArray) -> usize {
+        array.children.len()
+    }
+
+    fn child(array: &ScalarFnArray, idx: usize) -> ArrayRef {
+        array.children[idx].clone()
+    }
+
+    fn child_name(array: &ScalarFnArray, idx: usize) -> String {
+        array
+            .scalar_fn
+            .signature()
+            .child_name(idx)
+            .as_ref()
+            .to_string()
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {

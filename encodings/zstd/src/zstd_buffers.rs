@@ -6,8 +6,6 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use prost::Message as _;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -26,7 +24,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
-use vortex_array::vtable::VisitorVTable;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -331,7 +328,6 @@ impl VTable for ZstdBuffersVTable {
     type Metadata = ProstMetadata<ZstdBuffersMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -387,6 +383,30 @@ impl VTable for ZstdBuffersVTable {
                 .iter()
                 .zip(&other.children)
                 .all(|(a, b)| a.array_eq(b, precision))
+    }
+
+    fn nbuffers(array: &ZstdBuffersArray) -> usize {
+        array.compressed_buffers.len()
+    }
+
+    fn buffer(array: &ZstdBuffersArray, idx: usize) -> BufferHandle {
+        array.compressed_buffers[idx].clone()
+    }
+
+    fn buffer_name(_array: &ZstdBuffersArray, idx: usize) -> Option<String> {
+        Some(format!("compressed_{idx}"))
+    }
+
+    fn nchildren(array: &ZstdBuffersArray) -> usize {
+        array.children.len()
+    }
+
+    fn child(array: &ZstdBuffersArray, idx: usize) -> ArrayRef {
+        array.children[idx].clone()
+    }
+
+    fn child_name(_array: &ZstdBuffersArray, idx: usize) -> String {
+        format!("child_{idx}")
     }
 
     fn metadata(array: &ZstdBuffersArray) -> VortexResult<Self::Metadata> {
@@ -471,20 +491,6 @@ impl ValidityVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
 
         let inner_array = array.decompress_and_build_inner(&vortex_array::LEGACY_SESSION)?;
         inner_array.validity()
-    }
-}
-
-impl VisitorVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
-    fn visit_buffers(array: &ZstdBuffersArray, visitor: &mut dyn ArrayBufferVisitor) {
-        for (i, buffer) in array.compressed_buffers.iter().enumerate() {
-            visitor.visit_buffer_handle(&format!("compressed_{i}"), buffer);
-        }
-    }
-
-    fn visit_children(array: &ZstdBuffersArray, visitor: &mut dyn ArrayChildVisitor) {
-        for (i, child) in array.children.iter().enumerate() {
-            visitor.visit_child(&format!("child_{i}"), child);
-        }
     }
 }
 

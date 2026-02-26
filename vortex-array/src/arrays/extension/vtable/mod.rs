@@ -4,7 +4,6 @@ mod canonical;
 mod kernel;
 mod operations;
 mod validity;
-mod visitor;
 
 use std::hash::Hash;
 
@@ -13,6 +12,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -40,7 +40,6 @@ impl VTable for ExtensionVTable {
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -69,6 +68,36 @@ impl VTable for ExtensionVTable {
 
     fn array_eq(array: &ExtensionArray, other: &ExtensionArray, precision: Precision) -> bool {
         array.dtype == other.dtype && array.storage.array_eq(&other.storage, precision)
+    }
+
+    fn nbuffers(_array: &ExtensionArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &ExtensionArray, idx: usize) -> BufferHandle {
+        vortex_panic!("ExtensionArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &ExtensionArray, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(_array: &ExtensionArray) -> usize {
+        1
+    }
+
+    fn child(array: &ExtensionArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.storage.clone(),
+            _ => vortex_panic!("ExtensionArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &ExtensionArray, idx: usize) -> String {
+        match idx {
+            0 => "storage".to_string(),
+            _ => vortex_panic!("ExtensionArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(_array: &ExtensionArray) -> VortexResult<Self::Metadata> {

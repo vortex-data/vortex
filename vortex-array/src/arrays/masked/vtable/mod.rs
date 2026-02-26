@@ -9,10 +9,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::ArrayBufferVisitor;
-use crate::ArrayChildVisitor;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
@@ -31,7 +30,6 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-use crate::vtable::VisitorVTable;
 use crate::vtable::validity_nchildren;
 use crate::vtable::validity_to_child;
 
@@ -52,34 +50,12 @@ impl MaskedVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.masked");
 }
 
-impl VisitorVTable<MaskedVTable> for MaskedVTable {
-    fn visit_buffers(_array: &MaskedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn visit_children(array: &MaskedArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("child", &array.child);
-        visitor.visit_validity(&array.validity, array.child.len());
-    }
-
-    fn nchildren(array: &MaskedArray) -> usize {
-        1 + validity_nchildren(&array.validity)
-    }
-
-    fn nth_child(array: &MaskedArray, idx: usize) -> Option<ArrayRef> {
-        match idx {
-            0 => Some(array.child.clone()),
-            1 => validity_to_child(&array.validity, array.child.len()),
-            _ => None,
-        }
-    }
-}
-
 impl VTable for MaskedVTable {
     type Array = MaskedArray;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -107,6 +83,39 @@ impl VTable for MaskedVTable {
         array.child.array_eq(&other.child, precision)
             && array.validity.array_eq(&other.validity, precision)
             && array.dtype == other.dtype
+    }
+
+    fn nbuffers(_array: &Self::Array) -> usize {
+        0
+    }
+
+    fn buffer(_array: &Self::Array, _idx: usize) -> BufferHandle {
+        vortex_panic!("MaskedArray has no buffers")
+    }
+
+    fn buffer_name(_array: &Self::Array, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(array: &Self::Array) -> usize {
+        1 + validity_nchildren(&array.validity)
+    }
+
+    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.child.clone(),
+            1 => validity_to_child(&array.validity, array.child.len())
+                .vortex_expect("MaskedArray validity child out of bounds"),
+            _ => vortex_panic!("MaskedArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &Self::Array, idx: usize) -> String {
+        match idx {
+            0 => "child".to_string(),
+            1 => "validity".to_string(),
+            _ => vortex_panic!("MaskedArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(_array: &MaskedArray) -> VortexResult<Self::Metadata> {

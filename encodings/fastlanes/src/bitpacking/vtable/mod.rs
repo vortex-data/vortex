@@ -26,11 +26,17 @@ use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
+use vortex_array::vtable::patches_child;
+use vortex_array::vtable::patches_child_name;
+use vortex_array::vtable::patches_nchildren;
+use vortex_array::vtable::validity_nchildren;
+use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::BitPackedArray;
@@ -42,7 +48,6 @@ mod kernels;
 mod operations;
 mod rules;
 mod validity;
-mod visitor;
 
 vtable!(BitPacked);
 
@@ -63,7 +68,6 @@ impl VTable for BitPackedVTable {
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -103,6 +107,54 @@ impl VTable for BitPackedVTable {
             && array.packed.array_eq(&other.packed, precision)
             && array.patches.array_eq(&other.patches, precision)
             && array.validity.array_eq(&other.validity, precision)
+    }
+
+    fn nbuffers(_array: &BitPackedArray) -> usize {
+        1
+    }
+
+    fn buffer(array: &BitPackedArray, idx: usize) -> BufferHandle {
+        match idx {
+            0 => array.packed().clone(),
+            _ => vortex_panic!("BitPackedArray buffer index {idx} out of bounds"),
+        }
+    }
+
+    fn buffer_name(_array: &BitPackedArray, idx: usize) -> Option<String> {
+        match idx {
+            0 => Some("packed".to_string()),
+            _ => None,
+        }
+    }
+
+    fn nchildren(array: &BitPackedArray) -> usize {
+        array.patches().map_or(0, patches_nchildren) + validity_nchildren(&array.validity)
+    }
+
+    fn child(array: &BitPackedArray, idx: usize) -> ArrayRef {
+        let pc = array.patches().map_or(0, patches_nchildren);
+        if idx < pc {
+            patches_child(
+                array
+                    .patches()
+                    .vortex_expect("BitPackedArray child index out of bounds"),
+                idx,
+            )
+        } else if idx < pc + validity_nchildren(&array.validity) {
+            validity_to_child(&array.validity, array.len)
+                .vortex_expect("BitPackedArray child index out of bounds")
+        } else {
+            vortex_panic!("BitPackedArray child index {idx} out of bounds")
+        }
+    }
+
+    fn child_name(array: &BitPackedArray, idx: usize) -> String {
+        let pc = array.patches().map_or(0, patches_nchildren);
+        if idx < pc {
+            patches_child_name(idx).to_string()
+        } else {
+            "validity".to_string()
+        }
     }
 
     fn reduce_parent(

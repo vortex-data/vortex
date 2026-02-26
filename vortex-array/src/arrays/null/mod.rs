@@ -5,10 +5,9 @@ use std::hash::Hash;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::ArrayBufferVisitor;
-use crate::ArrayChildVisitor;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
@@ -26,7 +25,6 @@ use crate::vtable::ArrayId;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
-use crate::vtable::VisitorVTable;
 
 pub(crate) mod compute;
 
@@ -38,7 +36,6 @@ impl VTable for NullVTable {
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -62,6 +59,30 @@ impl VTable for NullVTable {
 
     fn array_eq(array: &NullArray, other: &NullArray, _precision: Precision) -> bool {
         array.len == other.len
+    }
+
+    fn nbuffers(_array: &NullArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &NullArray, idx: usize) -> BufferHandle {
+        vortex_panic!("NullArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &NullArray, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(_array: &NullArray) -> usize {
+        0
+    }
+
+    fn child(_array: &NullArray, idx: usize) -> ArrayRef {
+        vortex_panic!("NullArray child index {idx} out of bounds")
+    }
+
+    fn child_name(_array: &NullArray, idx: usize) -> String {
+        vortex_panic!("NullArray child_name index {idx} out of bounds")
     }
 
     fn metadata(_array: &NullArray) -> VortexResult<Self::Metadata> {
@@ -162,20 +183,6 @@ impl NullArray {
         }
     }
 }
-impl VisitorVTable<NullVTable> for NullVTable {
-    fn visit_buffers(_array: &NullArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn visit_children(_array: &NullArray, _visitor: &mut dyn ArrayChildVisitor) {}
-
-    fn nchildren(_array: &NullArray) -> usize {
-        0
-    }
-
-    fn nth_child(_array: &NullArray, _idx: usize) -> Option<ArrayRef> {
-        None
-    }
-}
-
 impl OperationsVTable<NullVTable> for NullVTable {
     fn scalar_at(_array: &NullArray, _index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::null(DType::Null))

@@ -23,6 +23,7 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::RLEArray;
@@ -33,7 +34,6 @@ use crate::rle::vtable::rules::RULES;
 mod operations;
 mod rules;
 mod validity;
-mod visitor;
 
 vtable!(RLE);
 
@@ -60,7 +60,6 @@ impl VTable for RLEVTable {
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -96,6 +95,40 @@ impl VTable for RLEVTable {
                 .array_eq(other.values_idx_offsets(), precision)
             && array.offset() == other.offset()
             && array.len() == other.len()
+    }
+
+    fn nbuffers(_array: &RLEArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &RLEArray, idx: usize) -> BufferHandle {
+        vortex_panic!("RLEArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &RLEArray, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(_array: &RLEArray) -> usize {
+        3
+    }
+
+    fn child(array: &RLEArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.values().clone(),
+            1 => array.indices().clone(),
+            2 => array.values_idx_offsets().clone(),
+            _ => vortex_panic!("RLEArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &RLEArray, idx: usize) -> String {
+        match idx {
+            0 => "values".to_string(),
+            1 => "indices".to_string(),
+            2 => "values_idx_offsets".to_string(),
+            _ => vortex_panic!("RLEArray child name index {idx} out of bounds"),
+        }
     }
 
     fn reduce_parent(

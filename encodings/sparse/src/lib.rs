@@ -7,8 +7,6 @@ use std::hash::Hash;
 use kernel::PARENT_KERNELS;
 use prost::Message as _;
 use vortex_array::Array;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -36,13 +34,16 @@ use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
-use vortex_array::vtable::VisitorVTable;
+use vortex_array::vtable::patches_child;
+use vortex_array::vtable::patches_child_name;
+use vortex_array::vtable::patches_nchildren;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -72,7 +73,6 @@ impl VTable for SparseVTable {
     type Metadata = ProstMetadata<SparseMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -97,6 +97,40 @@ impl VTable for SparseVTable {
 
     fn array_eq(array: &SparseArray, other: &SparseArray, precision: Precision) -> bool {
         array.patches.array_eq(&other.patches, precision) && array.fill_value == other.fill_value
+    }
+
+    fn nbuffers(_array: &SparseArray) -> usize {
+        1
+    }
+
+    fn buffer(array: &SparseArray, idx: usize) -> BufferHandle {
+        match idx {
+            0 => {
+                let fill_value_buffer =
+                    ScalarValue::to_proto_bytes::<ByteBufferMut>(array.fill_value.value()).freeze();
+                BufferHandle::new_host(fill_value_buffer)
+            }
+            _ => vortex_panic!("SparseArray buffer index {idx} out of bounds"),
+        }
+    }
+
+    fn buffer_name(_array: &SparseArray, idx: usize) -> Option<String> {
+        match idx {
+            0 => Some("fill_value".to_string()),
+            _ => vortex_panic!("SparseArray buffer_name index {idx} out of bounds"),
+        }
+    }
+
+    fn nchildren(array: &SparseArray) -> usize {
+        patches_nchildren(array.patches())
+    }
+
+    fn child(array: &SparseArray, idx: usize) -> ArrayRef {
+        patches_child(array.patches(), idx)
+    }
+
+    fn child_name(_array: &SparseArray, idx: usize) -> String {
+        patches_child_name(idx).to_string()
     }
 
     fn metadata(array: &SparseArray) -> VortexResult<Self::Metadata> {
@@ -421,27 +455,6 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
             unsafe { SparseArray::new_unchecked(patches, array.fill_value.is_valid().into()) }
                 .into_array(),
         ))
-    }
-}
-
-impl VisitorVTable<SparseVTable> for SparseVTable {
-    fn visit_buffers(array: &SparseArray, visitor: &mut dyn ArrayBufferVisitor) {
-        let fill_value_buffer =
-            ScalarValue::to_proto_bytes::<ByteBufferMut>(array.fill_value.value()).freeze();
-        visitor.visit_buffer_handle("fill_value", &BufferHandle::new_host(fill_value_buffer));
-    }
-
-    fn nbuffers(_array: &SparseArray) -> usize {
-        1
-    }
-
-    fn visit_children(array: &SparseArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_patches(array.patches())
-    }
-
-    fn nchildren(array: &SparseArray) -> usize {
-        // patches have indices + values + optional chunk_offsets
-        2 + array.patches().chunk_offsets().is_some() as usize
     }
 }
 

@@ -7,6 +7,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::Array;
@@ -34,10 +35,10 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::vtable::validity_nchildren;
+use crate::vtable::validity_to_child;
 mod operations;
 mod validity;
-mod visitor;
-
 vtable!(List);
 
 #[derive(Clone, prost::Message)]
@@ -54,8 +55,6 @@ impl VTable for ListVTable {
     type Metadata = ProstMetadata<ListMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    type VisitorVTable = Self;
-
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
     }
@@ -84,6 +83,41 @@ impl VTable for ListVTable {
             && array.elements.array_eq(&other.elements, precision)
             && array.offsets.array_eq(&other.offsets, precision)
             && array.validity.array_eq(&other.validity, precision)
+    }
+
+    fn nbuffers(_array: &ListArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &ListArray, idx: usize) -> BufferHandle {
+        vortex_panic!("ListArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &ListArray, idx: usize) -> Option<String> {
+        vortex_panic!("ListArray buffer_name index {idx} out of bounds")
+    }
+
+    fn nchildren(array: &ListArray) -> usize {
+        2 + validity_nchildren(&array.validity)
+    }
+
+    fn child(array: &ListArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.elements().clone(),
+            1 => array.offsets().clone(),
+            2 => validity_to_child(&array.validity, array.len())
+                .vortex_expect("ListArray validity child out of bounds"),
+            _ => vortex_panic!("ListArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &ListArray, idx: usize) -> String {
+        match idx {
+            0 => "elements".to_string(),
+            1 => "offsets".to_string(),
+            2 => "validity".to_string(),
+            _ => vortex_panic!("ListArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn reduce_parent(

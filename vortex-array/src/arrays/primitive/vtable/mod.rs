@@ -6,6 +6,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
@@ -19,10 +20,11 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
+use crate::vtable::validity_nchildren;
+use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
-mod visitor;
 
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -45,7 +47,6 @@ impl VTable for PrimitiveVTable {
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -73,6 +74,40 @@ impl VTable for PrimitiveVTable {
         array.dtype == other.dtype
             && array.buffer.array_eq(&other.buffer, precision)
             && array.validity.array_eq(&other.validity, precision)
+    }
+
+    fn nbuffers(_array: &PrimitiveArray) -> usize {
+        1
+    }
+
+    fn buffer(array: &PrimitiveArray, idx: usize) -> BufferHandle {
+        match idx {
+            0 => array.buffer_handle().clone(),
+            _ => vortex_panic!("PrimitiveArray buffer index {idx} out of bounds"),
+        }
+    }
+
+    fn buffer_name(_array: &PrimitiveArray, idx: usize) -> Option<String> {
+        match idx {
+            0 => Some("values".to_string()),
+            _ => None,
+        }
+    }
+
+    fn nchildren(array: &PrimitiveArray) -> usize {
+        validity_nchildren(&array.validity)
+    }
+
+    fn child(array: &PrimitiveArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => validity_to_child(&array.validity, array.len())
+                .vortex_expect("PrimitiveArray child index out of bounds"),
+            _ => vortex_panic!("PrimitiveArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &PrimitiveArray, _idx: usize) -> String {
+        "validity".to_string()
     }
 
     fn metadata(_array: &PrimitiveArray) -> VortexResult<Self::Metadata> {

@@ -61,7 +61,6 @@ impl VTable for RunEndVTable {
     type Metadata = ProstMetadata<RunEndMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -91,6 +90,38 @@ impl VTable for RunEndVTable {
             && array.values.array_eq(&other.values, precision)
             && array.offset == other.offset
             && array.length == other.length
+    }
+
+    fn nbuffers(_array: &RunEndArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &RunEndArray, idx: usize) -> BufferHandle {
+        vortex_panic!("RunEndArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &RunEndArray, idx: usize) -> Option<String> {
+        vortex_panic!("RunEndArray buffer_name index {idx} out of bounds")
+    }
+
+    fn nchildren(_array: &RunEndArray) -> usize {
+        2
+    }
+
+    fn child(array: &RunEndArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.ends().clone(),
+            1 => array.values().clone(),
+            _ => vortex_panic!("RunEndArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &RunEndArray, idx: usize) -> String {
+        match idx {
+            0 => "ends".to_string(),
+            1 => "values".to_string(),
+            _ => vortex_panic!("RunEndArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {
