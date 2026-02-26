@@ -145,7 +145,13 @@ impl Scalar {
 
     /// Returns a view of the scalar as an extension scalar if it has an extension type.
     pub fn as_extension_opt(&self) -> Option<ExtScalar<'_>> {
-        ExtScalar::try_new(self.dtype(), self.value()).ok()
+        if !self.dtype().is_extension() {
+            return None;
+        }
+
+        // SAFETY: Because we are a valid Scalar, we have already validated that the value is valid
+        // for this extension type.
+        Some(ExtScalar::new_unchecked(self.dtype(), self.value()))
     }
 }
 

@@ -8,7 +8,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 
@@ -88,12 +87,7 @@ impl Scalar {
     ///
     /// Returns an error if the given [`DType`] and [`ScalarValue`] are incompatible.
     pub fn try_new(dtype: DType, value: Option<ScalarValue>) -> VortexResult<Self> {
-        vortex_ensure!(
-            Self::is_compatible(&dtype, value.as_ref()),
-            "Incompatible dtype {dtype} with value {}",
-            value.map(|v| format!("{}", v)).unwrap_or_default()
-        );
-
+        Self::validate(&dtype, value.as_ref())?;
         Ok(Self { dtype, value })
     }
 
@@ -103,13 +97,13 @@ impl Scalar {
     /// # Safety
     ///
     /// The caller must ensure that the given [`DType`] and [`ScalarValue`] are compatible per the
-    /// rules defined in [`Self::is_compatible`].
+    /// rules defined in [`Self::validate`].
     pub unsafe fn new_unchecked(dtype: DType, value: Option<ScalarValue>) -> Self {
-        debug_assert!(
-            Self::is_compatible(&dtype, value.as_ref()),
-            "Incompatible dtype {dtype} with value {}",
-            value.map(|v| format!("{}", v)).unwrap_or_default()
-        );
+        use vortex_error::VortexExpect;
+
+        #[cfg(debug_assertions)]
+        Self::validate(&dtype, value.as_ref())
+            .vortex_expect("Scalar::new_unchecked called with incompatible dtype and value");
 
         Self { dtype, value }
     }

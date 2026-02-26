@@ -35,11 +35,6 @@ pub enum ScalarValue {
     Binary(ByteBuffer),
     /// A list of potentially null scalar values.
     List(Vec<Option<ScalarValue>>),
-    // /// An extension value reference.
-    // ///
-    // /// This internally contains a `ScalarValue` and an vtable that implements
-    // /// [`ExtScalarVTable`](crate::scalar::ExtScalarVTable)
-    // Extension(ExtScalarValueRef),
 }
 
 impl ScalarValue {
@@ -137,9 +132,9 @@ impl PartialOrd for ScalarValue {
 impl Display for ScalarValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ScalarValue::Bool(b) => write!(f, "{}", b),
-            ScalarValue::Primitive(p) => write!(f, "{}", p),
-            ScalarValue::Decimal(d) => write!(f, "{}", d),
+            ScalarValue::Bool(b) => write!(f, "{b}"),
+            ScalarValue::Primitive(p) => write!(f, "{p}"),
+            ScalarValue::Decimal(d) => write!(f, "{d}"),
             ScalarValue::Utf8(s) => {
                 let bufstr = s.as_str();
                 let str_len = bufstr.chars().count();
@@ -177,8 +172,7 @@ impl Display for ScalarValue {
                     }
                 }
                 write!(f, "]")
-            } //
-              // ScalarValue::Extension(e) => write!(f, "{}", e),
+            }
         }
     }
 }

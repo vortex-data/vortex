@@ -11,8 +11,6 @@ use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::EmptyMetadata;
-use crate::scalar::ExtScalar;
-use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -288,15 +286,6 @@ fn test_ext_scalar_cast_null_to_non_nullable() {
 
     // Cast null to non-nullable should fail
     let result = ext.cast(&DType::Primitive(PType::I32, Nullability::NonNullable));
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_ext_scalar_try_new_non_extension() {
-    let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-    let value = ScalarValue::Primitive(PValue::I32(42));
-
-    let result = ExtScalar::try_new(&dtype, Some(&value));
     assert!(result.is_err());
 }
 
