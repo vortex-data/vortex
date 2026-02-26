@@ -106,7 +106,6 @@ async fn decode_zstd_buffers(
     let mut device_statuses: CudaSlice<nvcompStatus_t> = ctx.device_alloc(plan.num_frames())?;
     let mut nvcomp_temp_buffer: CudaSlice<u8> = ctx.device_alloc(nvcomp_temp_buffer_size)?;
     let stream = ctx.stream();
-
     let frame_ptrs_view = frame_ptrs_handle.cuda_view::<u64>()?;
     let frame_sizes_view = frame_sizes_handle.cuda_view::<usize>()?;
     let output_sizes_view = output_sizes_handle.cuda_view::<usize>()?;
@@ -123,21 +122,25 @@ async fn decode_zstd_buffers(
     let (device_actual_sizes_ptr, record_actual_sizes) = device_actual_sizes.device_ptr_mut(stream);
     let (nvcomp_temp_buffer_ptr, record_temp) = nvcomp_temp_buffer.device_ptr_mut(stream);
     let (device_statuses_ptr, record_statuses) = device_statuses.device_ptr_mut(stream);
-    unsafe {
-        nvcomp_zstd::decompress_async(
-            frame_ptrs_ptr as _,
-            frame_sizes_ptr as _,
-            output_sizes_ptr as _,
-            device_actual_sizes_ptr as _,
-            plan.num_frames(),
-            nvcomp_temp_buffer_ptr as _,
-            nvcomp_temp_buffer_size,
-            output_ptrs_ptr as _,
-            device_statuses_ptr as _,
-            stream.cu_stream().cast(),
-        )
-        .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))?;
-    }
+
+    ctx.launch_external(plan.output_size_total(), || {
+        // SAFETY: Pointer and size parameters are derived from validated decode plan inputs.
+        unsafe {
+            nvcomp_zstd::decompress_async(
+                frame_ptrs_ptr as _,
+                frame_sizes_ptr as _,
+                output_sizes_ptr as _,
+                device_actual_sizes_ptr as _,
+                plan.num_frames(),
+                nvcomp_temp_buffer_ptr as _,
+                nvcomp_temp_buffer_size,
+                output_ptrs_ptr as _,
+                device_statuses_ptr as _,
+                stream.cu_stream().cast(),
+            )
+            .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))
+        }
+    })?;
     drop(frame_ptr_records);
     drop(frame_views);
     drop((
