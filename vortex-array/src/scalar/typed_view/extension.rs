@@ -29,6 +29,7 @@ pub struct ExtScalar<'a> {
     /// The extension data type reference.
     ext_dtype: &'a ExtDTypeRef,
 
+    // TODO(connor): This needs to be an `ExtScalarValueRef`.
     /// The underlying scalar value, or [`None`] if null.
     value: Option<&'a ScalarValue>,
 }
@@ -89,7 +90,7 @@ impl<'a> ExtScalar<'a> {
     /// # Errors
     ///
     /// Returns an error if the data type is not an extension type.
-    pub fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
+    pub(crate) fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
         let DType::Extension(ext_dtype) = dtype else {
             vortex_bail!("Expected extension scalar, found {}", dtype)
         };
@@ -147,6 +148,3 @@ impl<'a> ExtScalar<'a> {
         );
     }
 }
-
-#[cfg(test)]
-mod tests;

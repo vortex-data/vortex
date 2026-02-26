@@ -23,6 +23,9 @@ use crate::dtype::Nullability;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
+use crate::scalar::ScalarValue;
+use crate::scalar::extension::ExtScalarValue;
+use crate::scalar::extension::ExtScalarValueRef;
 
 /// A typed extension data type, parameterized by a concrete [`ExtVTable`].
 ///
@@ -129,6 +132,11 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     fn metadata_serialize(&self) -> VortexResult<Vec<u8>>;
     /// Returns a new [`ExtDTypeRef`] with the given nullability.
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef;
+    /// Builds a type-erased extension scalar value using a storage value.
+    ///
+    /// We need to have this method on the dtype object since it is the only thing that we pass
+    /// around that has access to the internal [`ExtVtable`].
+    fn build_scalar_value(&self, storage_value: ScalarValue) -> VortexResult<ExtScalarValueRef>;
 }
 
 impl<V: ExtVTable> DynExtDType for ExtDTypeInner<V> {
@@ -179,5 +187,16 @@ impl<V: ExtVTable> DynExtDType for ExtDTypeInner<V> {
                  but different nullability",
             )
             .erased()
+    }
+
+    fn build_scalar_value(&self, storage_value: ScalarValue) -> VortexResult<ExtScalarValueRef> {
+        self.vtable
+            .validate_scalar_value(&self.metadata, &self.storage_dtype, &storage_value)?;
+
+        // SAFETY: We just called `validate_scalar_value`, so this is safe to construct.
+        let ext_scalar_value =
+            unsafe { ExtScalarValue::<V>::new_unchecked(self.vtable.clone(), storage_value) };
+
+        Ok(ext_scalar_value.erased())
     }
 }

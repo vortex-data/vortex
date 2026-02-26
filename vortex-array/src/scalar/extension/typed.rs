@@ -30,17 +30,33 @@ use crate::scalar::extension::ExtScalarValueRef;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExtScalarValue<V: ExtVTable>(pub(super) Arc<ExtScalarValueInner<V>>);
 
+impl<V: ExtVTable> ExtScalarValue<V> {
+    /// Creates a new extension scalar directly from a vtable and a storage [`ScalarValue`],
+    /// without validation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that [`ExtVTable::validate_scalar_value`] has been called before
+    /// constructing this [`ExtScalarValue`].
+    pub(crate) unsafe fn new_unchecked(vtable: V, storage_value: ScalarValue) -> Self {
+        Self(Arc::new(ExtScalarValueInner {
+            vtable,
+            storage_value,
+        }))
+    }
+}
+
 /// The concrete inner representation of an extension scalar, pairing a vtable with its storage
 /// value.
 ///
 /// This is the sole implementor of [`DynExtScalarValue`], enabling [`ExtScalarValueRef`] to
 /// downcast back to the concrete vtable type via [`Any`].
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub(super) struct ExtScalarValueInner<V: ExtVTable> {
+pub(crate) struct ExtScalarValueInner<V: ExtVTable> {
     /// The extension scalar vtable.
     vtable: V,
     /// The underlying storage value.
-    storage: ScalarValue,
+    storage_value: ScalarValue,
 }
 
 impl<V: ExtVTable> DynExtScalarValue for ExtScalarValueInner<V> {
@@ -57,7 +73,7 @@ impl<V: ExtVTable> DynExtScalarValue for ExtScalarValueInner<V> {
     }
 
     fn storage_value(&self) -> &ScalarValue {
-        &self.storage
+        &self.storage_value
     }
 
     fn validate(&self, ext_dtype: &ExtDTypeRef) -> VortexResult<()> {
@@ -68,7 +84,7 @@ impl<V: ExtVTable> DynExtScalarValue for ExtScalarValueInner<V> {
         };
 
         self.vtable
-            .validate_scalar_value(metadata, ext_dtype.storage_dtype(), &self.storage)
+            .validate_scalar_value(metadata, ext_dtype.storage_dtype(), &self.storage_value)
     }
 
     fn fmt_ext_scalar_value(
@@ -80,7 +96,7 @@ impl<V: ExtVTable> DynExtScalarValue for ExtScalarValueInner<V> {
             &self.vtable,
             ext_dtype.metadata::<V>(),
             ext_dtype.storage_dtype(),
-            &self.storage,
+            &self.storage_value,
         )
         .vortex_expect("invalid extension dtype for this extension scalar value");
 
@@ -135,7 +151,7 @@ impl<V: ExtVTable> ExtScalarValue<V> {
 
         Ok(Self(Arc::new(ExtScalarValueInner::<V> {
             vtable: ext_dtype.vtable().clone(),
-            storage,
+            storage_value: storage,
         })))
     }
 

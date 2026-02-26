@@ -110,6 +110,11 @@ impl From<&ScalarValue> for pb::ScalarValue {
                     kind: Some(Kind::ListValue(ListValue { values })),
                 }
             }
+            ScalarValue::Extension(e) => {
+                // We serialize extension scalar values just as their storage value since we will be
+                // verifying the value again with a dtype on deserialization.
+                Self::from(e.storage_value())
+            }
         }
     }
 }

@@ -10,12 +10,13 @@ use std::fmt::Formatter;
 use itertools::Itertools;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::scalar::DecimalValue;
-// use crate::scalar::ExtScalarValueRef;
 use crate::scalar::PValue;
+use crate::scalar::extension::ExtScalarValueRef;
 
 /// The value stored in a [`Scalar`][crate::scalar::Scalar].
 ///
@@ -35,11 +36,11 @@ pub enum ScalarValue {
     Binary(ByteBuffer),
     /// A list of potentially null scalar values.
     List(Vec<Option<ScalarValue>>),
-    // /// An extension value reference.
-    // ///
-    // /// This internally contains a `ScalarValue` and an vtable that implements
-    // /// [`ExtScalarVTable`](crate::scalar::ExtScalarVTable)
-    // Extension(ExtScalarValueRef),
+    /// An extension value reference.
+    ///
+    /// This internally contains a `ScalarValue` and an vtable that implements
+    /// [`ExtScalarVTable`](crate::scalar::ExtScalarVTable)
+    Extension(ExtScalarValueRef),
 }
 
 impl ScalarValue {
@@ -83,7 +84,18 @@ impl ScalarValue {
                     .collect();
                 Self::List(field_values)
             }
-            DType::Extension(ext_dtype) => Self::zero_value(ext_dtype.storage_dtype()), // TODO(connor): Fix this!
+            DType::Extension(ext_dtype) => {
+                // Since we have no way to define a "zero" extension value (since we have no idea
+                // what the semantics of the extension is), a best effort attempt is to just use the
+                // zero storage value and try to make an extension scalar from that.
+                let zero_storage_value = Self::zero_value(ext_dtype.storage_dtype());
+
+                Self::Extension(
+                    ext_dtype
+                        .build_scalar_value(zero_storage_value)
+                        .vortex_expect("unable to create zero value for extension type"),
+                )
+            }
         }
     }
 
@@ -114,7 +126,20 @@ impl ScalarValue {
                 let field_values = fields.fields().map(|f| Self::default_value(&f)).collect();
                 Self::List(field_values)
             }
-            DType::Extension(ext_dtype) => Self::default_value(ext_dtype.storage_dtype())?, // TODO(connor): Fix this!
+            DType::Extension(ext_dtype) => {
+                // Since we have no way to define a "default" extension value (since we have no idea
+                // what the semantics of the extension is), a best effort attempt is to just use the
+                // default storage value and try to make an extension scalar from that.
+                let default_storage_value_opt = Self::default_value(ext_dtype.storage_dtype());
+
+                default_storage_value_opt.map(|default_storage_value| {
+                    Self::Extension(
+                        ext_dtype
+                            .build_scalar_value(default_storage_value)
+                            .vortex_expect("unable to create default value for extension type"),
+                    )
+                })?
+            }
         })
     }
 }
@@ -128,7 +153,7 @@ impl PartialOrd for ScalarValue {
             (ScalarValue::Utf8(a), ScalarValue::Utf8(b)) => a.partial_cmp(b),
             (ScalarValue::Binary(a), ScalarValue::Binary(b)) => a.partial_cmp(b),
             (ScalarValue::List(a), ScalarValue::List(b)) => a.partial_cmp(b),
-            // (ScalarValue::Extension(a), ScalarValue::Extension(b)) => a.partial_cmp(b),
+            (ScalarValue::Extension(a), ScalarValue::Extension(b)) => a.partial_cmp(b),
             _ => None,
         }
     }
@@ -137,9 +162,9 @@ impl PartialOrd for ScalarValue {
 impl Display for ScalarValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ScalarValue::Bool(b) => write!(f, "{}", b),
-            ScalarValue::Primitive(p) => write!(f, "{}", p),
-            ScalarValue::Decimal(d) => write!(f, "{}", d),
+            ScalarValue::Bool(b) => write!(f, "{b}"),
+            ScalarValue::Primitive(p) => write!(f, "{p}"),
+            ScalarValue::Decimal(d) => write!(f, "{d}"),
             ScalarValue::Utf8(s) => {
                 let bufstr = s.as_str();
                 let str_len = bufstr.chars().count();
@@ -177,8 +202,8 @@ impl Display for ScalarValue {
                     }
                 }
                 write!(f, "]")
-            } //
-              // ScalarValue::Extension(e) => write!(f, "{}", e),
+            }
+            ScalarValue::Extension(e) => write!(f, "{e}"),
         }
     }
 }

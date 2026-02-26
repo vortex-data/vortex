@@ -23,6 +23,8 @@ use crate::dtype::extension::ExtVTable;
 use crate::dtype::extension::Matcher;
 use crate::dtype::extension::typed::DynExtDType;
 use crate::dtype::extension::typed::ExtDTypeInner;
+use crate::scalar::ScalarValue;
+use crate::scalar::extension::ExtScalarValueRef;
 
 /// A type-erased extension dtype.
 ///
@@ -85,6 +87,14 @@ impl ExtDTypeRef {
             && self
                 .storage_dtype()
                 .eq_ignore_nullability(other.storage_dtype())
+    }
+
+    /// TODO docs.
+    pub(crate) fn build_scalar_value(
+        &self,
+        storage_value: ScalarValue,
+    ) -> VortexResult<ExtScalarValueRef> {
+        self.0.build_scalar_value(storage_value)
     }
 }
 
