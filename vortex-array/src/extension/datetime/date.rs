@@ -120,3 +120,49 @@ impl ExtVTable for Date {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::Nullable;
+    use crate::extension::datetime::Date;
+    use crate::extension::datetime::TimeUnit;
+    use crate::scalar::PValue;
+    use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
+
+    #[test]
+    fn validate_date_scalar() -> VortexResult<()> {
+        let days_dtype = DType::Extension(Date::new(TimeUnit::Days, Nullable).erased());
+        Scalar::try_new(days_dtype, Some(ScalarValue::Primitive(PValue::I32(0))))?;
+
+        let ms_dtype = DType::Extension(Date::new(TimeUnit::Milliseconds, Nullable).erased());
+        Scalar::try_new(
+            ms_dtype,
+            Some(ScalarValue::Primitive(PValue::I64(86_400_000))),
+        )?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn reject_date_with_overflowing_value() {
+        // Days storage is `I32`, so an `I64` value that overflows `i32` should fail the cast.
+        let dtype = DType::Extension(Date::new(TimeUnit::Days, Nullable).erased());
+        let result = Scalar::try_new(dtype, Some(ScalarValue::Primitive(PValue::I64(i64::MAX))));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn display_date_scalar() {
+        let dtype = DType::Extension(Date::new(TimeUnit::Days, Nullable).erased());
+
+        let scalar = Scalar::new(dtype.clone(), Some(ScalarValue::Primitive(PValue::I32(0))));
+        assert_eq!(format!("{}", scalar.as_extension()), "1970-01-01");
+
+        let scalar = Scalar::new(dtype, Some(ScalarValue::Primitive(PValue::I32(365))));
+        assert_eq!(format!("{}", scalar.as_extension()), "1971-01-01");
+    }
+}

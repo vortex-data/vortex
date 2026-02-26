@@ -21,7 +21,7 @@ use crate::scalar::ScalarValue;
 /// Extension types allow wrapping a storage type with custom semantics.
 #[derive(Debug, Clone)]
 pub struct ExtScalar<'a> {
-    /// A reference to the `DType` of the extension type. This **must** be the [`DType::Extension`
+    /// A reference to the `DType` of the extension type. This **must** be the [`DType::Extension`]
     /// variant.
     dtype: &'a DType,
 
@@ -80,32 +80,37 @@ impl<'a> ExtScalar<'a> {
     }
 
     /// Casts this scalar to the given `dtype`.
-    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        if self.value.is_none() && !dtype.is_nullable() {
+    pub(crate) fn cast(&self, target_dtype: &DType) -> VortexResult<Scalar> {
+        if self.value.is_none() && !target_dtype.is_nullable() {
             vortex_bail!(
                 "cannot cast extension dtype with id {} and storage type {} to {}",
                 self.ext_dtype.id(),
                 self.ext_dtype.storage_dtype(),
-                dtype
+                target_dtype
             );
         }
 
-        if self.ext_dtype.storage_dtype().eq_ignore_nullability(dtype) {
+        if self
+            .ext_dtype
+            .storage_dtype()
+            .eq_ignore_nullability(target_dtype)
+        {
             // Casting from an extension type to the underlying storage type is OK.
-            return Scalar::try_new(dtype.clone(), self.value.cloned());
+            return Scalar::try_new(target_dtype.clone(), self.value.cloned());
         }
 
-        if let DType::Extension(ext_dtype) = dtype
+        // We only allow casting to the same extension dtype for now.
+        if let DType::Extension(ext_dtype) = target_dtype
             && self.ext_dtype.eq_ignore_nullability(ext_dtype)
         {
-            return Scalar::try_new(dtype.clone(), self.value.cloned());
+            return Scalar::try_new(target_dtype.clone(), self.value.cloned());
         }
 
         vortex_bail!(
             "cannot cast extension dtype with id {} and storage type {} to {}",
             self.ext_dtype.id(),
             self.ext_dtype.storage_dtype(),
-            dtype
+            target_dtype
         );
     }
 }

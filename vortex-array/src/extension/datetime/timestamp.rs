@@ -223,3 +223,65 @@ impl ExtVTable for Timestamp {
         Ok(value)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_error::VortexResult;
+
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::Nullable;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
+    use crate::scalar::PValue;
+    use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
+
+    #[test]
+    fn validate_timestamp_scalar() -> VortexResult<()> {
+        let dtype = DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullable).erased());
+        Scalar::try_new(dtype, Some(ScalarValue::Primitive(PValue::I64(0))))?;
+
+        Ok(())
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn reject_timestamp_with_invalid_timezone() {
+        let dtype = DType::Extension(
+            Timestamp::new_with_tz(
+                TimeUnit::Seconds,
+                Some(Arc::from("Not/A/Timezone")),
+                Nullable,
+            )
+            .erased(),
+        );
+        let result = Scalar::try_new(dtype, Some(ScalarValue::Primitive(PValue::I64(0))));
+        assert!(result.is_err());
+    }
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn display_timestamp_scalar() {
+        // Local (no timezone) timestamp.
+        let local_dtype = DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullable).erased());
+        let scalar = Scalar::new(local_dtype, Some(ScalarValue::Primitive(PValue::I64(0))));
+        assert_eq!(format!("{}", scalar.as_extension()), "1970-01-01T00:00:00Z");
+
+        // Zoned timestamp.
+        let zoned_dtype = DType::Extension(
+            Timestamp::new_with_tz(
+                TimeUnit::Seconds,
+                Some(Arc::from("America/New_York")),
+                Nullable,
+            )
+            .erased(),
+        );
+        let scalar = Scalar::new(zoned_dtype, Some(ScalarValue::Primitive(PValue::I64(0))));
+        assert_eq!(
+            format!("{}", scalar.as_extension()),
+            "1969-12-31T19:00:00-05:00[America/New_York]"
+        );
+    }
+}
