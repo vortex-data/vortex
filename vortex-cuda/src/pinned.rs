@@ -14,6 +14,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::utils::aliases::hash_map::HashMap;
+use vortex_cuda_macros::cuda_tests;
 
 use crate::CudaDeviceBuffer;
 use crate::stream::VortexCudaStream;
@@ -139,10 +140,7 @@ impl PinnedByteBufferPool {
     ///
     /// Returns `Ok(None)` if no buffer is available in the pool for the requested size class.
     /// Unlike [`get`][Self::get], this will never call `cuMemAllocHost`.
-    pub fn try_get(
-        self: &Arc<Self>,
-        len: usize,
-    ) -> VortexResult<Option<PooledPinnedBuffer>> {
+    pub fn try_get(self: &Arc<Self>, len: usize) -> VortexResult<Option<PooledPinnedBuffer>> {
         match self.try_get_inner(len)? {
             Some(inner) => Ok(Some(PooledPinnedBuffer::new(inner, self.clone()))),
             None => Ok(None),
@@ -346,7 +344,7 @@ impl Drop for PooledPinnedBuffer {
     }
 }
 
-#[cfg(test)]
+#[cuda_tests]
 mod tests {
     use std::sync::Arc;
 
