@@ -234,7 +234,7 @@ impl VortexReadAt for DuckDbFsReader {
 
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
         Some(if self.is_local {
-            CoalesceConfig::local()
+            CoalesceConfig::file()
         } else {
             CoalesceConfig::object_storage()
         })

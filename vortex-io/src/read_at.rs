@@ -33,9 +33,14 @@ impl CoalesceConfig {
         Self { distance, max_size }
     }
 
-    /// Configuration appropriate for fast local storage (memory, NVMe).
-    pub const fn local() -> Self {
+    /// Configuration appropriate for in-memory / low-latency sources.
+    pub const fn in_memory() -> Self {
         Self::new(8 * 1024, 8 * 1024) // 8KB
+    }
+
+    /// Configuration appropriate for local filesystem access.
+    pub const fn file() -> Self {
+        Self::new(1 << 20, 4 << 20) // 1MB distance, 4MB max
     }
 
     /// Configuration appropriate for object storage (S3, GCS, etc.).
@@ -317,10 +322,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_coalesce_config_local() {
-        let config = CoalesceConfig::local();
+    fn test_coalesce_config_in_memory() {
+        let config = CoalesceConfig::in_memory();
         assert_eq!(config.distance, 8 * 1024);
         assert_eq!(config.max_size, 8 * 1024);
+    }
+
+    #[test]
+    fn test_coalesce_config_file() {
+        let config = CoalesceConfig::file();
+        assert_eq!(config.distance, 1 << 20); // 1MB
+        assert_eq!(config.max_size, 4 << 20); // 4MB
     }
 
     #[test]
