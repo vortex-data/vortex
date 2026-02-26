@@ -96,7 +96,8 @@ fn generate_lane_dispatch<T: FastLanes, W: Write>(
     writeln!(output, "    uint{bits}_t *__restrict out,")?;
     writeln!(output, "    uint{bits}_t reference,")?;
     writeln!(output, "    unsigned int lane,")?;
-    writeln!(output, "    uint32_t bit_width")?;
+    writeln!(output, "    uint32_t bit_width,")?;
+    writeln!(output, "    GPUPatches patches")?;
     writeln!(output, ") {{")?;
 
     output.indent(|output| {
@@ -129,7 +130,7 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
     let func_name = format!("bit_unpack_{bits}_{bit_width}bw_{thread_count}t");
 
     let local_func_params = format!(
-        "(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, int thread_idx)"
+        "(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, int thread_idx, GPUPatches patches)"
     );
 
     writeln!(output, "__device__ void _{func_name}{local_func_params} {{")?;
@@ -138,7 +139,7 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
         writeln!(output, "__shared__ uint{bits}_t shared_out[1024];")?;
 
         for thread_lane in 0..per_thread_loop_count {
-            writeln!(output, "_bit_unpack_{bits}_{bit_width}bw_lane(in, shared_out, reference, thread_idx * {per_thread_loop_count} + {thread_lane});")?;
+            writeln!(output, "_bit_unpack_{bits}_{bit_width}bw_lane(in, shared_out, reference, thread_idx * {per_thread_loop_count} + {thread_lane}, patches);")?;
         }
 
         writeln!(output, "for (int i = 0; i < {shared_copy_ncount}; i++) {{")?;
@@ -161,7 +162,7 @@ fn generate_global_kernel_for_width<T: FastLanes, W: Write>(
 
     let func_name = format!("bit_unpack_{bits}_{bit_width}bw_{thread_count}t");
     let func_params = format!(
-        "(const uint{bits}_t *__restrict full_in, uint{bits}_t *__restrict full_out, uint{bits}_t reference)"
+        "(const uint{bits}_t *__restrict full_in, uint{bits}_t *__restrict full_out, uint{bits}_t reference, GPUPatches patches)"
     );
 
     writeln!(
@@ -177,7 +178,10 @@ fn generate_global_kernel_for_width<T: FastLanes, W: Write>(
         )?;
         writeln!(output, "auto out = full_out + (blockIdx.x * 1024);")?;
 
-        writeln!(output, "_{func_name}(in, out, reference, thread_idx);")
+        writeln!(
+            output,
+            "_{func_name}(in, out, reference, thread_idx, patches);"
+        )
     })?;
 
     writeln!(output, "}}")
@@ -195,6 +199,7 @@ pub fn generate_cuda_unpack_for_width<T: FastLanes, W: Write>(
     writeln!(output, "#include <cuda_runtime.h>")?;
     writeln!(output, "#include <stdint.h>")?;
     writeln!(output, "#include \"fastlanes_common.cuh\"")?;
+    writeln!(output, "#include \"patches.h\"")?;
     writeln!(output)?;
 
     // First, emit all lane decoders.

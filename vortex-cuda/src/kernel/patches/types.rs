@@ -8,13 +8,14 @@
 use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
 use vortex::buffer::buffer_mut;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
+use vortex_array::match_each_native_ptype;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
-use vortex_array::{
-    Canonical, ExecutionCtx, match_each_native_ptype, match_each_unsigned_integer_ptype,
-};
 use vortex_error::VortexResult;
 
 use crate::CudaExecutionCtx;
