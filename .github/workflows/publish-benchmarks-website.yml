@@ -4,7 +4,7 @@ on:
   push:
     branches: [develop]
     paths:
-      - "benchmarks-website-v2/**"
+      - "benchmarks-website/**"
 
 jobs:
   publish:
@@ -31,7 +31,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: ./benchmarks-website-v2
+          context: ./benchmarks-website
           platforms: linux/arm64
           push: true
           tags: ghcr.io/${{ github.repository }}/benchmarks-website:latest
