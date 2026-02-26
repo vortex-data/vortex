@@ -9,12 +9,12 @@ use pyo3::types::*;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::error::VortexExpect;
 use vortex::expr;
 use vortex::expr::Expression;
 use vortex::expr::and;
 use vortex::expr::lit;
 use vortex::expr::not;
-use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::get_item::GetItem;
 use vortex::scalar_fn::fns::operators::Operator;
@@ -83,7 +83,12 @@ fn py_binary_operator<'py>(
     Bound::new(
         left.py(),
         PyExpr {
-            inner: Binary.new_expr(operator, [left.inner.clone(), right.borrow().inner.clone()]),
+            inner: Expression::try_new(
+                Binary,
+                operator,
+                [left.inner.clone(), right.borrow().inner.clone()],
+            )
+            .vortex_expect("failed to create expression"),
         },
     )
 }
@@ -306,7 +311,8 @@ pub fn scalar<'py>(dtype: DType, value: &Bound<'py, PyAny>) -> PyResult<Bound<'p
 
 pub fn get_item(field: String, child: PyExpr) -> PyResult<PyExpr> {
     Ok(PyExpr {
-        inner: GetItem.new_expr(field.into(), [child.inner]),
+        inner: Expression::try_new(GetItem, field.into(), [child.inner])
+            .vortex_expect("failed to create expression"),
     })
 }
 

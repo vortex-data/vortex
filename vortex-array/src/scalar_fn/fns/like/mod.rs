@@ -56,7 +56,7 @@ impl Display for LikeOptions {
 }
 
 /// Expression that performs SQL LIKE pattern matching.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Like;
 
 impl ScalarFnVTable for Like {

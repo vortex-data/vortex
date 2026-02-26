@@ -28,9 +28,9 @@ use crate::scalar::ScalarValue;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFn;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
@@ -38,7 +38,7 @@ use crate::scalar_fn::fns::operators::Operator;
 /// A dynamic comparison expression can be used to capture a comparison to a value that can change
 /// during the execution of a query, such as when a compute engine pushes down an ORDER BY + LIMIT
 /// operation and is able to progressively tighten the bounds of the filter.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DynamicComparison;
 
 impl ScalarFnVTable for DynamicComparison {
@@ -100,8 +100,8 @@ impl ScalarFnVTable for DynamicComparison {
                 .map_err(|_| vortex_error::vortex_err!("Wrong arg count for DynamicComparison"))?;
             let rhs = ConstantArray::new(scalar, args.row_count).into_array();
 
-            return Binary
-                .bind(Operator::from(data.operator))
+            return ScalarFn::new(Binary, Operator::from(data.operator))
+                .erased()
                 .execute(ExecutionArgs {
                     inputs: vec![lhs, rhs],
                     row_count: args.row_count,
@@ -127,38 +127,54 @@ impl ScalarFnVTable for DynamicComparison {
         let lhs = expr.child(0);
         match dynamic.operator {
             CompareOperator::Eq | CompareOperator::NotEq => None,
-            CompareOperator::Gt => Some(DynamicComparison.new_expr(
-                DynamicComparisonExpr {
-                    operator: CompareOperator::Lte,
-                    rhs: dynamic.rhs.clone(),
-                    default: !dynamic.default,
-                },
-                vec![lhs.stat_max(catalog)?],
-            )),
-            CompareOperator::Gte => Some(DynamicComparison.new_expr(
-                DynamicComparisonExpr {
-                    operator: CompareOperator::Lt,
-                    rhs: dynamic.rhs.clone(),
-                    default: !dynamic.default,
-                },
-                vec![lhs.stat_max(catalog)?],
-            )),
-            CompareOperator::Lt => Some(DynamicComparison.new_expr(
-                DynamicComparisonExpr {
-                    operator: CompareOperator::Gte,
-                    rhs: dynamic.rhs.clone(),
-                    default: !dynamic.default,
-                },
-                vec![lhs.stat_min(catalog)?],
-            )),
-            CompareOperator::Lte => Some(DynamicComparison.new_expr(
-                DynamicComparisonExpr {
-                    operator: CompareOperator::Gt,
-                    rhs: dynamic.rhs.clone(),
-                    default: !dynamic.default,
-                },
-                vec![lhs.stat_min(catalog)?],
-            )),
+            CompareOperator::Gt => Some(
+                Expression::try_new(
+                    DynamicComparison,
+                    DynamicComparisonExpr {
+                        operator: CompareOperator::Lte,
+                        rhs: dynamic.rhs.clone(),
+                        default: !dynamic.default,
+                    },
+                    vec![lhs.stat_max(catalog)?],
+                )
+                .vortex_expect("failed to create expression"),
+            ),
+            CompareOperator::Gte => Some(
+                Expression::try_new(
+                    DynamicComparison,
+                    DynamicComparisonExpr {
+                        operator: CompareOperator::Lt,
+                        rhs: dynamic.rhs.clone(),
+                        default: !dynamic.default,
+                    },
+                    vec![lhs.stat_max(catalog)?],
+                )
+                .vortex_expect("failed to create expression"),
+            ),
+            CompareOperator::Lt => Some(
+                Expression::try_new(
+                    DynamicComparison,
+                    DynamicComparisonExpr {
+                        operator: CompareOperator::Gte,
+                        rhs: dynamic.rhs.clone(),
+                        default: !dynamic.default,
+                    },
+                    vec![lhs.stat_min(catalog)?],
+                )
+                .vortex_expect("failed to create expression"),
+            ),
+            CompareOperator::Lte => Some(
+                Expression::try_new(
+                    DynamicComparison,
+                    DynamicComparisonExpr {
+                        operator: CompareOperator::Gt,
+                        rhs: dynamic.rhs.clone(),
+                        default: !dynamic.default,
+                    },
+                    vec![lhs.stat_min(catalog)?],
+                )
+                .vortex_expect("failed to create expression"),
+            ),
         }
     }
 

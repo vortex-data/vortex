@@ -29,7 +29,7 @@ impl fmt::Display for Divisor {
 }
 
 /// Extension type for unsigned integers that must be divisible by the metadata divisor.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default)]
 pub struct DivisibleInt;
 
 impl DivisibleInt {

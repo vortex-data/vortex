@@ -29,7 +29,7 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::validity::Validity;
 
 /// Pack zero or more expressions into a structure with named fields.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Pack;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -152,6 +152,7 @@ impl ScalarFnVTable for Pack {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
 
@@ -165,9 +166,9 @@ mod tests {
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
+    use crate::expr::Expression;
     use crate::expr::col;
     use crate::expr::pack;
-    use crate::scalar_fn::ScalarFnVTableExt;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
@@ -196,13 +197,15 @@ mod tests {
 
     #[test]
     pub fn test_empty_pack() {
-        let expr = Pack.new_expr(
+        let expr = Expression::try_new(
+            Pack,
             PackOptions {
                 names: Default::default(),
                 nullability: Default::default(),
             },
             [],
-        );
+        )
+        .vortex_expect("failed to create expression");
 
         let test_array = test_array();
         let actual_array = test_array.clone().apply(&expr).unwrap();
@@ -212,13 +215,15 @@ mod tests {
 
     #[test]
     pub fn test_simple_pack() {
-        let expr = Pack.new_expr(
+        let expr = Expression::try_new(
+            Pack,
             PackOptions {
                 names: ["one", "two", "three"].into(),
                 nullability: Nullability::NonNullable,
             },
             [col("a"), col("b"), col("a")],
-        );
+        )
+        .vortex_expect("failed to create expression");
 
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
@@ -241,23 +246,27 @@ mod tests {
 
     #[test]
     pub fn test_nested_pack() {
-        let expr = Pack.new_expr(
+        let expr = Expression::try_new(
+            Pack,
             PackOptions {
                 names: ["one", "two", "three"].into(),
                 nullability: Nullability::NonNullable,
             },
             [
                 col("a"),
-                Pack.new_expr(
+                Expression::try_new(
+                    Pack,
                     PackOptions {
                         names: ["two_one", "two_two"].into(),
                         nullability: Nullability::NonNullable,
                     },
                     [col("b"), col("b")],
-                ),
+                )
+                .vortex_expect("failed to create expression"),
                 col("a"),
             ],
-        );
+        )
+        .vortex_expect("failed to create expression");
 
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
@@ -283,13 +292,15 @@ mod tests {
 
     #[test]
     pub fn test_pack_nullable() {
-        let expr = Pack.new_expr(
+        let expr = Expression::try_new(
+            Pack,
             PackOptions {
                 names: ["one", "two", "three"].into(),
                 nullability: Nullability::Nullable,
             },
             [col("a"), col("b"), col("a")],
-        );
+        )
+        .vortex_expect("failed to create expression");
 
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
@@ -305,13 +316,15 @@ mod tests {
         );
         assert_eq!(expr.to_string(), "pack(id: $.user_id, name: $.username)");
 
-        let expr2 = Pack.new_expr(
+        let expr2 = Expression::try_new(
+            Pack,
             PackOptions {
                 names: ["x", "y"].into(),
                 nullability: Nullability::Nullable,
             },
             [col("a"), col("b")],
-        );
+        )
+        .vortex_expect("failed to create expression");
         assert_eq!(expr2.to_string(), "pack(x: $.a, y: $.b)?");
     }
 }

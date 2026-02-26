@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::fmt::Formatter;
 
 use vortex_error::VortexResult;
 
@@ -18,12 +19,18 @@ use crate::dtype::extension::ExtVTable;
 /// reconstruct the value as an [`ExtDTypeRef`].
 ///
 /// [`deserialize`]: ExtDTypePlugin::deserialize
-pub trait ExtDTypePlugin: 'static + Send + Sync + Debug {
+pub trait ExtDTypePlugin: 'static + Send + Sync {
     /// Returns the ID for this extension type.
     fn id(&self) -> ExtId;
 
     /// Deserialize an extension type from serialized metadata.
     fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef>;
+}
+
+impl Debug for dyn ExtDTypePlugin {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("ExtDTypePlugin").field(&self.id()).finish()
+    }
 }
 
 impl<V: ExtVTable> ExtDTypePlugin for V {

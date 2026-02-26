@@ -10,7 +10,6 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use arcref::ArcRef;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
@@ -21,7 +20,6 @@ use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
 use crate::expr::stats::Stat;
-use crate::scalar_fn::ScalarFn;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 
@@ -36,7 +34,11 @@ use crate::scalar_fn::ScalarFnRef;
 /// The [`ScalarFnVTable`] trait should be implemented for a struct that holds global data across
 /// all instances of the expression. In almost all cases, this struct will be an empty unit
 /// struct, since most expressions do not require any global state.
-pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
+///
+/// Vtable identity is determined by [`id()`](ScalarFnVTable::id), not by the vtable value
+/// itself. Two type-erased scalar functions ([`ScalarFnRef`]) are equal iff they share the same
+/// ID and equal options.
+pub trait ScalarFnVTable: 'static + Sized + Send + Sync + Clone {
     /// Options for this expression.
     type Options: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Eq + Hash;
 
@@ -307,33 +309,6 @@ impl Display for EmptyOptions {
         write!(f, "")
     }
 }
-
-/// Factory functions for vtables.
-pub trait ScalarFnVTableExt: ScalarFnVTable {
-    /// Bind this vtable with the given options into a [`ScalarFnRef`].
-    fn bind(&self, options: Self::Options) -> ScalarFnRef {
-        ScalarFn::new(self.clone(), options).erased()
-    }
-
-    /// Create a new expression with this vtable and the given options and children.
-    fn new_expr(
-        &self,
-        options: Self::Options,
-        children: impl IntoIterator<Item = Expression>,
-    ) -> Expression {
-        Self::try_new_expr(self, options, children).vortex_expect("Failed to create expression")
-    }
-
-    /// Try to create a new expression with this vtable and the given options and children.
-    fn try_new_expr(
-        &self,
-        options: Self::Options,
-        children: impl IntoIterator<Item = Expression>,
-    ) -> VortexResult<Expression> {
-        Expression::try_new(self.bind(options), children)
-    }
-}
-impl<V: ScalarFnVTable> ScalarFnVTableExt for V {}
 
 /// A reference to the name of a child expression.
 pub type ChildName = ArcRef<str>;

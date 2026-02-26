@@ -24,7 +24,6 @@ use crate::expr::Expression;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::scalar_fn::EmptyOptions;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::binary::Binary;
@@ -72,39 +71,39 @@ pub trait ExprBuiltins: Sized {
 
 impl ExprBuiltins for Expression {
     fn cast(&self, dtype: DType) -> VortexResult<Expression> {
-        Cast.try_new_expr(dtype, [self.clone()])
+        Expression::try_new(Cast, dtype, [self.clone()])
     }
 
     fn fill_null(&self, fill_value: Expression) -> VortexResult<Expression> {
-        FillNull.try_new_expr(EmptyOptions, [self.clone(), fill_value])
+        Expression::try_new(FillNull, EmptyOptions, [self.clone(), fill_value])
     }
 
     fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<Expression> {
-        GetItem.try_new_expr(field_name.into(), [self.clone()])
+        Expression::try_new(GetItem, field_name.into(), [self.clone()])
     }
 
     fn is_null(&self) -> VortexResult<Expression> {
-        IsNull.try_new_expr(EmptyOptions, [self.clone()])
+        Expression::try_new(IsNull, EmptyOptions, [self.clone()])
     }
 
     fn mask(&self, mask: Expression) -> VortexResult<Expression> {
-        Mask.try_new_expr(EmptyOptions, [self.clone(), mask])
+        Expression::try_new(Mask, EmptyOptions, [self.clone(), mask])
     }
 
     fn not(&self) -> VortexResult<Expression> {
-        Not.try_new_expr(EmptyOptions, [self.clone()])
+        Expression::try_new(Not, EmptyOptions, [self.clone()])
     }
 
     fn list_contains(&self, value: Expression) -> VortexResult<Expression> {
-        ListContains.try_new_expr(EmptyOptions, [self.clone(), value])
+        Expression::try_new(ListContains, EmptyOptions, [self.clone(), value])
     }
 
     fn zip(&self, if_false: Expression, mask: Expression) -> VortexResult<Expression> {
-        Zip.try_new_expr(EmptyOptions, [self.clone(), if_false, mask])
+        Expression::try_new(Zip, EmptyOptions, [self.clone(), if_false, mask])
     }
 
     fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression> {
-        Binary.try_new_expr(op, [self.clone(), rhs])
+        Expression::try_new(Binary, op, [self.clone(), rhs])
     }
 }
 

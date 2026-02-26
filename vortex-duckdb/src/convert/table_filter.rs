@@ -18,7 +18,6 @@ use vortex::expr::lit;
 use vortex::expr::not;
 use vortex::expr::or_collect;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::CompareOperator;
 
@@ -35,7 +34,11 @@ pub fn try_from_table_filter(
         TableFilterClass::ConstantComparison(const_) => {
             let scalar: Scalar = const_.value.try_into()?;
 
-            Binary.new_expr(const_.operator.try_into()?, [col.clone(), lit(scalar)])
+            Expression::try_new(
+                Binary,
+                const_.operator.try_into()?,
+                [col.clone(), lit(scalar)],
+            )?
         }
         TableFilterClass::ConjunctionAnd(conj_and) => {
             let Some(children) = conj_and

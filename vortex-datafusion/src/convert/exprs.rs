@@ -33,7 +33,6 @@ use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
@@ -159,7 +158,8 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
             let right = self.convert(binary_expr.right().as_ref())?;
             let operator = try_operator_from_df(binary_expr.op())?;
 
-            return Ok(Binary.new_expr(operator, [left, right]));
+            return Expression::try_new(Binary, operator, [left, right])
+                .map_err(|e| exec_datafusion_err!("{e}"));
         }
 
         if let Some(col_expr) = df.as_any().downcast_ref::<df_expr::Column>() {
@@ -169,13 +169,15 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         if let Some(like) = df.as_any().downcast_ref::<df_expr::LikeExpr>() {
             let child = self.convert(like.expr().as_ref())?;
             let pattern = self.convert(like.pattern().as_ref())?;
-            return Ok(Like.new_expr(
+            return Expression::try_new(
+                Like,
                 LikeOptions {
                     negated: like.negated(),
                     case_insensitive: like.case_insensitive(),
                 },
                 [child, pattern],
-            ));
+            )
+            .map_err(|e| exec_datafusion_err!("{e}"));
         }
 
         if let Some(literal) = df.as_any().downcast_ref::<df_expr::Literal>() {

@@ -24,7 +24,7 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
 
-    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+    #[derive(Clone, Debug, Default)]
     struct Apples;
 
     impl ExtVTable for Apples {
@@ -246,7 +246,7 @@ mod tests {
     #[test]
     fn test_extension_dtype_coercion() {
         // Create an extension type with f16 storage
-        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+        #[derive(Clone, Default)]
         struct F16Ext;
         impl ExtVTable for F16Ext {
             type Metadata = usize;
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn test_extension_dtype_nested_struct_coercion() {
         // Create an extension type with struct storage that contains f16 field
-        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+        #[derive(Clone, Default)]
         struct StructExt;
         impl ExtVTable for StructExt {
             type Metadata = usize;

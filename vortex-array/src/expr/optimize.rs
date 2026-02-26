@@ -274,7 +274,7 @@ impl ReduceCtx for ExpressionReduceCtx {
         scalar_fn: ScalarFnRef,
         children: &[ReduceNodeRef],
     ) -> VortexResult<ReduceNodeRef> {
-        let expression = Expression::try_new(
+        let expression = Expression::try_new_erased(
             scalar_fn,
             children
                 .iter()

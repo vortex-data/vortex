@@ -600,6 +600,10 @@ impl core::clone::Clone for vortex_layout::layouts::row_idx::RowIdx
 
 pub fn vortex_layout::layouts::row_idx::RowIdx::clone(&self) -> vortex_layout::layouts::row_idx::RowIdx
 
+impl core::fmt::Debug for vortex_layout::layouts::row_idx::RowIdx
+
+pub fn vortex_layout::layouts::row_idx::RowIdx::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_layout::layouts::row_idx::RowIdx
 
 pub type vortex_layout::layouts::row_idx::RowIdx::Options = vortex_array::scalar_fn::vtable::EmptyOptions

@@ -20,7 +20,7 @@ use crate::extension::datetime::TimeUnit;
 use crate::scalar::ScalarValue;
 
 /// Time DType.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default)]
 pub struct Time;
 
 fn time_ptype(time_unit: &TimeUnit) -> Option<PType> {

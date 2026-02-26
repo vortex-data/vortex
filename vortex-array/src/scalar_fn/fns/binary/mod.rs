@@ -42,7 +42,7 @@ pub use compare::*;
 mod numeric;
 pub(crate) use numeric::*;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Binary;
 
 impl ScalarFnVTable for Binary {

@@ -15,7 +15,11 @@ use crate::scalar::ScalarValue;
 ///
 /// This is the non-object-safe trait that plugin authors implement to define a new extension
 /// type. It specifies the type's identity, metadata, serialization, and validation.
-pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
+///
+/// Vtable identity is determined by [`id()`](ExtVTable::id), not by the vtable value itself.
+/// Two type-erased extension dtypes ([`ExtDTypeRef`](super::ExtDTypeRef)) are equal iff they
+/// share the same ID, equal metadata, and equal storage dtype.
+pub trait ExtVTable: 'static + Sized + Send + Sync + Clone {
     /// Associated type containing the deserialized metadata for this extension type.
     type Metadata: 'static + Send + Sync + Clone + Debug + Display + Eq + Hash;
 

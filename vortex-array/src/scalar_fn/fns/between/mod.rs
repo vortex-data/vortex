@@ -9,6 +9,7 @@ use std::fmt::Formatter;
 
 pub use kernel::*;
 use prost::Message;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -35,7 +36,6 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::binary::execute_boolean;
 use crate::scalar_fn::fns::operators::CompareOperator;
@@ -189,7 +189,7 @@ fn between_canonical(
 ///
 /// NOTE: this expression will shortly be removed in favor of pipelined computation of two
 /// separate comparisons combined with a logical AND.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Between;
 
 impl ScalarFnVTable for Between {
@@ -328,11 +328,17 @@ impl ScalarFnVTable for Between {
         let lower = expr.child(1).clone();
         let upper = expr.child(2).clone();
 
-        let lhs = Binary.new_expr(options.lower_strict.to_operator(), [lower, arr.clone()]);
-        let rhs = Binary.new_expr(options.upper_strict.to_operator(), [arr, upper]);
+        let lhs = Expression::try_new(
+            Binary,
+            options.lower_strict.to_operator(),
+            [lower, arr.clone()],
+        )
+        .vortex_expect("failed to create expression");
+        let rhs = Expression::try_new(Binary, options.upper_strict.to_operator(), [arr, upper])
+            .vortex_expect("failed to create expression");
 
-        Binary
-            .new_expr(Operator::And, [lhs, rhs])
+        Expression::try_new(Binary, Operator::And, [lhs, rhs])
+            .vortex_expect("failed to create expression")
             .stat_falsification(catalog)
     }
 

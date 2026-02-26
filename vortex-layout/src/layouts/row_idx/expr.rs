@@ -14,11 +14,11 @@ use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RowIdx;
 
 impl ScalarFnVTable for RowIdx {
@@ -57,5 +57,5 @@ impl ScalarFnVTable for RowIdx {
 }
 
 pub fn row_idx() -> Expression {
-    RowIdx.new_expr(EmptyOptions, [])
+    Expression::try_new(RowIdx, EmptyOptions, []).vortex_expect("failed to create expression")
 }

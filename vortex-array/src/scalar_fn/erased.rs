@@ -3,6 +3,7 @@
 
 //! Type-erased scalar function ([`ScalarFnRef`]).
 
+use std::any::type_name;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -12,6 +13,7 @@ use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_utils::debug_with::DebugWith;
 
 use crate::ArrayRef;
@@ -21,12 +23,13 @@ use crate::expr::StatsCatalog;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::Matcher;
 use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
+use crate::scalar_fn::ScalarFn;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::SimplifyCtx;
 use crate::scalar_fn::fns::is_null::IsNull;
 use crate::scalar_fn::fns::not::Not;
@@ -40,45 +43,20 @@ use crate::scalar_fn::typed::ScalarFnInner;
 /// This stores a [`ScalarFnVTable`] and its options behind an `Arc<dyn DynScalarFn>`, allowing
 /// heterogeneous storage inside [`Expression`] and [`crate::arrays::ScalarFnArray`].
 ///
-/// Use [`super::ScalarFn::new()`] to construct, and [`super::ScalarFn::erased()`] to obtain a
-/// [`ScalarFnRef`].
+/// Use [`ScalarFn::new()`] to construct, and [`ScalarFn::erased()`] to obtain a [`ScalarFnRef`].
+///
+/// You can use [`try_downcast()`] or [`downcast()`] to recover the concrete vtable type as a
+/// [`ScalarFn<V>`] (as long as you know what `V` is).
+///
+/// [`try_downcast()`]: ScalarFnRef::try_downcast
+/// [`downcast()`]: ScalarFnRef::downcast
 #[derive(Clone)]
-pub struct ScalarFnRef(pub(crate) Arc<dyn DynScalarFn>);
+pub struct ScalarFnRef(pub(super) Arc<dyn DynScalarFn>);
 
 impl ScalarFnRef {
     /// Returns the ID of this scalar function.
     pub fn id(&self) -> ScalarFnId {
         self.0.id()
-    }
-
-    /// Returns whether the scalar function is of the given vtable type.
-    pub fn is<V: ScalarFnVTable>(&self) -> bool {
-        self.0.as_any().is::<ScalarFnInner<V>>()
-    }
-
-    /// Returns the typed options for this scalar function if it matches the given vtable type.
-    pub fn as_opt<V: ScalarFnVTable>(&self) -> Option<&V::Options> {
-        self.downcast_inner::<V>().map(|inner| &inner.options)
-    }
-
-    /// Returns a reference to the typed vtable if it matches the given vtable type.
-    pub fn vtable_ref<V: ScalarFnVTable>(&self) -> Option<&V> {
-        self.downcast_inner::<V>().map(|inner| &inner.vtable)
-    }
-
-    /// Downcast the inner to the concrete `ScalarFnInner<V>`.
-    fn downcast_inner<V: ScalarFnVTable>(&self) -> Option<&ScalarFnInner<V>> {
-        self.0.as_any().downcast_ref::<ScalarFnInner<V>>()
-    }
-
-    /// Returns the typed options for this scalar function if it matches the given vtable type.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the vtable type does not match.
-    pub fn as_<V: ScalarFnVTable>(&self) -> &V::Options {
-        self.as_opt::<V>()
-            .vortex_expect("Expression options type mismatch")
     }
 
     /// The type-erased options for this scalar function.
@@ -101,10 +79,10 @@ impl ScalarFnRef {
         Ok(self.0.validity(expr)?.unwrap_or_else(|| {
             // TODO(ngates): make validity a mandatory method on VTable to avoid this fallback.
             // TODO(ngates): add an IsNotNull expression.
-            Not.new_expr(
-                EmptyOptions,
-                [IsNull.new_expr(EmptyOptions, [expr.clone()])],
-            )
+            let is_null = Expression::try_new(IsNull, EmptyOptions, [expr.clone()])
+                .vortex_expect("failed to create is_null expression");
+            Expression::try_new(Not, EmptyOptions, [is_null])
+                .vortex_expect("failed to create not expression")
         }))
     }
 
@@ -162,6 +140,68 @@ impl ScalarFnRef {
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
         self.0.stat_expression(expr, stat, catalog)
+    }
+}
+
+/// Methods for downcasting type-erased scalar functions.
+impl ScalarFnRef {
+    /// Check if the scalar function is of the concrete type.
+    pub fn is<M: Matcher>(&self) -> bool {
+        M::matches(self)
+    }
+
+    /// Extract the options of the scalar function per the given [`Matcher`].
+    pub fn as_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
+        M::try_match(self)
+    }
+
+    /// Extract the options of the scalar function per the given [`Matcher`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the match fails.
+    pub fn as_<M: Matcher>(&self) -> M::Match<'_> {
+        self.as_opt::<M>()
+            .vortex_expect("ScalarFnRef options type mismatch")
+    }
+
+    /// Returns a reference to the typed vtable if it matches the given vtable type.
+    pub fn vtable_ref<V: ScalarFnVTable>(&self) -> Option<&V> {
+        self.0
+            .as_any()
+            .downcast_ref::<ScalarFnInner<V>>()
+            .map(|inner| &inner.vtable)
+    }
+
+    /// Downcast to the concrete [`ScalarFn`].
+    ///
+    /// Returns `Err(self)` if the downcast fails.
+    pub fn try_downcast<V: ScalarFnVTable>(self) -> Result<ScalarFn<V>, ScalarFnRef> {
+        if self.0.as_any().is::<ScalarFnInner<V>>() {
+            // SAFETY: type matches and ScalarFnInner<V> is the only implementor
+            let ptr = Arc::into_raw(self.0) as *const ScalarFnInner<V>;
+            let inner = unsafe { Arc::from_raw(ptr) };
+            Ok(ScalarFn(inner))
+        } else {
+            Err(self)
+        }
+    }
+
+    /// Downcast to the concrete [`ScalarFn`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the downcast fails.
+    pub fn downcast<V: ScalarFnVTable>(self) -> ScalarFn<V> {
+        self.try_downcast::<V>()
+            .map_err(|this| {
+                vortex_err!(
+                    "Failed to downcast ScalarFnRef {} to {}",
+                    this.0.id(),
+                    type_name::<V>(),
+                )
+            })
+            .vortex_expect("Failed to downcast ScalarFnRef")
     }
 }
 

@@ -23,7 +23,7 @@ use crate::scalar::ScalarValue;
 const EPOCH: jiff::civil::Date = jiff::civil::Date::constant(1970, 1, 1);
 
 /// Date DType.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default)]
 pub struct Date;
 
 fn date_ptype(time_unit: &TimeUnit) -> Option<PType> {

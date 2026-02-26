@@ -5,6 +5,7 @@ use std::cmp::max;
 
 use arbitrary::Result as AResult;
 use arbitrary::Unstructured;
+use vortex_error::VortexExpect;
 
 use crate::dtype::DType;
 use crate::dtype::FieldName;
@@ -14,7 +15,6 @@ use crate::expr::col;
 use crate::expr::lit;
 use crate::expr::pack;
 use crate::scalar::arbitrary::random_scalar;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -59,10 +59,12 @@ fn random_comparison(
     dtype: &DType,
 ) -> AResult<Expression> {
     let scalar = random_scalar(u, dtype)?;
-    Ok(Binary.new_expr(
+    Ok(Expression::try_new(
+        Binary,
         arbitrary_comparison_operator(u)?,
         [col(name.clone()), lit(scalar)],
-    ))
+    )
+    .vortex_expect("failed to create expression"))
 }
 
 fn arbitrary_comparison_operator(u: &mut Unstructured<'_>) -> AResult<Operator> {

@@ -17,6 +17,8 @@ mod typed;
 pub use typed::*;
 mod erased;
 pub use erased::*;
+mod matcher;
+pub use matcher::*;
 mod options;
 pub use options::*;
 mod signature;

@@ -29,14 +29,14 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
+use crate::scalar_fn::ScalarFn;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::pack::Pack;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct GetItem;
 
 impl ScalarFnVTable for GetItem {
@@ -135,8 +135,11 @@ impl ScalarFnVTable for GetItem {
             // Possibly mask the field if the pack is nullable
             if pack.nullability.is_nullable() {
                 field = ctx.new_node(
-                    Mask.bind(EmptyOptions),
-                    &[field, ctx.new_node(Literal.bind(true.into()), &[])?],
+                    ScalarFn::new(Mask, EmptyOptions).erased(),
+                    &[
+                        field,
+                        ctx.new_node(ScalarFn::new(Literal, true.into()).erased(), &[])?,
+                    ],
                 )?;
             }
 

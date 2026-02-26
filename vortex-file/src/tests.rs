@@ -32,6 +32,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::PType::I32;
 use vortex_array::dtype::StructFields;
+use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::expr::cast;
 use vortex_array::expr::eq;
@@ -48,7 +49,6 @@ use vortex_array::extension::datetime::TimeUnit;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::extension::datetime::TimestampOptions;
 use vortex_array::scalar::Scalar;
-use vortex_array::scalar_fn::ScalarFnVTableExt;
 use vortex_array::scalar_fn::fns::pack::Pack;
 use vortex_array::scalar_fn::fns::pack::PackOptions;
 use vortex_array::scalar_fn::session::ScalarFnSession;
@@ -1258,13 +1258,14 @@ async fn scan_empty_fields() -> VortexResult<()> {
     let array = (0..10000).collect::<PrimitiveArray>();
 
     let result = round_trip(array.as_ref(), |scan| {
-        Ok(scan.with_projection(Pack.new_expr(
+        Ok(scan.with_projection(Expression::try_new(
+            Pack,
             PackOptions {
                 names: Default::default(),
                 nullability: Nullability::Nullable,
             },
             [],
-        )))
+        )?))
     })
     .await?;
 

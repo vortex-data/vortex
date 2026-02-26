@@ -17,7 +17,9 @@ use crate::dtype::DType;
 use crate::expr::StatsCatalog;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::stats::Stat;
+use crate::scalar_fn::ScalarFn;
 use crate::scalar_fn::ScalarFnRef;
+use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::root::Root;
 
 /// A node in a Vortex expression tree.
@@ -42,7 +44,16 @@ impl Deref for Expression {
 
 impl Expression {
     /// Create a new expression node from a scalar_fn expression and its children.
-    pub fn try_new(
+    pub fn try_new<S: ScalarFnVTable>(
+        scalar_fn: S,
+        options: S::Options,
+        children: impl IntoIterator<Item = Expression>,
+    ) -> VortexResult<Self> {
+        Self::try_new_erased(ScalarFn::new(scalar_fn, options).erased(), children)
+    }
+
+    /// Create a new expression node from a scalar_fn expression and its children.
+    pub fn try_new_erased(
         scalar_fn: ScalarFnRef,
         children: impl IntoIterator<Item = Expression>,
     ) -> VortexResult<Self> {
@@ -176,7 +187,7 @@ impl Expression {
     /// ```rust
     /// # use vortex_array::dtype::{DType, Nullability, PType};
     /// # use vortex_array::scalar_fn::fns::like::{Like, LikeOptions};
-    /// # use vortex_array::scalar_fn::ScalarFnVTableExt;
+    /// # use vortex_array::expr::Expression;
     /// # use vortex_array::expr::{and, cast, eq, get_item, gt, lit, not, root, select};
     /// // Build a complex nested expression
     /// let complex_expr = select(
@@ -184,7 +195,7 @@ impl Expression {
     ///     and(
     ///         not(eq(get_item("status", root()), lit("inactive"))),
     ///         and(
-    ///             Like.new_expr(LikeOptions::default(), [get_item("name", root()), lit("%admin%")]),
+    ///             Expression::try_new(Like, LikeOptions::default(), [get_item("name", root()), lit("%admin%")]).unwrap(),
     ///             gt(
     ///                 cast(get_item("score", root()), DType::Primitive(PType::F64, Nullability::NonNullable)),
     ///                 lit(75.0)

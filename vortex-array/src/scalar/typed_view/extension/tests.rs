@@ -16,7 +16,7 @@ use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Default)]
 struct TestI32Ext;
 impl ExtVTable for TestI32Ext {
     type Metadata = EmptyMetadata;
@@ -105,7 +105,7 @@ fn test_ext_scalar_partial_ord() {
 
 #[test]
 fn test_ext_scalar_partial_ord_different_types() {
-    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+    #[derive(Clone, Default)]
     struct TestExt2;
     impl ExtVTable for TestExt2 {
         type Metadata = EmptyMetadata;
@@ -302,7 +302,7 @@ fn test_ext_scalar_try_new_non_extension() {
 
 #[test]
 fn test_ext_scalar_with_metadata() {
-    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+    #[derive(Clone, Default)]
     struct TestExtMetadata;
     impl ExtVTable for TestExtMetadata {
         type Metadata = usize;

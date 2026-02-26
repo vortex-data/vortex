@@ -15,7 +15,6 @@ use crate::expr::Expression;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::EmptyOptions;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::binary::Binary;
@@ -50,7 +49,7 @@ use crate::scalar_fn::fns::zip::Zip;
 /// Returns the entire input array as passed to the expression evaluator.
 /// This is commonly used as the starting point for field access and other operations.
 pub fn root() -> Expression {
-    Root.try_new_expr(EmptyOptions, vec![])
+    Expression::try_new(Root, EmptyOptions, vec![])
         .vortex_expect("Failed to create Root expression")
 }
 
@@ -79,7 +78,7 @@ pub fn is_root(expr: &Expression) -> bool {
 /// assert_eq!(scalar, &Scalar::primitive(34i32, Nullability::NonNullable));
 /// ```
 pub fn lit(value: impl Into<Scalar>) -> Expression {
-    Literal.new_expr(value.into(), [])
+    Expression::try_new(Literal, value.into(), []).vortex_expect("failed to create expression")
 }
 
 // ---- GetItem / Col ----
@@ -93,7 +92,8 @@ pub fn lit(value: impl Into<Scalar>) -> Expression {
 /// let expr = col("name");
 /// ```
 pub fn col(field: impl Into<FieldName>) -> Expression {
-    GetItem.new_expr(field.into(), vec![root()])
+    Expression::try_new(GetItem, field.into(), vec![root()])
+        .vortex_expect("failed to create expression")
 }
 
 /// Creates an expression that extracts a named field from a struct expression.
@@ -105,7 +105,8 @@ pub fn col(field: impl Into<FieldName>) -> Expression {
 /// let expr = get_item("user_id", root());
 /// ```
 pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
-    GetItem.new_expr(field.into(), vec![child])
+    Expression::try_new(GetItem, field.into(), vec![child])
+        .vortex_expect("failed to create expression")
 }
 
 // ---- Binary operators ----
@@ -129,8 +130,7 @@ pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
 /// );
 /// ```
 pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Eq, [lhs, rhs])
+    Expression::try_new(Binary, Operator::Eq, [lhs, rhs])
         .vortex_expect("Failed to create Eq binary expression")
 }
 
@@ -153,8 +153,7 @@ pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
 /// );
 /// ```
 pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::NotEq, [lhs, rhs])
+    Expression::try_new(Binary, Operator::NotEq, [lhs, rhs])
         .vortex_expect("Failed to create NotEq binary expression")
 }
 
@@ -177,8 +176,7 @@ pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// );
 /// ```
 pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Gte, [lhs, rhs])
+    Expression::try_new(Binary, Operator::Gte, [lhs, rhs])
         .vortex_expect("Failed to create Gte binary expression")
 }
 
@@ -201,8 +199,7 @@ pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// );
 /// ```
 pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Gt, [lhs, rhs])
+    Expression::try_new(Binary, Operator::Gt, [lhs, rhs])
         .vortex_expect("Failed to create Gt binary expression")
 }
 
@@ -225,8 +222,7 @@ pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
 /// );
 /// ```
 pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Lte, [lhs, rhs])
+    Expression::try_new(Binary, Operator::Lte, [lhs, rhs])
         .vortex_expect("Failed to create Lte binary expression")
 }
 
@@ -249,8 +245,7 @@ pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// );
 /// ```
 pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Lt, [lhs, rhs])
+    Expression::try_new(Binary, Operator::Lt, [lhs, rhs])
         .vortex_expect("Failed to create Lt binary expression")
 }
 
@@ -271,8 +266,7 @@ pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
 /// );
 /// ```
 pub fn or(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Or, [lhs, rhs])
+    Expression::try_new(Binary, Operator::Or, [lhs, rhs])
         .vortex_expect("Failed to create Or binary expression")
 }
 
@@ -307,8 +301,7 @@ where
 /// );
 /// ```
 pub fn and(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::And, [lhs, rhs])
+    Expression::try_new(Binary, Operator::And, [lhs, rhs])
         .vortex_expect("Failed to create And binary expression")
 }
 
@@ -381,8 +374,7 @@ where
 /// );
 /// ```
 pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
-    Binary
-        .try_new_expr(Operator::Add, [lhs, rhs])
+    Expression::try_new(Binary, Operator::Add, [lhs, rhs])
         .vortex_expect("Failed to create Add binary expression")
 }
 
@@ -397,7 +389,8 @@ pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
 /// let expr = not(root());
 /// ```
 pub fn not(operand: Expression) -> Expression {
-    Not.new_expr(EmptyOptions, vec![operand])
+    Expression::try_new(Not, EmptyOptions, vec![operand])
+        .vortex_expect("failed to create expression")
 }
 
 // ---- Between ----
@@ -423,8 +416,7 @@ pub fn between(
     upper: Expression,
     options: BetweenOptions,
 ) -> Expression {
-    Between
-        .try_new_expr(options, [arr, lower, upper])
+    Expression::try_new(Between, options, [arr, lower, upper])
         .vortex_expect("Failed to create Between expression")
 }
 
@@ -438,8 +430,7 @@ pub fn between(
 /// let expr = select(["name", "age"], root());
 /// ```
 pub fn select(field_names: impl Into<FieldNames>, child: Expression) -> Expression {
-    Select
-        .try_new_expr(FieldSelection::Include(field_names.into()), [child])
+    Expression::try_new(Select, FieldSelection::Include(field_names.into()), [child])
         .vortex_expect("Failed to create Select expression")
 }
 
@@ -452,8 +443,7 @@ pub fn select(field_names: impl Into<FieldNames>, child: Expression) -> Expressi
 /// let expr = select_exclude(["internal_id", "metadata"], root());
 /// ```
 pub fn select_exclude(fields: impl Into<FieldNames>, child: Expression) -> Expression {
-    Select
-        .try_new_expr(FieldSelection::Exclude(fields.into()), [child])
+    Expression::try_new(Select, FieldSelection::Exclude(fields.into()), [child])
         .vortex_expect("Failed to create Select expression")
 }
 
@@ -474,13 +464,15 @@ pub fn pack(
         .into_iter()
         .map(|(name, value)| (name.into(), value))
         .unzip();
-    Pack.new_expr(
+    Expression::try_new(
+        Pack,
         PackOptions {
             names: names.into(),
             nullability,
         },
         values,
     )
+    .vortex_expect("failed to create expression")
 }
 
 // ---- Cast ----
@@ -495,8 +487,7 @@ pub fn pack(
 /// let expr = cast(root(), DType::Primitive(PType::I64, Nullability::NonNullable));
 /// ```
 pub fn cast(child: Expression, target: DType) -> Expression {
-    Cast.try_new_expr(target, [child])
-        .vortex_expect("Failed to create Cast expression")
+    Expression::try_new(Cast, target, [child]).vortex_expect("Failed to create Cast expression")
 }
 
 // ---- FillNull ----
@@ -508,7 +499,8 @@ pub fn cast(child: Expression, target: DType) -> Expression {
 /// let expr = fill_null(root(), lit(0i32));
 /// ```
 pub fn fill_null(child: Expression, fill_value: Expression) -> Expression {
-    FillNull.new_expr(EmptyOptions, [child, fill_value])
+    Expression::try_new(FillNull, EmptyOptions, [child, fill_value])
+        .vortex_expect("failed to create expression")
 }
 
 // ---- IsNull ----
@@ -522,60 +514,70 @@ pub fn fill_null(child: Expression, fill_value: Expression) -> Expression {
 /// let expr = is_null(root());
 /// ```
 pub fn is_null(child: Expression) -> Expression {
-    IsNull.new_expr(EmptyOptions, vec![child])
+    Expression::try_new(IsNull, EmptyOptions, vec![child])
+        .vortex_expect("failed to create expression")
 }
 
 // ---- Like ----
 
 /// Creates a SQL LIKE expression.
 pub fn like(child: Expression, pattern: Expression) -> Expression {
-    Like.new_expr(
+    Expression::try_new(
+        Like,
         LikeOptions {
             negated: false,
             case_insensitive: false,
         },
         [child, pattern],
     )
+    .vortex_expect("failed to create expression")
 }
 
 /// Creates a case-insensitive SQL ILIKE expression.
 pub fn ilike(child: Expression, pattern: Expression) -> Expression {
-    Like.new_expr(
+    Expression::try_new(
+        Like,
         LikeOptions {
             negated: false,
             case_insensitive: true,
         },
         [child, pattern],
     )
+    .vortex_expect("failed to create expression")
 }
 
 /// Creates a negated SQL NOT LIKE expression.
 pub fn not_like(child: Expression, pattern: Expression) -> Expression {
-    Like.new_expr(
+    Expression::try_new(
+        Like,
         LikeOptions {
             negated: true,
             case_insensitive: false,
         },
         [child, pattern],
     )
+    .vortex_expect("failed to create expression")
 }
 
 /// Creates a negated case-insensitive SQL NOT ILIKE expression.
 pub fn not_ilike(child: Expression, pattern: Expression) -> Expression {
-    Like.new_expr(
+    Expression::try_new(
+        Like,
         LikeOptions {
             negated: true,
             case_insensitive: true,
         },
         [child, pattern],
     )
+    .vortex_expect("failed to create expression")
 }
 
 // ---- Mask ----
 
 /// Creates a mask expression that applies the given boolean mask to the input array.
 pub fn mask(array: Expression, mask: Expression) -> Expression {
-    Mask.new_expr(EmptyOptions, [array, mask])
+    Expression::try_new(Mask, EmptyOptions, [array, mask])
+        .vortex_expect("failed to create expression")
 }
 
 // ---- Merge ----
@@ -593,7 +595,8 @@ pub fn mask(array: Expression, mask: Expression) -> Expression {
 pub fn merge(elements: impl IntoIterator<Item = impl Into<Expression>>) -> Expression {
     use itertools::Itertools as _;
     let values = elements.into_iter().map(|value| value.into()).collect_vec();
-    Merge.new_expr(DuplicateHandling::default(), values)
+    Expression::try_new(Merge, DuplicateHandling::default(), values)
+        .vortex_expect("failed to create expression")
 }
 
 /// Creates a merge expression with explicit duplicate handling.
@@ -603,7 +606,8 @@ pub fn merge_opts(
 ) -> Expression {
     use itertools::Itertools as _;
     let values = elements.into_iter().map(|value| value.into()).collect_vec();
-    Merge.new_expr(duplicate_handling, values)
+    Expression::try_new(Merge, duplicate_handling, values)
+        .vortex_expect("failed to create expression")
 }
 
 // ---- Zip ----
@@ -615,7 +619,8 @@ pub fn merge_opts(
 /// let expr = zip_expr(root(), lit(0i32), lit(true));
 /// ```
 pub fn zip_expr(if_true: Expression, if_false: Expression, mask: Expression) -> Expression {
-    Zip.new_expr(EmptyOptions, [if_true, if_false, mask])
+    Expression::try_new(Zip, EmptyOptions, [if_true, if_false, mask])
+        .vortex_expect("failed to create expression")
 }
 
 // ---- Dynamic ----
@@ -628,7 +633,8 @@ pub fn dynamic(
     default: bool,
     lhs: Expression,
 ) -> Expression {
-    DynamicComparison.new_expr(
+    Expression::try_new(
+        DynamicComparison,
         DynamicComparisonExpr {
             operator,
             rhs: Arc::new(Rhs {
@@ -639,6 +645,7 @@ pub fn dynamic(
         },
         [lhs],
     )
+    .vortex_expect("failed to create expression")
 }
 
 // ---- ListContains ----
@@ -652,5 +659,6 @@ pub fn dynamic(
 /// let expr = list_contains(root(), lit(42));
 /// ```
 pub fn list_contains(list: Expression, value: Expression) -> Expression {
-    ListContains.new_expr(EmptyOptions, [list, value])
+    Expression::try_new(ListContains, EmptyOptions, [list, value])
+        .vortex_expect("failed to create expression")
 }

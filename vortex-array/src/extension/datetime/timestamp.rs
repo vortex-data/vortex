@@ -24,7 +24,7 @@ use crate::extension::datetime::TimeUnit;
 use crate::scalar::ScalarValue;
 
 /// Timestamp DType.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default)]
 pub struct Timestamp;
 
 impl Timestamp {

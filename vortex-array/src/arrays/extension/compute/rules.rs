@@ -77,7 +77,7 @@ mod tests {
     use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::operators::Operator;
 
-    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+    #[derive(Clone, Default)]
     struct TestExt;
     impl ExtVTable for TestExt {
         type Metadata = EmptyMetadata;
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn test_scalar_fn_no_pushdown_different_ext_types() {
-        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+        #[derive(Clone, Default)]
         struct TestExt2;
         impl ExtVTable for TestExt2 {
             type Metadata = EmptyMetadata;

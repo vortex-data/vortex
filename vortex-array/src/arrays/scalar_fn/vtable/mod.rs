@@ -36,8 +36,8 @@ use crate::scalar_fn;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::ScalarFn;
 use crate::scalar_fn::ScalarFnId;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -158,7 +158,7 @@ pub trait ScalarFnArrayExt: scalar_fn::ScalarFnVTable {
         options: Self::Options,
         children: impl Into<Vec<ArrayRef>>,
     ) -> VortexResult<ArrayRef> {
-        let scalar_fn = scalar_fn::ScalarFn::new(self.clone(), options).erased();
+        let scalar_fn = ScalarFn::new(self.clone(), options).erased();
 
         let children = children.into();
         vortex_ensure!(
@@ -240,7 +240,7 @@ impl<F: scalar_fn::ScalarFnVTable> Deref for ScalarFnArrayView<'_, F> {
 }
 
 // Used only in this method to allow constrained using of Expression evaluate.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct ArrayExpr;
 
 #[derive(Clone, Debug)]
@@ -302,6 +302,10 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
         _expression: &Expression,
     ) -> VortexResult<Option<Expression>> {
         let validity_array = options.0.validity()?.to_array(options.0.len());
-        Ok(Some(ArrayExpr.new_expr(FakeEq(validity_array), [])))
+        Ok(Some(Expression::try_new(
+            ArrayExpr,
+            FakeEq(validity_array),
+            [],
+        )?))
     }
 }

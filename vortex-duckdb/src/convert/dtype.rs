@@ -573,7 +573,7 @@ mod tests {
 
     #[test]
     fn test_unsupported_extension_type() {
-        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+        #[derive(Clone, Default)]
         struct TestExt;
         impl ExtVTable for TestExt {
             type Metadata = EmptyMetadata;

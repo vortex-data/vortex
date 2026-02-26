@@ -28,9 +28,9 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ReduceCtx;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
+use crate::scalar_fn::ScalarFn;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::scalar_fn::fns::pack::PackOptions;
@@ -42,7 +42,7 @@ use crate::validity::Validity;
 ///
 /// NOTE: Fields are not recursively merged, i.e. the later field REPLACES the earlier field.
 /// This makes struct fields behaviour consistent with other dtypes.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Merge;
 
 impl ScalarFnVTable for Merge {
@@ -226,14 +226,20 @@ impl ScalarFnVTable for Merge {
         let pack_children: Vec<_> = names
             .iter()
             .zip(children)
-            .map(|(name, child)| ctx.new_node(GetItem.bind(name.clone()), &[child]))
+            .map(|(name, child)| {
+                ctx.new_node(ScalarFn::new(GetItem, name.clone()).erased(), &[child])
+            })
             .try_collect()?;
 
         let pack_expr = ctx.new_node(
-            Pack.bind(PackOptions {
-                names: FieldNames::from(names),
-                nullability: node.node_dtype()?.nullability(),
-            }),
+            ScalarFn::new(
+                Pack,
+                PackOptions {
+                    names: FieldNames::from(names),
+                    nullability: node.node_dtype()?.nullability(),
+                },
+            )
+            .erased(),
             &pack_children,
         )?;
 

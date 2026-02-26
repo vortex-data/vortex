@@ -27,7 +27,7 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::validity::Validity;
 
 /// Expression that checks for null values.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct IsNull;
 
 impl ScalarFnVTable for IsNull {

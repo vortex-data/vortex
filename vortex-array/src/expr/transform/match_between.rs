@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
+
 use crate::expr::Expression;
 use crate::expr::and_collect;
 use crate::expr::forms::conjuncts;
 use crate::expr::lit;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
@@ -67,7 +68,10 @@ fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
     // First, get both halves to have GetItem on the left
     let lhs = match (lhs_lhs.is::<GetItem>(), lhs_rhs.is::<GetItem>()) {
         (true, false) => lhs.clone(),
-        (false, true) => Binary.new_expr(lhs_op.swap()?, [lhs_rhs.clone(), lhs_lhs.clone()]),
+        (false, true) => {
+            Expression::try_new(Binary, lhs_op.swap()?, [lhs_rhs.clone(), lhs_lhs.clone()])
+                .vortex_expect("failed to create expression")
+        }
         _ => return None,
     };
     let lhs_op = lhs.as_::<Binary>();
@@ -75,7 +79,10 @@ fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
 
     let rhs = match (rhs_lhs.is::<GetItem>(), rhs_rhs.is::<GetItem>()) {
         (true, false) => rhs.clone(),
-        (false, true) => Binary.new_expr(rhs_op.swap()?, [rhs_rhs.clone(), rhs_lhs.clone()]),
+        (false, true) => {
+            Expression::try_new(Binary, rhs_op.swap()?, [rhs_rhs.clone(), rhs_lhs.clone()])
+                .vortex_expect("failed to create expression")
+        }
         _ => return None,
     };
     let rhs_op = rhs.as_::<Binary>();
@@ -106,13 +113,17 @@ fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {
     let lower_strict = is_strict_comparison(*lower_op)?;
     let upper_strict = is_strict_comparison(*upper_op)?;
 
-    Some(Between.new_expr(
-        BetweenOptions {
-            lower_strict,
-            upper_strict,
-        },
-        [target, lower_rhs.clone(), upper_rhs.clone()],
-    ))
+    Some(
+        Expression::try_new(
+            Between,
+            BetweenOptions {
+                lower_strict,
+                upper_strict,
+            },
+            [target, lower_rhs.clone(), upper_rhs.clone()],
+        )
+        .vortex_expect("failed to create expression"),
+    )
 }
 
 fn is_strict_comparison(op: Operator) -> Option<StrictComparison> {

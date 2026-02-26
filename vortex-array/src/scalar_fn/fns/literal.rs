@@ -4,6 +4,7 @@
 use std::fmt::Formatter;
 
 use prost::Message;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
@@ -23,14 +24,13 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 
 fn lit(value: impl Into<Scalar>) -> Expression {
-    Literal.new_expr(value.into(), [])
+    Expression::try_new(Literal, value.into(), []).vortex_expect("failed to create expression")
 }
 
 /// Expression that represents a literal scalar value.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Literal;
 
 impl ScalarFnVTable for Literal {

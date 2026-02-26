@@ -37,7 +37,7 @@ use crate::scalar_fn::fns::literal::Literal;
 /// Null values in the mask are treated as false (selecting `if_false`). This follows
 /// SQL semantics (DuckDB, Trino) where a null condition falls through to the ELSE branch,
 /// rather than Arrow's `if_else` which propagates null conditions to the output.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Zip;
 
 impl ScalarFnVTable for Zip {

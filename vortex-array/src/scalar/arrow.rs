@@ -446,7 +446,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Cannot convert extension scalar")]
     fn test_non_temporal_extension_to_arrow_todo() {
-        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+        #[derive(Clone, Default)]
         struct SomeExt;
         impl ExtVTable for SomeExt {
             type Metadata = String;

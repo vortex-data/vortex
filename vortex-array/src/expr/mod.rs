@@ -44,6 +44,12 @@ pub use expression::*;
 pub use exprs::*;
 pub use pruning::StatsCatalog;
 
+#[deprecated(
+    note = "Expression VTable has been moved to `vortex::array::scalar_fn::ScalarFnVTable`, the \
+     implementation remains the same"
+)]
+pub trait VTable {}
+
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
     fn field_references(&self) -> HashSet<FieldName>;

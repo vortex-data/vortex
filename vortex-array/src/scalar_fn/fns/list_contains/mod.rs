@@ -52,7 +52,7 @@ use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ListContains;
 
 impl ScalarFnVTable for ListContains {

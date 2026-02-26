@@ -53,7 +53,7 @@ impl Expression {
             .map(|e| Expression::from_proto(e, session))
             .collect::<VortexResult<Vec<_>>>()?;
 
-        Expression::try_new(vtable.deserialize(expr.metadata(), session)?, children)
+        Expression::try_new_erased(vtable.deserialize(expr.metadata(), session)?, children)
     }
 }
 

@@ -20,7 +20,6 @@ use vortex::expr::lit;
 use vortex::expr::not;
 use vortex::expr::or_collect;
 use vortex::scalar::Scalar;
-use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::between::Between;
 use vortex::scalar_fn::fns::between::BetweenOptions;
 use vortex::scalar_fn::fns::between::StrictComparison;
@@ -65,7 +64,7 @@ pub fn try_from_bound_expression(
                 return Ok(None);
             };
 
-            Binary.new_expr(operator, [left, right])
+            Expression::try_new(Binary, operator, [left, right])?
         }
         duckdb::ExpressionClass::BoundBetween(between) => {
             let Some(array) = try_from_bound_expression(between.input)? else {
@@ -77,7 +76,8 @@ pub fn try_from_bound_expression(
             let Some(upper) = try_from_bound_expression(between.upper)? else {
                 return Ok(None);
             };
-            Between.new_expr(
+            Expression::try_new(
+                Between,
                 BetweenOptions {
                     lower_strict: if between.lower_inclusive {
                         StrictComparison::NonStrict
@@ -91,7 +91,7 @@ pub fn try_from_bound_expression(
                     },
                 },
                 [array, lower, upper],
-            )
+            )?
         }
         duckdb::ExpressionClass::BoundOperator(operator) => match operator.op {
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_NOT
@@ -162,7 +162,7 @@ pub fn try_from_bound_expression(
                     vortex_bail!("expected pattern to be bound string")
                 };
                 let pattern = lit(pattern_lit);
-                Like.new_expr(LikeOptions::default(), [value, pattern])
+                Expression::try_new(Like, LikeOptions::default(), [value, pattern])?
             }
             _ => {
                 tracing::debug!("bound function {}", func.scalar_function.name());

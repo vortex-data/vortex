@@ -6350,7 +6350,7 @@ impl core::hash::Hash for vortex_array::dtype::extension::ExtDTypeRef
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::hash<H: core::hash::Hasher>(&self, state: &mut H)
 
-pub trait vortex_array::dtype::extension::ExtDTypePlugin: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+pub trait vortex_array::dtype::extension::ExtDTypePlugin: 'static + core::marker::Send + core::marker::Sync
 
 pub fn vortex_array::dtype::extension::ExtDTypePlugin::deserialize(&self, data: &[u8], storage_dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::extension::ExtDTypeRef>
 
@@ -6362,7 +6362,7 @@ pub fn V::deserialize(&self, data: &[u8], storage_dtype: vortex_array::dtype::DT
 
 pub fn V::id(&self) -> arcref::ArcRef<str>
 
-pub trait vortex_array::dtype::extension::ExtVTable: 'static + core::marker::Sized + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + core::cmp::Eq + core::hash::Hash
+pub trait vortex_array::dtype::extension::ExtVTable: 'static + core::marker::Sized + core::marker::Send + core::marker::Sync + core::clone::Clone
 
 pub type vortex_array::dtype::extension::ExtVTable::Metadata: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + core::fmt::Display + core::cmp::Eq + core::hash::Hash
 
@@ -9692,7 +9692,9 @@ pub fn vortex_array::expr::Expression::stat_max(&self, catalog: &dyn vortex_arra
 
 pub fn vortex_array::expr::Expression::stat_min(&self, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
-pub fn vortex_array::expr::Expression::try_new(scalar_fn: vortex_array::scalar_fn::ScalarFnRef, children: impl core::iter::traits::collect::IntoIterator<Item = vortex_array::expr::Expression>) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::expr::Expression::try_new<S: vortex_array::scalar_fn::ScalarFnVTable>(scalar_fn: S, options: <S as vortex_array::scalar_fn::ScalarFnVTable>::Options, children: impl core::iter::traits::collect::IntoIterator<Item = vortex_array::expr::Expression>) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::expr::Expression::try_new_erased(scalar_fn: vortex_array::scalar_fn::ScalarFnRef, children: impl core::iter::traits::collect::IntoIterator<Item = vortex_array::expr::Expression>) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::expr::Expression::validity(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
@@ -9809,6 +9811,8 @@ pub type F::Annotation = A
 pub trait vortex_array::expr::StatsCatalog
 
 pub fn vortex_array::expr::StatsCatalog::stats_ref(&self, _field_path: &vortex_array::dtype::FieldPath, _stat: vortex_array::expr::stats::Stat) -> core::option::Option<vortex_array::expr::Expression>
+
+pub trait vortex_array::expr::VTable
 
 pub trait vortex_array::expr::VortexExprExt
 
@@ -10084,12 +10088,6 @@ impl core::clone::Clone for vortex_array::extension::datetime::Date
 
 pub fn vortex_array::extension::datetime::Date::clone(&self) -> vortex_array::extension::datetime::Date
 
-impl core::cmp::Eq for vortex_array::extension::datetime::Date
-
-impl core::cmp::PartialEq for vortex_array::extension::datetime::Date
-
-pub fn vortex_array::extension::datetime::Date::eq(&self, other: &vortex_array::extension::datetime::Date) -> bool
-
 impl core::default::Default for vortex_array::extension::datetime::Date
 
 pub fn vortex_array::extension::datetime::Date::default() -> vortex_array::extension::datetime::Date
@@ -10097,12 +10095,6 @@ pub fn vortex_array::extension::datetime::Date::default() -> vortex_array::exten
 impl core::fmt::Debug for vortex_array::extension::datetime::Date
 
 pub fn vortex_array::extension::datetime::Date::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::extension::datetime::Date
-
-pub fn vortex_array::extension::datetime::Date::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::StructuralPartialEq for vortex_array::extension::datetime::Date
 
 impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::datetime::Date
 
@@ -10132,12 +10124,6 @@ impl core::clone::Clone for vortex_array::extension::datetime::Time
 
 pub fn vortex_array::extension::datetime::Time::clone(&self) -> vortex_array::extension::datetime::Time
 
-impl core::cmp::Eq for vortex_array::extension::datetime::Time
-
-impl core::cmp::PartialEq for vortex_array::extension::datetime::Time
-
-pub fn vortex_array::extension::datetime::Time::eq(&self, other: &vortex_array::extension::datetime::Time) -> bool
-
 impl core::default::Default for vortex_array::extension::datetime::Time
 
 pub fn vortex_array::extension::datetime::Time::default() -> vortex_array::extension::datetime::Time
@@ -10145,12 +10131,6 @@ pub fn vortex_array::extension::datetime::Time::default() -> vortex_array::exten
 impl core::fmt::Debug for vortex_array::extension::datetime::Time
 
 pub fn vortex_array::extension::datetime::Time::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::extension::datetime::Time
-
-pub fn vortex_array::extension::datetime::Time::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::StructuralPartialEq for vortex_array::extension::datetime::Time
 
 impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::datetime::Time
 
@@ -10182,12 +10162,6 @@ impl core::clone::Clone for vortex_array::extension::datetime::Timestamp
 
 pub fn vortex_array::extension::datetime::Timestamp::clone(&self) -> vortex_array::extension::datetime::Timestamp
 
-impl core::cmp::Eq for vortex_array::extension::datetime::Timestamp
-
-impl core::cmp::PartialEq for vortex_array::extension::datetime::Timestamp
-
-pub fn vortex_array::extension::datetime::Timestamp::eq(&self, other: &vortex_array::extension::datetime::Timestamp) -> bool
-
 impl core::default::Default for vortex_array::extension::datetime::Timestamp
 
 pub fn vortex_array::extension::datetime::Timestamp::default() -> vortex_array::extension::datetime::Timestamp
@@ -10195,12 +10169,6 @@ pub fn vortex_array::extension::datetime::Timestamp::default() -> vortex_array::
 impl core::fmt::Debug for vortex_array::extension::datetime::Timestamp
 
 pub fn vortex_array::extension::datetime::Timestamp::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::extension::datetime::Timestamp
-
-pub fn vortex_array::extension::datetime::Timestamp::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl core::marker::StructuralPartialEq for vortex_array::extension::datetime::Timestamp
 
 impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::datetime::Timestamp
 
@@ -12772,6 +12740,10 @@ impl core::clone::Clone for vortex_array::scalar_fn::fns::between::Between
 
 pub fn vortex_array::scalar_fn::fns::between::Between::clone(&self) -> vortex_array::scalar_fn::fns::between::Between
 
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::between::Between
+
+pub fn vortex_array::scalar_fn::fns::between::Between::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::between::Between
 
 pub type vortex_array::scalar_fn::fns::between::Between::Options = vortex_array::scalar_fn::fns::between::BetweenOptions
@@ -12888,6 +12860,10 @@ impl core::clone::Clone for vortex_array::scalar_fn::fns::binary::Binary
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::clone(&self) -> vortex_array::scalar_fn::fns::binary::Binary
 
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::binary::Binary
+
+pub fn vortex_array::scalar_fn::fns::binary::Binary::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::binary::Binary
 
 pub type vortex_array::scalar_fn::fns::binary::Binary::Options = vortex_array::scalar_fn::fns::operators::Operator
@@ -12961,6 +12937,10 @@ pub struct vortex_array::scalar_fn::fns::cast::Cast
 impl core::clone::Clone for vortex_array::scalar_fn::fns::cast::Cast
 
 pub fn vortex_array::scalar_fn::fns::cast::Cast::clone(&self) -> vortex_array::scalar_fn::fns::cast::Cast
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::cast::Cast
+
+pub fn vortex_array::scalar_fn::fns::cast::Cast::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::cast::Cast
 
@@ -13094,6 +13074,10 @@ impl core::clone::Clone for vortex_array::scalar_fn::fns::dynamic::DynamicCompar
 
 pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::clone(&self) -> vortex_array::scalar_fn::fns::dynamic::DynamicComparison
 
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::dynamic::DynamicComparison
+
+pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::dynamic::DynamicComparison
 
 pub type vortex_array::scalar_fn::fns::dynamic::DynamicComparison::Options = vortex_array::scalar_fn::fns::dynamic::DynamicComparisonExpr
@@ -13157,6 +13141,10 @@ pub struct vortex_array::scalar_fn::fns::fill_null::FillNull
 impl core::clone::Clone for vortex_array::scalar_fn::fns::fill_null::FillNull
 
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::clone(&self) -> vortex_array::scalar_fn::fns::fill_null::FillNull
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::fill_null::FillNull
+
+pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::fill_null::FillNull
 
@@ -13258,6 +13246,10 @@ impl core::clone::Clone for vortex_array::scalar_fn::fns::get_item::GetItem
 
 pub fn vortex_array::scalar_fn::fns::get_item::GetItem::clone(&self) -> vortex_array::scalar_fn::fns::get_item::GetItem
 
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::get_item::GetItem
+
+pub fn vortex_array::scalar_fn::fns::get_item::GetItem::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::get_item::GetItem
 
 pub type vortex_array::scalar_fn::fns::get_item::GetItem::Options = vortex_array::dtype::FieldName
@@ -13296,6 +13288,10 @@ impl core::clone::Clone for vortex_array::scalar_fn::fns::is_null::IsNull
 
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::clone(&self) -> vortex_array::scalar_fn::fns::is_null::IsNull
 
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::is_null::IsNull
+
+pub fn vortex_array::scalar_fn::fns::is_null::IsNull::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::is_null::IsNull
 
 pub type vortex_array::scalar_fn::fns::is_null::IsNull::Options = vortex_array::scalar_fn::EmptyOptions
@@ -13329,6 +13325,10 @@ pub struct vortex_array::scalar_fn::fns::like::Like
 impl core::clone::Clone for vortex_array::scalar_fn::fns::like::Like
 
 pub fn vortex_array::scalar_fn::fns::like::Like::clone(&self) -> vortex_array::scalar_fn::fns::like::Like
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::like::Like
+
+pub fn vortex_array::scalar_fn::fns::like::Like::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::like::Like
 
@@ -13444,6 +13444,10 @@ impl core::clone::Clone for vortex_array::scalar_fn::fns::list_contains::ListCon
 
 pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::clone(&self) -> vortex_array::scalar_fn::fns::list_contains::ListContains
 
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::list_contains::ListContains
+
+pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::list_contains::ListContains
 
 pub type vortex_array::scalar_fn::fns::list_contains::ListContains::Options = vortex_array::scalar_fn::EmptyOptions
@@ -13518,6 +13522,10 @@ impl core::clone::Clone for vortex_array::scalar_fn::fns::literal::Literal
 
 pub fn vortex_array::scalar_fn::fns::literal::Literal::clone(&self) -> vortex_array::scalar_fn::fns::literal::Literal
 
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::literal::Literal
+
+pub fn vortex_array::scalar_fn::fns::literal::Literal::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::literal::Literal
 
 pub type vortex_array::scalar_fn::fns::literal::Literal::Options = vortex_array::scalar::Scalar
@@ -13553,6 +13561,10 @@ pub struct vortex_array::scalar_fn::fns::mask::Mask
 impl core::clone::Clone for vortex_array::scalar_fn::fns::mask::Mask
 
 pub fn vortex_array::scalar_fn::fns::mask::Mask::clone(&self) -> vortex_array::scalar_fn::fns::mask::Mask
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::mask::Mask
+
+pub fn vortex_array::scalar_fn::fns::mask::Mask::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::mask::Mask
 
@@ -13718,6 +13730,10 @@ impl core::clone::Clone for vortex_array::scalar_fn::fns::merge::Merge
 
 pub fn vortex_array::scalar_fn::fns::merge::Merge::clone(&self) -> vortex_array::scalar_fn::fns::merge::Merge
 
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::merge::Merge
+
+pub fn vortex_array::scalar_fn::fns::merge::Merge::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::merge::Merge
 
 pub type vortex_array::scalar_fn::fns::merge::Merge::Options = vortex_array::scalar_fn::fns::merge::DuplicateHandling
@@ -13753,6 +13769,10 @@ pub struct vortex_array::scalar_fn::fns::not::Not
 impl core::clone::Clone for vortex_array::scalar_fn::fns::not::Not
 
 pub fn vortex_array::scalar_fn::fns::not::Not::clone(&self) -> vortex_array::scalar_fn::fns::not::Not
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::not::Not
+
+pub fn vortex_array::scalar_fn::fns::not::Not::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::not::Not
 
@@ -13992,6 +14012,10 @@ impl core::clone::Clone for vortex_array::scalar_fn::fns::pack::Pack
 
 pub fn vortex_array::scalar_fn::fns::pack::Pack::clone(&self) -> vortex_array::scalar_fn::fns::pack::Pack
 
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::pack::Pack
+
+pub fn vortex_array::scalar_fn::fns::pack::Pack::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::pack::Pack
 
 pub type vortex_array::scalar_fn::fns::pack::Pack::Options = vortex_array::scalar_fn::fns::pack::PackOptions
@@ -14055,6 +14079,10 @@ pub struct vortex_array::scalar_fn::fns::root::Root
 impl core::clone::Clone for vortex_array::scalar_fn::fns::root::Root
 
 pub fn vortex_array::scalar_fn::fns::root::Root::clone(&self) -> vortex_array::scalar_fn::fns::root::Root
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::root::Root
+
+pub fn vortex_array::scalar_fn::fns::root::Root::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::root::Root
 
@@ -14134,6 +14162,10 @@ impl core::clone::Clone for vortex_array::scalar_fn::fns::select::Select
 
 pub fn vortex_array::scalar_fn::fns::select::Select::clone(&self) -> vortex_array::scalar_fn::fns::select::Select
 
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::select::Select
+
+pub fn vortex_array::scalar_fn::fns::select::Select::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::select::Select
 
 pub type vortex_array::scalar_fn::fns::select::Select::Options = vortex_array::scalar_fn::fns::select::FieldSelection
@@ -14167,6 +14199,10 @@ pub struct vortex_array::scalar_fn::fns::zip::Zip
 impl core::clone::Clone for vortex_array::scalar_fn::fns::zip::Zip
 
 pub fn vortex_array::scalar_fn::fns::zip::Zip::clone(&self) -> vortex_array::scalar_fn::fns::zip::Zip
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::zip::Zip
+
+pub fn vortex_array::scalar_fn::fns::zip::Zip::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::zip::Zip
 
@@ -14270,7 +14306,7 @@ pub fn vortex_array::scalar_fn::session::ScalarFnSessionExt::scalar_fns(&self) -
 
 impl<S: vortex_session::SessionExt> vortex_array::scalar_fn::session::ScalarFnSessionExt for S
 
-pub type vortex_array::scalar_fn::session::ScalarFnRegistry = vortex_session::registry::Registry<vortex_array::scalar_fn::ScalarFnPlugin>
+pub type vortex_array::scalar_fn::session::ScalarFnRegistry = vortex_session::registry::Registry<alloc::sync::Arc<dyn vortex_array::scalar_fn::ScalarFnPlugin>>
 
 pub enum vortex_array::scalar_fn::Arity
 
@@ -14344,6 +14380,10 @@ pub vortex_array::scalar_fn::ExecutionArgs::row_count: usize
 
 pub struct vortex_array::scalar_fn::ScalarFn<V: vortex_array::scalar_fn::ScalarFnVTable>(_)
 
+impl<V: vortex_array::scalar_fn::ScalarFnVTable + core::default::Default> vortex_array::scalar_fn::ScalarFn<V>
+
+pub fn vortex_array::scalar_fn::ScalarFn<V>::new_default(options: <V as vortex_array::scalar_fn::ScalarFnVTable>::Options) -> Self
+
 impl<V: vortex_array::scalar_fn::ScalarFnVTable> vortex_array::scalar_fn::ScalarFn<V>
 
 pub fn vortex_array::scalar_fn::ScalarFn<V>::erased(self) -> vortex_array::scalar_fn::ScalarFnRef
@@ -14382,57 +14422,27 @@ impl core::hash::Hash for vortex_array::scalar_fn::ScalarFnOptions<'_>
 
 pub fn vortex_array::scalar_fn::ScalarFnOptions<'_>::hash<H: core::hash::Hasher>(&self, state: &mut H)
 
-pub struct vortex_array::scalar_fn::ScalarFnPlugin(_)
-
-impl vortex_array::scalar_fn::ScalarFnPlugin
-
-pub fn vortex_array::scalar_fn::ScalarFnPlugin::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::scalar_fn::ScalarFnPlugin::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::scalar_fn::ScalarFnRef>
-
-pub fn vortex_array::scalar_fn::ScalarFnPlugin::id(&self) -> vortex_array::scalar_fn::ScalarFnId
-
-pub fn vortex_array::scalar_fn::ScalarFnPlugin::is<V: vortex_array::scalar_fn::ScalarFnVTable>(&self) -> bool
-
-pub fn vortex_array::scalar_fn::ScalarFnPlugin::new<V: vortex_array::scalar_fn::ScalarFnVTable>(vtable: V) -> Self
-
-pub const fn vortex_array::scalar_fn::ScalarFnPlugin::new_static<V: vortex_array::scalar_fn::ScalarFnVTable>(vtable: &'static V) -> Self
-
-impl core::clone::Clone for vortex_array::scalar_fn::ScalarFnPlugin
-
-pub fn vortex_array::scalar_fn::ScalarFnPlugin::clone(&self) -> vortex_array::scalar_fn::ScalarFnPlugin
-
-impl core::cmp::Eq for vortex_array::scalar_fn::ScalarFnPlugin
-
-impl core::cmp::PartialEq for vortex_array::scalar_fn::ScalarFnPlugin
-
-pub fn vortex_array::scalar_fn::ScalarFnPlugin::eq(&self, other: &Self) -> bool
-
-impl core::fmt::Debug for vortex_array::scalar_fn::ScalarFnPlugin
-
-pub fn vortex_array::scalar_fn::ScalarFnPlugin::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::fmt::Display for vortex_array::scalar_fn::ScalarFnPlugin
-
-pub fn vortex_array::scalar_fn::ScalarFnPlugin::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::scalar_fn::ScalarFnPlugin
-
-pub fn vortex_array::scalar_fn::ScalarFnPlugin::hash<H: core::hash::Hasher>(&self, state: &mut H)
-
 pub struct vortex_array::scalar_fn::ScalarFnRef(_)
 
 impl vortex_array::scalar_fn::ScalarFnRef
 
-pub fn vortex_array::scalar_fn::ScalarFnRef::as_<V: vortex_array::scalar_fn::ScalarFnVTable>(&self) -> &<V as vortex_array::scalar_fn::ScalarFnVTable>::Options
+pub fn vortex_array::scalar_fn::ScalarFnRef::as_<M: vortex_array::scalar_fn::Matcher>(&self) -> <M as vortex_array::scalar_fn::Matcher>::Match
 
-pub fn vortex_array::scalar_fn::ScalarFnRef::as_opt<V: vortex_array::scalar_fn::ScalarFnVTable>(&self) -> core::option::Option<&<V as vortex_array::scalar_fn::ScalarFnVTable>::Options>
+pub fn vortex_array::scalar_fn::ScalarFnRef::as_opt<M: vortex_array::scalar_fn::Matcher>(&self) -> core::option::Option<<M as vortex_array::scalar_fn::Matcher>::Match>
+
+pub fn vortex_array::scalar_fn::ScalarFnRef::downcast<V: vortex_array::scalar_fn::ScalarFnVTable>(self) -> vortex_array::scalar_fn::ScalarFn<V>
+
+pub fn vortex_array::scalar_fn::ScalarFnRef::is<M: vortex_array::scalar_fn::Matcher>(&self) -> bool
+
+pub fn vortex_array::scalar_fn::ScalarFnRef::try_downcast<V: vortex_array::scalar_fn::ScalarFnVTable>(self) -> core::result::Result<vortex_array::scalar_fn::ScalarFn<V>, vortex_array::scalar_fn::ScalarFnRef>
+
+pub fn vortex_array::scalar_fn::ScalarFnRef::vtable_ref<V: vortex_array::scalar_fn::ScalarFnVTable>(&self) -> core::option::Option<&V>
+
+impl vortex_array::scalar_fn::ScalarFnRef
 
 pub fn vortex_array::scalar_fn::ScalarFnRef::execute(&self, ctx: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::ScalarFnRef::id(&self) -> vortex_array::scalar_fn::ScalarFnId
-
-pub fn vortex_array::scalar_fn::ScalarFnRef::is<V: vortex_array::scalar_fn::ScalarFnVTable>(&self) -> bool
 
 pub fn vortex_array::scalar_fn::ScalarFnRef::options(&self) -> vortex_array::scalar_fn::ScalarFnOptions<'_>
 
@@ -14443,8 +14453,6 @@ pub fn vortex_array::scalar_fn::ScalarFnRef::return_dtype(&self, arg_types: &[vo
 pub fn vortex_array::scalar_fn::ScalarFnRef::signature(&self) -> vortex_array::scalar_fn::ScalarFnSignature<'_>
 
 pub fn vortex_array::scalar_fn::ScalarFnRef::validity(&self, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
-
-pub fn vortex_array::scalar_fn::ScalarFnRef::vtable_ref<V: vortex_array::scalar_fn::ScalarFnVTable>(&self) -> core::option::Option<&V>
 
 impl core::clone::Clone for vortex_array::scalar_fn::ScalarFnRef
 
@@ -14479,6 +14487,22 @@ pub fn vortex_array::scalar_fn::ScalarFnSignature<'_>::child_name(&self, index: 
 pub fn vortex_array::scalar_fn::ScalarFnSignature<'_>::is_fallible(&self) -> bool
 
 pub fn vortex_array::scalar_fn::ScalarFnSignature<'_>::is_null_sensitive(&self) -> bool
+
+pub trait vortex_array::scalar_fn::Matcher
+
+pub type vortex_array::scalar_fn::Matcher::Match<'a>
+
+pub fn vortex_array::scalar_fn::Matcher::matches(item: &vortex_array::scalar_fn::ScalarFnRef) -> bool
+
+pub fn vortex_array::scalar_fn::Matcher::try_match<'a>(item: &'a vortex_array::scalar_fn::ScalarFnRef) -> core::option::Option<Self::Match>
+
+impl<V: vortex_array::scalar_fn::ScalarFnVTable> vortex_array::scalar_fn::Matcher for V
+
+pub type V::Match<'a> = &'a <V as vortex_array::scalar_fn::ScalarFnVTable>::Options
+
+pub fn V::matches(item: &vortex_array::scalar_fn::ScalarFnRef) -> bool
+
+pub fn V::try_match<'a>(item: &'a vortex_array::scalar_fn::ScalarFnRef) -> core::option::Option<<V as vortex_array::scalar_fn::Matcher>::Match>
 
 pub trait vortex_array::scalar_fn::ReduceCtx
 
@@ -14532,7 +14556,19 @@ pub fn vortex_array::ArrayAdapter<V>::node_dtype(&self) -> vortex_error::VortexR
 
 pub fn vortex_array::ArrayAdapter<V>::scalar_fn(&self) -> core::option::Option<&vortex_array::scalar_fn::ScalarFnRef>
 
-pub trait vortex_array::scalar_fn::ScalarFnVTable: 'static + core::marker::Sized + core::clone::Clone + core::marker::Send + core::marker::Sync
+pub trait vortex_array::scalar_fn::ScalarFnPlugin: 'static + core::marker::Send + core::marker::Sync
+
+pub fn vortex_array::scalar_fn::ScalarFnPlugin::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::scalar_fn::ScalarFnRef>
+
+pub fn vortex_array::scalar_fn::ScalarFnPlugin::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+impl<V: vortex_array::scalar_fn::ScalarFnVTable> vortex_array::scalar_fn::ScalarFnPlugin for V
+
+pub fn V::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> core::result::Result<vortex_array::scalar_fn::ScalarFnRef, vortex_error::VortexError>
+
+pub fn V::id(&self) -> arcref::ArcRef<str>
+
+pub trait vortex_array::scalar_fn::ScalarFnVTable: 'static + core::marker::Sized + core::marker::Send + core::marker::Sync + core::clone::Clone
 
 pub type vortex_array::scalar_fn::ScalarFnVTable::Options: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + core::fmt::Display + core::cmp::PartialEq + core::cmp::Eq + core::hash::Hash
 
@@ -15013,16 +15049,6 @@ pub fn vortex_array::scalar_fn::fns::zip::Zip::return_dtype(&self, _options: &Se
 pub fn vortex_array::scalar_fn::fns::zip::Zip::serialize(&self, _options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::scalar_fn::fns::zip::Zip::simplify(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, _ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
-
-pub trait vortex_array::scalar_fn::ScalarFnVTableExt: vortex_array::scalar_fn::ScalarFnVTable
-
-pub fn vortex_array::scalar_fn::ScalarFnVTableExt::bind(&self, options: Self::Options) -> vortex_array::scalar_fn::ScalarFnRef
-
-pub fn vortex_array::scalar_fn::ScalarFnVTableExt::new_expr(&self, options: Self::Options, children: impl core::iter::traits::collect::IntoIterator<Item = vortex_array::expr::Expression>) -> vortex_array::expr::Expression
-
-pub fn vortex_array::scalar_fn::ScalarFnVTableExt::try_new_expr(&self, options: Self::Options, children: impl core::iter::traits::collect::IntoIterator<Item = vortex_array::expr::Expression>) -> vortex_error::VortexResult<vortex_array::expr::Expression>
-
-impl<V: vortex_array::scalar_fn::ScalarFnVTable> vortex_array::scalar_fn::ScalarFnVTableExt for V
 
 pub trait vortex_array::scalar_fn::SimplifyCtx
 

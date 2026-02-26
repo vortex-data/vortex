@@ -13,7 +13,7 @@ use crate::scalar_fn::typed::DynScalarFn;
 
 /// An opaque handle to expression options.
 pub struct ScalarFnOptions<'a> {
-    pub(crate) inner: &'a dyn DynScalarFn,
+    pub(super) inner: &'a dyn DynScalarFn,
 }
 
 impl Display for ScalarFnOptions<'_> {

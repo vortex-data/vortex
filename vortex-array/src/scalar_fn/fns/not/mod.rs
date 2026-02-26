@@ -29,7 +29,7 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 
 /// Expression that logically inverts boolean values.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Not;
 
 impl ScalarFnVTable for Not {

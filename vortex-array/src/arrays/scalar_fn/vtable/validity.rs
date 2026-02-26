@@ -62,11 +62,14 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
                 if let Some(scalar) = child.as_constant() {
                     return Ok(lit(scalar));
                 }
-                Expression::try_new(ScalarFn::new(ArrayExpr, FakeEq(child.clone())).erased(), [])
+                Expression::try_new_erased(
+                    ScalarFn::new(ArrayExpr, FakeEq(child.clone())).erased(),
+                    [],
+                )
             })
             .collect::<VortexResult<_>>()?;
 
-        let expr = Expression::try_new(array.scalar_fn.clone(), inputs)?;
+        let expr = Expression::try_new_erased(array.scalar_fn.clone(), inputs)?;
         let validity_expr = array.scalar_fn().validity(&expr)?;
 
         // Execute the validity expression. All leaves are ArrayExpr nodes.
