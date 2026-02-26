@@ -798,6 +798,10 @@ impl vortex_array::compute::SumKernel for vortex_array::arrays::ConstantVTable
 
 pub fn vortex_array::arrays::ConstantVTable::sum(&self, array: &vortex_array::arrays::ConstantArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
+impl vortex_array::scalar_fn::fns::between::BetweenReduce for vortex_array::arrays::ConstantVTable
+
+pub fn vortex_array::arrays::ConstantVTable::between(array: &vortex_array::arrays::ConstantArray, lower: &dyn vortex_array::Array, upper: &dyn vortex_array::Array, options: &vortex_array::scalar_fn::fns::between::BetweenOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::ConstantVTable
 
 pub fn vortex_array::arrays::ConstantVTable::cast(array: &vortex_array::arrays::ConstantArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -12881,6 +12885,10 @@ pub fn vortex_array::arrays::PrimitiveVTable::between(arr: &vortex_array::arrays
 pub trait vortex_array::scalar_fn::fns::between::BetweenReduce: vortex_array::vtable::VTable
 
 pub fn vortex_array::scalar_fn::fns::between::BetweenReduce::between(array: &Self::Array, lower: &dyn vortex_array::Array, upper: &dyn vortex_array::Array, options: &vortex_array::scalar_fn::fns::between::BetweenOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::scalar_fn::fns::between::BetweenReduce for vortex_array::arrays::ConstantVTable
+
+pub fn vortex_array::arrays::ConstantVTable::between(array: &vortex_array::arrays::ConstantArray, lower: &dyn vortex_array::Array, upper: &dyn vortex_array::Array, options: &vortex_array::scalar_fn::fns::between::BetweenOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub mod vortex_array::scalar_fn::fns::binary
 
