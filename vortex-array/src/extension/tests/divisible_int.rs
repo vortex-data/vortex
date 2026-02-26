@@ -5,15 +5,12 @@
 
 use std::fmt;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::dtype::DType;
-use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::scalar::ScalarValue;
@@ -31,14 +28,6 @@ impl fmt::Display for Divisor {
 /// Extension type for unsigned integers that must be divisible by the metadata divisor.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct DivisibleInt;
-
-impl DivisibleInt {
-    /// Creates a new divisible integer extension dtype.
-    pub fn new(divisor: u64, nullability: Nullability) -> ExtDType<Self> {
-        ExtDType::try_new(Divisor(divisor), DType::Primitive(PType::U64, nullability))
-            .vortex_expect("valid divisible int dtype")
-    }
-}
 
 impl ExtVTable for DivisibleInt {
     type Metadata = Divisor;
@@ -98,45 +87,6 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::extension::ExtVTable;
-    use crate::scalar::PValue;
-    use crate::scalar::ScalarValue;
-    use crate::scalar::extension::ExtScalarValue;
-
-    #[test]
-    fn accepts_divisible_values() -> VortexResult<()> {
-        let div7 = DivisibleInt::new(7, Nullability::NonNullable);
-
-        for multiple in [0, 7, 14, 21, 7000] {
-            let sv = ExtScalarValue::<DivisibleInt>::try_new(
-                &div7,
-                ScalarValue::Primitive(PValue::U64(multiple)),
-            )?;
-            assert_eq!(
-                sv.storage_value(),
-                &ScalarValue::Primitive(PValue::U64(multiple))
-            );
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn rejects_non_divisible_values() -> VortexResult<()> {
-        let div7 = DivisibleInt::new(7, Nullability::NonNullable);
-
-        for bad in [1, 2, 6, 8, 13, 15] {
-            assert!(
-                ExtScalarValue::<DivisibleInt>::try_new(
-                    &div7,
-                    ScalarValue::Primitive(PValue::U64(bad)),
-                )
-                .is_err(),
-                "{bad} should not be accepted as divisible by 7"
-            );
-        }
-
-        Ok(())
-    }
 
     #[test]
     fn metadata_roundtrip() -> VortexResult<()> {
