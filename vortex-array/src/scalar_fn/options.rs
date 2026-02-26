@@ -8,6 +8,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use vortex_error::VortexResult;
+
 use crate::scalar_fn::typed::DynScalarFn;
 
 /// An opaque handle to expression options.
