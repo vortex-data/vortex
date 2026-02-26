@@ -18,7 +18,8 @@ use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
 use crate::scalar::extension::ExtScalarValueRef;
 
-/// The value stored in a [`Scalar`][crate::scalar::Scalar].
+/// The value stored in a [`Scalar`](crate::scalar::Scalar), which may not have any useful
+/// information unless paired with a [`DType`](crate::dtype::DType)
 ///
 /// This enum represents the possible non-null values that can be stored in a scalar. When the
 /// scalar is null, the value is represented as `None` in the `Option<ScalarValue>` field.
@@ -39,7 +40,7 @@ pub enum ScalarValue {
     /// An extension value reference.
     ///
     /// This internally contains a `ScalarValue` and an vtable that implements
-    /// [`ExtScalarVTable`](crate::scalar::ExtScalarVTable)
+    /// [`ExtVTable`](crate::scalar::extension::ExtVTable)
     Extension(ExtScalarValueRef),
 }
 

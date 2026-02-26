@@ -10856,6 +10856,8 @@ pub fn vortex_array::scalar::extension::ExtScalarValueRef::storage_value(&self) 
 
 pub fn vortex_array::scalar::extension::ExtScalarValueRef::try_downcast<V: vortex_array::dtype::extension::ExtVTable>(self) -> core::result::Result<vortex_array::scalar::extension::ExtScalarValue<V>, vortex_array::scalar::extension::ExtScalarValueRef>
 
+pub fn vortex_array::scalar::extension::ExtScalarValueRef::validate_dtype(&self, ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<()>
+
 impl core::clone::Clone for vortex_array::scalar::extension::ExtScalarValueRef
 
 pub fn vortex_array::scalar::extension::ExtScalarValueRef::clone(&self) -> vortex_array::scalar::extension::ExtScalarValueRef
@@ -11281,6 +11283,8 @@ pub vortex_array::scalar::ScalarValue::Binary(vortex_buffer::ByteBuffer)
 pub vortex_array::scalar::ScalarValue::Bool(bool)
 
 pub vortex_array::scalar::ScalarValue::Decimal(vortex_array::scalar::DecimalValue)
+
+pub vortex_array::scalar::ScalarValue::Extension(vortex_array::scalar::extension::ExtScalarValueRef)
 
 pub vortex_array::scalar::ScalarValue::List(alloc::vec::Vec<core::option::Option<vortex_array::scalar::ScalarValue>>)
 
@@ -11754,8 +11758,6 @@ pub fn vortex_array::scalar::ExtScalar<'a>::ext_dtype(&self) -> &'a vortex_array
 
 pub fn vortex_array::scalar::ExtScalar<'a>::to_storage_scalar(&self) -> vortex_array::scalar::Scalar
 
-pub fn vortex_array::scalar::ExtScalar<'a>::try_new(dtype: &'a vortex_array::dtype::DType, value: core::option::Option<&'a vortex_array::scalar::ScalarValue>) -> vortex_error::VortexResult<Self>
-
 impl core::cmp::Eq for vortex_array::scalar::ExtScalar<'_>
 
 impl core::cmp::PartialEq for vortex_array::scalar::ExtScalar<'_>
@@ -12006,8 +12008,6 @@ pub fn vortex_array::scalar::Scalar::into_parts(self) -> (vortex_array::dtype::D
 
 pub fn vortex_array::scalar::Scalar::into_value(self) -> core::option::Option<vortex_array::scalar::ScalarValue>
 
-pub fn vortex_array::scalar::Scalar::validate(dtype: &vortex_array::dtype::DType, value: core::option::Option<&vortex_array::scalar::ScalarValue>) -> vortex_error::VortexResult<()>
-
 pub fn vortex_array::scalar::Scalar::is_null(&self) -> bool
 
 pub fn vortex_array::scalar::Scalar::is_valid(&self) -> bool
@@ -12039,6 +12039,10 @@ pub fn vortex_array::scalar::Scalar::from_proto_value(value: &vortex_proto::scal
 impl vortex_array::scalar::Scalar
 
 pub fn vortex_array::scalar::Scalar::struct_(dtype: vortex_array::dtype::DType, children: alloc::vec::Vec<vortex_array::scalar::Scalar>) -> Self
+
+impl vortex_array::scalar::Scalar
+
+pub fn vortex_array::scalar::Scalar::validate(dtype: &vortex_array::dtype::DType, value: core::option::Option<&vortex_array::scalar::ScalarValue>) -> vortex_error::VortexResult<()>
 
 impl core::clone::Clone for vortex_array::scalar::Scalar
 

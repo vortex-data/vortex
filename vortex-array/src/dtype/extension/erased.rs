@@ -89,7 +89,7 @@ impl ExtDTypeRef {
                 .eq_ignore_nullability(other.storage_dtype())
     }
 
-    /// TODO docs.
+    /// Builds a type-erased extension scalar value using a storage value.
     pub(crate) fn build_scalar_value(
         &self,
         storage_value: ScalarValue,
