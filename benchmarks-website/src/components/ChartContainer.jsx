@@ -1,28 +1,28 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
-  Chart as ChartJS,
   CategoryScale,
+  Chart as ChartJS,
+  Legend,
   LinearScale,
-  PointElement,
   LineElement,
+  PointElement,
   Title,
   Tooltip,
-  Legend,
 } from 'chart.js';
 import zoomPlugin from 'chartjs-plugin-zoom';
-import { Line } from 'react-chartjs-2';
 import {
-  SkipBack,
   ChevronLeft,
   ChevronRight,
+  Expand,
+  MoveHorizontal,
+  SkipBack,
   SkipForward,
   ZoomIn,
   ZoomOut,
-  MoveHorizontal,
-  Expand,
 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Line } from 'react-chartjs-2';
 import { fetchChartData } from '../api';
-import { stringToColor, formatDate } from '../utils';
+import { formatDate, stringToColor } from '../utils';
 
 ChartJS.register(
   CategoryScale,
@@ -354,7 +354,7 @@ export default function ChartContainer({
           boxWidth: 12,
           padding: 8,
           font: {
-            size: 11,
+            size: 12,
             family: 'Geist, sans-serif',
           },
           usePointStyle: true,
@@ -363,8 +363,8 @@ export default function ChartContainer({
       },
       tooltip: {
         backgroundColor: 'rgba(16, 16, 16, 0.9)',
-        titleFont: { family: 'Geist, sans-serif', size: 12 },
-        bodyFont: { family: 'Geist Mono, monospace', size: 11 },
+        titleFont: { family: 'Geist, sans-serif', size: 13 },
+        bodyFont: { family: 'Geist Mono, monospace', size: 12 },
         padding: 12,
         cornerRadius: 4,
         position: 'topCorner',
@@ -392,6 +392,30 @@ export default function ChartContainer({
             if (value == null) return null;
             const formattedValue = value < 1 ? value.toFixed(4) : value.toFixed(2);
             return `${item.dataset.label}: ${formattedValue} ${unit || ''}`;
+          },
+          labelTextColor: (tooltipItem) => {
+            const chart = tooltipItem.chart;
+            const activeElements = chart._active || [];
+            if (activeElements.length === 0) return '#ffffff';
+            const lastEvent = chart._lastEvent;
+            if (!lastEvent) return '#ffffff';
+            // Find which dataset point is closest to the cursor
+            let hoveredDatasetIndex = activeElements[0].datasetIndex;
+            let closestDist = Infinity;
+            for (const el of activeElements) {
+              const point = chart.getDatasetMeta(el.datasetIndex).data[el.index];
+              if (point) {
+                const dist = Math.hypot(point.x - lastEvent.x, point.y - lastEvent.y);
+                if (dist < closestDist) {
+                  closestDist = dist;
+                  hoveredDatasetIndex = el.datasetIndex;
+                }
+              }
+            }
+            if (tooltipItem.datasetIndex === hoveredDatasetIndex) {
+              return '#ffffff';
+            }
+            return 'rgba(255, 255, 255, 0.45)';
           },
         },
       },
@@ -435,7 +459,7 @@ export default function ChartContainer({
           maxRotation: 45,
           minRotation: 45,
           font: {
-            size: 10,
+            size: 11,
             family: 'Geist, sans-serif',
           },
           maxTicksLimit: 10,
@@ -461,7 +485,7 @@ export default function ChartContainer({
         },
         ticks: {
           font: {
-            size: 11,
+            size: 12,
             family: 'Geist Mono, monospace',
           },
         },
@@ -469,7 +493,7 @@ export default function ChartContainer({
           display: !!unit,
           text: unit || '',
           font: {
-            size: 11,
+            size: 12,
             family: 'Geist, sans-serif',
           },
         },
