@@ -141,7 +141,8 @@ The reference implementation. All components follow the convention:
 ### ScalarFn -- Done
 
 Follows the convention with `ScalarFnVTable`, `ScalarFnPlugin`, `ScalarFnInner`, `DynScalarFn`,
-`ScalarFn`. File layout: `vtable.rs`, `plugin.rs`, `typed.rs`, `erased.rs`.
+`ScalarFn<V>`, `ScalarFnRef`. File layout: `vtable.rs`, `plugin.rs`, `typed.rs`, `erased.rs`.
+Vtable types and reduce/execute adaptors live in `scalar_fn/fns/`.
 Factory functions (e.g. `root()`, `lit()`, `eq()`) live in `expr/exprs.rs`.
 
 ### Layout -- Not started

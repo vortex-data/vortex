@@ -159,7 +159,6 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     ) -> Option<Expression> {
         _ = options;
         _ = expr;
-        _ = expr;
         _ = stat;
         _ = catalog;
         None
@@ -338,6 +337,3 @@ impl<V: ScalarFnVTable> ScalarFnVTableExt for V {}
 
 /// A reference to the name of a child expression.
 pub type ChildName = ArcRef<str>;
-
-/// A placeholder vtable implementation for unsupported optional functionality of an expression.
-pub struct NotSupported;

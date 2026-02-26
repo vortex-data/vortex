@@ -29,7 +29,7 @@ Each Vortex crate defines a session variable that holds a registry for its exten
 |-------------------|------------------|----------------------------------------------|
 | `DTypeSession`    | `vortex-array`   | Extension dtype vtables (Date, Time, ...)    |
 | `ArraySession`    | `vortex-array`   | Array encoding vtables (ALP, FSST, ...)      |
-| `ExprSession`     | `vortex-array`   | Scalar expression vtables                    |
+| `ScalarFnSession` | `vortex-array`   | Scalar function vtables                      |
 | `LayoutSession`   | `vortex-layout`  | Layout encoding vtables (Flat, Chunked, ...) |
 | `RuntimeSession`  | `vortex-io`      | Async runtime handle                         |
 | `CudaSession`     | `vortex-cuda`    | CUDA context, kernels, and stream pool       |
@@ -51,7 +51,7 @@ session.arrays().register(MyEncoding::ID, &MyEncoding);
 session.layouts().register(MyLayout::encoding());
 
 // Register a custom scalar function
-session.expressions().register(MyScalarFnVTable);
+session.scalar_fns().register(MyScalarFnVTable);
 ```
 
 Crates that bundle multiple plugins typically expose an `initialize` function that registers
@@ -102,6 +102,6 @@ the `.with::<T>()` builder:
 let session = VortexSession::empty()
     .with::<ArraySession>()
     .with::<LayoutSession>()
-    .with::<ExprSession>()
+    .with::<ScalarFnSession>()
     .with::<RuntimeSession>();
 ```

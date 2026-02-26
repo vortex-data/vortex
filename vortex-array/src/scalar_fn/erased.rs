@@ -166,7 +166,7 @@ impl ScalarFnRef {
 
 impl Debug for ScalarFnRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BoundExpression")
+        f.debug_struct("ScalarFnRef")
             .field("vtable", &self.0.id())
             .field("options", &DebugWith(|fmt| self.0.options_debug(fmt)))
             .finish()
