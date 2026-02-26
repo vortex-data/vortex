@@ -5,39 +5,35 @@
 //! patching enables fully parallel GPU execution, as outlined by Hepkema et al. in
 //! "G-ALP: Rethinking Light-weight Encodings for GPUs" <https://doi.org/10.1145/3736227.3736242>
 
-use std::marker::PhantomData;
-use std::ops::Range;
 use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
 use vortex::buffer::buffer_mut;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
+use vortex_array::patches::Patches;
+use vortex_array::{
+    Canonical, ExecutionCtx, match_each_native_ptype, match_each_unsigned_integer_ptype,
+};
 use vortex_error::VortexResult;
 
 use crate::CudaExecutionCtx;
-use crate::kernel::patches::gpu::GPUPatches;
 
-#[derive(Debug, Default, Clone)]
-pub(crate) struct Transposed<V> {
-    pub(crate) chunks: Vec<Chunk<V>>,
+/// A set of device-resident patches that live in the GPU.
+///
+/// These are dynamically typed.
+#[repr(C)]
+pub struct DevicePatches {
+    pub(crate) n_chunks: u32,
+    pub(crate) n_lanes: u32,
+    pub(crate) lane_offsets: BufferHandle,
+    pub(crate) indices: BufferHandle,
+    pub(crate) values: BufferHandle,
 }
 
-impl<V: Copy> Transposed<V> {
-    // Slice patches to only contain the patches that are in the range given instead.
-    pub fn slice(&self, range: Range<usize>) -> Self {
-        let start_chunk = range.start / 1024;
-        let stop_chunk = range.end.div_ceil(1024);
-
-        Self {
-            chunks: self.chunks[start_chunk..stop_chunk].to_vec(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct Chunk<V> {
-    pub(crate) lanes: Vec<Lane<V>>,
+#[derive(Clone)]
+struct Chunk<V> {
+    lanes: Vec<Lane<V>>,
 }
 
 impl<V: Copy + Default> Default for Chunk<V> {
@@ -48,14 +44,13 @@ impl<V: Copy + Default> Default for Chunk<V> {
     }
 }
 
-// indices
-// offsets
-
-pub struct NewPatches<V> {
+/// A set of patches of values `V` existing in host buffers.
+pub struct HostPatches<V> {
     n_chunks: usize,
     n_lanes: usize,
     lane_offsets: Buffer<u32>,
     indices: Buffer<u16>,
+    /// Values. This is a buffer handle which might live on the new buffer type here
     values: Buffer<V>,
 }
 
@@ -64,7 +59,7 @@ pub struct LanePatches<'a, V> {
     values: &'a [V],
 }
 
-impl<V: Copy> NewPatches<V> {
+impl<V: Copy> HostPatches<V> {
     /// Get number of patches for a specific lane.
     pub fn patch_count(&self, chunk: usize, lane: usize) -> usize {
         let start = chunk * self.n_lanes + lane;
@@ -74,6 +69,7 @@ impl<V: Copy> NewPatches<V> {
         count as usize
     }
 
+    /// Get an ordered list of patches for the given chunk/lane.
     pub fn patches(&self, chunk: usize, lane: usize) -> LanePatches<'_, V> {
         let start = chunk * self.n_lanes + lane;
         let end = start + 1;
@@ -86,12 +82,39 @@ impl<V: Copy> NewPatches<V> {
             values: &self.values[lane_start..lane_stop],
         }
     }
+
+    /// Export the patches for use on the device associated with the provided execution context.
+    pub async fn export_to_device(
+        mut self,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<DevicePatches> {
+        let lane_offsets = std::mem::take(&mut self.lane_offsets);
+        let indices = std::mem::take(&mut self.indices);
+        let values = std::mem::take(&mut self.values);
+
+        // Convert each into a handle that can be passed around.
+        let lane_offsets_handle = BufferHandle::new_host(lane_offsets.into_byte_buffer());
+        let indices_handle = BufferHandle::new_host(indices.into_byte_buffer());
+        let values_handle = BufferHandle::new_host(values.into_byte_buffer());
+
+        let lane_offsets_handle = ctx.ensure_on_device(lane_offsets_handle).await?;
+        let indices_handle = ctx.ensure_on_device(indices_handle).await?;
+        let values_handle = ctx.ensure_on_device(values_handle).await?;
+
+        Ok(DevicePatches {
+            n_chunks: self.n_chunks as u32,
+            n_lanes: self.n_lanes as u32,
+            lane_offsets: lane_offsets_handle,
+            indices: indices_handle,
+            values: values_handle,
+        })
+    }
 }
 
 #[derive(Debug, Default, Clone)]
-pub(crate) struct Lane<V> {
-    pub(crate) indices: Vec<u16>,
-    pub(crate) values: Vec<V>,
+struct Lane<V> {
+    indices: Vec<u16>,
+    values: Vec<V>,
 }
 
 impl<V: Copy> Lane<V> {
@@ -109,11 +132,45 @@ impl<V: Copy> Lane<V> {
     }
 }
 
-pub(crate) fn transpose<I: IntegerPType, V: NativePType>(
+// Return some GPUPatches.
+pub(crate) fn transpose_patches(
+    patches: Patches,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<DevicePatches> {
+    let array_len = patches.array_len();
+    let offset = patches.offset();
+
+    let indices = patches
+        .indices()
+        .clone()
+        .execute::<Canonical>(ctx)?
+        .into_primitive();
+    let values = patches
+        .values()
+        .clone()
+        .execute::<Canonical>(ctx)?
+        .into_primitive();
+
+    match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
+        match_each_native_ptype!(values.ptype(), |V| {
+            let new_patches = transpose(
+                indices.to_buffer::<I>().as_slice(),
+                values.to_buffer::<V>().as_slice(),
+                offset,
+                array_len,
+            );
+        })
+    });
+
+    todo!()
+}
+
+fn transpose<I: IntegerPType, V: NativePType>(
     indices: &[I],
     values: &[V],
+    offset: usize,
     array_len: usize,
-) -> NewPatches<V> {
+) -> HostPatches<V> {
     // Total number of slots is number of chunks times number of lanes.
     let n_chunks = array_len.div_ceil(1024);
     let n_lanes = 128 / size_of::<V>();
@@ -121,7 +178,7 @@ pub(crate) fn transpose<I: IntegerPType, V: NativePType>(
 
     // For each chunk, for each lane, push new values
     for (index, &value) in std::iter::zip(indices, values) {
-        let index = index.as_();
+        let index = index.as_() - offset;
 
         let chunk = index / 1024;
         let lane = index % n_lanes;
@@ -129,7 +186,8 @@ pub(crate) fn transpose<I: IntegerPType, V: NativePType>(
         chunks[chunk].lanes[lane].push((index % 1024) as u16, value);
     }
 
-    let mut offset = 0;
+    // Reshuffle the different containers into a single contiguous buffer each for indices/values
+    let mut lane_offset = 0;
     let mut lane_offsets = buffer_mut![0u32];
     let mut indices_buffer = BufferMut::empty();
     let mut values_buffer = BufferMut::empty();
@@ -137,56 +195,18 @@ pub(crate) fn transpose<I: IntegerPType, V: NativePType>(
         for lane in chunk.lanes {
             indices_buffer.extend_from_slice(&lane.indices);
             values_buffer.extend_from_slice(&lane.values);
-            offset += lane.len() as u32;
-            lane_offsets.push(offset);
+            lane_offset += lane.len() as u32;
+            lane_offsets.push(lane_offset);
         }
     }
 
-    NewPatches {
+    HostPatches {
         n_chunks,
         n_lanes,
         lane_offsets: lane_offsets.freeze(),
         indices: indices_buffer.freeze(),
         values: values_buffer.freeze(),
     }
-}
-
-/// Set of patches that can be copied over to the GPU with ease.
-#[repr(C)]
-pub struct GPUNewPatches<V> {
-    pub(crate) n_chunks: u32,
-    pub(crate) n_lanes: u32,
-    pub(crate) lane_offsets: BufferHandle,
-    pub(crate) indices: BufferHandle,
-    pub(crate) values: BufferHandle,
-    _marker: PhantomData<V>,
-}
-
-/// Export the transposed patches back out to the GPU so they can be read in the necessary format.
-pub async fn export_gpu<V: NativePType>(
-    mut transposed: NewPatches<V>,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<GPUPatches> {
-    let lane_offsets = std::mem::take(&mut transposed.lane_offsets);
-    let indices = std::mem::take(&mut transposed.indices);
-    let values = std::mem::take(&mut transposed.values);
-
-    // Convert each into a handle that can be passed around.
-    let lane_offsets_handle = BufferHandle::new_host(lane_offsets.into_byte_buffer());
-    let indices_handle = BufferHandle::new_host(indices.into_byte_buffer());
-    let values_handle = BufferHandle::new_host(values.into_byte_buffer());
-
-    let lane_offsets_handle = ctx.ensure_on_device(lane_offsets_handle).await?;
-    let indices_handle = ctx.ensure_on_device(indices_handle).await?;
-    let values_handle = ctx.ensure_on_device(values_handle).await?;
-
-    Ok(GPUPatches {
-        n_chunks: transposed.n_chunks as u32,
-        n_lanes: transposed.n_lanes as u32,
-        lane_offsets: lane_offsets_handle,
-        indices: indices_handle,
-        values: values_handle,
-    })
 }
 
 #[cfg(test)]
@@ -215,7 +235,12 @@ mod tests {
 
         let patch_indices = patch_indices.freeze();
 
-        let transposed = transpose(patch_indices.as_slice(), patch_values.as_slice(), 1024 * 5);
+        let transposed = transpose(
+            patch_indices.as_slice(),
+            patch_values.as_slice(),
+            0,
+            1024 * 5,
+        );
 
         // Chunk 0 should have patches in lanes 0, 31
         assert_eq!(transposed.patches(0, 0).values, &[0, 30]);
