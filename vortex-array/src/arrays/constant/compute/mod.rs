@@ -10,6 +10,7 @@ pub(crate) mod rules;
 mod slice;
 mod sum;
 mod take;
+mod between;
 
 #[cfg(test)]
 mod test {
