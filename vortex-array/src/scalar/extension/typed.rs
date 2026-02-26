@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtDTypeRef;
@@ -68,30 +67,11 @@ impl<V: ExtVTable> DynExtScalarValue for ExtScalarValueInner<V> {
         self.vtable.id()
     }
 
-    fn vtable_any(&self) -> &dyn Any {
-        &self.vtable
-    }
-
     fn storage_value(&self) -> &ScalarValue {
         &self.storage_value
     }
 
-    fn validate(&self, ext_dtype: &ExtDTypeRef) -> VortexResult<()> {
-        // Downcasting the metadata implicitly verifies the vtable types match, but we still want to
-        // validate the actual scalar value.
-        let Some(metadata) = ext_dtype.metadata_opt::<V>() else {
-            vortex_bail!("extension scalar is not compatible with type {ext_dtype}");
-        };
-
-        self.vtable
-            .validate_scalar_value(metadata, ext_dtype.storage_dtype(), &self.storage_value)
-    }
-
-    fn fmt_ext_scalar_value(
-        &self,
-        ext_dtype: &ExtDTypeRef,
-        f: &mut fmt::Formatter<'_>,
-    ) -> fmt::Result {
+    fn fmt_value(&self, f: &mut fmt::Formatter<'_>, ext_dtype: &ExtDTypeRef) -> fmt::Result {
         let value = V::unpack_native(
             &self.vtable,
             ext_dtype.metadata::<V>(),
@@ -104,10 +84,6 @@ impl<V: ExtVTable> DynExtScalarValue for ExtScalarValueInner<V> {
     }
 }
 
-#[expect(
-    dead_code,
-    reason = "TODO(connor): Use this for the `ExtScalar` typed view into Scalar"
-)]
 /// An object-safe, sealed trait encapsulating the behavior for extension scalar values.
 ///
 /// This mirrors [`DynExtDType`] in `vortex-dtype`: it provides type-erased access to the
@@ -118,20 +94,15 @@ impl<V: ExtVTable> DynExtScalarValue for ExtScalarValueInner<V> {
 pub(super) trait DynExtScalarValue: super::sealed::Sealed + 'static + Send + Sync {
     /// Returns `self` as a trait object for downcasting.
     fn as_any(&self) -> &dyn Any;
+
     /// Returns the [`ExtId`] identifying this extension type.
     fn id(&self) -> ExtId;
-    /// Returns the vtable as a trait object for downcasting.
-    fn vtable_any(&self) -> &dyn Any;
+
     /// Returns a reference to the underlying storage [`ScalarValue`].
     fn storage_value(&self) -> &ScalarValue;
-    /// Checks whether this extension scalar value is compatible with the given [`ExtDTypeRef`].
-    fn validate(&self, ext_dtype: &ExtDTypeRef) -> VortexResult<()>;
-    /// Formats the extension scalar using the provided [`ExtDTypeRef`] for metadata context.
-    fn fmt_ext_scalar_value(
-        &self,
-        ext_dtype: &ExtDTypeRef,
-        f: &mut fmt::Formatter<'_>,
-    ) -> fmt::Result;
+
+    /// Formats the extension scalar value using the provided [`ExtDTypeRef`] for metadata context.
+    fn fmt_value(&self, f: &mut fmt::Formatter<'_>, ext_dtype: &ExtDTypeRef) -> fmt::Result;
 }
 
 impl<V: ExtVTable> ExtScalarValue<V> {

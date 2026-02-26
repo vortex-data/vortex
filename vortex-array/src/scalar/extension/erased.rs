@@ -11,6 +11,7 @@ use std::sync::Arc;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 
+use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::scalar::ScalarValue;
@@ -45,6 +46,15 @@ impl ExtScalarValueRef {
     /// Returns a reference to the underlying storage [`ScalarValue`].
     pub fn storage_value(&self) -> &ScalarValue {
         self.0.storage_value()
+    }
+
+    /// Formats the extension scalar value using the provided [`ExtDTypeRef`] for metadata context.
+    pub(crate) fn fmt_value(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+        ext_dtype: &ExtDTypeRef,
+    ) -> fmt::Result {
+        self.0.fmt_value(f, ext_dtype)
     }
 
     /// Attempts to downcast to a concrete [`ExtScalarValue<V>`].
@@ -93,7 +103,7 @@ impl fmt::Display for ExtScalarValueRef {
 
 impl fmt::Debug for ExtScalarValueRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ExtScalar")
+        f.debug_struct("ExtScalarValueRef")
             .field("id", &self.0.id())
             .field("storage_value", self.0.storage_value())
             .finish()

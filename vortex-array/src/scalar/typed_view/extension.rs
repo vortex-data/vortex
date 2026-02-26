@@ -3,17 +3,17 @@
 
 //! [`ExtScalar`] typed view implementation.
 
-use std::fmt::Display;
-use std::fmt::Formatter;
+use std::fmt;
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
-use crate::extension::datetime::AnyTemporal;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -27,59 +27,25 @@ pub struct ExtScalar<'a> {
     dtype: &'a DType,
 
     /// The extension data type reference.
+    ///
+    /// We store this here as a convenience so that we do not need to unwrap the dtype every time.
     ext_dtype: &'a ExtDTypeRef,
 
-    // TODO(connor): This needs to be an `ExtScalarValueRef`.
     /// The underlying scalar value, or [`None`] if null.
     value: Option<&'a ScalarValue>,
 }
 
-impl Display for ExtScalar<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // Specialized handling for date/time/timestamp builtin extension types.
-        if let Some(temporal) = self.ext_dtype.metadata_opt::<AnyTemporal>() {
-            let maybe_timestamp = self
-                .to_storage_scalar()
-                .as_primitive()
-                .as_::<i64>()
-                .map(|maybe_timestamp| temporal.to_jiff(maybe_timestamp))
-                .transpose()
-                .map_err(|_| std::fmt::Error)?;
+impl fmt::Display for ExtScalar<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Some(value) = self.value else {
+            return write!(f, "null");
+        };
 
-            match maybe_timestamp {
-                None => write!(f, "null"),
-                Some(v) => write!(f, "{v}"),
-            }
-        } else {
-            write!(f, "{}({})", self.ext_dtype().id(), self.to_storage_scalar())
-        }
-    }
-}
+        let ScalarValue::Extension(ev) = value else {
+            vortex_panic!("somehow got a scalar value that was not an extension in an ExtScalar");
+        };
 
-impl PartialEq for ExtScalar<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.ext_dtype.eq_ignore_nullability(other.ext_dtype)
-            && self.to_storage_scalar() == other.to_storage_scalar()
-    }
-}
-
-impl Eq for ExtScalar<'_> {}
-
-// Ord is not implemented since it's undefined for different Extension DTypes
-impl PartialOrd for ExtScalar<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if !self.ext_dtype.eq_ignore_nullability(other.ext_dtype) {
-            return None;
-        }
-        self.to_storage_scalar()
-            .partial_cmp(&other.to_storage_scalar())
-    }
-}
-
-impl Hash for ExtScalar<'_> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.ext_dtype.hash(state);
-        self.to_storage_scalar().hash(state);
+        ev.fmt_value(f, self.ext_dtype)
     }
 }
 
@@ -122,10 +88,9 @@ impl<'a> ExtScalar<'a> {
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if self.value.is_none() && !dtype.is_nullable() {
             vortex_bail!(
-                "cannot cast extension dtype with id {} and storage type {} to {}",
+                "cannot cast extension dtype with id {} and storage type {} to {dtype}",
                 self.ext_dtype.id(),
                 self.ext_dtype.storage_dtype(),
-                dtype
             );
         }
 
@@ -146,5 +111,34 @@ impl<'a> ExtScalar<'a> {
             self.ext_dtype.storage_dtype(),
             dtype
         );
+    }
+}
+
+// TODO(connor): In the future we may want to allow implementors to customize this behavior.
+
+impl PartialEq for ExtScalar<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.ext_dtype.eq_ignore_nullability(other.ext_dtype)
+            && self.to_storage_scalar() == other.to_storage_scalar()
+    }
+}
+
+impl Eq for ExtScalar<'_> {}
+
+// Ord is not implemented since it's undefined for different Extension DTypes
+impl PartialOrd for ExtScalar<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if !self.ext_dtype.eq_ignore_nullability(other.ext_dtype) {
+            return None;
+        }
+        self.to_storage_scalar()
+            .partial_cmp(&other.to_storage_scalar())
+    }
+}
+
+impl Hash for ExtScalar<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.ext_dtype.hash(state);
+        self.to_storage_scalar().hash(state);
     }
 }
