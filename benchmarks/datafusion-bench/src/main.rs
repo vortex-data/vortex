@@ -95,9 +95,6 @@ struct Args {
     #[arg(long, default_value_t = false)]
     explain: bool,
 
-    #[arg(long, default_value_t = false)]
-    explain_analyze: bool,
-
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
 
@@ -161,6 +158,42 @@ async fn main() -> anyhow::Result<()> {
     let collected_plans: Arc<Mutex<Vec<(usize, Format, Arc<dyn ExecutionPlan>)>>> =
         Arc::new(Mutex::new(Vec::new()));
     let show_metrics = args.show_metrics;
+
+    if args.explain {
+        runner
+            .explain_all_async(
+                &filtered_queries,
+                |format| {
+                    let benchmark = &*benchmark;
+                    async move {
+                        let session = datafusion_bench::get_session_context();
+                        datafusion_bench::make_object_store(&session, benchmark.data_url())?;
+                        register_benchmark_tables(&session, benchmark, format).await?;
+                        Ok(session)
+                    }
+                },
+                |session, _query_idx, _format, query| {
+                    let explain_query = format!("EXPLAIN {query}");
+                    Box::pin(async move {
+                        let df = session.sql(&explain_query).await?;
+                        let batches = df.collect().await?;
+                        let mut output = String::new();
+                        for batch in &batches {
+                            output.push_str(
+                                &datafusion::arrow::util::pretty::pretty_format_batches(
+                                    std::slice::from_ref(batch),
+                                )?
+                                .to_string(),
+                            );
+                        }
+                        Ok(output)
+                    })
+                },
+            )
+            .await?;
+
+        return Ok(());
+    }
 
     runner
         .run_all_async(

@@ -139,33 +139,6 @@ fn main() -> anyhow::Result<()> {
         })?;
     }
 
-    if args.explain {
-        for format in &args.formats {
-            let ctx = DuckClient::new(
-                &*benchmark,
-                *format,
-                args.delete_duckdb_database,
-                args.threads,
-            )?;
-            ctx.register_tables(&*benchmark, *format)?;
-
-            for (query_idx, query) in &filtered_queries {
-                println!("=== Q{query_idx} [{format}] ===");
-                println!("{query}");
-                println!();
-                let result = ctx.connection().query(&format!("EXPLAIN {query}"))?;
-                for chunk in result {
-                    let chunk_str =
-                        String::try_from(chunk.deref()).unwrap_or_else(|_| "<error>".to_string());
-                    println!("{chunk_str}");
-                }
-                println!();
-            }
-        }
-
-        return Ok(());
-    }
-
     let mut runner = SqlBenchmarkRunner::new(
         &*benchmark,
         Engine::DuckDB,
@@ -175,6 +148,34 @@ fn main() -> anyhow::Result<()> {
     )?;
 
     let benchmark_name = benchmark.dataset().to_string();
+
+    if args.explain {
+        runner.explain_all(
+            &filtered_queries,
+            |format| {
+                let ctx = DuckClient::new(
+                    &*benchmark,
+                    format,
+                    args.delete_duckdb_database,
+                    args.threads,
+                )?;
+                ctx.register_tables(&*benchmark, format)?;
+                Ok(ctx)
+            },
+            |ctx, _query_idx, _format, query| {
+                let result = ctx.connection().query(&format!("EXPLAIN {query}"))?;
+                let mut output = String::new();
+                for chunk in result {
+                    let chunk_str =
+                        String::try_from(chunk.deref()).unwrap_or_else(|_| "<error>".to_string());
+                    output.push_str(&chunk_str);
+                }
+                Ok(output)
+            },
+        )?;
+
+        return Ok(());
+    }
 
     runner.run_all(
         &filtered_queries,

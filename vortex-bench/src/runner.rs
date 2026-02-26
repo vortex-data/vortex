@@ -235,6 +235,80 @@ impl SqlBenchmarkRunner {
         }
     }
 
+    /// Print EXPLAIN output for all queries across all formats.
+    ///
+    /// For each format:
+    /// 1. Calls `setup` to create a context for that format
+    /// 2. Iterates over all queries, calling `explain` for each
+    ///
+    /// The `explain` callback receives the context, query index, format, and query string,
+    /// and should return the explain output as a String.
+    pub fn explain_all<Ctx, S, E>(
+        &self,
+        queries: &[(usize, String)],
+        mut setup: S,
+        mut explain: E,
+    ) -> anyhow::Result<()>
+    where
+        S: FnMut(Format) -> anyhow::Result<Ctx>,
+        E: FnMut(&Ctx, usize, Format, &str) -> anyhow::Result<String>,
+    {
+        for format in self.formats.clone() {
+            let ctx = setup(format)?;
+
+            for (query_idx, query) in queries.iter() {
+                println!("=== Q{query_idx} [{format}] ===");
+                println!("{query}");
+                println!();
+                let output = explain(&ctx, *query_idx, format, query.as_str())?;
+                println!("{output}");
+                println!();
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Print EXPLAIN output for all queries across all formats asynchronously.
+    ///
+    /// For each format:
+    /// 1. Calls `setup` to create a context for that format
+    /// 2. Iterates over all queries, calling `explain` for each
+    ///
+    /// The `explain` callback receives the context, query index, format, and query string,
+    /// and should return the explain output as a String.
+    pub async fn explain_all_async<Ctx, S, SFut, E>(
+        &self,
+        queries: &[(usize, String)],
+        setup: S,
+        mut explain: E,
+    ) -> anyhow::Result<()>
+    where
+        S: Fn(Format) -> SFut,
+        SFut: Future<Output = anyhow::Result<Ctx>>,
+        E: for<'c> FnMut(
+            &'c Ctx,
+            usize,
+            Format,
+            &'c str,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + 'c>>,
+    {
+        for format in self.formats.clone() {
+            let ctx = setup(format).await?;
+
+            for (query_idx, query) in queries.iter() {
+                println!("=== Q{query_idx} [{format}] ===");
+                println!("{query}");
+                println!();
+                let output = explain(&ctx, *query_idx, format, query.as_str()).await?;
+                println!("{output}");
+                println!();
+            }
+        }
+
+        Ok(())
+    }
+
     /// Run all queries for all formats synchronously.
     ///
     /// For each format:
