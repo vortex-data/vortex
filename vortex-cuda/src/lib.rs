@@ -49,6 +49,7 @@ pub use kernel::ZstdKernelPrep;
 pub use kernel::zstd_kernel_prepare;
 pub use pinned::PinnedByteBufferPool;
 pub use pinned::PinnedPoolStats;
+pub use pinned::PooledPinnedBuffer;
 pub use pooled_read_at::PooledFileReadAt;
 pub use pooled_read_at::PooledObjectStoreReadAt;
 pub use session::CudaSession;

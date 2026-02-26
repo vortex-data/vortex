@@ -3,14 +3,6 @@
 
 use std::fs::File;
 use std::io;
-#[cfg(all(not(unix), not(windows)))]
-use std::io::Read;
-#[cfg(all(not(unix), not(windows)))]
-use std::io::Seek;
-#[cfg(unix)]
-use std::os::unix::fs::FileExt;
-#[cfg(windows)]
-use std::os::windows::fs::FileExt;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -31,6 +23,7 @@ use vortex::error::vortex_err;
 use vortex::io::CoalesceConfig;
 use vortex::io::VortexReadAt;
 use vortex::io::runtime::Handle;
+use vortex::io::std_file::read_exact_at;
 
 use crate::pinned::PinnedByteBufferPool;
 use crate::stream::VortexCudaStream;
@@ -76,11 +69,6 @@ impl PooledFileReadAt {
             pool,
             stream,
         })
-    }
-
-    /// Returns the pinned buffer pool backing this reader.
-    pub(crate) fn pool(&self) -> &Arc<PinnedByteBufferPool> {
-        &self.pool
     }
 }
 
@@ -173,11 +161,6 @@ impl PooledObjectStoreReadAt {
             concurrency: DEFAULT_OBJECT_STORE_CONCURRENCY,
             coalesce_config: Some(CoalesceConfig::object_storage()),
         }
-    }
-
-    /// Returns the pinned buffer pool backing this reader.
-    pub(crate) fn pool(&self) -> &Arc<PinnedByteBufferPool> {
-        &self.pool
     }
 
     /// Set the concurrency for this source.
@@ -310,36 +293,5 @@ impl VortexReadAt for PooledObjectStoreReadAt {
             Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
         }
         .boxed()
-    }
-}
-
-/// Read exactly `buffer.len()` bytes from `file` starting at `offset`.
-#[cfg(not(target_arch = "wasm32"))]
-fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        file.read_exact_at(buffer, offset)
-    }
-    #[cfg(windows)]
-    {
-        let mut bytes_read = 0;
-        while bytes_read < buffer.len() {
-            let read = file.seek_read(&mut buffer[bytes_read..], offset + bytes_read as u64)?;
-            if read == 0 {
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "failed to fill whole buffer",
-                ));
-            }
-            bytes_read += read;
-        }
-        Ok(())
-    }
-    #[cfg(all(not(unix), not(windows)))]
-    {
-        use std::io::SeekFrom;
-        let mut file_ref = file;
-        file_ref.seek(SeekFrom::Start(offset))?;
-        file_ref.read_exact(buffer)
     }
 }

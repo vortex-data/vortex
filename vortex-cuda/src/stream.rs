@@ -12,6 +12,7 @@ use cudarc::driver::CudaStream;
 use cudarc::driver::DevicePtrMut;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::HostSlice;
+use cudarc::driver::sys::CUevent_flags;
 use cudarc::driver::result::memcpy_htod_async;
 use cudarc::driver::result::stream;
 use futures::future::BoxFuture;
@@ -109,8 +110,11 @@ impl VortexCudaStream {
     }
 
     /// Records a CUDA event on this stream.
-    pub(crate) fn record_event(&self) -> Result<CudaEvent, cudarc::driver::DriverError> {
-        self.0.record_event(None)
+    pub(crate) fn record_event(
+        &self,
+        flags: Option<CUevent_flags>,
+    ) -> Result<CudaEvent, cudarc::driver::DriverError> {
+        self.0.record_event(flags)
     }
 }
 

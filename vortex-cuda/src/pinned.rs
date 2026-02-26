@@ -54,30 +54,11 @@ impl PinnedByteBuffer {
         self.inner.len()
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.logical_len == 0
-    }
-
-    /// Returns the buffer as an immutable slice.
-    pub(crate) fn as_slice(&self) -> VortexResult<&[u8]> {
-        self.inner
-            .as_slice()
-            .map(|slice| &slice[..self.logical_len])
-            .map_err(|e| vortex_err!("failed to access pinned host buffer: {e}"))
-    }
-
     /// Returns the buffer as a mutable slice.
     pub(crate) fn as_mut_slice(&mut self) -> VortexResult<&mut [u8]> {
         self.inner
             .as_mut_slice()
             .map(|slice| &mut slice[..self.logical_len])
-            .map_err(|e| vortex_err!("failed to access pinned host buffer: {e}"))
-    }
-
-    /// Returns a raw pointer to the buffer.
-    pub(crate) fn as_mut_ptr(&self) -> VortexResult<*const u8> {
-        self.inner
-            .as_ptr()
             .map_err(|e| vortex_err!("failed to access pinned host buffer: {e}"))
     }
 
@@ -158,15 +139,12 @@ impl PinnedByteBufferPool {
     ///
     /// Returns `Ok(None)` if no buffer is available in the pool for the requested size class.
     /// Unlike [`get`][Self::get], this will never call `cuMemAllocHost`.
-    pub(crate) fn try_get(
+    pub fn try_get(
         self: &Arc<Self>,
         len: usize,
     ) -> VortexResult<Option<PooledPinnedBuffer>> {
         match self.try_get_inner(len)? {
-            Some(inner) => Ok(Some(PooledPinnedBuffer {
-                inner: Some(inner),
-                pool: self.clone(),
-            })),
+            Some(inner) => Ok(Some(PooledPinnedBuffer::new(inner, self.clone()))),
             None => Ok(None),
         }
     }
@@ -176,10 +154,7 @@ impl PinnedByteBufferPool {
     /// The buffer is returned to the pool when the [`PooledPinnedBuffer`] is dropped.
     pub(crate) fn get(self: &Arc<Self>, len: usize) -> VortexResult<PooledPinnedBuffer> {
         let inner = self.get_inner(len)?;
-        Ok(PooledPinnedBuffer {
-            inner: Some(inner),
-            pool: self.clone(),
-        })
+        Ok(PooledPinnedBuffer::new(inner, self.clone()))
     }
 
     /// Defer returning a pinned buffer to the pool until the CUDA event completes.
@@ -298,7 +273,7 @@ pub struct PinnedPoolStats {
 /// This wrapper owns a [`PinnedByteBuffer`] and ensures it gets returned to the
 /// [`PinnedByteBufferPool`] when the buffer is no longer needed. This enables efficient
 /// buffer reuse for I/O operations.
-pub(crate) struct PooledPinnedBuffer {
+pub struct PooledPinnedBuffer {
     inner: Option<PinnedByteBuffer>,
     pool: Arc<PinnedByteBufferPool>,
 }
@@ -313,25 +288,12 @@ impl PooledPinnedBuffer {
         }
     }
 
-    /// Returns the length of the buffer in bytes.
-    pub(crate) fn len(&self) -> usize {
-        self.inner
-            .as_ref()
-            .map(|b| b.len())
-            .unwrap_or_else(|| vortex_panic!("buffer already consumed"))
-    }
-
-    /// Returns true if the buffer is empty.
-    pub(crate) fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     /// Returns the buffer as a mutable slice.
     ///
     /// # Panics
     ///
     /// Panics if the buffer has already been consumed or if the CUDA context is invalid.
-    pub(crate) fn as_mut_slice(&mut self) -> &mut [u8] {
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
         let inner = self
             .inner
             .as_mut()
@@ -345,7 +307,7 @@ impl PooledPinnedBuffer {
     ///
     /// The pinned buffer is placed in the pool's inflight queue, gated on a `CudaEvent` marking
     /// the transfer completion. The pool reclaims it once the event fires.
-    pub(crate) fn transfer_to_device(
+    pub fn transfer_to_device(
         mut self,
         stream: &VortexCudaStream,
     ) -> VortexResult<CudaDeviceBuffer> {
@@ -366,7 +328,7 @@ impl PooledPinnedBuffer {
 
         let event = Arc::new(
             stream
-                .record_event()
+                .record_event(None)
                 .map_err(|e| vortex_err!("Failed to record CUDA event: {}", e))?,
         );
 
@@ -381,5 +343,146 @@ impl Drop for PooledPinnedBuffer {
         if let Some(inner) = self.inner.take() {
             self.pool.put(inner);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use cudarc::driver::CudaContext;
+    use vortex::array::buffer::DeviceBuffer;
+    use vortex::buffer::Alignment;
+    use vortex::error::VortexResult;
+
+    use super::*;
+
+    fn setup() -> VortexResult<(Arc<PinnedByteBufferPool>, VortexCudaStream)> {
+        let ctx = CudaContext::new(0).map_err(|e| vortex_err!("Failed to initialize CUDA: {e}"))?;
+        let pool = Arc::new(PinnedByteBufferPool::new(Arc::clone(&ctx)));
+        let stream = VortexCudaStream(
+            ctx.new_stream()
+                .map_err(|e| vortex_err!("Failed to create stream: {e}"))?,
+        );
+        Ok((pool, stream))
+    }
+
+    #[test]
+    fn transfer_to_device_round_trip() -> VortexResult<()> {
+        let (pool, stream) = setup()?;
+        let data: Vec<u8> = (0..=255u8).collect();
+
+        let mut pinned = pool.get(data.len())?;
+        pinned.as_mut_slice().copy_from_slice(&data);
+
+        let device_buf = pinned.transfer_to_device(&stream)?;
+
+        let host_buf = device_buf.copy_to_host_sync(Alignment::of::<u8>())?;
+        assert_eq!(host_buf.as_ref(), &data[..]);
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_puts_buffer_inflight() -> VortexResult<()> {
+        let (pool, stream) = setup()?;
+
+        let mut pinned = pool.get(1024)?;
+        pinned.as_mut_slice().fill(0xAB);
+
+        let stats_before = pool.stats();
+        assert_eq!(stats_before.allocs, 1);
+        assert_eq!(stats_before.puts, 0);
+        assert_eq!(stats_before.hits, 0);
+
+        let _device_buf = pinned.transfer_to_device(&stream)?;
+
+        // put_inflight does not increment the puts counter
+        let stats_after = pool.stats();
+        assert_eq!(stats_after.puts, 0);
+
+        // The buffer is in the inflight queue, not yet in a bucket
+        assert_eq!(pool.inflight.lock().len(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn pool_reclaims_after_transfer_completes() -> VortexResult<()> {
+        let (pool, stream) = setup()?;
+
+        let mut pinned = pool.get(1024)?;
+        pinned.as_mut_slice().fill(0xCD);
+
+        let _device_buf = pinned.transfer_to_device(&stream)?;
+
+        // Sync the stream so the recorded event completes.
+        stream
+            .0
+            .synchronize()
+            .map_err(|e| vortex_err!("Failed to sync stream: {e}"))?;
+
+        assert_eq!(pool.stats().hits, 0);
+        assert_eq!(pool.stats().allocs, 1);
+
+        // get_inner calls reclaim_completed, which finds the completed event
+        // and moves the buffer back into a bucket before serving the request.
+        let _pinned2 = pool.get(1024)?;
+
+        let stats = pool.stats();
+        assert_eq!(stats.hits, 1);
+        // reclaim_completed called put once for the completed buffer
+        assert_eq!(stats.puts, 1);
+        // No additional allocation was needed
+        assert_eq!(stats.allocs, 1);
+        // Inflight queue is now drained
+        assert_eq!(pool.inflight.lock().len(), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn drop_returns_buffer_to_pool() -> VortexResult<()> {
+        let (pool, _stream) = setup()?;
+
+        {
+            let mut pinned = pool.get(512)?;
+            pinned.as_mut_slice().fill(0);
+        }
+
+        let stats = pool.stats();
+        assert_eq!(stats.puts, 1);
+        assert_eq!(stats.allocs, 1);
+
+        // Getting again should be a pool hit, not a new allocation.
+        let _pinned2 = pool.get(512)?;
+        let stats = pool.stats();
+        assert_eq!(stats.hits, 1);
+        assert_eq!(stats.allocs, 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn transfer_consumes_inner_so_drop_is_noop() -> VortexResult<()> {
+        let (pool, stream) = setup()?;
+
+        let mut pinned = pool.get(256)?;
+        pinned.as_mut_slice().fill(0xFF);
+
+        // transfer_to_device takes self and moves inner into inflight.
+        // The PooledPinnedBuffer's Drop should not double-return the buffer.
+        let _device_buf = pinned.transfer_to_device(&stream)?;
+
+        // Sync and reclaim so the single inflight buffer returns.
+        stream
+            .0
+            .synchronize()
+            .map_err(|e| vortex_err!("Failed to sync stream: {e}"))?;
+        pool.reclaim_completed()?;
+
+        // Exactly one put from reclaim, zero from Drop.
+        assert_eq!(pool.stats().puts, 1);
+
+        Ok(())
     }
 }
