@@ -50,22 +50,22 @@ impl fmt::Display for ExtScalar<'_> {
 }
 
 impl<'a> ExtScalar<'a> {
-    // TODO(connor): This should really be validating the data on construction!!!
     /// Creates a new extension scalar from a data type and scalar value.
     ///
-    /// # Errors
+    /// # Safety
     ///
-    /// Returns an error if the data type is not an extension type.
-    pub(crate) fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
+    /// The caller must ensure that the dtype is an extension type and that the scalar value has
+    /// been verified to be valid for the extension type.
+    pub(crate) fn new_unchecked(dtype: &'a DType, value: Option<&'a ScalarValue>) -> Self {
         let DType::Extension(ext_dtype) = dtype else {
-            vortex_bail!("Expected extension scalar, found {}", dtype)
+            vortex_panic!("Expected extension scalar, found {}", dtype)
         };
 
-        Ok(Self {
+        Self {
             dtype,
             ext_dtype,
             value,
-        })
+        }
     }
 
     /// Returns the storage scalar of the extension scalar.

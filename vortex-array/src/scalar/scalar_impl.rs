@@ -211,8 +211,11 @@ impl Scalar {
                 }
             }
             DType::Extension(ext_dtype) => {
-                // TODO(connor): Fix this when adding the correct extension scalars!
-                Self::is_compatible(ext_dtype.storage_dtype(), Some(value))
+                let ScalarValue::Extension(ext_value) = value else {
+                    return false;
+                };
+
+                ext_value.validate_dtype(ext_dtype).is_ok()
             }
         }
     }

@@ -54,6 +54,7 @@ impl<V: ExtVTable> ExtScalarValue<V> {
 pub(crate) struct ExtScalarValueInner<V: ExtVTable> {
     /// The extension scalar vtable.
     vtable: V,
+
     /// The underlying storage value.
     storage_value: ScalarValue,
 }
@@ -69,6 +70,13 @@ impl<V: ExtVTable> DynExtScalarValue for ExtScalarValueInner<V> {
 
     fn storage_value(&self) -> &ScalarValue {
         &self.storage_value
+    }
+
+    fn validate_dtype(&self, ext_dtype: &ExtDTypeRef) -> VortexResult<()> {
+        let metadata = ext_dtype.metadata::<V>();
+
+        self.vtable
+            .validate_scalar_value(metadata, ext_dtype.storage_dtype(), &self.storage_value)
     }
 
     fn fmt_value(&self, f: &mut fmt::Formatter<'_>, ext_dtype: &ExtDTypeRef) -> fmt::Result {
@@ -100,6 +108,9 @@ pub(super) trait DynExtScalarValue: super::sealed::Sealed + 'static + Send + Syn
 
     /// Returns a reference to the underlying storage [`ScalarValue`].
     fn storage_value(&self) -> &ScalarValue;
+
+    /// Validates that the scalar value is valid for the given [`ExtDTypeRef`].
+    fn validate_dtype(&self, ext_dtype: &ExtDTypeRef) -> VortexResult<()>;
 
     /// Formats the extension scalar value using the provided [`ExtDTypeRef`] for metadata context.
     fn fmt_value(&self, f: &mut fmt::Formatter<'_>, ext_dtype: &ExtDTypeRef) -> fmt::Result;

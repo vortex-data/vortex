@@ -9,6 +9,7 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::dtype::extension::ExtDTypeRef;
@@ -46,6 +47,11 @@ impl ExtScalarValueRef {
     /// Returns a reference to the underlying storage [`ScalarValue`].
     pub fn storage_value(&self) -> &ScalarValue {
         self.0.storage_value()
+    }
+
+    /// Validates that the scalar value is valid for the given [`ExtDTypeRef`].
+    pub fn validate_dtype(&self, ext_dtype: &ExtDTypeRef) -> VortexResult<()> {
+        self.0.validate_dtype(ext_dtype)
     }
 
     /// Formats the extension scalar value using the provided [`ExtDTypeRef`] for metadata context.
