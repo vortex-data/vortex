@@ -34,15 +34,11 @@ use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::SimplifyCtx;
 
-// ---------------------------------------------------------------------------
-// Private inner struct + sealed trait
-// ---------------------------------------------------------------------------
-
 /// An object-safe, sealed trait for bound scalar function dispatch.
 ///
 /// Options are stored inside the implementing [`ScalarFnInner<V>`], not passed externally.
 /// This is the sole trait behind [`ScalarFnRef`]'s `Arc<dyn DynScalarFn>`.
-pub(crate) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
+pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn as_any(&self) -> &dyn Any;
     fn id(&self) -> ScalarFnId;
     fn options_any(&self) -> &dyn Any;
