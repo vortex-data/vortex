@@ -476,6 +476,8 @@ pub fn vortex_io::std_file::FileReadAt::uri(&self) -> core::option::Option<&allo
 
 pub const vortex_io::std_file::DEFAULT_CONCURRENCY: usize
 
+pub fn vortex_io::std_file::read_exact_at(file: &std::fs::File, buffer: &mut [u8], offset: u64) -> std::io::error::Result<()>
+
 pub struct vortex_io::AsyncWriteAdapter<W: futures_io::if_std::AsyncWrite>(pub W)
 
 impl<W: futures_io::if_std::AsyncWrite + core::marker::Unpin> vortex_io::VortexWrite for vortex_io::AsyncWriteAdapter<W>

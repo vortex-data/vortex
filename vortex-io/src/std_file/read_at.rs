@@ -28,7 +28,7 @@ use crate::runtime::Handle;
 /// Read exactly `buffer.len()` bytes from `file` starting at `offset`.
 /// This is a platform-specific helper that uses the most efficient method available.
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<()> {
+pub fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<()> {
     #[cfg(unix)]
     {
         file.read_exact_at(buffer, offset)
