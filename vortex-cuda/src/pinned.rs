@@ -39,6 +39,8 @@ impl PinnedByteBuffer {
         capacity: usize,
         logical_len: usize,
     ) -> VortexResult<Self> {
+        // alloc_pinned uses CU_MEMHOSTALLOC_WRITECOMBINED: fast for host writes
+        // and H2D transfers, but very slow for host-side reads.
         let inner = unsafe {
             ctx.alloc_pinned::<u8>(capacity)
                 .map_err(|e| vortex_err!("failed to allocate pinned host buffer: {e}"))?
@@ -309,19 +311,18 @@ impl PooledPinnedBuffer {
         mut self,
         stream: &VortexCudaStream,
     ) -> VortexResult<CudaDeviceBuffer> {
-        let inner = self
+        let pinned = self
             .inner
-            .take()
+            .as_ref()
             .unwrap_or_else(|| vortex_panic!("buffer already consumed"));
-        let len = inner.len();
+        let len = pinned.len();
 
         let mut cuda_slice = stream.device_alloc::<u8>(len)?;
 
-        // This is async, because pinned buffer is always page locked.
-        // device_ptr_mut on this in memcpy_htod will return a SyncOnDrop
-        // that only records, not syncs on drop.
+        // Async because the pinned buffer is page-locked: memcpy_htod returns a
+        // SyncOnDrop::Record (non-blocking) rather than SyncOnDrop::Sync.
         stream
-            .memcpy_htod(&inner, &mut cuda_slice)
+            .memcpy_htod(pinned, &mut cuda_slice)
             .map_err(|e| vortex_err!("Failed to schedule H2D copy: {}", e))?;
 
         let event = Arc::new(
@@ -330,6 +331,12 @@ impl PooledPinnedBuffer {
                 .map_err(|e| vortex_err!("Failed to record CUDA event: {}", e))?,
         );
 
+        // Take ownership only after all fallible ops succeed. Before this point,
+        // errors cause `self` to drop, returning the buffer to the pool.
+        let inner = self
+            .inner
+            .take()
+            .unwrap_or_else(|| vortex_panic!("buffer already consumed"));
         self.pool.put_inflight(event, inner)?;
 
         Ok(CudaDeviceBuffer::new(cuda_slice))
