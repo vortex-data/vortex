@@ -79,7 +79,7 @@ impl PooledFileReadAt {
     }
 
     /// Returns the pinned buffer pool backing this reader.
-    pub fn pool(&self) -> &Arc<PinnedByteBufferPool> {
+    pub(crate) fn pool(&self) -> &Arc<PinnedByteBufferPool> {
         &self.pool
     }
 }
@@ -176,7 +176,7 @@ impl PooledObjectStoreReadAt {
     }
 
     /// Returns the pinned buffer pool backing this reader.
-    pub fn pool(&self) -> &Arc<PinnedByteBufferPool> {
+    pub(crate) fn pool(&self) -> &Arc<PinnedByteBufferPool> {
         &self.pool
     }
 

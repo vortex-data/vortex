@@ -22,7 +22,7 @@ use crate::stream::VortexCudaStream;
 ///
 /// This is intended as a staging buffer for H2D transfers. Contents are uninitialized after
 /// allocation.
-pub struct PinnedByteBuffer {
+pub(crate) struct PinnedByteBuffer {
     inner: PinnedHostSlice<u8>,
     logical_len: usize,
 }
@@ -33,7 +33,7 @@ impl PinnedByteBuffer {
     ///
     /// # Safety
     /// The returned buffer's contents are uninitialized. The caller must initialize before read.
-    pub unsafe fn uninit_with_capacity(
+    pub(crate) unsafe fn uninit_with_capacity(
         ctx: &Arc<CudaContext>,
         capacity: usize,
         logical_len: usize,
@@ -46,20 +46,20 @@ impl PinnedByteBuffer {
     }
 
     /// Returns the length of the buffer in bytes.
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.logical_len
     }
 
-    pub fn capacity(&self) -> usize {
+    pub(crate) fn capacity(&self) -> usize {
         self.inner.len()
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.logical_len == 0
     }
 
     /// Returns the buffer as an immutable slice.
-    pub fn as_slice(&self) -> VortexResult<&[u8]> {
+    pub(crate) fn as_slice(&self) -> VortexResult<&[u8]> {
         self.inner
             .as_slice()
             .map(|slice| &slice[..self.logical_len])
@@ -67,7 +67,7 @@ impl PinnedByteBuffer {
     }
 
     /// Returns the buffer as a mutable slice.
-    pub fn as_mut_slice(&mut self) -> VortexResult<&mut [u8]> {
+    pub(crate) fn as_mut_slice(&mut self) -> VortexResult<&mut [u8]> {
         self.inner
             .as_mut_slice()
             .map(|slice| &mut slice[..self.logical_len])
@@ -75,7 +75,7 @@ impl PinnedByteBuffer {
     }
 
     /// Returns a raw pointer to the buffer.
-    pub fn as_ptr(&self) -> VortexResult<*const u8> {
+    pub(crate) fn as_mut_ptr(&self) -> VortexResult<*const u8> {
         self.inner
             .as_ptr()
             .map_err(|e| vortex_err!("failed to access pinned host buffer: {e}"))
@@ -158,7 +158,10 @@ impl PinnedByteBufferPool {
     ///
     /// Returns `Ok(None)` if no buffer is available in the pool for the requested size class.
     /// Unlike [`get`][Self::get], this will never call `cuMemAllocHost`.
-    pub fn try_get(self: &Arc<Self>, len: usize) -> VortexResult<Option<PooledPinnedBuffer>> {
+    pub(crate) fn try_get(
+        self: &Arc<Self>,
+        len: usize,
+    ) -> VortexResult<Option<PooledPinnedBuffer>> {
         match self.try_get_inner(len)? {
             Some(inner) => Ok(Some(PooledPinnedBuffer {
                 inner: Some(inner),
@@ -171,7 +174,7 @@ impl PinnedByteBufferPool {
     /// Acquire a pooled pinned buffer of the given size in bytes.
     ///
     /// The buffer is returned to the pool when the [`PooledPinnedBuffer`] is dropped.
-    pub fn get(self: &Arc<Self>, len: usize) -> VortexResult<PooledPinnedBuffer> {
+    pub(crate) fn get(self: &Arc<Self>, len: usize) -> VortexResult<PooledPinnedBuffer> {
         let inner = self.get_inner(len)?;
         Ok(PooledPinnedBuffer {
             inner: Some(inner),
@@ -180,7 +183,7 @@ impl PinnedByteBufferPool {
     }
 
     /// Defer returning a pinned buffer to the pool until the CUDA event completes.
-    pub fn put_inflight(
+    pub(crate) fn put_inflight(
         &self,
         event: Arc<CudaEvent>,
         buffer: PinnedByteBuffer,
@@ -204,6 +207,9 @@ impl PinnedByteBufferPool {
         if len == 0 { 0 } else { len.next_power_of_two() }
     }
 
+    /// Reclaim inflight pinned buffers whose CUDA completion events have fired.
+    ///
+    /// Completed buffers are moved back into size-class buckets for reuse.
     fn reclaim_completed(&self) -> VortexResult<()> {
         let mut inflight = self.inflight.lock();
         if inflight.is_empty() {
@@ -292,7 +298,7 @@ pub struct PinnedPoolStats {
 /// This wrapper owns a [`PinnedByteBuffer`] and ensures it gets returned to the
 /// [`PinnedByteBufferPool`] when the buffer is no longer needed. This enables efficient
 /// buffer reuse for I/O operations.
-pub struct PooledPinnedBuffer {
+pub(crate) struct PooledPinnedBuffer {
     inner: Option<PinnedByteBuffer>,
     pool: Arc<PinnedByteBufferPool>,
 }
@@ -300,7 +306,7 @@ pub struct PooledPinnedBuffer {
 #[allow(clippy::same_name_method)]
 impl PooledPinnedBuffer {
     /// Create a new pooled buffer.
-    pub fn new(inner: PinnedByteBuffer, pool: Arc<PinnedByteBufferPool>) -> Self {
+    pub(crate) fn new(inner: PinnedByteBuffer, pool: Arc<PinnedByteBufferPool>) -> Self {
         Self {
             inner: Some(inner),
             pool,
@@ -308,7 +314,7 @@ impl PooledPinnedBuffer {
     }
 
     /// Returns the length of the buffer in bytes.
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.inner
             .as_ref()
             .map(|b| b.len())
@@ -316,7 +322,7 @@ impl PooledPinnedBuffer {
     }
 
     /// Returns true if the buffer is empty.
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
@@ -325,7 +331,7 @@ impl PooledPinnedBuffer {
     /// # Panics
     ///
     /// Panics if the buffer has already been consumed or if the CUDA context is invalid.
-    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+    pub(crate) fn as_mut_slice(&mut self) -> &mut [u8] {
         let inner = self
             .inner
             .as_mut()
@@ -339,7 +345,7 @@ impl PooledPinnedBuffer {
     ///
     /// The pinned buffer is placed in the pool's inflight queue, gated on a `CudaEvent` marking
     /// the transfer completion. The pool reclaims it once the event fires.
-    pub fn transfer_to_device(
+    pub(crate) fn transfer_to_device(
         mut self,
         stream: &VortexCudaStream,
     ) -> VortexResult<CudaDeviceBuffer> {
