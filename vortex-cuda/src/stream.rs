@@ -68,6 +68,11 @@ impl VortexCudaStream {
         let mut cuda_slice: CudaSlice<T> = self.device_alloc(host_slice.len())?;
         let (device_ptr, record_write) = cuda_slice.device_ptr_mut(&self.0);
 
+        self.0
+            .context()
+            .bind_to_thread()
+            .map_err(|e| vortex_err!("Failed to bind CUDA context: {}", e))?;
+
         unsafe {
             memcpy_htod_async(device_ptr, host_slice, self.0.cu_stream())
                 .map_err(|e| vortex_err!("Failed to schedule async copy to device: {}", e))?;
@@ -126,6 +131,11 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
     let (tx, rx) = kanal::bounded::<()>(1);
 
     let tx_ptr = Box::into_raw(Box::new(tx));
+
+    stream
+        .context()
+        .bind_to_thread()
+        .map_err(|e| vortex_err!("Failed to bind CUDA context: {}", e))?;
 
     /// Called from CUDA driver thread when all preceding work on the stream completes.
     unsafe extern "C" fn callback(user_data: *mut std::ffi::c_void) {
