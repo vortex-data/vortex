@@ -73,6 +73,7 @@ mod tests {
     use crate::extension::EmptyMetadata;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
     use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::operators::Operator;
 
@@ -80,9 +81,18 @@ mod tests {
     struct TestExt;
     impl ExtVTable for TestExt {
         type Metadata = EmptyMetadata;
+        type NativeValue<'a> = &'a str;
 
         fn id(&self) -> ExtId {
             ExtId::new_ref("test_ext")
+        }
+
+        fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            Ok(vec![])
+        }
+
+        fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            Ok(EmptyMetadata)
         }
 
         fn validate_dtype(
@@ -91,6 +101,15 @@ mod tests {
             _storage_dtype: &DType,
         ) -> VortexResult<()> {
             Ok(())
+        }
+
+        fn unpack_native<'a>(
+            &self,
+            _metadata: &'a Self::Metadata,
+            _storage_dtype: &'a DType,
+            _storage_value: &'a ScalarValue,
+        ) -> VortexResult<Self::NativeValue<'a>> {
+            Ok("")
         }
     }
 
@@ -164,9 +183,18 @@ mod tests {
         struct TestExt2;
         impl ExtVTable for TestExt2 {
             type Metadata = EmptyMetadata;
+            type NativeValue<'a> = &'a str;
 
             fn id(&self) -> ExtId {
                 ExtId::new_ref("test_ext_2")
+            }
+
+            fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+                Ok(vec![])
+            }
+
+            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+                Ok(EmptyMetadata)
             }
 
             fn validate_dtype(
@@ -175,6 +203,15 @@ mod tests {
                 _storage_dtype: &DType,
             ) -> VortexResult<()> {
                 Ok(())
+            }
+
+            fn unpack_native<'a>(
+                &self,
+                _metadata: &'a Self::Metadata,
+                _storage_dtype: &'a DType,
+                _storage_value: &'a ScalarValue,
+            ) -> VortexResult<Self::NativeValue<'a>> {
+                Ok("")
             }
         }
 

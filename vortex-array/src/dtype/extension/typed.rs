@@ -168,7 +168,7 @@ impl<V: ExtVTable> DynExtDType for ExtDTypeInner<V> {
     }
 
     fn metadata_serialize(&self) -> VortexResult<Vec<u8>> {
-        V::serialize(&self.vtable, &self.metadata)
+        V::serialize_metadata(&self.vtable, &self.metadata)
     }
 
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef {

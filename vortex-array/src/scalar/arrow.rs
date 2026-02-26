@@ -212,6 +212,7 @@ mod tests {
     use crate::extension::datetime::TimestampOptions;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
 
     #[test]
     fn test_null_scalar_to_arrow() {
@@ -449,16 +450,17 @@ mod tests {
         struct SomeExt;
         impl ExtVTable for SomeExt {
             type Metadata = String;
+            type NativeValue<'a> = &'a str;
 
             fn id(&self) -> ExtId {
                 ExtId::new_ref("some_ext")
             }
 
-            fn serialize(&self, _options: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            fn serialize_metadata(&self, _options: &Self::Metadata) -> VortexResult<Vec<u8>> {
                 vortex_bail!("not implemented")
             }
 
-            fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
                 vortex_bail!("not implemented")
             }
 
@@ -468,6 +470,15 @@ mod tests {
                 _storage_dtype: &DType,
             ) -> VortexResult<()> {
                 Ok(())
+            }
+
+            fn unpack_native<'a>(
+                &self,
+                _metadata: &'a Self::Metadata,
+                _storage_dtype: &'a DType,
+                _storage_value: &'a ScalarValue,
+            ) -> VortexResult<Self::NativeValue<'a>> {
+                Ok("")
             }
         }
 

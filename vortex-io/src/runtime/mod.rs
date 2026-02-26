@@ -53,7 +53,7 @@ pub trait Executor: Send + Sync {
     ///
     /// The returned `AbortHandle` may be used to optimistically cancel the task if it has not
     /// yet started executing.
-    fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef;
+    fn spawn_blocking_io(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef;
 }
 
 /// A handle that may be used to optimistically abort a spawned task.

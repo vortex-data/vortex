@@ -347,6 +347,7 @@ mod tests {
     use vortex::extension::datetime::Date;
     use vortex::extension::datetime::Time;
     use vortex::extension::datetime::Timestamp;
+    use vortex::scalar::ScalarValue;
 
     use crate::cpp;
     use crate::duckdb::LogicalType;
@@ -576,9 +577,18 @@ mod tests {
         struct TestExt;
         impl ExtVTable for TestExt {
             type Metadata = EmptyMetadata;
+            type NativeValue<'a> = &'a str;
 
             fn id(&self) -> ExtId {
                 ExtId::new_ref("unknown.extension")
+            }
+
+            fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+                Ok(vec![])
+            }
+
+            fn deserialize_metadata(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+                Ok(EmptyMetadata)
             }
 
             fn validate_dtype(
@@ -587,6 +597,15 @@ mod tests {
                 _storage_dtype: &DType,
             ) -> VortexResult<()> {
                 Ok(())
+            }
+
+            fn unpack_native<'a>(
+                &self,
+                _metadata: &'a Self::Metadata,
+                _storage_dtype: &'a DType,
+                _storage_value: &'a ScalarValue,
+            ) -> VortexResult<Self::NativeValue<'a>> {
+                Ok("")
             }
         }
 

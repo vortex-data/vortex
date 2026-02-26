@@ -3,12 +3,13 @@
 
 //! Temporal extension data types.
 
-use std::fmt::Display;
-use std::fmt::Formatter;
+use std::fmt;
 use std::sync::Arc;
 
+use jiff::Span;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -20,6 +21,7 @@ use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::extension::datetime::TimeUnit;
+use crate::scalar::ScalarValue;
 
 /// Timestamp DType.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
@@ -63,8 +65,8 @@ pub struct TimestampOptions {
     pub tz: Option<Arc<str>>,
 }
 
-impl Display for TimestampOptions {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for TimestampOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.tz {
             Some(tz) => write!(f, "{}, tz={}", self.unit, tz),
             None => write!(f, "{}", self.unit),
@@ -72,8 +74,44 @@ impl Display for TimestampOptions {
     }
 }
 
+/// Unpacked value of a [`Timestamp`] extension scalar.
+///
+/// Each variant carries the raw storage value and an optional timezone.
+pub enum TimestampValue<'a> {
+    /// Seconds since the Unix epoch.
+    Seconds(i64, Option<&'a Arc<str>>),
+    /// Milliseconds since the Unix epoch.
+    Milliseconds(i64, Option<&'a Arc<str>>),
+    /// Microseconds since the Unix epoch.
+    Microseconds(i64, Option<&'a Arc<str>>),
+    /// Nanoseconds since the Unix epoch.
+    Nanoseconds(i64, Option<&'a Arc<str>>),
+}
+
+impl fmt::Display for TimestampValue<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (span, tz) = match self {
+            TimestampValue::Seconds(v, tz) => (Span::new().seconds(*v), *tz),
+            TimestampValue::Milliseconds(v, tz) => (Span::new().milliseconds(*v), *tz),
+            TimestampValue::Microseconds(v, tz) => (Span::new().microseconds(*v), *tz),
+            TimestampValue::Nanoseconds(v, tz) => (Span::new().nanoseconds(*v), *tz),
+        };
+        let ts = jiff::Timestamp::UNIX_EPOCH + span;
+
+        match tz {
+            None => write!(f, "{ts}"),
+            Some(tz) => {
+                let adjusted_ts = ts.in_tz(tz.as_ref()).vortex_expect("unknown timezone");
+                write!(f, "{adjusted_ts}",)
+            }
+        }
+    }
+}
+
 impl ExtVTable for Timestamp {
     type Metadata = TimestampOptions;
+
+    type NativeValue<'a> = TimestampValue<'a>;
 
     fn id(&self) -> ExtId {
         ExtId::new_ref("vortex.timestamp")
@@ -81,7 +119,7 @@ impl ExtVTable for Timestamp {
 
     // NOTE(ngates): unfortunately we're stuck with this hand-rolled serialization format for
     //  backwards compatibility.
-    fn serialize(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+    fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
         let mut bytes = Vec::with_capacity(4);
         let unit_tag: u8 = metadata.unit.into();
 
@@ -102,7 +140,7 @@ impl ExtVTable for Timestamp {
         Ok(bytes)
     }
 
-    fn deserialize(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
         vortex_ensure!(data.len() >= 3);
 
         let tag = data[0];
@@ -141,5 +179,47 @@ impl ExtVTable for Timestamp {
             "Timestamp storage dtype must be i64"
         );
         Ok(())
+    }
+
+    fn unpack_native<'a>(
+        &self,
+        metadata: &'a Self::Metadata,
+        _storage_dtype: &'a DType,
+        storage_value: &'a ScalarValue,
+    ) -> VortexResult<Self::NativeValue<'a>> {
+        let ts_value = storage_value.as_primitive().cast::<i64>()?;
+        let tz = metadata.tz.as_ref();
+
+        let (span, value) = match metadata.unit {
+            TimeUnit::Nanoseconds => (
+                Span::new().nanoseconds(ts_value),
+                TimestampValue::Nanoseconds(ts_value, tz),
+            ),
+            TimeUnit::Microseconds => (
+                Span::new().microseconds(ts_value),
+                TimestampValue::Microseconds(ts_value, tz),
+            ),
+            TimeUnit::Milliseconds => (
+                Span::new().milliseconds(ts_value),
+                TimestampValue::Milliseconds(ts_value, tz),
+            ),
+            TimeUnit::Seconds => (
+                Span::new().seconds(ts_value),
+                TimestampValue::Seconds(ts_value, tz),
+            ),
+            TimeUnit::Days => vortex_bail!("Timestamp does not support Days time unit"),
+        };
+
+        // Validate the storage value is within the valid range for Timestamp.
+        let ts = jiff::Timestamp::UNIX_EPOCH
+            .checked_add(span)
+            .map_err(|e| vortex_err!("Invalid timestamp scalar: {}", e))?;
+
+        if let Some(tz) = tz {
+            ts.in_tz(tz.as_ref())
+                .map_err(|e| vortex_err!("Invalid timezone for timestamp scalar: {}", e))?;
+        }
+
+        Ok(value)
     }
 }

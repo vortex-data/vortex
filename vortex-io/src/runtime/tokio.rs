@@ -72,7 +72,7 @@ impl Executor for tokio::runtime::Handle {
         }
     }
 
-    fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+    fn spawn_blocking_io(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         #[cfg(unix)]
         {
             use custom_labels::Labelset;
@@ -106,7 +106,7 @@ impl Executor for CurrentTokioRuntime {
         )
     }
 
-    fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+    fn spawn_blocking_io(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         Box::new(
             tokio::runtime::Handle::current()
                 .spawn_blocking(task)
