@@ -14,7 +14,6 @@ use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::scalar::DecimalValue;
-// use crate::scalar::ExtScalarValueRef;
 use crate::scalar::PValue;
 
 /// The value stored in a [`Scalar`][crate::scalar::Scalar].
@@ -39,26 +38,7 @@ pub enum ScalarValue {
 
 impl ScalarValue {
     /// Returns the zero / identity value for the given [`DType`].
-    ///
-    /// # Zero Values
-    ///
-    /// Here is the list of zero values for each [`DType`] (when the [`DType`] is non-nullable):
-    ///
-    /// - `Null`: Does not have a "zero" value
-    /// - `Bool`: `false`
-    /// - `Primitive`: `0`
-    /// - `Decimal`: `0`
-    /// - `Utf8`: `""`
-    /// - `Binary`: An empty buffer
-    /// - `List`: An empty list
-    /// - `FixedSizeList`: A list (with correct size) of zero values, which is determined by the
-    ///   element [`DType`]
-    /// - `Struct`: A struct where each field has a zero value, which is determined by the field
-    ///   [`DType`]
-    ///
-    /// - `Extension`: TODO(connor): Is this right?
-    ///   The zero value of the storage [`DType`]
-    pub fn zero_value(dtype: &DType) -> Self {
+    pub(super) fn zero_value(dtype: &DType) -> Self {
         match dtype {
             DType::Null => vortex_panic!("Null dtype has no zero value"),
             DType::Bool(_) => Self::Bool(false),
@@ -78,7 +58,12 @@ impl ScalarValue {
                     .collect();
                 Self::List(field_values)
             }
-            DType::Extension(ext_dtype) => Self::zero_value(ext_dtype.storage_dtype()), // TODO(connor): Fix this!
+            DType::Extension(ext_dtype) => {
+                // Since we have no way to define a "zero" extension value (since we have no idea
+                // what the semantics of the extension is), a best effort attempt is to just use the
+                // zero storage value and try to make an extension scalar from that.
+                Self::zero_value(ext_dtype.storage_dtype())
+            }
         }
     }
 
@@ -88,7 +73,7 @@ impl ScalarValue {
     /// For non-nullable and nested types that may need null values in their children (as of right
     /// now, that is _only_ `FixedSizeList` and `Struct`), this function will provide `None` as the
     /// default child values (whereas [`ScalarValue::zero_value`] would provide `Some(_)`).
-    pub fn default_value(dtype: &DType) -> Option<Self> {
+    pub(super) fn default_value(dtype: &DType) -> Option<Self> {
         if dtype.is_nullable() {
             return None;
         }
@@ -109,7 +94,12 @@ impl ScalarValue {
                 let field_values = fields.fields().map(|f| Self::default_value(&f)).collect();
                 Self::List(field_values)
             }
-            DType::Extension(ext_dtype) => Self::default_value(ext_dtype.storage_dtype())?, // TODO(connor): Fix this!
+            DType::Extension(ext_dtype) => {
+                // Since we have no way to define a "default" extension value (since we have no idea
+                // what the semantics of the extension is), a best effort attempt is to just use the
+                // default storage value and try to make an extension scalar from that.
+                Self::default_value(ext_dtype.storage_dtype())?
+            }
         })
     }
 }

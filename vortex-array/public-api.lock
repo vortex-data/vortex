@@ -11390,80 +11390,6 @@ pub const vortex_array::patches::PATCH_CHUNK_SIZE: usize
 
 pub mod vortex_array::scalar
 
-pub mod vortex_array::scalar::extension
-
-pub struct vortex_array::scalar::extension::ExtScalarValue<V: vortex_array::dtype::extension::ExtVTable>(_)
-
-impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::scalar::extension::ExtScalarValue<V>
-
-pub fn vortex_array::scalar::extension::ExtScalarValue<V>::erased(self) -> vortex_array::scalar::extension::ExtScalarValueRef
-
-pub fn vortex_array::scalar::extension::ExtScalarValue<V>::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn vortex_array::scalar::extension::ExtScalarValue<V>::storage_value(&self) -> &vortex_array::scalar::ScalarValue
-
-pub fn vortex_array::scalar::extension::ExtScalarValue<V>::try_new(ext_dtype: &vortex_array::dtype::extension::ExtDType<V>, storage: vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_array::scalar::extension::ExtScalarValue<V>::vtable(&self) -> &V
-
-impl<V: core::clone::Clone + vortex_array::dtype::extension::ExtVTable> core::clone::Clone for vortex_array::scalar::extension::ExtScalarValue<V>
-
-pub fn vortex_array::scalar::extension::ExtScalarValue<V>::clone(&self) -> vortex_array::scalar::extension::ExtScalarValue<V>
-
-impl<V: core::cmp::Eq + vortex_array::dtype::extension::ExtVTable> core::cmp::Eq for vortex_array::scalar::extension::ExtScalarValue<V>
-
-impl<V: core::cmp::PartialEq + vortex_array::dtype::extension::ExtVTable> core::cmp::PartialEq for vortex_array::scalar::extension::ExtScalarValue<V>
-
-pub fn vortex_array::scalar::extension::ExtScalarValue<V>::eq(&self, other: &vortex_array::scalar::extension::ExtScalarValue<V>) -> bool
-
-impl<V: core::fmt::Debug + vortex_array::dtype::extension::ExtVTable> core::fmt::Debug for vortex_array::scalar::extension::ExtScalarValue<V>
-
-pub fn vortex_array::scalar::extension::ExtScalarValue<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl<V: core::hash::Hash + vortex_array::dtype::extension::ExtVTable> core::hash::Hash for vortex_array::scalar::extension::ExtScalarValue<V>
-
-pub fn vortex_array::scalar::extension::ExtScalarValue<V>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
-
-impl<V: vortex_array::dtype::extension::ExtVTable> core::marker::StructuralPartialEq for vortex_array::scalar::extension::ExtScalarValue<V>
-
-pub struct vortex_array::scalar::extension::ExtScalarValueRef(_)
-
-impl vortex_array::scalar::extension::ExtScalarValueRef
-
-pub fn vortex_array::scalar::extension::ExtScalarValueRef::downcast<V: vortex_array::dtype::extension::ExtVTable>(self) -> vortex_array::scalar::extension::ExtScalarValue<V>
-
-pub fn vortex_array::scalar::extension::ExtScalarValueRef::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn vortex_array::scalar::extension::ExtScalarValueRef::storage_value(&self) -> &vortex_array::scalar::ScalarValue
-
-pub fn vortex_array::scalar::extension::ExtScalarValueRef::try_downcast<V: vortex_array::dtype::extension::ExtVTable>(self) -> core::result::Result<vortex_array::scalar::extension::ExtScalarValue<V>, vortex_array::scalar::extension::ExtScalarValueRef>
-
-impl core::clone::Clone for vortex_array::scalar::extension::ExtScalarValueRef
-
-pub fn vortex_array::scalar::extension::ExtScalarValueRef::clone(&self) -> vortex_array::scalar::extension::ExtScalarValueRef
-
-impl core::cmp::Eq for vortex_array::scalar::extension::ExtScalarValueRef
-
-impl core::cmp::PartialEq for vortex_array::scalar::extension::ExtScalarValueRef
-
-pub fn vortex_array::scalar::extension::ExtScalarValueRef::eq(&self, other: &Self) -> bool
-
-impl core::cmp::PartialOrd for vortex_array::scalar::extension::ExtScalarValueRef
-
-pub fn vortex_array::scalar::extension::ExtScalarValueRef::partial_cmp(&self, other: &Self) -> core::option::Option<core::cmp::Ordering>
-
-impl core::fmt::Debug for vortex_array::scalar::extension::ExtScalarValueRef
-
-pub fn vortex_array::scalar::extension::ExtScalarValueRef::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::fmt::Display for vortex_array::scalar::extension::ExtScalarValueRef
-
-pub fn vortex_array::scalar::extension::ExtScalarValueRef::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_array::scalar::extension::ExtScalarValueRef
-
-pub fn vortex_array::scalar::extension::ExtScalarValueRef::hash<H: core::hash::Hasher>(&self, state: &mut H)
-
 pub enum vortex_array::scalar::DecimalValue
 
 pub vortex_array::scalar::DecimalValue::I128(i128)
@@ -11906,12 +11832,6 @@ pub fn vortex_array::scalar::ScalarValue::into_utf8(self) -> vortex_buffer::stri
 
 impl vortex_array::scalar::ScalarValue
 
-pub fn vortex_array::scalar::ScalarValue::default_value(dtype: &vortex_array::dtype::DType) -> core::option::Option<Self>
-
-pub fn vortex_array::scalar::ScalarValue::zero_value(dtype: &vortex_array::dtype::DType) -> Self
-
-impl vortex_array::scalar::ScalarValue
-
 pub fn vortex_array::scalar::ScalarValue::from_proto(value: &vortex_proto::scalar::ScalarValue, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<Self>>
 
 pub fn vortex_array::scalar::ScalarValue::from_proto_bytes(bytes: &[u8], dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<Self>>
@@ -12344,8 +12264,6 @@ pub fn vortex_array::scalar::ExtScalar<'a>::ext_dtype(&self) -> &'a vortex_array
 
 pub fn vortex_array::scalar::ExtScalar<'a>::to_storage_scalar(&self) -> vortex_array::scalar::Scalar
 
-pub fn vortex_array::scalar::ExtScalar<'a>::try_new(dtype: &'a vortex_array::dtype::DType, value: core::option::Option<&'a vortex_array::scalar::ScalarValue>) -> vortex_error::VortexResult<Self>
-
 impl core::cmp::Eq for vortex_array::scalar::ExtScalar<'_>
 
 impl core::cmp::PartialEq for vortex_array::scalar::ExtScalar<'_>
@@ -12520,6 +12438,40 @@ pub struct vortex_array::scalar::Scalar
 
 impl vortex_array::scalar::Scalar
 
+pub fn vortex_array::scalar::Scalar::approx_nbytes(&self) -> usize
+
+pub fn vortex_array::scalar::Scalar::default_value(dtype: &vortex_array::dtype::DType) -> Self
+
+pub fn vortex_array::scalar::Scalar::dtype(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_array::scalar::Scalar::eq_ignore_nullability(&self, other: &Self) -> bool
+
+pub fn vortex_array::scalar::Scalar::into_parts(self) -> (vortex_array::dtype::DType, core::option::Option<vortex_array::scalar::ScalarValue>)
+
+pub fn vortex_array::scalar::Scalar::into_value(self) -> core::option::Option<vortex_array::scalar::ScalarValue>
+
+pub fn vortex_array::scalar::Scalar::is_null(&self) -> bool
+
+pub fn vortex_array::scalar::Scalar::is_valid(&self) -> bool
+
+pub fn vortex_array::scalar::Scalar::is_zero(&self) -> core::option::Option<bool>
+
+pub unsafe fn vortex_array::scalar::Scalar::new_unchecked(dtype: vortex_array::dtype::DType, value: core::option::Option<vortex_array::scalar::ScalarValue>) -> Self
+
+pub fn vortex_array::scalar::Scalar::null(dtype: vortex_array::dtype::DType) -> Self
+
+pub fn vortex_array::scalar::Scalar::null_native<T: vortex_array::dtype::NativeDType>() -> Self
+
+pub fn vortex_array::scalar::Scalar::primitive_reinterpret_cast(&self, ptype: vortex_array::dtype::PType) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::scalar::Scalar::try_new(dtype: vortex_array::dtype::DType, value: core::option::Option<vortex_array::scalar::ScalarValue>) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::scalar::Scalar::value(&self) -> core::option::Option<&vortex_array::scalar::ScalarValue>
+
+pub fn vortex_array::scalar::Scalar::zero_value(dtype: &vortex_array::dtype::DType) -> Self
+
+impl vortex_array::scalar::Scalar
+
 pub fn vortex_array::scalar::Scalar::as_binary(&self) -> vortex_array::scalar::BinaryScalar<'_>
 
 pub fn vortex_array::scalar::Scalar::as_binary_opt(&self) -> core::option::Option<vortex_array::scalar::BinaryScalar<'_>>
@@ -12560,9 +12512,9 @@ pub fn vortex_array::scalar::Scalar::bool(value: bool, nullability: vortex_array
 
 pub fn vortex_array::scalar::Scalar::decimal(value: vortex_array::scalar::DecimalValue, decimal_type: vortex_array::dtype::DecimalDType, nullability: vortex_array::dtype::Nullability) -> Self
 
-pub fn vortex_array::scalar::Scalar::extension<V: vortex_array::dtype::extension::ExtVTable + core::default::Default>(options: <V as vortex_array::dtype::extension::ExtVTable>::Metadata, value: vortex_array::scalar::Scalar) -> Self
+pub fn vortex_array::scalar::Scalar::extension<V: vortex_array::dtype::extension::ExtVTable + core::default::Default>(options: <V as vortex_array::dtype::extension::ExtVTable>::Metadata, storage_scalar: vortex_array::scalar::Scalar) -> Self
 
-pub fn vortex_array::scalar::Scalar::extension_ref(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, value: vortex_array::scalar::Scalar) -> Self
+pub fn vortex_array::scalar::Scalar::extension_ref(ext_dtype: vortex_array::dtype::extension::ExtDTypeRef, storage_scalar: vortex_array::scalar::Scalar) -> Self
 
 pub fn vortex_array::scalar::Scalar::fixed_size_list(element_dtype: impl core::convert::Into<alloc::sync::Arc<vortex_array::dtype::DType>>, children: alloc::vec::Vec<vortex_array::scalar::Scalar>, nullability: vortex_array::dtype::Nullability) -> Self
 
@@ -12586,42 +12538,6 @@ pub fn vortex_array::scalar::Scalar::into_nullable(self) -> vortex_array::scalar
 
 impl vortex_array::scalar::Scalar
 
-pub fn vortex_array::scalar::Scalar::default_value(dtype: &vortex_array::dtype::DType) -> Self
-
-pub fn vortex_array::scalar::Scalar::dtype(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_array::scalar::Scalar::eq_ignore_nullability(&self, other: &Self) -> bool
-
-pub fn vortex_array::scalar::Scalar::into_parts(self) -> (vortex_array::dtype::DType, core::option::Option<vortex_array::scalar::ScalarValue>)
-
-pub fn vortex_array::scalar::Scalar::into_value(self) -> core::option::Option<vortex_array::scalar::ScalarValue>
-
-pub fn vortex_array::scalar::Scalar::is_compatible(dtype: &vortex_array::dtype::DType, value: core::option::Option<&vortex_array::scalar::ScalarValue>) -> bool
-
-pub fn vortex_array::scalar::Scalar::is_null(&self) -> bool
-
-pub fn vortex_array::scalar::Scalar::is_valid(&self) -> bool
-
-pub fn vortex_array::scalar::Scalar::is_zero(&self) -> core::option::Option<bool>
-
-pub fn vortex_array::scalar::Scalar::nbytes(&self) -> usize
-
-pub unsafe fn vortex_array::scalar::Scalar::new_unchecked(dtype: vortex_array::dtype::DType, value: core::option::Option<vortex_array::scalar::ScalarValue>) -> Self
-
-pub fn vortex_array::scalar::Scalar::null(dtype: vortex_array::dtype::DType) -> Self
-
-pub fn vortex_array::scalar::Scalar::null_native<T: vortex_array::dtype::NativeDType>() -> Self
-
-pub fn vortex_array::scalar::Scalar::primitive_reinterpret_cast(&self, ptype: vortex_array::dtype::PType) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_array::scalar::Scalar::try_new(dtype: vortex_array::dtype::DType, value: core::option::Option<vortex_array::scalar::ScalarValue>) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_array::scalar::Scalar::value(&self) -> core::option::Option<&vortex_array::scalar::ScalarValue>
-
-pub fn vortex_array::scalar::Scalar::zero_value(dtype: &vortex_array::dtype::DType) -> Self
-
-impl vortex_array::scalar::Scalar
-
 pub fn vortex_array::scalar::Scalar::from_proto(value: &vortex_proto::scalar::Scalar, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::scalar::Scalar::from_proto_value(value: &vortex_proto::scalar::ScalarValue, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
@@ -12629,6 +12545,10 @@ pub fn vortex_array::scalar::Scalar::from_proto_value(value: &vortex_proto::scal
 impl vortex_array::scalar::Scalar
 
 pub fn vortex_array::scalar::Scalar::struct_(dtype: vortex_array::dtype::DType, children: alloc::vec::Vec<vortex_array::scalar::Scalar>) -> Self
+
+impl vortex_array::scalar::Scalar
+
+pub fn vortex_array::scalar::Scalar::validate(dtype: &vortex_array::dtype::DType, value: core::option::Option<&vortex_array::scalar::ScalarValue>) -> vortex_error::VortexResult<()>
 
 impl core::clone::Clone for vortex_array::scalar::Scalar
 

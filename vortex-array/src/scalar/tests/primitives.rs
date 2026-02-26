@@ -60,44 +60,44 @@ mod tests {
     fn test_scalar_nbytes() {
         // Test null scalar - should be 0 bytes
         let null_scalar = Scalar::null(DType::Null);
-        assert_eq!(null_scalar.nbytes(), 0);
+        assert_eq!(null_scalar.approx_nbytes(), 0);
 
         // Test bool scalar - should be 1 byte
         let bool_scalar = Scalar::bool(true, Nullability::NonNullable);
-        assert_eq!(bool_scalar.nbytes(), 1);
+        assert_eq!(bool_scalar.approx_nbytes(), 1);
 
         // Test primitive scalars
         let u8_scalar = Scalar::primitive(42u8, Nullability::NonNullable);
-        assert_eq!(u8_scalar.nbytes(), 1);
+        assert_eq!(u8_scalar.approx_nbytes(), 1);
 
         let u16_scalar = Scalar::primitive(1000u16, Nullability::NonNullable);
-        assert_eq!(u16_scalar.nbytes(), 2);
+        assert_eq!(u16_scalar.approx_nbytes(), 2);
 
         let u32_scalar = Scalar::primitive(100000u32, Nullability::NonNullable);
-        assert_eq!(u32_scalar.nbytes(), 4);
+        assert_eq!(u32_scalar.approx_nbytes(), 4);
 
         let u64_scalar = Scalar::primitive(10000000000u64, Nullability::NonNullable);
-        assert_eq!(u64_scalar.nbytes(), 8);
+        assert_eq!(u64_scalar.approx_nbytes(), 8);
 
         let f32_scalar = Scalar::primitive(3.5f32, Nullability::NonNullable);
-        assert_eq!(f32_scalar.nbytes(), 4);
+        assert_eq!(f32_scalar.approx_nbytes(), 4);
 
         let f64_scalar = Scalar::primitive(3.5f64, Nullability::NonNullable);
-        assert_eq!(f64_scalar.nbytes(), 8);
+        assert_eq!(f64_scalar.approx_nbytes(), 8);
 
         // Test UTF-8 scalar
         let utf8_scalar = Scalar::utf8("hello", Nullability::NonNullable);
-        assert_eq!(utf8_scalar.nbytes(), 5);
+        assert_eq!(utf8_scalar.approx_nbytes(), 5);
 
         let empty_utf8 = Scalar::utf8("", Nullability::NonNullable);
-        assert_eq!(empty_utf8.nbytes(), 0);
+        assert_eq!(empty_utf8.approx_nbytes(), 0);
 
         // Test binary scalar
         let binary_scalar = Scalar::binary(
             ByteBuffer::from(vec![1u8, 2, 3, 4]),
             Nullability::NonNullable,
         );
-        assert_eq!(binary_scalar.nbytes(), 4);
+        assert_eq!(binary_scalar.approx_nbytes(), 4);
 
         // Test struct scalar
         let struct_scalar = Scalar::struct_(
@@ -113,7 +113,7 @@ mod tests {
                 Scalar::primitive(100i64, Nullability::NonNullable),
             ],
         );
-        assert_eq!(struct_scalar.nbytes(), 4 + 8); // i32 + i64
+        assert_eq!(struct_scalar.approx_nbytes(), 4 + 8); // i32 + i64
 
         // Test list scalar
         let list_scalar = Scalar::list(
@@ -125,14 +125,14 @@ mod tests {
             ],
             Nullability::NonNullable,
         );
-        assert_eq!(list_scalar.nbytes(), 3 * 4); // 3 * i32
+        assert_eq!(list_scalar.approx_nbytes(), 3 * 4); // 3 * i32
 
         // Test extension scalar
         let ext_scalar = Scalar::extension::<Date>(
             TimeUnit::Days,
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
-        assert_eq!(ext_scalar.nbytes(), 4); // i32 storage
+        assert_eq!(ext_scalar.approx_nbytes(), 4); // i32 storage
     }
 
     #[test]
@@ -144,7 +144,7 @@ mod tests {
             Nullability::NonNullable,
         );
         assert_eq!(
-            decimal_low_precision.nbytes(),
+            decimal_low_precision.approx_nbytes(),
             16,
             "Decimals with precision <= 38 should be 16 bytes (i128)"
         );
@@ -156,7 +156,7 @@ mod tests {
             Nullability::NonNullable,
         );
         assert_eq!(
-            decimal_high_precision.nbytes(),
+            decimal_high_precision.approx_nbytes(),
             32,
             "Decimals with precision > 38 should be 32 bytes (i256)"
         );
@@ -168,7 +168,7 @@ mod tests {
             Nullability::NonNullable,
         );
         assert_eq!(
-            decimal_p10.nbytes(),
+            decimal_p10.approx_nbytes(),
             16,
             "Decimal with precision 10 should be 16 bytes"
         );
@@ -179,7 +179,7 @@ mod tests {
             Nullability::NonNullable,
         );
         assert_eq!(
-            decimal_p38.nbytes(),
+            decimal_p38.approx_nbytes(),
             16,
             "Decimal with precision 38 should be 16 bytes"
         );
@@ -190,7 +190,7 @@ mod tests {
             Nullability::NonNullable,
         );
         assert_eq!(
-            decimal_p50.nbytes(),
+            decimal_p50.approx_nbytes(),
             32,
             "Decimal with precision 50 should be 32 bytes"
         );
@@ -201,7 +201,7 @@ mod tests {
             Nullability::Nullable,
         ));
         assert_eq!(
-            null_decimal_low.nbytes(),
+            null_decimal_low.approx_nbytes(),
             16,
             "Null decimal with low precision should still report 16 bytes"
         );
@@ -211,7 +211,7 @@ mod tests {
             Nullability::Nullable,
         ));
         assert_eq!(
-            null_decimal_high.nbytes(),
+            null_decimal_high.approx_nbytes(),
             32,
             "Null decimal with high precision should still report 32 bytes"
         );
@@ -221,11 +221,11 @@ mod tests {
     fn test_scalar_nbytes_with_nulls() {
         // Test null string
         let null_utf8 = Scalar::null(DType::Utf8(Nullability::Nullable));
-        assert_eq!(null_utf8.nbytes(), 0);
+        assert_eq!(null_utf8.approx_nbytes(), 0);
 
         // Test null binary
         let null_binary = Scalar::null(DType::Binary(Nullability::Nullable));
-        assert_eq!(null_binary.nbytes(), 0);
+        assert_eq!(null_binary.approx_nbytes(), 0);
 
         // Test struct with null fields
         let struct_with_null = Scalar::struct_(
@@ -242,7 +242,7 @@ mod tests {
             ],
         );
         // Primitive null fields still count their byte width
-        assert_eq!(struct_with_null.nbytes(), 4 + 8);
+        assert_eq!(struct_with_null.approx_nbytes(), 4 + 8);
 
         // Test list with null elements
         let list_with_null = Scalar::list(
@@ -255,7 +255,7 @@ mod tests {
             Nullability::NonNullable,
         );
         // Primitive null elements still count their byte width
-        assert_eq!(list_with_null.nbytes(), 3 * 4); // 3 i32 values (including null)
+        assert_eq!(list_with_null.approx_nbytes(), 3 * 4); // 3 i32 values (including null)
     }
 
     #[test]

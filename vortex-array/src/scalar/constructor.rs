@@ -175,11 +175,7 @@ impl Scalar {
         let ext_dtype = ExtDType::<V>::try_new(options, storage_scalar.dtype().clone())
             .vortex_expect("Failed to create extension dtype");
 
-        Self::try_new(
-            DType::Extension(ext_dtype.erased()),
-            storage_scalar.into_value(),
-        )
-        .vortex_expect("unable to construct an extension `Scalar`")
+        Self::extension_ref(ext_dtype.erased(), storage_scalar)
     }
 
     /// Creates a new extension scalar wrapping the given storage value.

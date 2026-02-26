@@ -125,7 +125,7 @@ fn test_decimal_cast_between_decimal_types() {
         ))
         .unwrap();
 
-    // Value should be preserved (TODO: proper scaling logic)
+    // Value should be preserved (TODO(connor): proper scaling logic - whatever that means???)
     let decimal_value: Option<DecimalValue> = result.try_into().unwrap();
     assert_eq!(decimal_value, Some(DecimalValue::I32(12345)));
 }
