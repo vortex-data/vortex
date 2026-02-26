@@ -20,6 +20,7 @@ use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar::StructScalar;
 use crate::scalar::Utf8Scalar;
+use crate::scalar::extension::ExtScalarValueRef;
 
 impl Scalar {
     /// Returns a view of the scalar as a boolean scalar.
@@ -206,6 +207,15 @@ impl ScalarValue {
         }
     }
 
+    /// Returns the extension value, panicking if the value is not an
+    /// [`Extension`](ScalarValue::Extension).
+    pub fn as_extension(&self) -> &ExtScalarValueRef {
+        match self {
+            ScalarValue::Extension(e) => e,
+            _ => vortex_panic!("ScalarValue is not an Extension"),
+        }
+    }
+
     /// Returns the boolean value, panicking if the value is not a [`Bool`][ScalarValue::Bool].
     pub fn into_bool(self) -> bool {
         match self {
@@ -253,6 +263,15 @@ impl ScalarValue {
         match self {
             ScalarValue::List(elements) => elements,
             _ => vortex_panic!("ScalarValue is not a List"),
+        }
+    }
+
+    /// Returns the extension value, panicking if the value is not an
+    /// [`Extension`](ScalarValue::Extension).
+    pub fn into_extension(self) -> ExtScalarValueRef {
+        match self {
+            ScalarValue::Extension(e) => e,
+            _ => vortex_panic!("ScalarValue is not an Extension"),
         }
     }
 }

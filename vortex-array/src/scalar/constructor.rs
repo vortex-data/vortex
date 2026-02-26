@@ -22,6 +22,7 @@ use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::scalar::extension::ExtScalarValue;
 
 // TODO(connor): Really, we want `try_` constructors that return errors instead of just panic.
 impl Scalar {
@@ -171,10 +172,21 @@ impl Scalar {
     }
 
     /// Creates a new extension scalar wrapping the given storage value.
-    pub fn extension<V: ExtVTable + Default>(options: V::Metadata, value: Scalar) -> Self {
-        let ext_dtype = ExtDType::<V>::try_new(options, value.dtype().clone())
+    pub fn extension<V: ExtVTable + Default>(
+        metadata: V::Metadata,
+        storage_scalar: Scalar,
+    ) -> Self {
+        let ext_dtype = ExtDType::<V>::try_new(metadata, storage_scalar.dtype().clone())
             .vortex_expect("Failed to create extension dtype");
-        Self::try_new(DType::Extension(ext_dtype.erased()), value.into_value())
+        let storage_value = storage_scalar.into_value();
+
+        let ext_value = storage_value.map(|sv| {
+            let owned = ExtScalarValue::<V>::try_new(&ext_dtype, sv)
+                .vortex_expect("unable to construct an extension `Scalar`");
+            ScalarValue::Extension(owned.erased())
+        });
+
+        Self::try_new(DType::Extension(ext_dtype.erased()), ext_value)
             .vortex_expect("unable to construct an extension `Scalar`")
     }
 
@@ -183,9 +195,10 @@ impl Scalar {
     /// # Panics
     ///
     /// Panics if the storage dtype of `ext_dtype` does not match `value`'s dtype.
-    pub fn extension_ref(ext_dtype: ExtDTypeRef, value: Scalar) -> Self {
-        assert_eq!(ext_dtype.storage_dtype(), value.dtype());
-        Self::try_new(DType::Extension(ext_dtype), value.into_value())
+    pub fn extension_ref(ext_dtype: ExtDTypeRef, storage: Scalar) -> Self {
+        assert_eq!(ext_dtype.storage_dtype(), storage.dtype());
+
+        Self::try_new(DType::Extension(ext_dtype), storage.into_value())
             .vortex_expect("unable to construct an extension `Scalar`")
     }
 }
