@@ -60,11 +60,11 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_zigzag::ZigZagVTable
 
 pub fn vortex_zigzag::ZigZagVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_zigzag::ZigZagVTable
+impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_zigzag::ZigZagVTable
 
 pub fn vortex_zigzag::ZigZagVTable::cast(array: &vortex_zigzag::ZigZagArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::expr::exprs::mask::kernel::MaskReduce for vortex_zigzag::ZigZagVTable
+impl vortex_array::scalar_fn::fns::mask::kernel::MaskReduce for vortex_zigzag::ZigZagVTable
 
 pub fn vortex_zigzag::ZigZagVTable::mask(array: &vortex_zigzag::ZigZagArray, mask: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 

@@ -160,11 +160,11 @@ impl vortex_array::arrays::slice::SliceKernel for vortex_alp::ALPRDVTable
 
 pub fn vortex_alp::ALPRDVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_alp::ALPRDVTable
+impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_alp::ALPRDVTable
 
 pub fn vortex_alp::ALPRDVTable::cast(array: &vortex_alp::ALPRDArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::expr::exprs::mask::kernel::MaskReduce for vortex_alp::ALPRDVTable
+impl vortex_array::scalar_fn::fns::mask::kernel::MaskReduce for vortex_alp::ALPRDVTable
 
 pub fn vortex_alp::ALPRDVTable::mask(array: &vortex_alp::ALPRDArray, mask: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -256,23 +256,23 @@ impl vortex_array::compute::nan_count::NaNCountKernel for vortex_alp::ALPVTable
 
 pub fn vortex_alp::ALPVTable::nan_count(&self, array: &vortex_alp::ALPArray) -> vortex_error::VortexResult<usize>
 
-impl vortex_array::expr::exprs::between::kernel::BetweenReduce for vortex_alp::ALPVTable
+impl vortex_array::scalar_fn::fns::between::kernel::BetweenReduce for vortex_alp::ALPVTable
 
-pub fn vortex_alp::ALPVTable::between(array: &vortex_alp::ALPArray, lower: &dyn vortex_array::array::Array, upper: &dyn vortex_array::array::Array, options: &vortex_array::expr::exprs::between::BetweenOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_alp::ALPVTable::between(array: &vortex_alp::ALPArray, lower: &dyn vortex_array::array::Array, upper: &dyn vortex_array::array::Array, options: &vortex_array::scalar_fn::fns::between::BetweenOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::expr::exprs::binary::compare::CompareKernel for vortex_alp::ALPVTable
+impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_alp::ALPVTable
 
-pub fn vortex_alp::ALPVTable::compare(lhs: &vortex_alp::ALPArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::expr::exprs::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_alp::ALPVTable::compare(lhs: &vortex_alp::ALPArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_alp::ALPVTable
+impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_alp::ALPVTable
 
 pub fn vortex_alp::ALPVTable::cast(array: &vortex_alp::ALPArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::expr::exprs::mask::kernel::MaskKernel for vortex_alp::ALPVTable
+impl vortex_array::scalar_fn::fns::mask::kernel::MaskKernel for vortex_alp::ALPVTable
 
 pub fn vortex_alp::ALPVTable::mask(array: &vortex_alp::ALPArray, mask: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::expr::exprs::mask::kernel::MaskReduce for vortex_alp::ALPVTable
+impl vortex_array::scalar_fn::fns::mask::kernel::MaskReduce for vortex_alp::ALPVTable
 
 pub fn vortex_alp::ALPVTable::mask(array: &vortex_alp::ALPArray, mask: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 

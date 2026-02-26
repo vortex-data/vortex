@@ -40,7 +40,8 @@ use crate::scalar_fn::typed::ScalarFnInner;
 /// This stores a [`ScalarFnVTable`] and its options behind an `Arc<dyn DynScalarFn>`, allowing
 /// heterogeneous storage inside [`Expression`] and [`crate::arrays::ScalarFnArray`].
 ///
-/// Use [`ScalarFn::new`] to construct, and [`ScalarFn::erased`] to obtain a `ScalarFnRef`.
+/// Use [`super::ScalarFn::new()`] to construct, and [`super::ScalarFn::erased()`] to obtain a
+/// [`ScalarFnRef`].
 #[derive(Clone)]
 pub struct ScalarFnRef(pub(crate) Arc<dyn DynScalarFn>);
 
