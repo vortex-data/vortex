@@ -7,15 +7,14 @@ use std::cmp::Ordering;
 use std::hash::Hash;
 use std::hash::Hasher;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::dtype::NativeDType;
 use crate::dtype::PType;
-use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -88,12 +87,7 @@ impl Scalar {
     ///
     /// Returns an error if the given [`DType`] and [`ScalarValue`] are incompatible.
     pub fn try_new(dtype: DType, value: Option<ScalarValue>) -> VortexResult<Self> {
-        vortex_ensure!(
-            Self::is_compatible(&dtype, value.as_ref()),
-            "Incompatible dtype {dtype} with value {}",
-            value.map(|v| format!("{}", v)).unwrap_or_default()
-        );
-
+        Self::validate(&dtype, value.as_ref())?;
         Ok(Self { dtype, value })
     }
 
@@ -103,13 +97,11 @@ impl Scalar {
     /// # Safety
     ///
     /// The caller must ensure that the given [`DType`] and [`ScalarValue`] are compatible per the
-    /// rules defined in [`Self::is_compatible`].
+    /// rules defined in [`Self::validate`].
     pub unsafe fn new_unchecked(dtype: DType, value: Option<ScalarValue>) -> Self {
-        debug_assert!(
-            Self::is_compatible(&dtype, value.as_ref()),
-            "Incompatible dtype {dtype} with value {}",
-            value.map(|v| format!("{}", v)).unwrap_or_default()
-        );
+        #[cfg(debug_assertions)]
+        Self::validate(&dtype, value.as_ref())
+            .vortex_expect("Scalar::new_unchecked called with incompatible dtype and value");
 
         Self { dtype, value }
     }
@@ -140,85 +132,6 @@ impl Scalar {
     }
 
     // Other methods.
-
-    /// Check if the given [`ScalarValue`] is compatible with the given [`DType`].
-    pub fn is_compatible(dtype: &DType, value: Option<&ScalarValue>) -> bool {
-        let Some(value) = value else {
-            return dtype.is_nullable();
-        };
-        // From here on, we know that the value is not null.
-
-        match dtype {
-            DType::Null => false,
-            DType::Bool(_) => matches!(value, ScalarValue::Bool(_)),
-            DType::Primitive(ptype, _) => {
-                if let ScalarValue::Primitive(pvalue) = value {
-                    // Note that this is a backwards compatibility check for poor design in the
-                    // previous implementation. `f16` `ScalarValue`s used to be serialized as
-                    // `pb::ScalarValue::Uint64Value(v.to_bits() as u64)`, so we need to ensure that
-                    // we can still represent them as such.
-                    let f16_backcompat_still_works =
-                        matches!(ptype, &PType::F16) && matches!(pvalue, PValue::U64(_));
-
-                    f16_backcompat_still_works || pvalue.ptype() == *ptype
-                } else {
-                    false
-                }
-            }
-            DType::Decimal(dec_dtype, _) => {
-                if let ScalarValue::Decimal(dvalue) = value {
-                    dvalue.fits_in_precision(*dec_dtype)
-                } else {
-                    false
-                }
-            }
-            DType::Utf8(_) => matches!(value, ScalarValue::Utf8(_)),
-            DType::Binary(_) => matches!(value, ScalarValue::Binary(_)),
-            DType::List(elem_dtype, _) => {
-                if let ScalarValue::List(elements) = value {
-                    elements
-                        .iter()
-                        .all(|element| Self::is_compatible(elem_dtype.as_ref(), element.as_ref()))
-                } else {
-                    false
-                }
-            }
-            DType::FixedSizeList(elem_dtype, size, _) => {
-                if let ScalarValue::List(elements) = value {
-                    if elements.len() != *size as usize {
-                        return false;
-                    }
-                    elements
-                        .iter()
-                        .all(|element| Self::is_compatible(elem_dtype.as_ref(), element.as_ref()))
-                } else {
-                    false
-                }
-            }
-            DType::Struct(fields, _) => {
-                if let ScalarValue::List(values) = value {
-                    if values.len() != fields.nfields() {
-                        return false;
-                    }
-                    for (field, field_value) in fields.fields().zip(values.iter()) {
-                        if !Self::is_compatible(&field, field_value.as_ref()) {
-                            return false;
-                        }
-                    }
-                    true
-                } else {
-                    false
-                }
-            }
-            DType::Extension(ext_dtype) => {
-                let ScalarValue::Extension(ext_value) = value else {
-                    return false;
-                };
-
-                ext_value.validate_dtype(ext_dtype).is_ok()
-            }
-        }
-    }
 
     /// Check if two scalars are equal, ignoring nullability of the [`DType`].
     pub fn eq_ignore_nullability(&self, other: &Self) -> bool {

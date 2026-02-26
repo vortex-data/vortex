@@ -12006,7 +12006,7 @@ pub fn vortex_array::scalar::Scalar::into_parts(self) -> (vortex_array::dtype::D
 
 pub fn vortex_array::scalar::Scalar::into_value(self) -> core::option::Option<vortex_array::scalar::ScalarValue>
 
-pub fn vortex_array::scalar::Scalar::is_compatible(dtype: &vortex_array::dtype::DType, value: core::option::Option<&vortex_array::scalar::ScalarValue>) -> bool
+pub fn vortex_array::scalar::Scalar::validate(dtype: &vortex_array::dtype::DType, value: core::option::Option<&vortex_array::scalar::ScalarValue>) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::scalar::Scalar::is_null(&self) -> bool
 

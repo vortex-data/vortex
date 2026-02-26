@@ -19,6 +19,7 @@ mod convert;
 mod display;
 mod downcast;
 mod proto;
+mod validate;
 
 use crate::dtype::DType;
 
