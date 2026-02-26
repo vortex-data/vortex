@@ -9,6 +9,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
+use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenKernel;
 use crate::scalar_fn::fns::between::BetweenOptions;
 
@@ -47,7 +48,11 @@ impl BetweenKernel for ConstantVTable {
 
             let result = lower_result && upper_result;
 
-            return Ok(Some(ConstantArray::new(result, len).into_array()));
+            let scalar = Scalar::bool(
+                result,
+                lower.dtype().nullability() | upper.dtype().nullability(),
+            );
+            return Ok(Some(ConstantArray::new(scalar, len).into_array()));
         }
 
         Ok(None)
