@@ -141,7 +141,7 @@ impl PinnedByteBufferPool {
     /// Try to get a pooled pinned buffer without performing expensive allocation.
     ///
     /// Returns `Ok(None)` if no buffer is available in the pool for the requested size class.
-    /// Unlike [`get`][Self::get], this will never call `cuMemAllocHost`.
+    /// Unlike `get`, this will never call `cuMemAllocHost`.
     pub fn try_get(self: &Arc<Self>, len: usize) -> VortexResult<Option<PooledPinnedBuffer>> {
         match self.try_get_inner(len)? {
             Some(inner) => Ok(Some(PooledPinnedBuffer::new(inner, self.clone()))),
@@ -270,7 +270,7 @@ pub struct PinnedPoolStats {
 
 /// A pinned buffer that is returned to its pool when dropped.
 ///
-/// This wrapper owns a [`PinnedByteBuffer`] and ensures it gets returned to the
+/// This wrapper owns a pinned byte buffer and ensures it gets returned to the
 /// [`PinnedByteBufferPool`] when the buffer is no longer needed. This enables efficient
 /// buffer reuse for I/O operations.
 pub struct PooledPinnedBuffer {
