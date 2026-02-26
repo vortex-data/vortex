@@ -134,9 +134,9 @@ impl<V: Copy> Lane<V> {
 }
 
 // Return some GPUPatches.
-pub(crate) fn transpose_patches(
+pub(crate) async fn transpose_patches(
     patches: Patches,
-    ctx: &mut ExecutionCtx,
+    ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<DevicePatches> {
     let array_len = patches.array_len();
     let offset = patches.offset();
@@ -144,26 +144,26 @@ pub(crate) fn transpose_patches(
     let indices = patches
         .indices()
         .clone()
-        .execute::<Canonical>(ctx)?
+        .execute::<Canonical>(ctx.execution_ctx())?
         .into_primitive();
     let values = patches
         .values()
         .clone()
-        .execute::<Canonical>(ctx)?
+        .execute::<Canonical>(ctx.execution_ctx())?
         .into_primitive();
 
     match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
         match_each_native_ptype!(values.ptype(), |V| {
-            let new_patches = transpose(
+            let host_patches = transpose(
                 indices.to_buffer::<I>().as_slice(),
                 values.to_buffer::<V>().as_slice(),
                 offset,
                 array_len,
             );
-        })
-    });
 
-    todo!()
+            host_patches.export_to_device(ctx).await
+        })
+    })
 }
 
 fn transpose<I: IntegerPType, V: NativePType>(

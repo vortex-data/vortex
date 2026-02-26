@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use cudarc::driver::CudaFunction;
@@ -16,13 +15,11 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBufferExt;
 use vortex::array::match_each_integer_ptype;
-use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::dtype::NativePType;
 use vortex::encodings::fastlanes::BitPackedArray;
 use vortex::encodings::fastlanes::BitPackedArrayParts;
 use vortex::encodings::fastlanes::BitPackedVTable;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
@@ -32,7 +29,8 @@ use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::kernel::patches::execute_patches;
+use crate::kernel::patches::gpu::GPUPatches;
+use crate::kernel::patches::types::transpose_patches;
 
 /// CUDA decoder for bit-packed arrays.
 #[derive(Debug)]
@@ -87,6 +85,12 @@ pub fn bitpacked_cuda_launch_config(output_width: usize, len: usize) -> VortexRe
     })
 }
 
+#[repr(transparent)]
+struct PatchesArg(GPUPatches);
+
+unsafe impl DeviceRepr for PatchesArg {}
+unsafe impl DeviceRepr for GPUPatches {}
+
 #[instrument(skip_all)]
 pub(crate) async fn decode_bitpacked<A>(
     array: BitPackedArray,
@@ -123,27 +127,41 @@ where
     let cuda_function = bitpacked_cuda_kernel(bit_width, output_width, ctx)?;
     let config = bitpacked_cuda_launch_config(output_width, len)?;
 
-    ctx.launch_kernel_config(&cuda_function, config, len, |args| {
-        args.arg(&input_view).arg(&output_view).arg(&reference);
-    })?;
+    // We hold this here to keep the device buffers alive.
+    let device_patches = if let Some(patches) = patches {
+        Some(transpose_patches(patches, ctx).await?)
+    } else {
+        None
+    };
 
-    let output_handle = match patches {
-        None => BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len))),
-        Some(p) => {
-            let output_buf = output_buf.slice_typed::<A>(offset..(offset + len));
-            let buf = output_buf
-                .as_any()
-                .downcast_ref::<CudaDeviceBuffer>()
-                .vortex_expect("we created this as CudaDeviceBuffer")
-                .clone();
-
-            let patched_buf = match_each_unsigned_integer_ptype!(p.indices_ptype()?, |I| {
-                execute_patches::<A, I>(p, buf, ctx).await?
-            });
-
-            BufferHandle::new_device(Arc::new(patched_buf))
+    let patches_arg = if let Some(p) = &device_patches {
+        GPUPatches {
+            n_chunks: p.n_chunks,
+            n_lanes: p.n_lanes,
+            lane_offsets: p.lane_offsets.cuda_device_ptr()? as _,
+            indices: p.indices.cuda_device_ptr()? as _,
+            values: p.values.cuda_device_ptr()? as _,
+        }
+    } else {
+        // empty patches, will be ignored by the kernel threads
+        GPUPatches {
+            n_chunks: 0,
+            n_lanes: 0,
+            lane_offsets: std::ptr::null_mut(),
+            indices: std::ptr::null_mut(),
+            values: std::ptr::null_mut(),
         }
     };
+
+    ctx.launch_kernel_config(&cuda_function, config, len, |args| {
+        args.arg(&input_view)
+            .arg(&output_view)
+            .arg(&reference)
+            .arg(&patches_arg);
+    })?;
+
+    let output_handle =
+        BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len)));
 
     // Build result with newly allocated buffer
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(

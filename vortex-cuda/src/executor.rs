@@ -79,6 +79,11 @@ impl CudaExecutionCtx {
         }
     }
 
+    /// Get a mutable handle to the CPU execution context.
+    pub fn execution_ctx(&mut self) -> &mut ExecutionCtx {
+        &mut self.ctx
+    }
+
     /// Set the launch strategy for the execution context.
     ///
     /// This can only be set on setup (an "owned" context) and not from within

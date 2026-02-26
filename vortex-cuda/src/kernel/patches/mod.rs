@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod types;
+pub mod types;
 
-mod gpu {
+pub mod gpu {
     include!(concat!(env!("OUT_DIR"), "/patches.rs"));
 }
 
