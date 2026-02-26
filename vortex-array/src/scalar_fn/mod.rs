@@ -11,14 +11,19 @@ use arcref::ArcRef;
 
 mod vtable;
 pub use vtable::*;
+
 mod plugin;
 pub use plugin::*;
+
 mod typed;
 pub use typed::*;
+
 mod erased;
 pub use erased::*;
+
 mod options;
 pub use options::*;
+
 mod signature;
 pub use signature::*;
 

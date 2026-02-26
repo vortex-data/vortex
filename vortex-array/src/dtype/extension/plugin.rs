@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use vortex_error::VortexResult;
 
@@ -10,6 +11,9 @@ use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
+
+/// Reference-counted pointer to an extension dtype plugin.
+pub type ExtDTypePluginRef = Arc<dyn ExtDTypePlugin>;
 
 /// Registry trait for ID-based deserialization of extension dtypes.
 ///

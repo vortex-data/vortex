@@ -43,7 +43,7 @@ use crate::scalar_fn::typed::ScalarFnInner;
 /// Use [`super::ScalarFn::new()`] to construct, and [`super::ScalarFn::erased()`] to obtain a
 /// [`ScalarFnRef`].
 #[derive(Clone)]
-pub struct ScalarFnRef(pub(crate) Arc<dyn DynScalarFn>);
+pub struct ScalarFnRef(pub(super) Arc<dyn DynScalarFn>);
 
 impl ScalarFnRef {
     /// Returns the ID of this scalar function.
