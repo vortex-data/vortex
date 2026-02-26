@@ -1,93 +1,48 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::fmt::Debug;
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::hash::Hash;
-use std::hash::Hasher;
+use std::sync::Arc;
 
-use arcref::ArcRef;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use crate::scalar_fn::ScalarFn;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::typed::DynScalarFnVTable;
-use crate::scalar_fn::typed::ScalarFnVTableAdapter;
 
-/// A Vortex scalar function vtable plugin, used to deserialize or instantiate scalar functions
-/// dynamically.
-#[derive(Clone)]
-pub struct ScalarFnPlugin(ArcRef<dyn DynScalarFnVTable>);
+/// Reference-counted pointer to a scalar function plugin.
+pub type ScalarFnPluginRef = Arc<dyn ScalarFnPlugin>;
 
-impl ScalarFnPlugin {
-    /// Creates a new [`ScalarFnPlugin`] from a vtable.
-    pub fn new<V: ScalarFnVTable>(vtable: V) -> Self {
-        Self(ArcRef::new_arc(std::sync::Arc::new(ScalarFnVTableAdapter(
-            vtable,
-        ))))
-    }
+/// Registry trait for ID-based deserialization of scalar functions.
+///
+/// Plugins are registered in the session by their [`ScalarFnId`]. When a serialized scalar
+/// function is encountered, the session resolves the ID to the plugin and calls [`deserialize`]
+/// to reconstruct the value as a [`ScalarFnRef`].
+///
+/// [`deserialize`]: ScalarFnPlugin::deserialize
+pub trait ScalarFnPlugin: 'static + Send + Sync {
+    /// Returns the ID for this scalar function.
+    fn id(&self) -> ScalarFnId;
 
-    /// Creates a new [`ScalarFnPlugin`] from a static reference to a vtable.
-    pub const fn new_static<V: ScalarFnVTable>(vtable: &'static V) -> Self {
-        // SAFETY: We can safely cast the vtable to a ScalarFnVTableAdapter since it has the same
-        // layout (#[repr(transparent)]).
-        let adapted: &'static ScalarFnVTableAdapter<V> =
-            unsafe { &*(vtable as *const V as *const ScalarFnVTableAdapter<V>) };
-        Self(ArcRef::new_ref(adapted as &'static dyn DynScalarFnVTable))
-    }
+    /// Deserialize a scalar function from serialized metadata.
+    fn deserialize(&self, metadata: &[u8], session: &VortexSession) -> VortexResult<ScalarFnRef>;
+}
 
-    /// Returns the ID of this vtable.
-    pub fn id(&self) -> ScalarFnId {
-        self.0.id()
-    }
-
-    /// Returns whether this vtable is of a given type.
-    pub fn is<V: ScalarFnVTable>(&self) -> bool {
-        self.0.as_any().is::<V>()
-    }
-
-    /// Return the vtable as an Any reference.
-    pub fn as_any(&self) -> &dyn Any {
-        self.0.as_any()
-    }
-
-    /// Deserialize options of this scalar function vtable from metadata, returning a bound
-    /// [`ScalarFnRef`].
-    pub fn deserialize(
-        &self,
-        metadata: &[u8],
-        session: &VortexSession,
-    ) -> VortexResult<ScalarFnRef> {
-        let options = self.0.options_deserialize(metadata, session)?;
-        Ok(self.0.bind_deserialized(options))
+impl Debug for dyn ScalarFnPlugin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("ScalarFnPlugin").field(&self.id()).finish()
     }
 }
 
-impl PartialEq for ScalarFnPlugin {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.id() == other.0.id()
+impl<V: ScalarFnVTable> ScalarFnPlugin for V {
+    fn id(&self) -> ScalarFnId {
+        ScalarFnVTable::id(self)
     }
-}
-impl Eq for ScalarFnPlugin {}
 
-impl Hash for ScalarFnPlugin {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.id().hash(state);
-    }
-}
-
-impl Display for ScalarFnPlugin {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.id())
-    }
-}
-
-impl Debug for ScalarFnPlugin {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.id())
+    fn deserialize(&self, metadata: &[u8], session: &VortexSession) -> VortexResult<ScalarFnRef> {
+        let options = ScalarFnVTable::deserialize(self, metadata, session)?;
+        Ok(ScalarFn::new(self.clone(), options).erased())
     }
 }
