@@ -33,7 +33,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
 
         let scalar = match result.execute::<Columnar>(&mut ctx)? {
             Columnar::Canonical(arr) => {
-                tracing::info!(
+                tracing::trace!(
                     "Scalar function {} returned non-constant array from execution over all scalar inputs",
                     array.scalar_fn,
                 );
