@@ -6,8 +6,6 @@
 //! - [`ScalarFn<V>`]: The public typed wrapper, parameterized by a concrete [`ScalarFnVTable`].
 //! - [`ScalarFnInner<V>`]: The private inner struct that holds the vtable + options.
 //! - [`DynScalarFn`]: The private sealed trait for type-erased dispatch (bound, options in self).
-//! - [`DynScalarFnVTable`]: The private trait for vtable-only dispatch (no options).
-//! - [`ScalarFnVTableAdapter<V>`]: The vtable-only adapter used by [`super::ScalarFnPlugin`].
 
 use std::any::Any;
 use std::fmt;
@@ -18,9 +16,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::dtype::DType;
@@ -38,69 +34,11 @@ use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::SimplifyCtx;
 
-// ============================================================================
-// DynScalarFnVTable — vtable-only trait (for ScalarFnPlugin)
-// ============================================================================
-
-/// An object-safe trait for vtable-only dispatch (no bound options).
-///
-/// Used by [`ScalarFnPlugin`] for registration, identity, and deserialization.
-/// Methods that require options take them as `&dyn Any` parameters.
-pub(crate) trait DynScalarFnVTable: 'static + Send + Sync {
-    fn as_any(&self) -> &dyn Any;
-    fn id(&self) -> ScalarFnId;
-
-    fn options_deserialize(
-        &self,
-        metadata: &[u8],
-        session: &VortexSession,
-    ) -> VortexResult<Box<dyn Any + Send + Sync>>;
-
-    /// Bind deserialized options to create a [`ScalarFnRef`].
-    fn bind_deserialized(&self, options: Box<dyn Any + Send + Sync>) -> ScalarFnRef;
-}
-
-/// Vtable-only adapter, wraps `V` for [`ScalarFnPlugin`].
-#[repr(transparent)]
-pub(super) struct ScalarFnVTableAdapter<V>(pub(super) V);
-
-impl<V: ScalarFnVTable> DynScalarFnVTable for ScalarFnVTableAdapter<V> {
-    #[inline(always)]
-    fn as_any(&self) -> &dyn Any {
-        &self.0
-    }
-
-    #[inline(always)]
-    fn id(&self) -> ScalarFnId {
-        V::id(&self.0)
-    }
-
-    fn options_deserialize(
-        &self,
-        bytes: &[u8],
-        session: &VortexSession,
-    ) -> VortexResult<Box<dyn Any + Send + Sync>> {
-        Ok(Box::new(V::deserialize(&self.0, bytes, session)?))
-    }
-
-    fn bind_deserialized(&self, options: Box<dyn Any + Send + Sync>) -> ScalarFnRef {
-        let options = *options
-            .downcast::<V::Options>()
-            .ok()
-            .vortex_expect("Failed to downcast deserialized options to expected type");
-        ScalarFn::<V>::new(self.0.clone(), options).erased()
-    }
-}
-
-// ============================================================================
-// DynScalarFn — bound trait (for ScalarFnRef), options stored in self
-// ============================================================================
-
 /// An object-safe, sealed trait for bound scalar function dispatch.
 ///
 /// Options are stored inside the implementing [`ScalarFnInner<V>`], not passed externally.
 /// This is the sole trait behind [`ScalarFnRef`]'s `Arc<dyn DynScalarFn>`.
-pub(crate) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
+pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn as_any(&self) -> &dyn Any;
     fn id(&self) -> ScalarFnId;
     fn options_any(&self) -> &dyn Any;
@@ -146,10 +84,6 @@ pub(crate) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn options_display(&self, f: &mut Formatter<'_>) -> fmt::Result;
     fn options_debug(&self, f: &mut Formatter<'_>) -> fmt::Result;
 }
-
-// ============================================================================
-// ScalarFnInner<V> — bound adapter (vtable + options)
-// ============================================================================
 
 /// The private inner representation of a bound scalar function, pairing a vtable with its options.
 ///
@@ -299,10 +233,6 @@ impl<V: ScalarFnVTable> DynScalarFn for ScalarFnInner<V> {
         Debug::fmt(&self.options, f)
     }
 }
-
-// ============================================================================
-// ScalarFn<V> — typed wrapper
-// ============================================================================
 
 /// A typed scalar function instance, parameterized by a concrete [`ScalarFnVTable`].
 ///

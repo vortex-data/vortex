@@ -14,19 +14,19 @@
 //! - `matcher.rs` — `Matcher` trait + blanket impl for `V: FooVTable`
 
 mod vtable;
-pub use vtable::ExtVTable;
+pub use vtable::*;
 
 mod plugin;
-pub use plugin::ExtDTypePlugin;
+pub use plugin::*;
 
 mod typed;
-pub use typed::ExtDType;
+pub use typed::*;
 
 mod erased;
-pub use erased::ExtDTypeRef;
+pub use erased::*;
 
 mod matcher;
-pub use matcher::Matcher;
+pub use matcher::*;
 
 /// A unique identifier for an extension type
 pub type ExtId = arcref::ArcRef<str>;

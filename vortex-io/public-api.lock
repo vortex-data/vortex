@@ -494,7 +494,9 @@ pub vortex_io::CoalesceConfig::max_size: u64
 
 impl vortex_io::CoalesceConfig
 
-pub const fn vortex_io::CoalesceConfig::local() -> Self
+pub const fn vortex_io::CoalesceConfig::file() -> Self
+
+pub const fn vortex_io::CoalesceConfig::in_memory() -> Self
 
 pub const fn vortex_io::CoalesceConfig::new(distance: u64, max_size: u64) -> Self
 

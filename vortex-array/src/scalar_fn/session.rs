@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
 
-use crate::scalar_fn::ScalarFnPlugin;
+use crate::scalar_fn::ScalarFnPluginRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::binary::Binary;
@@ -23,7 +25,8 @@ use crate::scalar_fn::fns::root::Root;
 use crate::scalar_fn::fns::select::Select;
 
 /// Registry of scalar function vtables.
-pub type ScalarFnRegistry = Registry<ScalarFnPlugin>;
+/// Registry of scalar function vtables.
+pub type ScalarFnRegistry = Registry<ScalarFnPluginRef>;
 
 /// Session state for scalar function vtables and rewrite rules.
 #[derive(Debug)]
@@ -38,8 +41,8 @@ impl ScalarFnSession {
 
     /// Register a scalar function vtable in the session, replacing any existing vtable with the same ID.
     pub fn register<V: ScalarFnVTable>(&self, vtable: V) {
-        let plugin = ScalarFnPlugin::new(vtable);
-        self.registry.register(plugin.id(), plugin);
+        self.registry
+            .register(vtable.id(), Arc::new(vtable) as ScalarFnPluginRef);
     }
 }
 
