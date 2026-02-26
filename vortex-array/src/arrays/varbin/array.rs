@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::AsPrimitive;
-use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -11,7 +10,6 @@ use vortex_error::vortex_err;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::buffer::BufferHandle;
@@ -374,39 +372,6 @@ impl VarBinArray {
     /// the `offsets` array, and the `validity`.
     pub fn into_parts(self) -> (DType, BufferHandle, ArrayRef, Validity) {
         (self.dtype, self.bytes, self.offsets, self.validity)
-    }
-}
-
-impl VarBinArray {
-    /// Return an array containing the same data, but where the internal `offsets` start at zero
-    /// and all wasted space in the bytes child has been clipped.
-    #[doc(hidden)]
-    pub fn zero_offsets(self) -> Self {
-        if self.is_empty() {
-            return self;
-        }
-
-        let first = self.offset_at(0);
-
-        let bytes = self.sliced_bytes();
-        let dtype = self.dtype;
-        let validity = self.validity;
-        let offsets = self.offsets;
-
-        let offsets = if first == 0 {
-            offsets
-        } else {
-            let offsets = offsets.to_primitive();
-            match_each_integer_ptype!(offsets.ptype(), |P| {
-                let offsets = offsets.as_slice::<P>();
-                let buffer: Buffer<P> = offsets.iter().map(|index| index - offsets[0]).collect();
-                buffer.into_array()
-            })
-        };
-
-        // SAFETY: we make the first offset start at zero, and slice the bytes accordingly,
-        //  so all offsets stay valid.
-        unsafe { Self::new_unchecked(offsets, bytes, dtype, validity) }
     }
 }
 
