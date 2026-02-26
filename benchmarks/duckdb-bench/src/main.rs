@@ -3,7 +3,6 @@
 
 mod validation;
 
-use std::ops::Deref;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -21,6 +20,7 @@ use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
 use vortex_bench::create_output_writer;
 use vortex_bench::display::DisplayFormat;
+use vortex_bench::runner::BenchmarkMode;
 use vortex_bench::runner::SqlBenchmarkRunner;
 use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
@@ -149,37 +149,17 @@ fn main() -> anyhow::Result<()> {
 
     let benchmark_name = benchmark.dataset().to_string();
 
-    if args.explain {
-        runner.explain_all(
-            &filtered_queries,
-            |format| {
-                let ctx = DuckClient::new(
-                    &*benchmark,
-                    format,
-                    args.delete_duckdb_database,
-                    args.threads,
-                )?;
-                ctx.register_tables(&*benchmark, format)?;
-                Ok(ctx)
-            },
-            |ctx, _query_idx, _format, query| {
-                let result = ctx.connection().query(&format!("EXPLAIN {query}"))?;
-                let mut output = String::new();
-                for chunk in result {
-                    let chunk_str =
-                        String::try_from(chunk.deref()).unwrap_or_else(|_| "<error>".to_string());
-                    output.push_str(&chunk_str);
-                }
-                Ok(output)
-            },
-        )?;
-
-        return Ok(());
-    }
+    let mode = if args.explain {
+        BenchmarkMode::Explain
+    } else {
+        BenchmarkMode::Run {
+            iterations: args.iterations,
+        }
+    };
 
     runner.run_all(
         &filtered_queries,
-        args.iterations,
+        mode,
         |format| {
             let ctx = DuckClient::new(
                 &*benchmark,
@@ -201,13 +181,15 @@ fn main() -> anyhow::Result<()> {
             if !args.reuse {
                 ctx.reopen()?;
             }
-            ctx.execute_query(query)
+            ctx.execute_query_result(query)
         },
     )?;
 
-    let benchmark_id = format!("duckdb-{}", benchmark.dataset_name());
-    let writer = create_output_writer(&args.display_format, args.output_path, &benchmark_id)?;
-    runner.export_to(&args.display_format, writer)?;
+    if !args.explain {
+        let benchmark_id = format!("duckdb-{}", benchmark.dataset_name());
+        let writer = create_output_writer(&args.display_format, args.output_path, &benchmark_id)?;
+        runner.export_to(&args.display_format, writer)?;
+    }
 
     Ok(())
 }
