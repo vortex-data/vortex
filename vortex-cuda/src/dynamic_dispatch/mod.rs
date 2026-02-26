@@ -316,7 +316,7 @@ mod tests {
         data: &[u32],
     ) -> VortexResult<(u64, Arc<cudarc::driver::CudaSlice<u32>>)> {
         let device_buf = Arc::new(cuda_ctx.stream().clone_htod(data).expect("htod"));
-        let ptr = device_buf.device_ptr(cuda_ctx.stream()).0;
+        let (ptr, _) = device_buf.device_ptr(cuda_ctx.stream());
         Ok((ptr, device_buf))
     }
 
@@ -372,7 +372,8 @@ mod tests {
             .device_alloc::<u32>(output_len)
             .vortex_expect("alloc output");
         let output_buf = CudaDeviceBuffer::new(output_slice);
-        let output_ptr = output_buf.as_view::<u32>().device_ptr(cuda_ctx.stream()).0;
+        let output_view = output_buf.as_view::<u32>();
+        let (output_ptr, record_output) = output_view.device_ptr(cuda_ctx.stream());
 
         let device_plan = Arc::new(
             cuda_ctx
@@ -380,7 +381,7 @@ mod tests {
                 .clone_htod(std::slice::from_ref(plan))
                 .expect("copy plan to device"),
         );
-        let plan_ptr = device_plan.device_ptr(cuda_ctx.stream()).0;
+        let (plan_ptr, record_plan) = device_plan.device_ptr(cuda_ctx.stream());
         let array_len_u64 = output_len as u64;
 
         cuda_ctx.stream().synchronize().expect("sync");
@@ -402,6 +403,7 @@ mod tests {
         unsafe {
             launch_builder.launch(config).expect("kernel launch");
         }
+        drop((record_output, record_plan));
 
         Ok(cuda_ctx
             .stream()

@@ -51,14 +51,16 @@ const BENCH_ARGS: &[(usize, &str)] = &[
 /// Launch the dynamic_dispatch kernel and return GPU-timed duration.
 fn run_timed(
     cuda_ctx: &mut CudaExecutionCtx,
-    output_ptr: u64,
     array_len: usize,
+    output_buf: &CudaDeviceBuffer,
     device_plan: &Arc<cudarc::driver::CudaSlice<DynamicDispatchPlan>>,
     shared_mem_bytes: u32,
 ) -> VortexResult<Duration> {
     let cuda_function = cuda_ctx.load_function("dynamic_dispatch", &["u32"])?;
     let array_len_u64 = array_len as u64;
-    let plan_ptr = device_plan.device_ptr(cuda_ctx.stream()).0;
+    let output_view = output_buf.as_view::<u32>();
+    let (output_ptr, record_output) = output_view.device_ptr(cuda_ctx.stream());
+    let (plan_ptr, record_plan) = device_plan.device_ptr(cuda_ctx.stream());
 
     let stream = cuda_ctx.stream();
     let ctx = stream.context();
@@ -86,6 +88,7 @@ fn run_timed(
             .launch(config)
             .map_err(|e| vortex_err!("kernel launch failed: {e}"))?;
     }
+    drop((record_output, record_plan));
 
     let stream = cuda_ctx.stream();
     let ctx = stream.context();
@@ -105,11 +108,10 @@ fn run_timed(
 struct BenchRunner {
     _plan: DynamicDispatchPlan,
     smem_bytes: u32,
-    output_ptr: u64,
     len: usize,
     // Keep alive
-    _device_plan: Arc<cudarc::driver::CudaSlice<DynamicDispatchPlan>>,
-    _output_buf: CudaDeviceBuffer,
+    device_plan: Arc<cudarc::driver::CudaSlice<DynamicDispatchPlan>>,
+    output_buf: CudaDeviceBuffer,
     _plan_buffers: Vec<vortex::array::buffer::BufferHandle>,
 }
 
@@ -130,15 +132,13 @@ impl BenchRunner {
             .device_alloc::<u32>(len.next_multiple_of(1024))
             .expect("alloc output");
         let output_buf = CudaDeviceBuffer::new(output_slice);
-        let output_ptr = output_buf.as_view::<u32>().device_ptr(cuda_ctx.stream()).0;
 
         Self {
             _plan: plan,
             smem_bytes,
-            output_ptr,
             len,
-            _device_plan: device_plan,
-            _output_buf: output_buf,
+            device_plan,
+            output_buf,
             _plan_buffers: plan_buffers,
         }
     }
@@ -147,9 +147,9 @@ impl BenchRunner {
         cuda_ctx.stream().synchronize().unwrap();
         run_timed(
             cuda_ctx,
-            self.output_ptr,
             self.len,
-            &self._device_plan,
+            &self.output_buf,
+            &self.device_plan,
             self.smem_bytes,
         )
         .unwrap()
