@@ -432,6 +432,32 @@ pub const f32::SWEET: Self
 
 pub fn f32::as_int(self) -> Self::ALPInt
 
+pub fn f32::decode(encoded: &[Self::ALPInt], exponents: vortex_alp::Exponents) -> alloc::vec::Vec<Self>
+
+pub fn f32::decode_buffer(encoded: vortex_buffer::buffer_mut::BufferMut<Self::ALPInt>, exponents: vortex_alp::Exponents) -> vortex_buffer::buffer_mut::BufferMut<Self>
+
+pub fn f32::decode_into(encoded: &[Self::ALPInt], exponents: vortex_alp::Exponents, output: &mut [Self])
+
+pub fn f32::decode_single(encoded: Self::ALPInt, exponents: vortex_alp::Exponents) -> Self
+
+pub fn f32::decode_slice_inplace(encoded: &mut [Self::ALPInt], exponents: vortex_alp::Exponents)
+
+pub fn f32::encode(values: &[Self], exponents: core::option::Option<vortex_alp::Exponents>) -> (vortex_alp::Exponents, vortex_buffer::buffer::Buffer<Self::ALPInt>, vortex_buffer::buffer::Buffer<u64>, vortex_buffer::buffer::Buffer<Self>, vortex_buffer::buffer_mut::BufferMut<u64>)
+
+pub fn f32::encode_above(value: Self, exponents: vortex_alp::Exponents) -> Self::ALPInt
+
+pub fn f32::encode_below(value: Self, exponents: vortex_alp::Exponents) -> Self::ALPInt
+
+pub fn f32::encode_single(value: Self, exponents: vortex_alp::Exponents) -> core::option::Option<Self::ALPInt>
+
+pub fn f32::encode_single_unchecked(value: Self, exponents: vortex_alp::Exponents) -> Self::ALPInt
+
+pub fn f32::estimate_encoded_size(encoded: &[Self::ALPInt], patches: &[Self]) -> usize
+
+pub fn f32::fast_round(self) -> Self
+
+pub fn f32::find_best_exponents(values: &[Self]) -> vortex_alp::Exponents
+
 pub fn f32::from_int(n: Self::ALPInt) -> Self
 
 impl vortex_alp::ALPFloat for f64
@@ -449,6 +475,32 @@ pub const f64::MAX_EXPONENT: u8
 pub const f64::SWEET: Self
 
 pub fn f64::as_int(self) -> Self::ALPInt
+
+pub fn f64::decode(encoded: &[Self::ALPInt], exponents: vortex_alp::Exponents) -> alloc::vec::Vec<Self>
+
+pub fn f64::decode_buffer(encoded: vortex_buffer::buffer_mut::BufferMut<Self::ALPInt>, exponents: vortex_alp::Exponents) -> vortex_buffer::buffer_mut::BufferMut<Self>
+
+pub fn f64::decode_into(encoded: &[Self::ALPInt], exponents: vortex_alp::Exponents, output: &mut [Self])
+
+pub fn f64::decode_single(encoded: Self::ALPInt, exponents: vortex_alp::Exponents) -> Self
+
+pub fn f64::decode_slice_inplace(encoded: &mut [Self::ALPInt], exponents: vortex_alp::Exponents)
+
+pub fn f64::encode(values: &[Self], exponents: core::option::Option<vortex_alp::Exponents>) -> (vortex_alp::Exponents, vortex_buffer::buffer::Buffer<Self::ALPInt>, vortex_buffer::buffer::Buffer<u64>, vortex_buffer::buffer::Buffer<Self>, vortex_buffer::buffer_mut::BufferMut<u64>)
+
+pub fn f64::encode_above(value: Self, exponents: vortex_alp::Exponents) -> Self::ALPInt
+
+pub fn f64::encode_below(value: Self, exponents: vortex_alp::Exponents) -> Self::ALPInt
+
+pub fn f64::encode_single(value: Self, exponents: vortex_alp::Exponents) -> core::option::Option<Self::ALPInt>
+
+pub fn f64::encode_single_unchecked(value: Self, exponents: vortex_alp::Exponents) -> Self::ALPInt
+
+pub fn f64::estimate_encoded_size(encoded: &[Self::ALPInt], patches: &[Self]) -> usize
+
+pub fn f64::fast_round(self) -> Self
+
+pub fn f64::find_best_exponents(values: &[Self]) -> vortex_alp::Exponents
 
 pub fn f64::from_int(n: Self::ALPInt) -> Self
 
@@ -470,6 +522,8 @@ impl vortex_alp::ALPRDFloat for f32
 
 pub type f32::UINT = u32
 
+pub const f32::BITS: usize
+
 pub fn f32::from_bits(bits: Self::UINT) -> Self
 
 pub fn f32::from_u16(value: u16) -> Self::UINT
@@ -481,6 +535,8 @@ pub fn f32::to_u16(bits: Self::UINT) -> u16
 impl vortex_alp::ALPRDFloat for f64
 
 pub type f64::UINT = u64
+
+pub const f64::BITS: usize
 
 pub fn f64::from_bits(bits: Self::UINT) -> Self
 

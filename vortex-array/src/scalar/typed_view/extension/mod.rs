@@ -10,6 +10,7 @@ use std::hash::Hash;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
@@ -27,6 +28,8 @@ pub struct ExtScalar<'a> {
     dtype: &'a DType,
 
     /// The extension data type reference.
+    ///
+    /// We store this here as a convenience so that we do not need to unwrap the dtype every time.
     ext_dtype: &'a ExtDTypeRef,
 
     /// The underlying scalar value, or [`None`] if null.
@@ -35,6 +38,8 @@ pub struct ExtScalar<'a> {
 
 impl Display for ExtScalar<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        // TODO(connor): Use the vtable fmt implementation.
+
         // Specialized handling for date/time/timestamp builtin extension types.
         if let Some(temporal) = self.ext_dtype.metadata_opt::<AnyTemporal>() {
             let maybe_timestamp = self
@@ -55,56 +60,23 @@ impl Display for ExtScalar<'_> {
     }
 }
 
-impl PartialEq for ExtScalar<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.ext_dtype.eq_ignore_nullability(other.ext_dtype)
-            && self.to_storage_scalar() == other.to_storage_scalar()
-    }
-}
-
-impl Eq for ExtScalar<'_> {}
-
-// Ord is not implemented since it's undefined for different Extension DTypes
-impl PartialOrd for ExtScalar<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if !self.ext_dtype.eq_ignore_nullability(other.ext_dtype) {
-            return None;
-        }
-        self.to_storage_scalar()
-            .partial_cmp(&other.to_storage_scalar())
-    }
-}
-
-impl Hash for ExtScalar<'_> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.ext_dtype.hash(state);
-        self.to_storage_scalar().hash(state);
-    }
-}
-
 impl<'a> ExtScalar<'a> {
-    // TODO(connor): This should really be validating the data on construction!!!
     /// Creates a new extension scalar from a data type and scalar value.
     ///
-    /// # Errors
+    /// # Safety
     ///
-    /// Returns an error if the data type is not an extension type.
-    pub fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
+    /// The caller must ensure that the dtype is an extension type and that the scalar value has
+    /// been verified to be valid for the extension type.
+    pub(crate) fn new_unchecked(dtype: &'a DType, value: Option<&'a ScalarValue>) -> Self {
         let DType::Extension(ext_dtype) = dtype else {
-            vortex_bail!("Expected extension scalar, found {}", dtype)
+            vortex_panic!("Expected extension scalar, found {}", dtype)
         };
 
-        Ok(Self {
+        Self {
             dtype,
             ext_dtype,
             value,
-        })
-    }
-
-    /// Returns the storage scalar of the extension scalar.
-    pub fn to_storage_scalar(&self) -> Scalar {
-        Scalar::try_new(self.ext_dtype.storage_dtype().clone(), self.value.cloned())
-            .vortex_expect("ExtScalar is invalid")
+        }
     }
 
     /// Return the [`DType`] of the extension scalar.
@@ -115,6 +87,12 @@ impl<'a> ExtScalar<'a> {
     /// Returns the extension data type.
     pub fn ext_dtype(&self) -> &'a ExtDTypeRef {
         self.ext_dtype
+    }
+
+    /// Returns the storage scalar of the extension scalar.
+    pub fn to_storage_scalar(&self) -> Scalar {
+        Scalar::try_new(self.ext_dtype.storage_dtype().clone(), self.value.cloned())
+            .vortex_expect("ExtScalar is invalid")
     }
 
     /// Casts this scalar to the given `dtype`.
@@ -145,6 +123,35 @@ impl<'a> ExtScalar<'a> {
             self.ext_dtype.storage_dtype(),
             dtype
         );
+    }
+}
+
+// TODO(connor): In the future we may want to allow implementors to customize this behavior.
+
+impl PartialEq for ExtScalar<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.ext_dtype.eq_ignore_nullability(other.ext_dtype)
+            && self.to_storage_scalar() == other.to_storage_scalar()
+    }
+}
+
+impl Eq for ExtScalar<'_> {}
+
+// Ord is not implemented since it's undefined for different Extension DTypes
+impl PartialOrd for ExtScalar<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if !self.ext_dtype.eq_ignore_nullability(other.ext_dtype) {
+            return None;
+        }
+        self.to_storage_scalar()
+            .partial_cmp(&other.to_storage_scalar())
+    }
+}
+
+impl Hash for ExtScalar<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.ext_dtype.hash(state);
+        self.to_storage_scalar().hash(state);
     }
 }
 

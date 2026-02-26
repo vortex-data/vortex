@@ -886,7 +886,7 @@ mod tests {
         );
 
         // 2 outer elements * 2 inner elements * 4 bytes (i32) = 16 bytes.
-        assert_eq!(outer.nbytes(), 16);
+        assert_eq!(outer.approx_nbytes(), 16);
     }
 
     // Tests merged from fixed_size_list.rs
@@ -1180,11 +1180,11 @@ mod tests {
             ],
             Nullability::NonNullable,
         );
-        assert_eq!(fixed_list.nbytes(), 12);
+        assert_eq!(fixed_list.approx_nbytes(), 12);
 
         // Empty FixedSizeList[0] = 0 bytes.
         let empty_list = Scalar::fixed_size_list(element_dtype, vec![], Nullability::NonNullable);
-        assert_eq!(empty_list.nbytes(), 0);
+        assert_eq!(empty_list.approx_nbytes(), 0);
 
         // FixedSizeList with strings.
         let string_list = Scalar::fixed_size_list(
@@ -1195,7 +1195,7 @@ mod tests {
             ],
             Nullability::NonNullable,
         );
-        assert_eq!(string_list.nbytes(), 5);
+        assert_eq!(string_list.approx_nbytes(), 5);
     }
 
     #[test]
