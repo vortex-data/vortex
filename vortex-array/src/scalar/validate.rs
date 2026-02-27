@@ -118,7 +118,7 @@ impl Scalar {
                     Self::validate(&field, field_value.as_ref())?;
                 }
             }
-            DType::Extension(ext_dtype) => ext_dtype.validate_scalar_value(value)?,
+            DType::Extension(ext_dtype) => ext_dtype.validate_storage_value(value)?,
         }
 
         Ok(())

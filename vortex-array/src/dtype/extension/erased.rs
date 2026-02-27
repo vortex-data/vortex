@@ -48,20 +48,6 @@ impl ExtDTypeRef {
         self.0.storage_dtype()
     }
 
-    /// Validates that the given storage scalar value is valid for this dtype.
-    pub fn validate_scalar_value(&self, storage_value: &ScalarValue) -> VortexResult<()> {
-        self.0.validate_scalar_value(storage_value)
-    }
-
-    /// Formats an extension scalar value using the current dtype for metadata context.
-    pub fn fmt_value(
-        &self,
-        f: &mut fmt::Formatter<'_>,
-        storage_value: &ScalarValue,
-    ) -> fmt::Result {
-        self.0.fmt_value(f, storage_value)
-    }
-
     /// Returns the nullability of the storage dtype.
     pub fn nullability(&self) -> Nullability {
         self.storage_dtype().nullability()
@@ -89,6 +75,19 @@ impl ExtDTypeRef {
     /// Returns a `Display`-able view of just the metadata.
     pub fn display_metadata(&self) -> impl fmt::Display + '_ {
         MetadataDisplay(&*self.0)
+    }
+
+    /// Formats an extension scalar value using the current dtype for metadata context.
+    pub fn display_storage_value<'a>(
+        &'a self,
+        storage_value: &'a ScalarValue,
+    ) -> impl fmt::Display + 'a {
+        StorageValueDisplay(&*self.0, storage_value)
+    }
+
+    /// Validates that the given storage scalar value is valid for this dtype.
+    pub fn validate_storage_value(&self, storage_value: &ScalarValue) -> VortexResult<()> {
+        self.0.value_validate(storage_value)
     }
 
     /// Compute equality ignoring nullability.
@@ -209,5 +208,13 @@ struct MetadataDebug<'a>(&'a dyn DynExtDType);
 impl fmt::Debug for MetadataDebug<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.metadata_debug(f)
+    }
+}
+
+struct StorageValueDisplay<'a>(&'a dyn DynExtDType, &'a ScalarValue);
+
+impl fmt::Display for StorageValueDisplay<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.value_display(f, self.1)
     }
 }

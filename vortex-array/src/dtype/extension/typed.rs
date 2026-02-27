@@ -129,9 +129,10 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     /// Returns a new [`ExtDTypeRef`] with the given nullability.
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef;
     /// Validates that the given storage scalar value is valid for this dtype.
-    fn validate_scalar_value(&self, storage_value: &ScalarValue) -> VortexResult<()>;
+    fn value_validate(&self, storage_value: &ScalarValue) -> VortexResult<()>;
     /// Formats an extension scalar value using the current dtype for metadata context.
-    fn fmt_value(&self, f: &mut fmt::Formatter<'_>, storage_value: &ScalarValue) -> fmt::Result;
+    fn value_display(&self, f: &mut fmt::Formatter<'_>, storage_value: &ScalarValue)
+    -> fmt::Result;
 }
 
 impl<V: ExtVTable> DynExtDType for ExtDTypeInner<V> {
@@ -184,17 +185,27 @@ impl<V: ExtVTable> DynExtDType for ExtDTypeInner<V> {
             .erased()
     }
 
-    fn validate_scalar_value(&self, storage_value: &ScalarValue) -> VortexResult<()> {
+    fn value_validate(&self, storage_value: &ScalarValue) -> VortexResult<()> {
         self.vtable
             .validate_scalar_value(&self.metadata, &self.storage_dtype, storage_value)
     }
 
-    fn fmt_value(&self, f: &mut fmt::Formatter<'_>, storage_value: &ScalarValue) -> fmt::Result {
-        let native_value = self
+    fn value_display(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+        storage_value: &ScalarValue,
+    ) -> fmt::Result {
+        match self
             .vtable
             .unpack_native(&self.metadata, &self.storage_dtype, storage_value)
-            .vortex_expect("unable to unpack storage scalar for displaying");
-
-        write!(f, "{native_value}")
+        {
+            Ok(native) => fmt::Display::fmt(&native, f),
+            Err(_) => write!(
+                f,
+                "<error unpacking native storage value {:?} for extension type {}>",
+                storage_value,
+                self.id()
+            ),
+        }
     }
 }
