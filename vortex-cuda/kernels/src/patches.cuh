@@ -39,7 +39,7 @@ struct PatchesCursor {
             return;
         }
 
-        auto idx = chunk * 1024 + lane;
+        auto idx = chunk * patches.n_lanes + lane;
         auto startIdx = patches.lane_offsets[idx];
         auto stopIdx = patches.lane_offsets[idx + 1];
 
