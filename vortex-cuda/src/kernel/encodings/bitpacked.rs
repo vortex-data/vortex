@@ -125,7 +125,7 @@ where
 
     // We hold this here to keep the device buffers alive.
     let device_patches = if let Some(patches) = patches {
-        Some(transpose_patches(patches, ctx).await?)
+        Some(transpose_patches(&patches, ctx).await?)
     } else {
         None
     };
