@@ -4,10 +4,12 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::cast_possible_truncation)]
 
-use criterion::Criterion;
-use criterion::{BenchmarkId, Throughput};
-use futures::executor::block_on;
 use std::time::Duration;
+
+use criterion::BenchmarkId;
+use criterion::Criterion;
+use criterion::Throughput;
+use futures::executor::block_on;
 use vortex::buffer::Buffer;
 use vortex::buffer::buffer;
 use vortex::session::VortexSession;

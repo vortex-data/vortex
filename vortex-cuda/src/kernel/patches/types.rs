@@ -31,6 +31,17 @@ pub struct DevicePatches {
     pub(crate) values: BufferHandle,
 }
 
+/// Number of lanes used at patch time for a value of type `V`.
+///
+/// This is *NOT* equal to the number of FastLanes lanes for the type `V`, rather this will
+/// correspond with the number of CUDA threads dedicated to executing each 1024-element vector.
+const fn patch_lanes<V: Sized>() -> usize {
+    // For types 32-bits or smaller, we use a 32 lane configuration, and for 64-bit we use 16 lanes.
+    // This matches up with the number of lanes we use to execute copying results from bit-unpacking
+    // from shared to global memory.
+    if size_of::<V>() < 8 { 32 } else { 16 }
+}
+
 #[derive(Clone)]
 struct Chunk<V> {
     lanes: Vec<Lane<V>>,
@@ -39,7 +50,7 @@ struct Chunk<V> {
 impl<V: Copy + Default> Default for Chunk<V> {
     fn default() -> Self {
         Self {
-            lanes: vec![Lane::<V>::default(); if size_of::<V>() < 8 { 32 } else { 16 }],
+            lanes: vec![Lane::<V>::default(); patch_lanes::<V>()],
         }
     }
 }
@@ -187,10 +198,7 @@ fn transpose<I: IntegerPType, V: NativePType>(
         "Cannot transpose patches for array with >= 4 trillion elements"
     );
 
-    // For types 32-bits or smaller, we use a 32 lane configuration, and for 64-bit we use 16 lanes.
-    // This matches up with the number of lanes we use to execute copying results from bit-unpacking
-    // from shared to global memory.
-    let n_lanes = if size_of::<V>() < 8 { 32 } else { 16 };
+    let n_lanes = patch_lanes::<V>();
     let mut chunks: Vec<Chunk<V>> = vec![Chunk::default(); n_chunks];
 
     // For each chunk, for each lane, push new values
