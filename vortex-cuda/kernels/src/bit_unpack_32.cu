@@ -3290,29 +3290,28 @@ __device__ inline void bit_unpack_32_lane(
 __device__ void _bit_unpack_32_0bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_0bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_0bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3325,29 +3324,28 @@ extern "C" __global__ void bit_unpack_32_0bw_32t(const uint32_t *__restrict full
 __device__ void _bit_unpack_32_1bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_1bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_1bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3360,29 +3358,28 @@ extern "C" __global__ void bit_unpack_32_1bw_32t(const uint32_t *__restrict full
 __device__ void _bit_unpack_32_2bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_2bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_2bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3395,29 +3392,28 @@ extern "C" __global__ void bit_unpack_32_2bw_32t(const uint32_t *__restrict full
 __device__ void _bit_unpack_32_3bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_3bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_3bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3430,29 +3426,28 @@ extern "C" __global__ void bit_unpack_32_3bw_32t(const uint32_t *__restrict full
 __device__ void _bit_unpack_32_4bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_4bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_4bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3465,29 +3460,28 @@ extern "C" __global__ void bit_unpack_32_4bw_32t(const uint32_t *__restrict full
 __device__ void _bit_unpack_32_5bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_5bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_5bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3500,29 +3494,28 @@ extern "C" __global__ void bit_unpack_32_5bw_32t(const uint32_t *__restrict full
 __device__ void _bit_unpack_32_6bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_6bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_6bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3535,29 +3528,28 @@ extern "C" __global__ void bit_unpack_32_6bw_32t(const uint32_t *__restrict full
 __device__ void _bit_unpack_32_7bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_7bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_7bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3570,29 +3562,28 @@ extern "C" __global__ void bit_unpack_32_7bw_32t(const uint32_t *__restrict full
 __device__ void _bit_unpack_32_8bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_8bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_8bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3605,29 +3596,28 @@ extern "C" __global__ void bit_unpack_32_8bw_32t(const uint32_t *__restrict full
 __device__ void _bit_unpack_32_9bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_9bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_9bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3640,29 +3630,28 @@ extern "C" __global__ void bit_unpack_32_9bw_32t(const uint32_t *__restrict full
 __device__ void _bit_unpack_32_10bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_10bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_10bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3675,29 +3664,28 @@ extern "C" __global__ void bit_unpack_32_10bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_11bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_11bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_11bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3710,29 +3698,28 @@ extern "C" __global__ void bit_unpack_32_11bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_12bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_12bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_12bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3745,29 +3732,28 @@ extern "C" __global__ void bit_unpack_32_12bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_13bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_13bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_13bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3780,29 +3766,28 @@ extern "C" __global__ void bit_unpack_32_13bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_14bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_14bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_14bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3815,29 +3800,28 @@ extern "C" __global__ void bit_unpack_32_14bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_15bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_15bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_15bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3850,29 +3834,28 @@ extern "C" __global__ void bit_unpack_32_15bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_16bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_16bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_16bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3885,29 +3868,28 @@ extern "C" __global__ void bit_unpack_32_16bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_17bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_17bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_17bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3920,29 +3902,28 @@ extern "C" __global__ void bit_unpack_32_17bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_18bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_18bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_18bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3955,29 +3936,28 @@ extern "C" __global__ void bit_unpack_32_18bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_19bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_19bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_19bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -3990,29 +3970,28 @@ extern "C" __global__ void bit_unpack_32_19bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_20bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_20bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_20bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -4025,29 +4004,28 @@ extern "C" __global__ void bit_unpack_32_20bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_21bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_21bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_21bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -4060,29 +4038,28 @@ extern "C" __global__ void bit_unpack_32_21bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_22bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_22bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_22bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -4095,29 +4072,28 @@ extern "C" __global__ void bit_unpack_32_22bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_23bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_23bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_23bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -4130,29 +4106,28 @@ extern "C" __global__ void bit_unpack_32_23bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_24bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_24bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_24bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -4165,29 +4140,28 @@ extern "C" __global__ void bit_unpack_32_24bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_25bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_25bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_25bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -4200,29 +4174,28 @@ extern "C" __global__ void bit_unpack_32_25bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_26bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_26bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_26bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -4235,29 +4208,28 @@ extern "C" __global__ void bit_unpack_32_26bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_27bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_27bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_27bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -4270,29 +4242,28 @@ extern "C" __global__ void bit_unpack_32_27bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_28bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_28bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_28bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -4305,29 +4276,28 @@ extern "C" __global__ void bit_unpack_32_28bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_29bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_29bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_29bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -4340,29 +4310,28 @@ extern "C" __global__ void bit_unpack_32_29bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_30bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_30bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_30bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -4375,29 +4344,28 @@ extern "C" __global__ void bit_unpack_32_30bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_31bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_31bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_31bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
@@ -4410,29 +4378,28 @@ extern "C" __global__ void bit_unpack_32_31bw_32t(const uint32_t *__restrict ful
 __device__ void _bit_unpack_32_32bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint32_t shared_out[1024];
     _bit_unpack_32_32bw_lane(in, shared_out, reference, thread_idx * 1 + 0, patches);
-    // Setup the patches cursor so we can seek patches
-    PatchesCursor cursor(patches);
-    auto chunk = thread_idx / 1024;
-    cursor.seek(chunk, thread_idx);
-    for (int i = 0; i < 32; i++) {
-    bool has_patches = cursor.n_patches > 0;
-    uint16_t next_patch_index = cursor.get_index();
-    uint32_t next_patch_value = cursor.get_value<uint32_t>();
-        auto idx = i * 32 + thread_idx;
-        if (i == next_patch_index) {
-            out[idx] = next_patch_value;
-            // Advance the patches cursor
-            if (cursor.next()) {
-                next_patch_index = cursor.get_index();
-                next_patch_value = cursor.get_value<uint32_t>();
+        // Setup the patches cursor so we can seek patches
+        PatchesCursor cursor(patches);
+        auto chunk = thread_idx / 1024;
+        cursor.seek(chunk, thread_idx);
+        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
+        uint32_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint32_t>() : 0;
+        for (int i = 0; i < 32; i++) {
+            auto idx = i * 32 + thread_idx;
+            if (i == next_patch_index) {
+                out[idx] = next_patch_value;
+                // Advance the patches cursor
+                if (cursor.next()) {
+                    next_patch_index = cursor.get_index();
+                    next_patch_value = cursor.get_value<uint32_t>();
+                } else {
+                    // We have visited all patches
+                    next_patch_index = 1024;
+                }
             } else {
-                // We have visited all patches
-                next_patch_index = 1024;
+                out[idx] = shared_out[idx];
             }
-        } else {
-            out[idx] = shared_out[idx];
         }
-    }
 }
 
 extern "C" __global__ void bit_unpack_32_32bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
