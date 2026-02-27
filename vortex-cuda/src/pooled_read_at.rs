@@ -16,6 +16,7 @@ use object_store::ObjectStore;
 use object_store::path::Path as ObjectPath;
 use vortex::array::buffer::BufferHandle;
 use vortex::buffer::Alignment;
+use vortex::buffer::ByteBuffer;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
@@ -268,6 +269,76 @@ impl VortexReadAt for PooledObjectStoreReadAt {
                     );
                 }
             }
+
+            let cuda_buf = target.transfer_to_device(&stream)?;
+            Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
+        }
+        .boxed()
+    }
+}
+
+/// Default number of concurrent requests to allow for in-memory byte buffer I/O.
+pub const DEFAULT_BYTE_BUFFER_CONCURRENCY: usize = 16;
+
+/// In-memory byte buffer reader that uses CUDA pinned host memory for staging
+/// and transfers directly to the GPU.
+///
+/// Slices the source `ByteBuffer`, copies into a pooled pinned (page-locked)
+/// buffer, then submits a non-blocking H2D DMA transfer and returns a device
+/// `BufferHandle`.
+#[derive(Clone)]
+pub struct PooledByteBufferReadAt {
+    buffer: ByteBuffer,
+    pool: Arc<PinnedByteBufferPool>,
+    stream: VortexCudaStream,
+}
+
+impl PooledByteBufferReadAt {
+    /// Create a new in-memory reader with pinned host-buffer allocations and direct device transfer.
+    pub fn new(
+        buffer: ByteBuffer,
+        pool: Arc<PinnedByteBufferPool>,
+        stream: VortexCudaStream,
+    ) -> Self {
+        Self {
+            buffer,
+            pool,
+            stream,
+        }
+    }
+}
+
+impl VortexReadAt for PooledByteBufferReadAt {
+    fn coalesce_config(&self) -> Option<CoalesceConfig> {
+        Some(CoalesceConfig::in_memory())
+    }
+
+    fn concurrency(&self) -> usize {
+        DEFAULT_BYTE_BUFFER_CONCURRENCY
+    }
+
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        let len = self.buffer.len() as u64;
+        async move { Ok(len) }.boxed()
+    }
+
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        _alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let buffer = self.buffer.clone();
+        let stream = self.stream.clone();
+        let pool = Arc::clone(&self.pool);
+
+        async move {
+            let offset = usize::try_from(offset)
+                .map_err(|_| vortex_err!("Byte buffer read offset overflow: offset={}", offset))?;
+            let src = &buffer.as_ref()[offset..offset + length];
+
+            let mut target = pool.get(length)?;
+            target.as_mut_slice().copy_from_slice(src);
 
             let cuda_buf = target.transfer_to_device(&stream)?;
             Ok(BufferHandle::new_device(Arc::new(cuda_buf)))

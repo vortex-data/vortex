@@ -3,12 +3,12 @@
 
 #![allow(unused_imports)]
 
-use std::env::args;
 use std::fs::File;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use clap::Parser;
+use clap::Subcommand;
 use futures::StreamExt;
 use tracing::Instrument;
 use tracing_perfetto::PerfettoLayer;
@@ -20,25 +20,55 @@ use tracing_subscriber::util::SubscriberInitExt;
 use vortex::VortexSessionDefault;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::DictVTable;
-use vortex::buffer::ByteBuffer;
 use vortex::buffer::ByteBufferMut;
-use vortex::compressor::BtrBlocksCompressorBuilder;
-use vortex::compressor::FloatCode;
-use vortex::compressor::IntCode;
-use vortex::compressor::StringCode;
 use vortex::error::VortexResult;
-use vortex::file::Footer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
-use vortex_cuda::CopyDeviceReadAt;
 use vortex_cuda::CudaSession;
+use vortex_cuda::PinnedByteBufferPool;
+use vortex_cuda::PooledByteBufferReadAt;
+use vortex_cuda::PooledFileReadAt;
 use vortex_cuda::TracingLaunchStrategy;
 use vortex_cuda::VortexCudaStreamPool;
 use vortex_cuda::executor::CudaArrayExt;
+use vortex_cuda::layout::CudaFlatLayoutStrategy;
+use vortex_cuda::layout::register_cuda_layout;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
+
+#[derive(Parser)]
+#[command(name = "gpu-scan-cli", about = "CUDA GPU scan tool")]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Convert a Vortex file to use CUDA-compatible encodings.
+    Convert {
+        /// Path to input .vortex file.
+        #[arg(long)]
+        input: PathBuf,
+        /// Path to output CUDA-compatible .vortex file.
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Scan a Vortex file using GPU decompression.
+    Scan {
+        /// Path to .vortex file.
+        path: PathBuf,
+        /// If set, the file is already CUDA-compatible (skip recompression).
+        #[arg(long)]
+        gpu_file: bool,
+        /// Output logs as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+}
 
 #[cuda_not_available]
 fn main() {}
@@ -46,11 +76,51 @@ fn main() {}
 #[cuda_available]
 #[tokio::main]
 async fn main() -> VortexResult<()> {
-    let args: Vec<String> = args().collect();
-    let json_output = args.iter().any(|arg| arg == "--json");
+    let cli = Cli::parse();
 
+    match cli.command {
+        Command::Convert { input, output } => cmd_convert(input, output).await,
+        Command::Scan {
+            path,
+            gpu_file,
+            json,
+        } => cmd_scan(path, gpu_file, json).await,
+    }
+}
+
+/// Build the write strategy used for CUDA-compatible file output.
+#[cuda_available]
+fn cuda_write_strategy() -> Arc<dyn vortex::layout::LayoutStrategy> {
+    WriteStrategyBuilder::default()
+        .with_cuda_compatible_encodings()
+        .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
+        .build()
+}
+
+/// Convert an input Vortex file to CUDA-compatible encodings and write to disk.
+#[cuda_available]
+async fn cmd_convert(input: PathBuf, output: PathBuf) -> VortexResult<()> {
+    let session = VortexSession::default();
+    register_cuda_layout(&session);
+
+    let input_file = session.open_options().open_path(&input).await?;
+    let scan = input_file.scan()?.into_array_stream()?;
+
+    let mut out = tokio::fs::File::create(&output).await?;
+    session
+        .write_options()
+        .with_strategy(cuda_write_strategy())
+        .write(&mut out, scan)
+        .await?;
+
+    tracing::info!("Wrote CUDA-compatible file to {}", output.display());
+    Ok(())
+}
+
+/// Scan a Vortex file on the GPU, optionally recompressing in memory first.
+#[cuda_available]
+async fn cmd_scan(path: PathBuf, gpu_file: bool, json_output: bool) -> VortexResult<()> {
     let perfetto_file = File::create("trace.pb")?;
-
     let perfetto_layer = PerfettoLayer::new(perfetto_file).with_debug_annotations(true);
 
     if json_output {
@@ -77,34 +147,32 @@ async fn main() -> VortexResult<()> {
     }
 
     let session = VortexSession::default();
+    register_cuda_layout(&session);
+
     let mut cuda_ctx = CudaSession::create_execution_ctx(&session)?
         .with_launch_strategy(Arc::new(TracingLaunchStrategy));
 
-    #[allow(clippy::expect_used, clippy::unwrap_in_result)]
-    let input_path = args
-        .iter()
-        .skip(1)
-        .find(|arg| !arg.starts_with("--"))
-        .expect("must provide path to .vortex file");
-    let input_path = PathBuf::from(input_path);
-
-    assert!(input_path.exists(), "input path does not exist");
-
-    let (recompressed, footer) = recompress_for_gpu(input_path, &session).await?;
-
-    // Create a full scan that executes on the GPU
+    let pool = Arc::new(PinnedByteBufferPool::new(Arc::clone(
+        cuda_ctx.stream().context(),
+    )));
     let cuda_stream =
         VortexCudaStreamPool::new(Arc::clone(cuda_ctx.stream().context()), 1).stream()?;
-    let gpu_reader = CopyDeviceReadAt::new(recompressed, cuda_stream);
+    let handle = session.handle();
 
-    let gpu_file = session
-        .open_options()
-        .with_footer(footer)
-        .open(Arc::new(gpu_reader))
-        .await?;
+    let gpu_file_handle = if gpu_file {
+        let reader = PooledFileReadAt::open(&path, handle, Arc::clone(&pool), cuda_stream)?;
+        session.open_options().open(Arc::new(reader)).await?
+    } else {
+        let (recompressed, footer) = recompress_for_gpu(&path, &session).await?;
+        let reader = PooledByteBufferReadAt::new(recompressed, Arc::clone(&pool), cuda_stream);
+        session
+            .open_options()
+            .with_footer(footer)
+            .open(Arc::new(reader))
+            .await?
+    };
 
-    // execute_micros => µs to execute
-    let mut batches = gpu_file.scan()?.into_array_stream()?;
+    let mut batches = gpu_file_handle.scan()?.into_array_stream()?;
 
     let mut chunk = 0;
     while let Some(next) = batches.next().await.transpose()? {
@@ -116,7 +184,6 @@ async fn main() -> VortexResult<()> {
             .zip(record.struct_fields().names().iter())
         {
             let field_name = field_name.to_string();
-            // skip dict, varbin isn't properly implemented.
             if field.is::<DictVTable>() {
                 continue;
             }
@@ -145,61 +212,20 @@ async fn main() -> VortexResult<()> {
     Ok(())
 }
 
-// Dump the values out as a new Vortex file for analysis.
-
-/// Recompress the input file using only GPU-executable encodings, returning the file as an
-/// in-memory byte array.
+/// Recompress the input file using CUDA-compatible encodings, returning the file as an
+/// in-memory byte buffer along with its footer.
 #[cuda_available]
 async fn recompress_for_gpu(
-    input_path: impl AsRef<Path>,
+    input_path: impl AsRef<std::path::Path>,
     session: &VortexSession,
-) -> VortexResult<(ByteBuffer, Footer)> {
-    // Setup the reader
+) -> VortexResult<(vortex::buffer::ByteBuffer, vortex::file::Footer)> {
     let input = session.open_options().open_path(input_path).await?;
-
-    // Build a scan to read all columns from the input, and recompress them using only GPU-compatible
-    // encodings.
     let scan = input.scan()?.into_array_stream()?;
 
-    // Rebuild a copy of the file that only uses GPU-compatible compression algorithms.
-    let compressor = BtrBlocksCompressorBuilder::empty()
-        .include_int([
-            IntCode::Uncompressed,
-            IntCode::Constant,
-            IntCode::BitPacking,
-            IntCode::For,
-            IntCode::Sequence,
-            IntCode::ZigZag,
-            IntCode::Dict,
-        ])
-        .include_float([
-            FloatCode::Uncompressed,
-            FloatCode::Constant,
-            FloatCode::Alp,
-            FloatCode::AlpRd,
-            FloatCode::RunEnd,
-        ])
-        // Don't compress strings, this is b/c we don't have any BtrBlocks encodings that support
-        // strings.
-        .include_string([
-            StringCode::Uncompressed,
-            StringCode::Constant,
-            StringCode::Dict,
-            StringCode::Zstd,
-            StringCode::ZstdBuffers,
-        ])
-        .build();
-
-    // Read an input stream from a Vortex file.
-    let writer = WriteStrategyBuilder::default()
-        .with_compressor(compressor)
-        .build();
-
-    // Segment sink?
     let mut out = ByteBufferMut::empty();
     let result = session
         .write_options()
-        .with_strategy(writer)
+        .with_strategy(cuda_write_strategy())
         .write(&mut out, scan)
         .await?;
 
