@@ -145,7 +145,9 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
         output.indent(|output| {
             writeln!(output, "// Setup the patches cursor so we can seek patches")?;
             writeln!(output, "PatchesCursor cursor(patches);")?;
-            writeln!(output, "auto chunk = thread_idx / 1024;")?;
+            writeln!(output, "// Each thread block in the unpack kernel unpacks 1 chunk of 1024 values")?;
+            writeln!(output, "auto chunk = blockIdx.x;")?;
+            writeln!(output, "// Patches are organized by chunk and lane.")?;
             writeln!(output, "cursor.seek(chunk, thread_idx);")?;
             writeln!(output, "uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;")?;
             writeln!(output, "uint{bits}_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint{bits}_t>() : 0;")?;
