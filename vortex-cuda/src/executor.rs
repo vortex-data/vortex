@@ -208,8 +208,6 @@ impl CudaExecutionCtx {
     }
 
     /// Allocates a typed buffer on the GPU.
-    ///
-    /// See [`VortexCudaStream::device_alloc`] for details.
     pub fn device_alloc<T: DeviceRepr + Send + Sync + 'static>(
         &self,
         len: usize,

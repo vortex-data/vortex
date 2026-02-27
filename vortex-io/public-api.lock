@@ -154,8 +154,6 @@ pub fn vortex_io::object_store::ObjectStoreReadAt::with_coalesce_config(self, co
 
 pub fn vortex_io::object_store::ObjectStoreReadAt::with_concurrency(self, concurrency: usize) -> Self
 
-pub fn vortex_io::object_store::ObjectStoreReadAt::with_some_coalesce_config(self, config: core::option::Option<vortex_io::CoalesceConfig>) -> Self
-
 impl vortex_io::VortexReadAt for vortex_io::object_store::ObjectStoreReadAt
 
 pub fn vortex_io::object_store::ObjectStoreReadAt::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
