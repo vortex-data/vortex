@@ -82,7 +82,7 @@ where
     let array_len_u64 = array_len as u64;
 
     // Load kernel function
-    let cuda_function = ctx.load_function_ptype("zigzag", &[U::PTYPE])?;
+    let cuda_function = ctx.load_function("zigzag", &[U::PTYPE])?;
 
     ctx.launch_kernel(&cuda_function, array_len, |args| {
         args.arg(&cuda_view).arg(&array_len_u64);

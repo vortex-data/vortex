@@ -74,7 +74,7 @@ pub fn bitpacked_cuda_kernel(
     // bit_unpack_{bits}_{bit_width}bw_{thread_count}t
     let thread_count = bitpacked_thread_count(output_width);
     let suffixes: [&str; _] = [&format!("{bit_width}bw"), &format!("{thread_count}t")];
-    ctx.load_function(&format!("bit_unpack_{}", output_width), &suffixes)
+    ctx.load_function_with_suffixes(&format!("bit_unpack_{}", output_width), &suffixes)
 }
 
 pub fn bitpacked_cuda_launch_config(output_width: usize, len: usize) -> VortexResult<LaunchConfig> {

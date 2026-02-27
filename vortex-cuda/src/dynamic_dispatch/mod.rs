@@ -202,6 +202,7 @@ mod tests {
     use vortex::array::scalar::Scalar;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
+    use vortex::dtype::PType;
     use vortex::encodings::alp::ALPArray;
     use vortex::encodings::alp::ALPFloat;
     use vortex::encodings::alp::Exponents;
@@ -387,7 +388,7 @@ mod tests {
         cuda_ctx.stream().synchronize().expect("sync");
 
         let cuda_function = cuda_ctx
-            .load_function("dynamic_dispatch", &["u32"])
+            .load_function("dynamic_dispatch", &[PType::U32])
             .vortex_expect("load kernel");
         let mut launch_builder = cuda_ctx.launch_builder(&cuda_function);
         launch_builder.arg(&output_ptr);

@@ -23,6 +23,7 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
+use vortex::dtype::PType;
 use vortex::encodings::alp::ALPArray;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::Exponents;
@@ -56,7 +57,7 @@ fn run_timed(
     device_plan: &Arc<cudarc::driver::CudaSlice<DynamicDispatchPlan>>,
     shared_mem_bytes: u32,
 ) -> VortexResult<Duration> {
-    let cuda_function = cuda_ctx.load_function("dynamic_dispatch", &["u32"])?;
+    let cuda_function = cuda_ctx.load_function("dynamic_dispatch", &[PType::U32])?;
     let array_len_u64 = array_len as u64;
     let output_view = output_buf.as_view::<u32>();
     let (output_ptr, record_output) = output_view.device_ptr(cuda_ctx.stream());

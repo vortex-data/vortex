@@ -120,7 +120,7 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
 
     let codes_len_u64 = codes_len as u64;
 
-    let kernel_function = ctx.load_function_ptype("dict", &[value_ptype, I::PTYPE])?;
+    let kernel_function = ctx.load_function("dict", &[value_ptype, I::PTYPE])?;
     ctx.launch_kernel(&kernel_function, codes_len, |args| {
         args.arg(&codes_view)
             .arg(&codes_len_u64)
@@ -205,7 +205,7 @@ async fn execute_dict_decimal_typed<
     let output_view = output_device.as_view::<V>();
 
     // Load kernel function using string suffixes
-    let cuda_function = ctx.load_function(
+    let cuda_function = ctx.load_function_with_suffixes(
         "dict",
         &[&V::DECIMAL_TYPE.to_string(), &C::PTYPE.to_string()],
     )?;
@@ -275,7 +275,7 @@ async fn execute_dict_varbinview(
         let output_view = output_device.as_view::<i128>();
 
         let codes_ptype_str = C::PTYPE.to_string();
-        let cuda_function = ctx.load_function("dict", &["i128", &codes_ptype_str])?;
+        let cuda_function = ctx.load_function_with_suffixes("dict", &["i128", &codes_ptype_str])?;
 
         let codes_len_u64 = codes_len as u64;
 

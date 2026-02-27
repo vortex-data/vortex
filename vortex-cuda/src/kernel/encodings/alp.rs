@@ -86,7 +86,7 @@ where
 
     // Load kernel function
     let kernel_ptypes = [A::ALPInt::PTYPE, A::PTYPE];
-    let cuda_function = ctx.load_function_ptype("alp", &kernel_ptypes)?;
+    let cuda_function = ctx.load_function("alp", &kernel_ptypes)?;
 
     ctx.launch_kernel(&cuda_function, array_len, |args| {
         args.arg(&input_view)
