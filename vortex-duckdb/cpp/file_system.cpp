@@ -13,6 +13,8 @@
 #include <string>
 #include <utility>
 
+#include <iostream>
+
 using namespace duckdb;
 using vortex::HandleException;
 using vortex::SetError;
@@ -125,6 +127,7 @@ extern "C" duckdb_state duckdb_vx_fs_list_files(duckdb_client_context ctx,
     }
 
     auto fn = [&](const string &name, bool is_dir) {
+        std::cout << "list_files_callback " << name << "\n";
         callback(name.c_str(), is_dir, user_data);
     };
     auto *client_context = reinterpret_cast<ClientContext *>(ctx);

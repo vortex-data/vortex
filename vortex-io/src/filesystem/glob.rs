@@ -46,6 +46,7 @@ impl dyn FileSystem + '_ {
             .list(listing_prefix)
             .try_filter(move |listing| {
                 let matches = glob_pattern.matches(&listing.path);
+                println!("listing {} matches {}", &listing.path, matches);
                 async move { matches }
             })
             .into_stream()

@@ -165,6 +165,10 @@ impl DatabaseRef {
     pub fn config(&self) -> &ConfigRef {
         unsafe { Config::borrow(cpp::duckdb_vx_database_get_config(self.as_ptr())) }
     }
+
+    pub fn config_mut(&mut self) -> &mut ConfigRef {
+        unsafe { Config::borrow_mut(cpp::duckdb_vx_database_get_config(self.as_ptr())) }
+    }
 }
 
 #[cfg(test)]

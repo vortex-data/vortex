@@ -52,7 +52,7 @@ pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
         "vortex_filesystem",
         "Whether to use Vortex's filesystem ('vortex') or DuckDB's filesystems ('duckdb').",
         LogicalType::varchar(),
-        Value::from("vortex"),
+        Value::from("duckdb"),
     )?;
     db.register_table_function::<VortexMultiFileScan>(c"vortex_scan")?;
     db.register_table_function::<VortexMultiFileScan>(c"read_vortex")?;
@@ -70,6 +70,13 @@ pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
 /// The DuckDB extension ABI initialization function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
+    let db_mut = unsafe { Database::borrow_mut(db) };
+    db_mut
+        .config_mut()
+        .set("httpfs_client_implementation", "curl")
+        .vortex_expect("failed to update httpfs client implementation");
+    let _ = db_mut;
+
     let database = unsafe { Database::borrow(db) };
 
     database

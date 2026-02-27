@@ -158,6 +158,7 @@ impl FileSystem for DuckDbFileSystem {
     }
 
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
+        println!("DuckDbFileSystem open_read {path}");
         let mut url = self.base_url.clone();
         url.set_path(path);
         let reader = unsafe { DuckDbFsReader::open_url(self.ctx.as_ptr(), &url)? };
@@ -209,6 +210,7 @@ impl DuckDbFsReader {
         ctx: cpp::duckdb_client_context,
         url: &Url,
     ) -> VortexResult<Self> {
+        println!("DuckDbFsReader open_url {url}");
         let c_path = CString::new(url.as_str()).map_err(|e| vortex_err!("Invalid URL: {e}"))?;
         let mut err: cpp::duckdb_vx_error = ptr::null_mut();
         let handle = unsafe { cpp::duckdb_vx_fs_open(ctx, c_path.as_ptr(), &raw mut err) };
