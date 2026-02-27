@@ -202,7 +202,7 @@ impl<V: ExtVTable> DynExtDType for ExtDTypeInner<V> {
             Ok(native) => fmt::Display::fmt(&native, f),
             Err(_) => write!(
                 f,
-                "<error unpacking native storage value {:?} for extension type {}>",
+                "<error unpacking native storage value {} for extension type {}>",
                 storage_value,
                 self.id()
             ),
