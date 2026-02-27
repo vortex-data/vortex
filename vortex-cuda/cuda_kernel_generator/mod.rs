@@ -152,8 +152,7 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
             writeln!(output, "for (int i = 0; i < {shared_copy_ncount}; i++) {{")?;
             output.indent(|output| {
                 writeln!(output, "auto idx = i * {thread_count} + thread_idx;")?;
-                // We are always less than or equal to a patch, b/c of how we advance it.
-                writeln!(output, "if (i == next_patch_index) {{")?;
+                writeln!(output, "if (idx == next_patch_index) {{")?;
                 writeln!(output, "    out[idx] = next_patch_value;")?;
                 writeln!(output, "    // Advance the patches cursor")?;
                 writeln!(output, "    if (cursor.next()) {{")?;
@@ -162,6 +161,7 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
                 writeln!(output, "    }} else {{")?;
                 writeln!(output, "        // We have visited all patches")?;
                 writeln!(output, "        next_patch_index = 1024;")?;
+                writeln!(output, "        next_patch_value = 0;")?;
                 writeln!(output, "    }}")?;
                 writeln!(output, "}} else {{")?;
                 writeln!(output, "    out[idx] = shared_out[idx];")?;
