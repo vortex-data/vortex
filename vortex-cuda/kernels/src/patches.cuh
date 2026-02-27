@@ -21,11 +21,11 @@ struct PatchesCursor {
     uint32_t start_offset;
     uint32_t offset;
 
-    __device__ __host__ PatchesCursor(GPUPatches p)
+    __device__ PatchesCursor(GPUPatches p)
         : patches(p), chunk_index(0), lane(0), n_patches(0), start_offset(0), offset(0) {}
 
     // Reset the cursor to the start of the patches range given at this.
-    void seek(uint32_t chunk, uint32_t theLane) {
+    __device__ void seek(uint32_t chunk, uint32_t theLane) {
         chunk_index = chunk;
         lane = theLane;
         offset = 0;
@@ -39,7 +39,7 @@ struct PatchesCursor {
     }
     
     // Advance to the next patch in the patching group.
-    bool next() {
+    __device__ bool next() {
         if (offset >= n_patches) {
             return false;
         }
@@ -49,13 +49,13 @@ struct PatchesCursor {
     }
     
     template<typename T>
-    T get_value() {
+    __device__ T get_value() {
         T* values = reinterpret_cast<T*>(patches.values);
         return values[start_offset + offset];
     }
     
     // Get the patch index of the current position in the cursor.
-    uint16_t get_index() {
+    __device__ uint16_t get_index() {
         return patches.indices[start_offset + offset];
     }
 };
