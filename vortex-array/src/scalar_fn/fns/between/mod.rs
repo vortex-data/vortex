@@ -11,7 +11,6 @@ pub use kernel::*;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
@@ -294,28 +293,26 @@ impl ScalarFnVTable for Between {
         ))
     }
 
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let [arr, lower, upper]: [ArrayRef; _] = args
-            .inputs
-            .try_into()
-            .map_err(|_| vortex_err!("Expected 3 arguments for Between expression",))?;
+    fn execute(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let arr = args.get(0)?;
+        let lower = args.get(1)?;
+        let upper = args.get(2)?;
 
         // canonicalize the arr and we might be able to run a between kernels over that.
         if !arr.is_canonical() {
-            return arr.execute::<Canonical>(args.ctx)?.into_array().between(
+            return arr.execute::<Canonical>(ctx)?.into_array().between(
                 lower,
                 upper,
                 options.clone(),
             );
         }
 
-        between_canonical(
-            arr.as_ref(),
-            lower.as_ref(),
-            upper.as_ref(),
-            options,
-            args.ctx,
-        )
+        between_canonical(arr.as_ref(), lower.as_ref(), upper.as_ref(), options, ctx)
     }
 
     fn stat_falsification(

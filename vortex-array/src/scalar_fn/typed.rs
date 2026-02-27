@@ -19,6 +19,7 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -44,7 +45,7 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn options_any(&self) -> &dyn Any;
 
     // Bound methods — options accessed from self
-    fn execute(&self, args: ExecutionArgs) -> VortexResult<ArrayRef>;
+    fn execute(&self, args: &dyn ExecutionArgs, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
     fn return_dtype(&self, arg_types: &[DType]) -> VortexResult<DType>;
     fn reduce(
         &self,
@@ -109,19 +110,17 @@ impl<V: ScalarFnVTable> DynScalarFn for ScalarFnInner<V> {
         &self.options
     }
 
-    fn execute(&self, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let expected_row_count = args.row_count;
+    fn execute(&self, args: &dyn ExecutionArgs, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        let expected_row_count = args.row_count();
         #[cfg(debug_assertions)]
         let expected_dtype = {
-            let args_dtypes: Vec<DType> = args
-                .inputs
-                .iter()
-                .map(|array| array.dtype().clone())
-                .collect();
+            let args_dtypes: Vec<DType> = (0..args.num_inputs())
+                .map(|i| args.get(i).map(|a| a.dtype().clone()))
+                .collect::<VortexResult<_>>()?;
             V::return_dtype(&self.vtable, &self.options, &args_dtypes)
         }?;
 
-        let result = V::execute(&self.vtable, &self.options, args)?;
+        let result = V::execute(&self.vtable, &self.options, args, ctx)?;
 
         assert_eq!(
             result.len(),

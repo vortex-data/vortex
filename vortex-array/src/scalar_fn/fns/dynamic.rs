@@ -15,6 +15,7 @@ use vortex_error::vortex_bail;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
@@ -31,6 +32,7 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
@@ -92,28 +94,27 @@ impl ScalarFnVTable for DynamicComparison {
         ))
     }
 
-    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
+    fn execute(
+        &self,
+        data: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         if let Some(scalar) = data.rhs.scalar() {
-            let [lhs]: [ArrayRef; _] = args
-                .inputs
-                .try_into()
-                .map_err(|_| vortex_error::vortex_err!("Wrong arg count for DynamicComparison"))?;
-            let rhs = ConstantArray::new(scalar, args.row_count).into_array();
+            let lhs = args.get(0)?;
+            let rhs = ConstantArray::new(scalar, args.row_count()).into_array();
 
+            let delegate_args = VecExecutionArgs::new(vec![lhs, rhs], args.row_count());
             return Binary
                 .bind(Operator::from(data.operator))
-                .execute(ExecutionArgs {
-                    inputs: vec![lhs, rhs],
-                    row_count: args.row_count,
-                    ctx: args.ctx,
-                });
+                .execute(&delegate_args, ctx);
         }
         let ret_dtype =
-            DType::Bool(args.inputs[0].dtype().nullability() | data.rhs.dtype.nullability());
+            DType::Bool(args.get(0)?.dtype().nullability() | data.rhs.dtype.nullability());
 
         Ok(ConstantArray::new(
             Scalar::try_new(ret_dtype, Some(data.default.into()))?,
-            args.row_count,
+            args.row_count(),
         )
         .into_array())
     }

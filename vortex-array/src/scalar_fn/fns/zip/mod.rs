@@ -8,13 +8,13 @@ use std::fmt::Formatter;
 pub use kernel::*;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
@@ -104,11 +104,15 @@ impl ScalarFnVTable for Zip {
             .union_nullability(arg_dtypes[1].nullability()))
     }
 
-    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let [if_true, if_false, mask_array]: [ArrayRef; _] = args
-            .inputs
-            .try_into()
-            .map_err(|_| vortex_err!("Wrong arg count"))?;
+    fn execute(
+        &self,
+        _options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let if_true = args.get(0)?;
+        let if_false = args.get(1)?;
+        let mask_array = args.get(2)?;
 
         let mask = mask_array.try_to_mask_fill_null_false()?;
 
@@ -118,7 +122,7 @@ impl ScalarFnVTable for Zip {
             .union_nullability(if_false.dtype().nullability());
 
         if mask.all_true() {
-            return if_true.cast(return_dtype)?.execute(args.ctx);
+            return if_true.cast(return_dtype)?.execute(ctx);
         }
 
         let return_dtype = if_true
@@ -127,12 +131,12 @@ impl ScalarFnVTable for Zip {
             .union_nullability(if_false.dtype().nullability());
 
         if mask.all_false() {
-            return if_false.cast(return_dtype)?.execute(args.ctx);
+            return if_false.cast(return_dtype)?.execute(ctx);
         }
 
         if !if_true.is_canonical() || !if_false.is_canonical() {
-            let if_true = if_true.execute::<ArrayRef>(args.ctx)?;
-            let if_false = if_false.execute::<ArrayRef>(args.ctx)?;
+            let if_true = if_true.execute::<ArrayRef>(ctx)?;
+            let if_false = if_false.execute::<ArrayRef>(ctx)?;
             return if_true.zip(if_false, mask.into_array());
         }
 

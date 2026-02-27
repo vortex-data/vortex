@@ -18,6 +18,7 @@ use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
@@ -119,17 +120,20 @@ impl ScalarFnVTable for ListContains {
         Ok(DType::Bool(nullability))
     }
 
-    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let [list_array, value_array]: [ArrayRef; _] = args
-            .inputs
-            .try_into()
-            .map_err(|_| vortex_err!("Wrong number of arguments for ListContains expression"))?;
+    fn execute(
+        &self,
+        _options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let list_array = args.get(0)?;
+        let value_array = args.get(1)?;
 
         if let Some(list_scalar) = list_array.as_constant()
             && let Some(value_scalar) = value_array.as_constant()
         {
             let result = compute_contains_scalar(&list_scalar, &value_scalar)?;
-            return Ok(ConstantArray::new(result, args.row_count).into_array());
+            return Ok(ConstantArray::new(result, args.row_count()).into_array());
         }
 
         compute_list_contains(list_array.as_ref(), value_array.as_ref())

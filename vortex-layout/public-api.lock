@@ -608,7 +608,7 @@ pub fn vortex_layout::layouts::row_idx::RowIdx::arity(&self, _options: &Self::Op
 
 pub fn vortex_layout::layouts::row_idx::RowIdx::child_name(&self, _instance: &Self::Options, _child_idx: usize) -> vortex_array::scalar_fn::vtable::ChildName
 
-pub fn vortex_layout::layouts::row_idx::RowIdx::execute(&self, _options: &Self::Options, _args: vortex_array::scalar_fn::vtable::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_layout::layouts::row_idx::RowIdx::execute(&self, _options: &Self::Options, _args: &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 pub fn vortex_layout::layouts::row_idx::RowIdx::fmt_sql(&self, _options: &Self::Options, _expr: &vortex_array::expr::expression::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 

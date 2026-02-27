@@ -13,6 +13,7 @@ use arcref::ArcRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -92,7 +93,12 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     ///
     /// This provides maximum opportunities for array-level optimizations using execute_parent
     /// kernels.
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef>;
+    fn execute(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef>;
 
     /// Implement an abstract reduction rule over a tree of scalar functions.
     ///
@@ -291,13 +297,48 @@ pub trait SimplifyCtx {
 }
 
 /// Arguments for expression execution.
-pub struct ExecutionArgs<'a> {
-    /// The inputs for the expression, one per child.
-    pub inputs: Vec<ArrayRef>,
-    /// The row count of the execution scope.
-    pub row_count: usize,
-    /// The execution context.
-    pub ctx: &'a mut ExecutionCtx,
+pub trait ExecutionArgs {
+    /// Returns the input array at the given index.
+    fn get(&self, index: usize) -> VortexResult<ArrayRef>;
+
+    /// Returns the number of inputs.
+    fn num_inputs(&self) -> usize;
+
+    /// Returns the row count of the execution scope.
+    fn row_count(&self) -> usize;
+}
+
+/// A concrete [`ExecutionArgs`] backed by a `Vec<ArrayRef>`.
+pub struct VecExecutionArgs {
+    inputs: Vec<ArrayRef>,
+    row_count: usize,
+}
+
+impl VecExecutionArgs {
+    /// Create a new `VecExecutionArgs`.
+    pub fn new(inputs: Vec<ArrayRef>, row_count: usize) -> Self {
+        Self { inputs, row_count }
+    }
+}
+
+impl ExecutionArgs for VecExecutionArgs {
+    fn get(&self, index: usize) -> VortexResult<ArrayRef> {
+        self.inputs.get(index).cloned().ok_or_else(|| {
+            vortex_err!(
+                "Input index {} out of bounds (num_inputs={})",
+                index,
+                self.inputs.len()
+            )
+        })
+    }
+
+    fn num_inputs(&self) -> usize {
+        self.inputs.len()
+    }
+
+    fn row_count(&self) -> usize {
+        self.row_count
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

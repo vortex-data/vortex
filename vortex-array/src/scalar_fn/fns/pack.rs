@@ -12,6 +12,7 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::dtype::DType;
@@ -130,13 +131,20 @@ impl ScalarFnVTable for Pack {
         Ok(Some(lit(true)))
     }
 
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let len = args.row_count;
-        let value_arrays = args.inputs;
+    fn execute(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let len = args.row_count();
+        let value_arrays: Vec<ArrayRef> = (0..args.num_inputs())
+            .map(|i| args.get(i))
+            .collect::<VortexResult<_>>()?;
         let validity: Validity = options.nullability.into();
         StructArray::try_new(options.names.clone(), value_arrays, len, validity)?
             .into_array()
-            .execute(args.ctx)
+            .execute(ctx)
     }
 
     // This applies a nullability

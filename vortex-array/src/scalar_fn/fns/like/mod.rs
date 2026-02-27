@@ -10,12 +10,12 @@ pub use kernel::*;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
 use crate::dtype::DType;
@@ -137,11 +137,14 @@ impl ScalarFnVTable for Like {
         ))
     }
 
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let [child, pattern]: [ArrayRef; _] = args
-            .inputs
-            .try_into()
-            .map_err(|_| vortex_err!("Wrong argument count"))?;
+    fn execute(
+        &self,
+        options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let child = args.get(0)?;
+        let pattern = args.get(1)?;
 
         arrow_like(&child, &pattern, *options)
     }

@@ -13180,7 +13180,7 @@ pub fn vortex_array::scalar_fn::fns::between::Between::child_name(&self, _instan
 
 pub fn vortex_array::scalar_fn::fns::between::Between::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::between::Between::execute(&self, options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::between::Between::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::between::Between::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -13310,7 +13310,7 @@ pub fn vortex_array::scalar_fn::fns::binary::Binary::child_name(&self, _instance
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::fmt_sql(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -13392,7 +13392,7 @@ pub fn vortex_array::scalar_fn::fns::cast::Cast::child_name(&self, _instance: &v
 
 pub fn vortex_array::scalar_fn::fns::cast::Cast::deserialize(&self, _metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::cast::Cast::execute(&self, target_dtype: &vortex_array::dtype::DType, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::cast::Cast::execute(&self, target_dtype: &vortex_array::dtype::DType, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::cast::Cast::fmt_sql(&self, dtype: &vortex_array::dtype::DType, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -13532,7 +13532,7 @@ pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::child_name(&sel
 
 pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::execute(&self, data: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::execute(&self, data: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::fmt_sql(&self, dynamic: &vortex_array::scalar_fn::fns::dynamic::DynamicComparisonExpr, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -13612,7 +13612,7 @@ pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::child_name(&self, _opt
 
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::execute(&self, _options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -13720,7 +13720,7 @@ pub fn vortex_array::scalar_fn::fns::get_item::GetItem::child_name(&self, _insta
 
 pub fn vortex_array::scalar_fn::fns::get_item::GetItem::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::get_item::GetItem::execute(&self, field_name: &vortex_array::dtype::FieldName, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::get_item::GetItem::execute(&self, field_name: &vortex_array::dtype::FieldName, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::get_item::GetItem::fmt_sql(&self, field_name: &vortex_array::dtype::FieldName, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -13764,7 +13764,7 @@ pub fn vortex_array::scalar_fn::fns::is_null::IsNull::child_name(&self, _instanc
 
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::is_null::IsNull::execute(&self, _data: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::is_null::IsNull::execute(&self, _data: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -13808,7 +13808,7 @@ pub fn vortex_array::scalar_fn::fns::like::Like::child_name(&self, _instance: &S
 
 pub fn vortex_array::scalar_fn::fns::like::Like::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::like::Like::execute(&self, options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::like::Like::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::like::Like::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -13932,7 +13932,7 @@ pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::child_name(&se
 
 pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::execute(&self, _options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -14016,7 +14016,7 @@ pub fn vortex_array::scalar_fn::fns::literal::Literal::child_name(&self, _instan
 
 pub fn vortex_array::scalar_fn::fns::literal::Literal::deserialize(&self, _metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::literal::Literal::execute(&self, scalar: &vortex_array::scalar::Scalar, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::literal::Literal::execute(&self, scalar: &vortex_array::scalar::Scalar, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::literal::Literal::fmt_sql(&self, scalar: &vortex_array::scalar::Scalar, _expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -14060,7 +14060,7 @@ pub fn vortex_array::scalar_fn::fns::mask::Mask::child_name(&self, _options: &Se
 
 pub fn vortex_array::scalar_fn::fns::mask::Mask::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::mask::Mask::execute(&self, _options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::mask::Mask::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::mask::Mask::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -14236,7 +14236,7 @@ pub fn vortex_array::scalar_fn::fns::merge::Merge::child_name(&self, _instance: 
 
 pub fn vortex_array::scalar_fn::fns::merge::Merge::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::merge::Merge::execute(&self, options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::merge::Merge::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::merge::Merge::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -14280,7 +14280,7 @@ pub fn vortex_array::scalar_fn::fns::not::Not::child_name(&self, _options: &Self
 
 pub fn vortex_array::scalar_fn::fns::not::Not::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::not::Not::execute(&self, _data: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::not::Not::execute(&self, _data: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::not::Not::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -14530,7 +14530,7 @@ pub fn vortex_array::scalar_fn::fns::pack::Pack::child_name(&self, instance: &Se
 
 pub fn vortex_array::scalar_fn::fns::pack::Pack::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::pack::Pack::execute(&self, options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::pack::Pack::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::pack::Pack::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -14604,7 +14604,7 @@ pub fn vortex_array::scalar_fn::fns::root::Root::child_name(&self, _instance: &S
 
 pub fn vortex_array::scalar_fn::fns::root::Root::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::root::Root::execute(&self, _data: &Self::Options, _args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::root::Root::execute(&self, _data: &Self::Options, _args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::root::Root::fmt_sql(&self, _options: &Self::Options, _expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -14692,7 +14692,7 @@ pub fn vortex_array::scalar_fn::fns::select::Select::child_name(&self, _instance
 
 pub fn vortex_array::scalar_fn::fns::select::Select::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::scalar_fn::fns::select::FieldSelection>
 
-pub fn vortex_array::scalar_fn::fns::select::Select::execute(&self, selection: &vortex_array::scalar_fn::fns::select::FieldSelection, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::select::Select::execute(&self, selection: &vortex_array::scalar_fn::fns::select::FieldSelection, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::select::Select::fmt_sql(&self, selection: &vortex_array::scalar_fn::fns::select::FieldSelection, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -14736,7 +14736,7 @@ pub fn vortex_array::scalar_fn::fns::zip::Zip::child_name(&self, _options: &Self
 
 pub fn vortex_array::scalar_fn::fns::zip::Zip::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::zip::Zip::execute(&self, _options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::zip::Zip::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::zip::Zip::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -14904,14 +14904,6 @@ pub fn vortex_array::scalar_fn::EmptyOptions::hash<__H: core::hash::Hasher>(&sel
 
 impl core::marker::StructuralPartialEq for vortex_array::scalar_fn::EmptyOptions
 
-pub struct vortex_array::scalar_fn::ExecutionArgs<'a>
-
-pub vortex_array::scalar_fn::ExecutionArgs::ctx: &'a mut vortex_array::ExecutionCtx
-
-pub vortex_array::scalar_fn::ExecutionArgs::inputs: alloc::vec::Vec<vortex_array::ArrayRef>
-
-pub vortex_array::scalar_fn::ExecutionArgs::row_count: usize
-
 pub struct vortex_array::scalar_fn::ScalarFn<V: vortex_array::scalar_fn::ScalarFnVTable>(_)
 
 impl<V: vortex_array::scalar_fn::ScalarFnVTable> vortex_array::scalar_fn::ScalarFn<V>
@@ -14960,7 +14952,7 @@ pub fn vortex_array::scalar_fn::ScalarFnRef::as_<V: vortex_array::scalar_fn::Sca
 
 pub fn vortex_array::scalar_fn::ScalarFnRef::as_opt<V: vortex_array::scalar_fn::ScalarFnVTable>(&self) -> core::option::Option<&<V as vortex_array::scalar_fn::ScalarFnVTable>::Options>
 
-pub fn vortex_array::scalar_fn::ScalarFnRef::execute(&self, ctx: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::ScalarFnRef::execute(&self, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::ScalarFnRef::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -15011,6 +15003,36 @@ pub fn vortex_array::scalar_fn::ScalarFnSignature<'_>::child_name(&self, index: 
 pub fn vortex_array::scalar_fn::ScalarFnSignature<'_>::is_fallible(&self) -> bool
 
 pub fn vortex_array::scalar_fn::ScalarFnSignature<'_>::is_null_sensitive(&self) -> bool
+
+pub struct vortex_array::scalar_fn::VecExecutionArgs
+
+impl vortex_array::scalar_fn::VecExecutionArgs
+
+pub fn vortex_array::scalar_fn::VecExecutionArgs::new(inputs: alloc::vec::Vec<vortex_array::ArrayRef>, row_count: usize) -> Self
+
+impl vortex_array::scalar_fn::ExecutionArgs for vortex_array::scalar_fn::VecExecutionArgs
+
+pub fn vortex_array::scalar_fn::VecExecutionArgs::get(&self, index: usize) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::VecExecutionArgs::num_inputs(&self) -> usize
+
+pub fn vortex_array::scalar_fn::VecExecutionArgs::row_count(&self) -> usize
+
+pub trait vortex_array::scalar_fn::ExecutionArgs
+
+pub fn vortex_array::scalar_fn::ExecutionArgs::get(&self, index: usize) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::ExecutionArgs::num_inputs(&self) -> usize
+
+pub fn vortex_array::scalar_fn::ExecutionArgs::row_count(&self) -> usize
+
+impl vortex_array::scalar_fn::ExecutionArgs for vortex_array::scalar_fn::VecExecutionArgs
+
+pub fn vortex_array::scalar_fn::VecExecutionArgs::get(&self, index: usize) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::VecExecutionArgs::num_inputs(&self) -> usize
+
+pub fn vortex_array::scalar_fn::VecExecutionArgs::row_count(&self) -> usize
 
 pub trait vortex_array::scalar_fn::ReduceCtx
 
@@ -15086,7 +15108,7 @@ pub fn vortex_array::scalar_fn::ScalarFnVTable::child_name(&self, options: &Self
 
 pub fn vortex_array::scalar_fn::ScalarFnVTable::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::ScalarFnVTable::execute(&self, options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::ScalarFnVTable::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::ScalarFnVTable::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15122,7 +15144,7 @@ pub fn vortex_array::scalar_fn::fns::between::Between::child_name(&self, _instan
 
 pub fn vortex_array::scalar_fn::fns::between::Between::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::between::Between::execute(&self, options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::between::Between::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::between::Between::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15158,7 +15180,7 @@ pub fn vortex_array::scalar_fn::fns::binary::Binary::child_name(&self, _instance
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, op: &vortex_array::scalar_fn::fns::operators::Operator, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::fmt_sql(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15194,7 +15216,7 @@ pub fn vortex_array::scalar_fn::fns::cast::Cast::child_name(&self, _instance: &v
 
 pub fn vortex_array::scalar_fn::fns::cast::Cast::deserialize(&self, _metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::cast::Cast::execute(&self, target_dtype: &vortex_array::dtype::DType, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::cast::Cast::execute(&self, target_dtype: &vortex_array::dtype::DType, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::cast::Cast::fmt_sql(&self, dtype: &vortex_array::dtype::DType, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15230,7 +15252,7 @@ pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::child_name(&sel
 
 pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::execute(&self, data: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::execute(&self, data: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::fmt_sql(&self, dynamic: &vortex_array::scalar_fn::fns::dynamic::DynamicComparisonExpr, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15266,7 +15288,7 @@ pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::child_name(&self, _opt
 
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::execute(&self, _options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15302,7 +15324,7 @@ pub fn vortex_array::scalar_fn::fns::get_item::GetItem::child_name(&self, _insta
 
 pub fn vortex_array::scalar_fn::fns::get_item::GetItem::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::get_item::GetItem::execute(&self, field_name: &vortex_array::dtype::FieldName, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::get_item::GetItem::execute(&self, field_name: &vortex_array::dtype::FieldName, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::get_item::GetItem::fmt_sql(&self, field_name: &vortex_array::dtype::FieldName, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15338,7 +15360,7 @@ pub fn vortex_array::scalar_fn::fns::is_null::IsNull::child_name(&self, _instanc
 
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::is_null::IsNull::execute(&self, _data: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::is_null::IsNull::execute(&self, _data: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15374,7 +15396,7 @@ pub fn vortex_array::scalar_fn::fns::like::Like::child_name(&self, _instance: &S
 
 pub fn vortex_array::scalar_fn::fns::like::Like::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::like::Like::execute(&self, options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::like::Like::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::like::Like::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15410,7 +15432,7 @@ pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::child_name(&se
 
 pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::execute(&self, _options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15446,7 +15468,7 @@ pub fn vortex_array::scalar_fn::fns::literal::Literal::child_name(&self, _instan
 
 pub fn vortex_array::scalar_fn::fns::literal::Literal::deserialize(&self, _metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::literal::Literal::execute(&self, scalar: &vortex_array::scalar::Scalar, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::literal::Literal::execute(&self, scalar: &vortex_array::scalar::Scalar, args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::literal::Literal::fmt_sql(&self, scalar: &vortex_array::scalar::Scalar, _expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15482,7 +15504,7 @@ pub fn vortex_array::scalar_fn::fns::mask::Mask::child_name(&self, _options: &Se
 
 pub fn vortex_array::scalar_fn::fns::mask::Mask::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::mask::Mask::execute(&self, _options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::mask::Mask::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::mask::Mask::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15518,7 +15540,7 @@ pub fn vortex_array::scalar_fn::fns::merge::Merge::child_name(&self, _instance: 
 
 pub fn vortex_array::scalar_fn::fns::merge::Merge::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::merge::Merge::execute(&self, options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::merge::Merge::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::merge::Merge::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15554,7 +15576,7 @@ pub fn vortex_array::scalar_fn::fns::not::Not::child_name(&self, _options: &Self
 
 pub fn vortex_array::scalar_fn::fns::not::Not::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::not::Not::execute(&self, _data: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::not::Not::execute(&self, _data: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::not::Not::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15590,7 +15612,7 @@ pub fn vortex_array::scalar_fn::fns::pack::Pack::child_name(&self, instance: &Se
 
 pub fn vortex_array::scalar_fn::fns::pack::Pack::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::pack::Pack::execute(&self, options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::pack::Pack::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::pack::Pack::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15626,7 +15648,7 @@ pub fn vortex_array::scalar_fn::fns::root::Root::child_name(&self, _instance: &S
 
 pub fn vortex_array::scalar_fn::fns::root::Root::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::root::Root::execute(&self, _data: &Self::Options, _args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::root::Root::execute(&self, _data: &Self::Options, _args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::root::Root::fmt_sql(&self, _options: &Self::Options, _expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15662,7 +15684,7 @@ pub fn vortex_array::scalar_fn::fns::select::Select::child_name(&self, _instance
 
 pub fn vortex_array::scalar_fn::fns::select::Select::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::scalar_fn::fns::select::FieldSelection>
 
-pub fn vortex_array::scalar_fn::fns::select::Select::execute(&self, selection: &vortex_array::scalar_fn::fns::select::FieldSelection, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::select::Select::execute(&self, selection: &vortex_array::scalar_fn::fns::select::FieldSelection, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::select::Select::fmt_sql(&self, selection: &vortex_array::scalar_fn::fns::select::FieldSelection, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -15698,7 +15720,7 @@ pub fn vortex_array::scalar_fn::fns::zip::Zip::child_name(&self, _options: &Self
 
 pub fn vortex_array::scalar_fn::fns::zip::Zip::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_array::scalar_fn::fns::zip::Zip::execute(&self, _options: &Self::Options, args: vortex_array::scalar_fn::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::scalar_fn::fns::zip::Zip::execute(&self, _options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::scalar_fn::fns::zip::Zip::fmt_sql(&self, _options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
