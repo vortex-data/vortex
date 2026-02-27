@@ -171,6 +171,7 @@ fn generate_global_kernel_for_width<T: FastLanes, W: Write>(
     )?;
 
     output.indent(|output| {
+        // Create a new set of patches
         writeln!(output, "int thread_idx = threadIdx.x;")?;
         writeln!(
             output,
@@ -199,7 +200,7 @@ pub fn generate_cuda_unpack_for_width<T: FastLanes, W: Write>(
     writeln!(output, "#include <cuda_runtime.h>")?;
     writeln!(output, "#include <stdint.h>")?;
     writeln!(output, "#include \"fastlanes_common.cuh\"")?;
-    writeln!(output, "#include \"patches.h\"")?;
+    writeln!(output, "#include \"patches.cuh\"")?;
     writeln!(output)?;
 
     // First, emit all lane decoders.

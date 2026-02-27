@@ -3,7 +3,7 @@
 #include <cuda_runtime.h>
 #include <stdint.h>
 #include "fastlanes_common.cuh"
-#include "patches.h"
+#include "patches.cuh"
 
 __device__ void _bit_unpack_16_0bw_lane(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, unsigned int lane, GPUPatches patches) {
     unsigned int LANE_COUNT = 64;
