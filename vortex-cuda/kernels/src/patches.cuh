@@ -49,7 +49,7 @@ struct PatchesCursor {
 
     // Advance to the next patch in the patching group.
     __device__ bool next() {
-	return ++offset < n_patches;
+        return ++offset < n_patches;
     }
 
     template <typename T>
