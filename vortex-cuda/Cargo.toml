@@ -88,3 +88,7 @@ harness = false
 [[bench]]
 name = "throughput_cuda"
 harness = false
+
+[[bench]]
+name = "transpose_patches"
+harness = false
