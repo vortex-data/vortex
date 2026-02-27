@@ -20,42 +20,42 @@ struct PatchesCursor {
     // this is the offset into the indices.
     uint32_t start_offset;
     uint32_t offset;
-}
 
-// Reset the cursor to the start of the patches range given at this.
-void PatchesCursor::seek(uint32_t chunk, uint32_t lane) {
-    this.chunk_index = chunk;
-    this.lane = lane;
-    this.offset = 0;
-
-    auto idx = chunk * 1024 + lane;
-    auto startIdx = patches.lane_offsets[idx];
-    auto stopIdx = patches.lane_offsets[idx+1];
-
-    this.n_patches = stopIdx - startIdx;
-    this.start_offset = startIdx;
-}
-
-// Advance to the next patch in the patching group.
-bool PatchesCursor::next() {
-    if (offset >= n_patches) {
-        return false;
+    // Reset the cursor to the start of the patches range given at this.
+    void seek(uint32_t chunk, uint32_t theLane) {
+        chunk_index = chunk;
+        lane = theLane;
+        offset = 0;
+    
+        auto idx = chunk * 1024 + lane;
+        auto startIdx = patches.lane_offsets[idx];
+        auto stopIdx = patches.lane_offsets[idx+1];
+    
+        n_patches = stopIdx - startIdx;
+        start_offset = startIdx;
     }
-
-    ++offset;
-    return true;
-}
-
-template<typename T>
-T PatchesCursor::get_value() {
-    T* values = reinterpret_cast<T*>(patches.values);
-    return values[start_offset + offset];
-}
-
-// Get the patch index of the current position in the cursor.
-uint16_t PatchesCursor::get_index() {
-    return patches.indices[start_offset + offset];
-}
+    
+    // Advance to the next patch in the patching group.
+    bool next() {
+        if (offset >= n_patches) {
+            return false;
+        }
+    
+        ++offset;
+        return true;
+    }
+    
+    template<typename T>
+    T get_value() {
+        T* values = reinterpret_cast<T*>(patches.values);
+        return values[start_offset + offset];
+    }
+    
+    // Get the patch index of the current position in the cursor.
+    uint16_t get_index() {
+        return patches.indices[start_offset + offset];
+    }
+};
 
 // If there is a patch stored in the GPUPatches provided for the next item in the given chunk/lane, return it.
 // Otherwise, we patch the value type instead.

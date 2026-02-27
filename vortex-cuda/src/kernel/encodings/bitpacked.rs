@@ -165,7 +165,7 @@ where
             .arg(&patches_arg);
     })?;
 
-    println!("After launch")
+    println!("After launch");
 
     let output_handle =
         BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len)));
