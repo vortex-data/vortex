@@ -9,7 +9,6 @@ use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
 use vortex::buffer::buffer_mut;
 use vortex_array::Canonical;
-use vortex_array::ExecutionCtx;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
@@ -55,14 +54,16 @@ pub struct HostPatches<V> {
     values: Buffer<V>,
 }
 
-pub struct LanePatches<'a, V> {
+#[cfg(test)]
+struct LanePatches<'a, V> {
     indices: &'a [u16],
     values: &'a [V],
 }
 
 impl<V: Copy> HostPatches<V> {
     /// Get number of patches for a specific lane.
-    pub fn patch_count(&self, chunk: usize, lane: usize) -> usize {
+    #[cfg(test)]
+    fn patch_count(&self, chunk: usize, lane: usize) -> usize {
         let start = chunk * self.n_lanes + lane;
         let end = start + 1;
         let count = self.lane_offsets[end] - self.lane_offsets[start];
@@ -71,7 +72,8 @@ impl<V: Copy> HostPatches<V> {
     }
 
     /// Get an ordered list of patches for the given chunk/lane.
-    pub fn patches(&self, chunk: usize, lane: usize) -> LanePatches<'_, V> {
+    #[cfg(test)]
+    fn patches(&self, chunk: usize, lane: usize) -> LanePatches<'_, V> {
         let start = chunk * self.n_lanes + lane;
         let end = start + 1;
 
@@ -102,9 +104,12 @@ impl<V: Copy> HostPatches<V> {
         let indices_handle = ctx.ensure_on_device(indices_handle).await?;
         let values_handle = ctx.ensure_on_device(values_handle).await?;
 
+        let n_chunks = u32::try_from(self.n_chunks)?;
+        let n_lanes = u32::try_from(self.n_lanes)?;
+
         Ok(DevicePatches {
-            n_chunks: self.n_chunks as u32,
-            n_lanes: self.n_lanes as u32,
+            n_chunks,
+            n_lanes,
             lane_offsets: lane_offsets_handle,
             indices: indices_handle,
             values: values_handle,
@@ -119,21 +124,17 @@ struct Lane<V> {
 }
 
 impl<V: Copy> Lane<V> {
-    pub fn push(&mut self, index: u16, value: V) {
+    fn push(&mut self, index: u16, value: V) {
         self.indices.push(index);
         self.values.push(value);
     }
 
-    pub fn len(&self) -> usize {
+    fn len(&self) -> usize {
         self.indices.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 }
 
-// Return some GPUPatches.
+#[allow(clippy::cognitive_complexity)]
 pub(crate) async fn transpose_patches(
     patches: Patches,
     ctx: &mut CudaExecutionCtx,
@@ -166,6 +167,7 @@ pub(crate) async fn transpose_patches(
     })
 }
 
+#[allow(clippy::cast_possible_truncation)]
 fn transpose<I: IntegerPType, V: NativePType>(
     indices: &[I],
     values: &[V],
@@ -174,6 +176,11 @@ fn transpose<I: IntegerPType, V: NativePType>(
 ) -> HostPatches<V> {
     // Total number of slots is number of chunks times number of lanes.
     let n_chunks = array_len.div_ceil(1024);
+    assert!(
+        n_chunks <= u32::MAX as usize,
+        "Cannot transpose patches for array with >= 4 trillion elements"
+    );
+
     // For types 32-bits or smaller, we use a 32 lane configuration, and for 64-bit we use 16 lanes.
     // This matches up with the number of lanes we use to execute copying results from bit-unpacking
     // from shared to global memory.

@@ -85,10 +85,6 @@ pub fn bitpacked_cuda_launch_config(output_width: usize, len: usize) -> VortexRe
     })
 }
 
-#[repr(transparent)]
-struct PatchesArg(GPUPatches);
-
-unsafe impl DeviceRepr for PatchesArg {}
 unsafe impl DeviceRepr for GPUPatches {}
 
 #[instrument(skip_all)]
