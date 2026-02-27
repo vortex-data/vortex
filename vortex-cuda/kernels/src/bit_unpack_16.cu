@@ -899,7 +899,7 @@ __device__ void _bit_unpack_16_0bw_32t(const uint16_t *__restrict in, uint16_t *
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -908,6 +908,7 @@ __device__ void _bit_unpack_16_0bw_32t(const uint16_t *__restrict in, uint16_t *
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -934,7 +935,7 @@ __device__ void _bit_unpack_16_1bw_32t(const uint16_t *__restrict in, uint16_t *
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -943,6 +944,7 @@ __device__ void _bit_unpack_16_1bw_32t(const uint16_t *__restrict in, uint16_t *
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -969,7 +971,7 @@ __device__ void _bit_unpack_16_2bw_32t(const uint16_t *__restrict in, uint16_t *
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -978,6 +980,7 @@ __device__ void _bit_unpack_16_2bw_32t(const uint16_t *__restrict in, uint16_t *
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -1004,7 +1007,7 @@ __device__ void _bit_unpack_16_3bw_32t(const uint16_t *__restrict in, uint16_t *
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -1013,6 +1016,7 @@ __device__ void _bit_unpack_16_3bw_32t(const uint16_t *__restrict in, uint16_t *
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -1039,7 +1043,7 @@ __device__ void _bit_unpack_16_4bw_32t(const uint16_t *__restrict in, uint16_t *
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -1048,6 +1052,7 @@ __device__ void _bit_unpack_16_4bw_32t(const uint16_t *__restrict in, uint16_t *
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -1074,7 +1079,7 @@ __device__ void _bit_unpack_16_5bw_32t(const uint16_t *__restrict in, uint16_t *
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -1083,6 +1088,7 @@ __device__ void _bit_unpack_16_5bw_32t(const uint16_t *__restrict in, uint16_t *
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -1109,7 +1115,7 @@ __device__ void _bit_unpack_16_6bw_32t(const uint16_t *__restrict in, uint16_t *
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -1118,6 +1124,7 @@ __device__ void _bit_unpack_16_6bw_32t(const uint16_t *__restrict in, uint16_t *
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -1144,7 +1151,7 @@ __device__ void _bit_unpack_16_7bw_32t(const uint16_t *__restrict in, uint16_t *
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -1153,6 +1160,7 @@ __device__ void _bit_unpack_16_7bw_32t(const uint16_t *__restrict in, uint16_t *
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -1179,7 +1187,7 @@ __device__ void _bit_unpack_16_8bw_32t(const uint16_t *__restrict in, uint16_t *
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -1188,6 +1196,7 @@ __device__ void _bit_unpack_16_8bw_32t(const uint16_t *__restrict in, uint16_t *
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -1214,7 +1223,7 @@ __device__ void _bit_unpack_16_9bw_32t(const uint16_t *__restrict in, uint16_t *
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -1223,6 +1232,7 @@ __device__ void _bit_unpack_16_9bw_32t(const uint16_t *__restrict in, uint16_t *
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -1249,7 +1259,7 @@ __device__ void _bit_unpack_16_10bw_32t(const uint16_t *__restrict in, uint16_t 
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -1258,6 +1268,7 @@ __device__ void _bit_unpack_16_10bw_32t(const uint16_t *__restrict in, uint16_t 
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -1284,7 +1295,7 @@ __device__ void _bit_unpack_16_11bw_32t(const uint16_t *__restrict in, uint16_t 
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -1293,6 +1304,7 @@ __device__ void _bit_unpack_16_11bw_32t(const uint16_t *__restrict in, uint16_t 
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -1319,7 +1331,7 @@ __device__ void _bit_unpack_16_12bw_32t(const uint16_t *__restrict in, uint16_t 
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -1328,6 +1340,7 @@ __device__ void _bit_unpack_16_12bw_32t(const uint16_t *__restrict in, uint16_t 
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -1354,7 +1367,7 @@ __device__ void _bit_unpack_16_13bw_32t(const uint16_t *__restrict in, uint16_t 
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -1363,6 +1376,7 @@ __device__ void _bit_unpack_16_13bw_32t(const uint16_t *__restrict in, uint16_t 
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -1389,7 +1403,7 @@ __device__ void _bit_unpack_16_14bw_32t(const uint16_t *__restrict in, uint16_t 
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -1398,6 +1412,7 @@ __device__ void _bit_unpack_16_14bw_32t(const uint16_t *__restrict in, uint16_t 
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -1424,7 +1439,7 @@ __device__ void _bit_unpack_16_15bw_32t(const uint16_t *__restrict in, uint16_t 
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -1433,6 +1448,7 @@ __device__ void _bit_unpack_16_15bw_32t(const uint16_t *__restrict in, uint16_t 
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];
@@ -1459,7 +1475,7 @@ __device__ void _bit_unpack_16_16bw_32t(const uint16_t *__restrict in, uint16_t 
         uint16_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint16_t>() : 0;
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (i == next_patch_index) {
+            if (idx == next_patch_index) {
                 out[idx] = next_patch_value;
                 // Advance the patches cursor
                 if (cursor.next()) {
@@ -1468,6 +1484,7 @@ __device__ void _bit_unpack_16_16bw_32t(const uint16_t *__restrict in, uint16_t 
                 } else {
                     // We have visited all patches
                     next_patch_index = 1024;
+                    next_patch_value = 0;
                 }
             } else {
                 out[idx] = shared_out[idx];

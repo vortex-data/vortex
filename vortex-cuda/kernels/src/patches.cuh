@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include <stdio.h>
 #include "patches.h"
 #include "fastlanes_common.cuh"
 
@@ -30,6 +29,14 @@ struct PatchesCursor {
         chunk_index = chunk;
         lane = theLane;
         offset = 0;
+
+	// This is the sentinel for a set of empty patches, which we know
+	// means to ignore the kernel completely.
+	if (patches.n_chunks == 0) {
+	    n_patches = 0;
+	    start_offset = 0;
+	    return;
+	}
     
         auto idx = chunk * 1024 + lane;
         auto startIdx = patches.lane_offsets[idx];
@@ -37,13 +44,11 @@ struct PatchesCursor {
     
         n_patches = stopIdx - startIdx;
         start_offset = startIdx;
-        printf("SEEK: chunk %d LANE %d, n_patches = %d\n", chunk_index, lane, n_patches);
     }
     
     // Advance to the next patch in the patching group.
     __device__ bool next() {
         if (offset >= n_patches) {
-            printf("LANE %d: exhausted all %d patches\n", lane, n_patches);
             return false;
         }
     
