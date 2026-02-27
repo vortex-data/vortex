@@ -134,9 +134,10 @@ impl<V: Copy> Lane<V> {
     }
 }
 
+/// Transpose a set of patches from the default sorted layout into the data parallel layout.
 #[allow(clippy::cognitive_complexity)]
-pub(crate) async fn transpose_patches(
-    patches: Patches,
+pub async fn transpose_patches(
+    patches: &Patches,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<DevicePatches> {
     let array_len = patches.array_len();
