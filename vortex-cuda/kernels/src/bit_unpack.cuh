@@ -42,7 +42,7 @@ __device__ inline void bit_unpack_lane(const T *__restrict packed_chunk,
                                                            uint##bits##_t reference,                         \
                                                            unsigned int lane,                                \
                                                            uint32_t bw) {                                    \
-	const GPUPatches empty{0, 0, nullptr, nullptr, nullptr};                                             \
+        const GPUPatches empty {0, 0, nullptr, nullptr, nullptr};                                            \
         bit_unpack_##bits##_lane(in, out, reference, lane, bw, empty);                                       \
     }
 
