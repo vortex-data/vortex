@@ -148,20 +148,25 @@ pub async fn transpose_patches(
         .clone()
         .execute::<Canonical>(ctx.execution_ctx())?
         .into_primitive();
+
     let values = patches
         .values()
         .clone()
         .execute::<Canonical>(ctx.execution_ctx())?
         .into_primitive();
 
-    match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-        match_each_native_ptype!(values.ptype(), |V| {
-            let host_patches = transpose(
-                indices.to_buffer::<I>().as_slice(),
-                values.to_buffer::<V>().as_slice(),
-                offset,
-                array_len,
-            );
+    let indices_ptype = indices.ptype();
+    let values_ptype = values.ptype();
+
+    let indices = indices.buffer_handle().to_host().await;
+    let values = values.buffer_handle().to_host().await;
+
+    match_each_unsigned_integer_ptype!(indices_ptype, |I| {
+        match_each_native_ptype!(values_ptype, |V| {
+            let indices: Buffer<I> = Buffer::from_byte_buffer(indices);
+            let values: Buffer<V> = Buffer::from_byte_buffer(values);
+
+            let host_patches = transpose(indices.as_slice(), values.as_slice(), offset, array_len);
 
             host_patches.export_to_device(ctx).await
         })

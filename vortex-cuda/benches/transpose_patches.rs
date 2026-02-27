@@ -4,17 +4,21 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::cast_possible_truncation)]
 
-use criterion::{BenchmarkId, Criterion};
+use criterion::BenchmarkId;
+use criterion::Criterion;
 use futures::executor::block_on;
-use vortex::buffer::{Buffer, buffer};
+use vortex::buffer::Buffer;
+use vortex::buffer::buffer;
 use vortex::session::VortexSession;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_cuda::{CudaSession, transpose_patches};
-use vortex_cuda_macros::{cuda_available, cuda_not_available};
+use vortex_cuda::CudaSession;
+use vortex_cuda::transpose_patches;
+use vortex_cuda_macros::cuda_available;
+use vortex_cuda_macros::cuda_not_available;
 use vortex_error::VortexExpect;
 
 fn benchmark_transpose(c: &mut Criterion) {
@@ -28,8 +32,8 @@ fn benchmark_transpose(c: &mut Criterion) {
 
         let values = buffer![-1.0f32; 1024];
 
-        let device_indices = cuda_ctx.copy_to_device(&indices)?.await?;
-        let device_values = cuda_ctx.copy_to_device(&values)?.await?;
+        let device_indices = cuda_ctx.copy_to_device(indices)?.await?;
+        let device_values = cuda_ctx.copy_to_device(values)?.await?;
 
         Patches::new(
             64 * 1024,
@@ -51,8 +55,6 @@ fn benchmark_transpose(c: &mut Criterion) {
             b.iter(|| block_on(async { transpose_patches(patches, &mut cuda_ctx).await.unwrap() }))
         },
     );
-
-    block_on(async move {});
 }
 
 criterion::criterion_group!(benches, benchmark_transpose);
