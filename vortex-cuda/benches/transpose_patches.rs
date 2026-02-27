@@ -4,9 +4,10 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::cast_possible_truncation)]
 
-use criterion::BenchmarkId;
 use criterion::Criterion;
+use criterion::{BenchmarkId, Throughput};
 use futures::executor::block_on;
+use std::time::Duration;
 use vortex::buffer::Buffer;
 use vortex::buffer::buffer;
 use vortex::session::VortexSession;
@@ -48,6 +49,13 @@ fn benchmark_transpose(c: &mut Criterion) {
     .unwrap();
 
     let mut group = c.benchmark_group("transpose");
+    group.sample_size(100);
+    group.measurement_time(Duration::from_secs(10));
+
+    group.throughput(Throughput::Bytes(
+        patches.indices().nbytes() + patches.values().nbytes(),
+    ));
+
     group.bench_with_input(
         BenchmarkId::new("transpose_patches", 0),
         &patches,
