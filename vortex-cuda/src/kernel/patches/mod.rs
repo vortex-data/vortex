@@ -4,7 +4,7 @@
 pub mod types;
 
 #[rustfmt::skip]
-#[allow(clippy::all)]
+#[allow(warnings, clippy::all, clippy::pedantic, clippy::nursery)]
 pub mod gpu {
     include!(concat!(env!("OUT_DIR"), "/patches.rs"));
 }
