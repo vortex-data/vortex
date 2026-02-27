@@ -194,7 +194,10 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let array = PrimitiveArray::new((0u16..=513).collect::<Buffer<_>>(), NonNullable);
+        let array = PrimitiveArray::new(
+            (0u16..=513).cycle().take(3072).collect::<Buffer<_>>(),
+            NonNullable,
+        );
 
         // Last two items should be patched
         let bp_with_patches = BitPackedArray::encode(&array.to_array(), 9)?;
