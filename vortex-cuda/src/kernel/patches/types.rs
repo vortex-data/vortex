@@ -39,7 +39,7 @@ struct Chunk<V> {
 impl<V: Copy + Default> Default for Chunk<V> {
     fn default() -> Self {
         Self {
-            lanes: vec![Lane::<V>::default(); 128 / size_of::<V>()],
+            lanes: vec![Lane::<V>::default(); if size_of::<V>() < 8 { 32 } else { 16 }],
         }
     }
 }
