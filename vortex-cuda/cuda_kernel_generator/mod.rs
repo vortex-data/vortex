@@ -142,10 +142,30 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
             writeln!(output, "_bit_unpack_{bits}_{bit_width}bw_lane(in, shared_out, reference, thread_idx * {per_thread_loop_count} + {thread_lane}, patches);")?;
         }
 
+        writeln!(output, "// Setup the patches cursor so we can seek patches")?;
+        writeln!(output, "PatchesCursor cursor(patches);")?;
+        writeln!(output, "auto chunk = thread_idx / 1024;")?;
+        writeln!(output, "cursor.seek(chunk, thread_idx);")?;
         writeln!(output, "for (int i = 0; i < {shared_copy_ncount}; i++) {{")?;
+        writeln!(output, "bool has_patches = cursor.n_patches > 0;")?;
+        writeln!(output, "uint16_t next_patch_index = cursor.get_index();")?;
+        writeln!(output, "uint{bits}_t next_patch_value = cursor.get_value();")?;
         output.indent(|output| {
             writeln!(output, "auto idx = i * {thread_count} + thread_idx;")?;
-            writeln!(output, "out[idx] = shared_out[idx];")
+            // We are always less than or equal to a patch, b/c of how we advance it.
+            writeln!(output, "if (i == next_patch_index) {{")?;
+            writeln!(output, "    out[idx] = next_patch_value;")?;
+            writeln!(output, "    // Advance the patches cursor")?;
+            writeln!(output, "    if (cursor.next()) {{")?;
+            writeln!(output, "        next_patch_index = cursor.get_index();")?;
+            writeln!(output, "        next_patch_value = cursor.get_value();")?;
+            writeln!(output, "    }} else {{")?;
+            writeln!(output, "        // We have visited all patches")?;
+            writeln!(output, "        next_patch_index = 1024;")?;
+            writeln!(output, "    }}")?;
+            writeln!(output, "}} else {{")?;
+            writeln!(output, "    out[idx] = shared_out[idx];")?;
+            writeln!(output, "}}")
         })?;
         writeln!(output, "}}")
     })?;
