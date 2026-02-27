@@ -84,8 +84,6 @@ where
 
     let array_len_u64 = array_len as u64;
 
-    // Convert the patches into patches that run on the GPU in fully data parallel fashion.
-
     // Load kernel function
     let kernel_ptypes = [A::ALPInt::PTYPE, A::PTYPE];
     let cuda_function = ctx.load_function("alp", &kernel_ptypes)?;
