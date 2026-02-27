@@ -174,7 +174,10 @@ fn transpose<I: IntegerPType, V: NativePType>(
 ) -> HostPatches<V> {
     // Total number of slots is number of chunks times number of lanes.
     let n_chunks = array_len.div_ceil(1024);
-    let n_lanes = 128 / size_of::<V>();
+    // For types 32-bits or smaller, we use a 32 lane configuration, and for 64-bit we use 16 lanes.
+    // This matches up with the number of lanes we use to execute copying results from bit-unpacking
+    // from shared to global memory.
+    let n_lanes = if size_of::<V>() < 8 { 32 } else { 16 };
     let mut chunks: Vec<Chunk<V>> = vec![Chunk::default(); n_chunks];
 
     // For each chunk, for each lane, push new values

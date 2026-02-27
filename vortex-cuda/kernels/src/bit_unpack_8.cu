@@ -269,9 +269,28 @@ __device__ void _bit_unpack_8_0bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_0bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
     _bit_unpack_8_0bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
     _bit_unpack_8_0bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    // Setup the patches cursor so we can seek patches
+    PatchesCursor cursor(patches);
+    auto chunk = thread_idx / 1024;
+    cursor.seek(chunk, thread_idx);
     for (int i = 0; i < 32; i++) {
+    bool has_patches = cursor.n_patches > 0;
+    uint16_t next_patch_index = cursor.get_index();
+    uint8_t next_patch_value = cursor.get_value();
         auto idx = i * 32 + thread_idx;
-        out[idx] = shared_out[idx];
+        if (i == next_patch_index) {
+            out[idx] = next_patch_value;
+            // Advance the patches cursor
+            if (cursor.next()) {
+                next_patch_index = cursor.get_index();
+                next_patch_value = cursor.get_value();
+            } else {
+                // We have visited all patches
+                next_patch_index = 1024;
+            }
+        } else {
+            out[idx] = shared_out[idx];
+        }
     }
 }
 
@@ -288,9 +307,28 @@ __device__ void _bit_unpack_8_1bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_1bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
     _bit_unpack_8_1bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
     _bit_unpack_8_1bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    // Setup the patches cursor so we can seek patches
+    PatchesCursor cursor(patches);
+    auto chunk = thread_idx / 1024;
+    cursor.seek(chunk, thread_idx);
     for (int i = 0; i < 32; i++) {
+    bool has_patches = cursor.n_patches > 0;
+    uint16_t next_patch_index = cursor.get_index();
+    uint8_t next_patch_value = cursor.get_value();
         auto idx = i * 32 + thread_idx;
-        out[idx] = shared_out[idx];
+        if (i == next_patch_index) {
+            out[idx] = next_patch_value;
+            // Advance the patches cursor
+            if (cursor.next()) {
+                next_patch_index = cursor.get_index();
+                next_patch_value = cursor.get_value();
+            } else {
+                // We have visited all patches
+                next_patch_index = 1024;
+            }
+        } else {
+            out[idx] = shared_out[idx];
+        }
     }
 }
 
@@ -307,9 +345,28 @@ __device__ void _bit_unpack_8_2bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_2bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
     _bit_unpack_8_2bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
     _bit_unpack_8_2bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    // Setup the patches cursor so we can seek patches
+    PatchesCursor cursor(patches);
+    auto chunk = thread_idx / 1024;
+    cursor.seek(chunk, thread_idx);
     for (int i = 0; i < 32; i++) {
+    bool has_patches = cursor.n_patches > 0;
+    uint16_t next_patch_index = cursor.get_index();
+    uint8_t next_patch_value = cursor.get_value();
         auto idx = i * 32 + thread_idx;
-        out[idx] = shared_out[idx];
+        if (i == next_patch_index) {
+            out[idx] = next_patch_value;
+            // Advance the patches cursor
+            if (cursor.next()) {
+                next_patch_index = cursor.get_index();
+                next_patch_value = cursor.get_value();
+            } else {
+                // We have visited all patches
+                next_patch_index = 1024;
+            }
+        } else {
+            out[idx] = shared_out[idx];
+        }
     }
 }
 
@@ -326,9 +383,28 @@ __device__ void _bit_unpack_8_3bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_3bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
     _bit_unpack_8_3bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
     _bit_unpack_8_3bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    // Setup the patches cursor so we can seek patches
+    PatchesCursor cursor(patches);
+    auto chunk = thread_idx / 1024;
+    cursor.seek(chunk, thread_idx);
     for (int i = 0; i < 32; i++) {
+    bool has_patches = cursor.n_patches > 0;
+    uint16_t next_patch_index = cursor.get_index();
+    uint8_t next_patch_value = cursor.get_value();
         auto idx = i * 32 + thread_idx;
-        out[idx] = shared_out[idx];
+        if (i == next_patch_index) {
+            out[idx] = next_patch_value;
+            // Advance the patches cursor
+            if (cursor.next()) {
+                next_patch_index = cursor.get_index();
+                next_patch_value = cursor.get_value();
+            } else {
+                // We have visited all patches
+                next_patch_index = 1024;
+            }
+        } else {
+            out[idx] = shared_out[idx];
+        }
     }
 }
 
@@ -345,9 +421,28 @@ __device__ void _bit_unpack_8_4bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_4bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
     _bit_unpack_8_4bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
     _bit_unpack_8_4bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    // Setup the patches cursor so we can seek patches
+    PatchesCursor cursor(patches);
+    auto chunk = thread_idx / 1024;
+    cursor.seek(chunk, thread_idx);
     for (int i = 0; i < 32; i++) {
+    bool has_patches = cursor.n_patches > 0;
+    uint16_t next_patch_index = cursor.get_index();
+    uint8_t next_patch_value = cursor.get_value();
         auto idx = i * 32 + thread_idx;
-        out[idx] = shared_out[idx];
+        if (i == next_patch_index) {
+            out[idx] = next_patch_value;
+            // Advance the patches cursor
+            if (cursor.next()) {
+                next_patch_index = cursor.get_index();
+                next_patch_value = cursor.get_value();
+            } else {
+                // We have visited all patches
+                next_patch_index = 1024;
+            }
+        } else {
+            out[idx] = shared_out[idx];
+        }
     }
 }
 
@@ -364,9 +459,28 @@ __device__ void _bit_unpack_8_5bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_5bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
     _bit_unpack_8_5bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
     _bit_unpack_8_5bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    // Setup the patches cursor so we can seek patches
+    PatchesCursor cursor(patches);
+    auto chunk = thread_idx / 1024;
+    cursor.seek(chunk, thread_idx);
     for (int i = 0; i < 32; i++) {
+    bool has_patches = cursor.n_patches > 0;
+    uint16_t next_patch_index = cursor.get_index();
+    uint8_t next_patch_value = cursor.get_value();
         auto idx = i * 32 + thread_idx;
-        out[idx] = shared_out[idx];
+        if (i == next_patch_index) {
+            out[idx] = next_patch_value;
+            // Advance the patches cursor
+            if (cursor.next()) {
+                next_patch_index = cursor.get_index();
+                next_patch_value = cursor.get_value();
+            } else {
+                // We have visited all patches
+                next_patch_index = 1024;
+            }
+        } else {
+            out[idx] = shared_out[idx];
+        }
     }
 }
 
@@ -383,9 +497,28 @@ __device__ void _bit_unpack_8_6bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_6bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
     _bit_unpack_8_6bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
     _bit_unpack_8_6bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    // Setup the patches cursor so we can seek patches
+    PatchesCursor cursor(patches);
+    auto chunk = thread_idx / 1024;
+    cursor.seek(chunk, thread_idx);
     for (int i = 0; i < 32; i++) {
+    bool has_patches = cursor.n_patches > 0;
+    uint16_t next_patch_index = cursor.get_index();
+    uint8_t next_patch_value = cursor.get_value();
         auto idx = i * 32 + thread_idx;
-        out[idx] = shared_out[idx];
+        if (i == next_patch_index) {
+            out[idx] = next_patch_value;
+            // Advance the patches cursor
+            if (cursor.next()) {
+                next_patch_index = cursor.get_index();
+                next_patch_value = cursor.get_value();
+            } else {
+                // We have visited all patches
+                next_patch_index = 1024;
+            }
+        } else {
+            out[idx] = shared_out[idx];
+        }
     }
 }
 
@@ -402,9 +535,28 @@ __device__ void _bit_unpack_8_7bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_7bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
     _bit_unpack_8_7bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
     _bit_unpack_8_7bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    // Setup the patches cursor so we can seek patches
+    PatchesCursor cursor(patches);
+    auto chunk = thread_idx / 1024;
+    cursor.seek(chunk, thread_idx);
     for (int i = 0; i < 32; i++) {
+    bool has_patches = cursor.n_patches > 0;
+    uint16_t next_patch_index = cursor.get_index();
+    uint8_t next_patch_value = cursor.get_value();
         auto idx = i * 32 + thread_idx;
-        out[idx] = shared_out[idx];
+        if (i == next_patch_index) {
+            out[idx] = next_patch_value;
+            // Advance the patches cursor
+            if (cursor.next()) {
+                next_patch_index = cursor.get_index();
+                next_patch_value = cursor.get_value();
+            } else {
+                // We have visited all patches
+                next_patch_index = 1024;
+            }
+        } else {
+            out[idx] = shared_out[idx];
+        }
     }
 }
 
@@ -421,9 +573,28 @@ __device__ void _bit_unpack_8_8bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_8bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
     _bit_unpack_8_8bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
     _bit_unpack_8_8bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    // Setup the patches cursor so we can seek patches
+    PatchesCursor cursor(patches);
+    auto chunk = thread_idx / 1024;
+    cursor.seek(chunk, thread_idx);
     for (int i = 0; i < 32; i++) {
+    bool has_patches = cursor.n_patches > 0;
+    uint16_t next_patch_index = cursor.get_index();
+    uint8_t next_patch_value = cursor.get_value();
         auto idx = i * 32 + thread_idx;
-        out[idx] = shared_out[idx];
+        if (i == next_patch_index) {
+            out[idx] = next_patch_value;
+            // Advance the patches cursor
+            if (cursor.next()) {
+                next_patch_index = cursor.get_index();
+                next_patch_value = cursor.get_value();
+            } else {
+                // We have visited all patches
+                next_patch_index = 1024;
+            }
+        } else {
+            out[idx] = shared_out[idx];
+        }
     }
 }
 
