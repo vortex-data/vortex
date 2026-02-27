@@ -6612,8 +6612,6 @@ impl vortex_array::dtype::extension::ExtDTypeRef
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::display_metadata(&self) -> impl core::fmt::Display + '_
 
-pub fn vortex_array::dtype::extension::ExtDTypeRef::display_storage_value<'a>(&'a self, storage_value: &'a vortex_array::scalar::ScalarValue) -> impl core::fmt::Display + 'a
-
 pub fn vortex_array::dtype::extension::ExtDTypeRef::eq_ignore_nullability(&self, other: &Self) -> bool
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::id(&self) -> vortex_array::dtype::extension::ExtId
@@ -6625,8 +6623,6 @@ pub fn vortex_array::dtype::extension::ExtDTypeRef::nullability(&self) -> vortex
 pub fn vortex_array::dtype::extension::ExtDTypeRef::serialize_metadata(&self) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::storage_dtype(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::validate_storage_value(&self, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::with_nullability(&self, nullability: vortex_array::dtype::Nullability) -> Self
 

@@ -39,7 +39,8 @@ impl fmt::Display for ExtScalar<'_> {
         let Some(value) = self.value else {
             return write!(f, "null");
         };
-        self.ext_dtype.display_storage_value(value).fmt(f)
+
+        self.ext_dtype.fmt_storage_value(f, value)
     }
 }
 
