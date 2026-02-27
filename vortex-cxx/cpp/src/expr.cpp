@@ -6,27 +6,27 @@
 
 namespace vortex::expr {
 
-Expr literal(scalar::Scalar scalar) {
+Expr Literal(scalar::Scalar scalar) {
     return Expr(ffi::literal(std::move(scalar).IntoImpl()));
 }
 
-Expr root() {
+Expr Root() {
     return Expr(ffi::root());
 }
 
-Expr column(std::string_view name) {
+Expr Column(std::string_view name) {
     return Expr(ffi::column(rust::String(name.data(), name.length())));
 }
 
-Expr get_item(std::string_view field, Expr child) {
+Expr GetItem(std::string_view field, Expr child) {
     return Expr(ffi::get_item(rust::String(field.data(), field.length()), std::move(child).IntoImpl()));
 }
 
-Expr not_(Expr child) {
+Expr Not(Expr child) {
     return Expr(ffi::not_(std::move(child).IntoImpl()));
 }
 
-Expr is_null(Expr child) {
+Expr IsNull(Expr child) {
     return Expr(ffi::is_null(std::move(child).IntoImpl()));
 }
 
@@ -36,19 +36,19 @@ Expr is_null(Expr child) {
         return Expr(ffi::name(std::move(lhs).IntoImpl(), std::move(rhs).IntoImpl()));                        \
     }
 
-DEFINE_BINARY_OP(eq)
-DEFINE_BINARY_OP(not_eq_)
-DEFINE_BINARY_OP(gt)
-DEFINE_BINARY_OP(gt_eq)
-DEFINE_BINARY_OP(lt)
-DEFINE_BINARY_OP(lt_eq)
-DEFINE_BINARY_OP(and_)
-DEFINE_BINARY_OP(or_)
-DEFINE_BINARY_OP(checked_add)
+DEFINE_BINARY_OP(Eq)
+DEFINE_BINARY_OP(NotEq)
+DEFINE_BINARY_OP(Gt)
+DEFINE_BINARY_OP(GtEq)
+DEFINE_BINARY_OP(Lt)
+DEFINE_BINARY_OP(LtEq)
+DEFINE_BINARY_OP(And)
+DEFINE_BINARY_OP(Or)
+DEFINE_BINARY_OP(CheckedAdd)
 
 #undef DEFINE_BINARY_OP
 
-Expr select(const std::vector<std::string_view> &fields, Expr child) {
+Expr Select(const std::vector<std::string_view> &fields, Expr child) {
     ::rust::Vec<::rust::String> rs_fields;
     for (auto f : fields) {
         rs_fields.emplace_back(f.data(), f.length());

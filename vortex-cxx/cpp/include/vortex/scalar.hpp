@@ -11,7 +11,7 @@ namespace vortex::scalar {
 class Scalar {
 public:
     Scalar() = delete;
-    explicit Scalar(rust::Box<ffi::Scalar> impl) : impl_(std::move(impl)) {
+    explicit Scalar(rust::Box<ffi::Scalar> impl) : impl(std::move(impl)) {
     }
     Scalar(Scalar &&other) noexcept = default;
     Scalar &operator=(Scalar &&other) noexcept = default;
@@ -21,27 +21,27 @@ public:
     Scalar &operator=(const Scalar &) = delete;
 
     rust::Box<ffi::Scalar> IntoImpl() && {
-        return std::move(impl_);
+        return std::move(impl);
     }
 
 private:
-    rust::Box<ffi::Scalar> impl_;
+    rust::Box<ffi::Scalar> impl;
 };
 
 // Factory functions for creating scalar values
-Scalar bool_(bool value);
-Scalar int8(int8_t value);
-Scalar int16(int16_t value);
-Scalar int32(int32_t value);
-Scalar int64(int64_t value);
-Scalar uint8(uint8_t value);
-Scalar uint16(uint16_t value);
-Scalar uint32(uint32_t value);
-Scalar uint64(uint64_t value);
-Scalar float32(float value);
-Scalar float64(double value);
-Scalar string(std::string_view value);
-Scalar binary(const uint8_t *data, size_t length);
+Scalar Bool(bool value);
+Scalar Int8(int8_t value);
+Scalar Int16(int16_t value);
+Scalar Int32(int32_t value);
+Scalar Int64(int64_t value);
+Scalar Uint8(uint8_t value);
+Scalar Uint16(uint16_t value);
+Scalar Uint32(uint32_t value);
+Scalar Uint64(uint64_t value);
+Scalar Float32(float value);
+Scalar Float64(double value);
+Scalar String(std::string_view value);
+Scalar Binary(const uint8_t *data, size_t length);
 /// TODO: Other Scalars are only supported by casting for now.
-Scalar cast(Scalar scalar, dtype::DType dtype);
+Scalar Cast(Scalar scalar, dtype::DType dtype);
 } // namespace vortex::scalar

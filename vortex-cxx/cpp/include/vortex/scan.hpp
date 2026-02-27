@@ -40,10 +40,10 @@ public:
 private:
     friend class ScanBuilder;
 
-    explicit StreamDriver(rust::Box<ffi::ThreadsafeCloneableReader> impl) : impl_(std::move(impl)) {
+    explicit StreamDriver(rust::Box<ffi::ThreadsafeCloneableReader> impl) : impl(std::move(impl)) {
     }
 
-    rust::Box<ffi::ThreadsafeCloneableReader> impl_;
+    rust::Box<ffi::ThreadsafeCloneableReader> impl;
 };
 
 class ScanBuilder {
@@ -51,7 +51,7 @@ public:
     ScanBuilder(ScanBuilder &&other) noexcept = default;
     ScanBuilder &operator=(ScanBuilder &&other) noexcept {
         if (this != &other) {
-            impl_ = std::move(other.impl_);
+            impl = std::move(other.impl);
         }
         return *this;
     }
@@ -100,9 +100,9 @@ public:
 private:
     friend class VortexFile;
 
-    explicit ScanBuilder(rust::Box<ffi::VortexScanBuilder> impl) : impl_(std::move(impl)) {
+    explicit ScanBuilder(rust::Box<ffi::VortexScanBuilder> impl) : impl(std::move(impl)) {
     }
 
-    rust::Box<ffi::VortexScanBuilder> impl_;
+    rust::Box<ffi::VortexScanBuilder> impl;
 };
 } // namespace vortex

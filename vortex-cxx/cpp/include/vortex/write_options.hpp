@@ -10,7 +10,7 @@ namespace vortex {
 
 class VortexWriteOptions {
 public:
-    VortexWriteOptions() : impl_(ffi::write_options_new()) {
+    VortexWriteOptions() : impl(ffi::write_options_new()) {
     }
     VortexWriteOptions(VortexWriteOptions &&other) noexcept = default;
     VortexWriteOptions &operator=(VortexWriteOptions &&other) noexcept = default;
@@ -23,7 +23,7 @@ public:
     void WriteArrayStream(ArrowArrayStream &stream, const std::string &path);
 
 private:
-    rust::Box<ffi::VortexWriteOptions> impl_;
+    rust::Box<ffi::VortexWriteOptions> impl;
 };
 
 } // namespace vortex

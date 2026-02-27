@@ -29,10 +29,10 @@ public:
     ScanBuilder CreateScanBuilder() const;
 
 private:
-    explicit VortexFile(rust::Box<ffi::VortexFile> impl) : impl_(std::move(impl)) {
+    explicit VortexFile(rust::Box<ffi::VortexFile> impl) : impl(std::move(impl)) {
     }
 
-    rust::Box<ffi::VortexFile> impl_;
+    rust::Box<ffi::VortexFile> impl;
 };
 
 } // namespace vortex

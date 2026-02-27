@@ -26,11 +26,11 @@ VortexFile VortexFile::Open(const std::string &path) {
 }
 
 uint64_t VortexFile::RowCount() const {
-    return impl_->row_count();
+    return impl->row_count();
 }
 
 ScanBuilder VortexFile::CreateScanBuilder() const {
-    return ScanBuilder(impl_->scan_builder());
+    return ScanBuilder(impl->scan_builder());
 }
 
 } // namespace vortex
