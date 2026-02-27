@@ -127,12 +127,15 @@ where
     let cuda_function = bitpacked_cuda_kernel(bit_width, output_width, ctx)?;
     let config = bitpacked_cuda_launch_config(output_width, len)?;
 
+    println!("Before transpose patches");
     // We hold this here to keep the device buffers alive.
     let device_patches = if let Some(patches) = patches {
         Some(transpose_patches(patches, ctx).await?)
     } else {
         None
     };
+
+    println!("Before patches_arg");
 
     let patches_arg = if let Some(p) = &device_patches {
         GPUPatches {
@@ -153,12 +156,16 @@ where
         }
     };
 
+    println!("After patches_arg");
+
     ctx.launch_kernel_config(&cuda_function, config, len, |args| {
         args.arg(&input_view)
             .arg(&output_view)
             .arg(&reference)
             .arg(&patches_arg);
     })?;
+
+    println!("After launch")
 
     let output_handle =
         BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len)));
