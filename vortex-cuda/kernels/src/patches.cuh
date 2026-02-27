@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <stdio.h>
 #include "patches.h"
 #include "fastlanes_common.cuh"
 
@@ -36,11 +37,13 @@ struct PatchesCursor {
     
         n_patches = stopIdx - startIdx;
         start_offset = startIdx;
+        printf("SEEK: chunk %d LANE %d, n_patches = %d\n", chunk_index, lane, n_patches);
     }
     
     // Advance to the next patch in the patching group.
     __device__ bool next() {
         if (offset >= n_patches) {
+            printf("LANE %d: exhausted all %d patches\n", lane, n_patches);
             return false;
         }
     
