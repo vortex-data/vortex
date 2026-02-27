@@ -188,20 +188,21 @@ async fn main() -> VortexResult<()> {
         );
     }
 
-    // Print summary
+    // Compute summary stats
     let total: std::time::Duration = iteration_times.iter().sum();
     let avg = total / iteration_times.len() as u32;
-
-    // Get file size for throughput
     let file_size = reader.size().await?;
-    let throughput_mbs = (file_size as f64 / (1024.0 * 1024.0)) / avg.as_secs_f64();
+    let file_size_mb = file_size as f64 / (1024.0 * 1024.0);
+    let throughput_mbs = file_size_mb / avg.as_secs_f64();
+    let iteration_secs: Vec<f64> = iteration_times.iter().map(|d| d.as_secs_f64()).collect();
 
+    // Always print human-readable to stderr
     eprintln!();
     eprintln!("=== Benchmark Results ===");
     eprintln!("Source:     {}", cli.source);
     eprintln!("Iterations: {}", cli.iterations);
     eprintln!("Avg time:   {:.3}s", avg.as_secs_f64());
-    eprintln!("File size:  {:.2} MB", file_size as f64 / (1024.0 * 1024.0));
+    eprintln!("File size:  {file_size_mb:.2} MB");
     eprintln!("Throughput: {throughput_mbs:.2} MB/s");
 
     Ok(())
