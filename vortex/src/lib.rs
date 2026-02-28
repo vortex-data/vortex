@@ -5,6 +5,8 @@
 #![doc = include_str!(concat!("../", env!("CARGO_PKG_README")))]
 
 // vortex::compute is deprecated and will be ported over to expressions.
+pub use vortex_array::aggregate_fn;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 pub use vortex_array::compute;
 use vortex_array::dtype::session::DTypeSession;
 // vortex::expr is in the process of having its dependencies inverted, and will eventually be
@@ -165,6 +167,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<ArraySession>()
             .with::<LayoutSession>()
             .with::<ScalarFnSession>()
+            .with::<AggregateFnSession>()
             .with::<RuntimeSession>();
 
         #[cfg(feature = "files")]

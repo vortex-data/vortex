@@ -28,6 +28,7 @@ use vortex_session::VortexSession;
 use crate::session::ArraySession;
 
 pub mod accessor;
+pub mod aggregate_fn;
 #[doc(hidden)]
 pub mod aliases;
 mod array;
