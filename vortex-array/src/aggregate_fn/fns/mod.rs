@@ -2,3 +2,4 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod mean;
+pub mod sum;
