@@ -8,7 +8,8 @@
 
 use arcref::ArcRef;
 
-pub mod accumulator;
+mod accumulator;
+pub use accumulator::*;
 
 mod vtable;
 pub use vtable::*;
@@ -21,6 +22,9 @@ pub use typed::*;
 
 mod erased;
 pub use erased::*;
+
+mod options;
+pub use options::*;
 
 pub mod fns;
 pub mod session;

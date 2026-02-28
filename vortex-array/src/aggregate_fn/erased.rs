@@ -17,6 +17,7 @@ use vortex_utils::debug_with::DebugWith;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::accumulator::Accumulator;
+use crate::aggregate_fn::options::AggregateFnOptions;
 use crate::aggregate_fn::typed::AggregateFnInner;
 use crate::aggregate_fn::typed::DynAggregateFn;
 use crate::dtype::DType;
@@ -65,6 +66,11 @@ impl AggregateFnRef {
     pub fn as_<V: AggregateFnVTable>(&self) -> &V::Options {
         self.as_opt::<V>()
             .vortex_expect("Aggregate function options type mismatch")
+    }
+
+    /// The type-erased options for this aggregate function.
+    pub fn options(&self) -> AggregateFnOptions<'_> {
+        AggregateFnOptions { inner: &*self.0 }
     }
 
     /// Compute the return [`DType`] per group given the input element type.
