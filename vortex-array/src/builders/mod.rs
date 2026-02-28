@@ -160,7 +160,7 @@ pub trait ArrayBuilder: Send {
 
     /// Extends the array with the provided array, canonicalizing if necessary.
     ///
-    /// Implementors must validate that the passed in [`Array`] has the correct [`DType`].
+    /// Implementors must validate that the passed in [`ArrayRef`] has the correct [`DType`].
     fn extend_from_array(&mut self, array: &ArrayRef) {
         if !self.dtype().eq_with_nullability_superset(array.dtype()) {
             vortex_panic!(
@@ -210,7 +210,7 @@ pub trait ArrayBuilder: Send {
     ///
     /// This method provides a default implementation that creates an [`ArrayRef`] via `finish` and
     /// then converts it to canonical form. Specific builders can override this with optimized
-    /// implementations that avoid the intermediate [`Array`] creation.
+    /// implementations that avoid the intermediate [`ArrayRef`] creation.
     fn finish_into_canonical(&mut self) -> Canonical {
         self.finish()
             .to_canonical()

@@ -112,7 +112,7 @@ impl vortex_fastlanes::BitPackedArray
 
 pub fn vortex_fastlanes::BitPackedArray::bit_width(&self) -> u8
 
-pub fn vortex_fastlanes::BitPackedArray::encode(array: &dyn vortex_array::array::Array, bit_width: u8) -> vortex_error::VortexResult<Self>
+pub fn vortex_fastlanes::BitPackedArray::encode(array: &vortex_array::array::ArrayRef, bit_width: u8) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_fastlanes::BitPackedArray::into_parts(self) -> vortex_fastlanes::BitPackedArrayParts
 
@@ -190,7 +190,7 @@ pub fn vortex_fastlanes::BitPackedVTable::fmt(&self, f: &mut core::fmt::Formatte
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_fastlanes::BitPackedVTable
 
-pub fn vortex_fastlanes::BitPackedVTable::take(array: &vortex_fastlanes::BitPackedArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::BitPackedVTable::take(array: &vortex_fastlanes::BitPackedArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_fastlanes::BitPackedVTable
 
@@ -442,7 +442,7 @@ pub fn vortex_fastlanes::FoRVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>)
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_fastlanes::FoRVTable
 
-pub fn vortex_fastlanes::FoRVTable::take(array: &vortex_fastlanes::FoRArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::FoRVTable::take(array: &vortex_fastlanes::FoRArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterReduce for vortex_fastlanes::FoRVTable
 
@@ -464,7 +464,7 @@ pub fn vortex_fastlanes::FoRVTable::is_strict_sorted(&self, array: &vortex_fastl
 
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_fastlanes::FoRVTable
 
-pub fn vortex_fastlanes::FoRVTable::compare(lhs: &vortex_fastlanes::FoRArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fastlanes::FoRVTable::compare(lhs: &vortex_fastlanes::FoRArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fastlanes::FoRVTable
 

@@ -54,7 +54,7 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::fmt(&self, f: &mut cor
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_decimal_byte_parts::DecimalBytePartsVTable
 
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::take(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::take(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterReduce for vortex_decimal_byte_parts::DecimalBytePartsVTable
 
@@ -70,7 +70,7 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::is_constant(&self, arr
 
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_decimal_byte_parts::DecimalBytePartsVTable
 
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::compare(lhs: &Self::Array, rhs: &dyn vortex_array::array::Array, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::compare(lhs: &Self::Array, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_decimal_byte_parts::DecimalBytePartsVTable
 

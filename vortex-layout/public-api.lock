@@ -186,19 +186,19 @@ pub fn vortex_layout::layouts::compressed::CompressingStrategy::write_stream<'li
 
 pub trait vortex_layout::layouts::compressed::CompressorPlugin: core::marker::Send + core::marker::Sync + 'static
 
-pub fn vortex_layout::layouts::compressed::CompressorPlugin::compress_chunk(&self, chunk: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_layout::layouts::compressed::CompressorPlugin::compress_chunk(&self, chunk: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 impl vortex_layout::layouts::compressed::CompressorPlugin for alloc::sync::Arc<dyn vortex_layout::layouts::compressed::CompressorPlugin>
 
-pub fn alloc::sync::Arc<dyn vortex_layout::layouts::compressed::CompressorPlugin>::compress_chunk(&self, chunk: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn alloc::sync::Arc<dyn vortex_layout::layouts::compressed::CompressorPlugin>::compress_chunk(&self, chunk: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 impl vortex_layout::layouts::compressed::CompressorPlugin for vortex_btrblocks::canonical_compressor::BtrBlocksCompressor
 
-pub fn vortex_btrblocks::canonical_compressor::BtrBlocksCompressor::compress_chunk(&self, chunk: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_btrblocks::canonical_compressor::BtrBlocksCompressor::compress_chunk(&self, chunk: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
-impl<F> vortex_layout::layouts::compressed::CompressorPlugin for F where F: core::ops::function::Fn(&dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef> + core::marker::Send + core::marker::Sync + 'static
+impl<F> vortex_layout::layouts::compressed::CompressorPlugin for F where F: core::ops::function::Fn(&vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::ArrayRef> + core::marker::Send + core::marker::Sync + 'static
 
-pub fn F::compress_chunk(&self, chunk: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn F::compress_chunk(&self, chunk: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 pub mod vortex_layout::layouts::dict
 
@@ -816,9 +816,9 @@ pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::as_stats_table
 
 pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::new(dtype: &vortex_array::dtype::DType, stats: &[vortex_array::expr::stats::Stat], max_variable_length_statistics_size: usize) -> Self
 
-pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::push_chunk(&mut self, array: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::push_chunk(&mut self, array: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<()>
 
-pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::push_chunk_without_compute(&mut self, array: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::push_chunk_without_compute(&mut self, array: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<()>
 
 pub struct vortex_layout::layouts::zoned::zone_map::ZoneMap
 
