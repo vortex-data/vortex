@@ -11,6 +11,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray as _;
 use crate::arrays::ConstantVTable;
 use crate::arrays::NullVTable;
 use crate::compute::ComputeFn;
@@ -54,7 +56,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 ///
 /// Returns `Ok(None)` if we could not determine whether the array is constant, e.g. if
 /// canonicalization is disabled and the no kernel exists for the array's encoding.
-pub fn is_constant(array: &dyn Array) -> VortexResult<Option<bool>> {
+pub fn is_constant(array: &ArrayRef) -> VortexResult<Option<bool>> {
     let opts = IsConstantOpts::default();
     is_constant_opts(array, &opts)
 }
@@ -62,7 +64,7 @@ pub fn is_constant(array: &dyn Array) -> VortexResult<Option<bool>> {
 /// Computes whether an array has constant values. Configurable by [`IsConstantOpts`].
 ///
 /// Please see [`is_constant`] for a more detailed explanation of its behavior.
-pub fn is_constant_opts(array: &dyn Array, options: &IsConstantOpts) -> VortexResult<Option<bool>> {
+pub fn is_constant_opts(array: &ArrayRef, options: &IsConstantOpts) -> VortexResult<Option<bool>> {
     Ok(IS_CONSTANT_FN
         .invoke(&InvocationArgs {
             inputs: &[array.into()],
@@ -82,6 +84,7 @@ impl ComputeFnVTable for IsConstant {
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let IsConstantArgs { array, options } = IsConstantArgs::try_from(args)?;
+        let array = array.to_array();
 
         // We try and rely on some easy-to-get stats
         if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsConstant) {
@@ -89,7 +92,7 @@ impl ComputeFnVTable for IsConstant {
             return Ok(scalar.into());
         }
 
-        let value = is_constant_impl(array, options, kernels)?;
+        let value = is_constant_impl(&array, options, kernels)?;
 
         if options.cost == Cost::Canonicalize {
             // When we run linear canonicalize, there we must always return an exact answer.
@@ -126,7 +129,7 @@ impl ComputeFnVTable for IsConstant {
 }
 
 fn is_constant_impl(
-    array: &dyn Array,
+    array: &ArrayRef,
     options: &IsConstantOpts,
     kernels: &[ArcRef<dyn Kernel>],
 ) -> VortexResult<Option<bool>> {
@@ -190,8 +193,8 @@ fn is_constant_impl(
     );
 
     if options.cost == Cost::Canonicalize && !array.is_canonical() {
-        let array = array.to_canonical()?;
-        let is_constant = is_constant_opts(array.as_ref(), options)?;
+        let array = array.to_canonical()?.into_array();
+        let is_constant = is_constant_opts(&array, options)?;
         return Ok(is_constant);
     }
 
@@ -324,23 +327,24 @@ mod tests {
             .unwrap();
         assert!(is_constant(&arr).unwrap().unwrap_or_default());
 
-        let arr = PrimitiveArray::from_option_iter([Some(0), Some(0)]);
-        assert!(is_constant(arr.as_ref()).unwrap().unwrap_or_default());
+        let arr = PrimitiveArray::from_option_iter([Some(0), Some(0)]).into_array();
+        assert!(is_constant(&arr).unwrap().unwrap_or_default());
     }
 
     #[test]
     fn is_constant_min_max_with_nan() {
-        let arr = PrimitiveArray::from_iter([0.0, 0.0, f32::NAN]);
+        let arr = PrimitiveArray::from_iter([0.0, 0.0, f32::NAN]).into_array();
         arr.statistics()
             .compute_all(&[Stat::Min, Stat::Max])
             .unwrap();
-        assert!(!is_constant(arr.as_ref()).unwrap().unwrap_or_default());
+        assert!(!is_constant(&arr).unwrap().unwrap_or_default());
 
         let arr =
-            PrimitiveArray::from_option_iter([Some(f32::NEG_INFINITY), Some(f32::NEG_INFINITY)]);
+            PrimitiveArray::from_option_iter([Some(f32::NEG_INFINITY), Some(f32::NEG_INFINITY)])
+                .into_array();
         arr.statistics()
             .compute_all(&[Stat::Min, Stat::Max])
             .unwrap();
-        assert!(is_constant(arr.as_ref()).unwrap().unwrap_or_default());
+        assert!(is_constant(&arr).unwrap().unwrap_or_default());
     }
 }

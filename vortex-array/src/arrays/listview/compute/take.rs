@@ -45,7 +45,7 @@ const REBUILD_DENSITY_THRESHOLD: f64 = 0.1;
 impl TakeExecute for ListViewVTable {
     fn take(
         array: &ListViewArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let elements = array.elements();

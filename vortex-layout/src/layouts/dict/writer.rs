@@ -541,14 +541,14 @@ enum EncodingState {
     Done((ArrayRef, ArrayRef, ArrayRef)),
 }
 
-fn start_encoding(constraints: &DictConstraints, chunk: &dyn Array) -> VortexResult<EncodingState> {
+fn start_encoding(constraints: &DictConstraints, chunk: &ArrayRef) -> VortexResult<EncodingState> {
     let encoder = dict_encoder(chunk, constraints);
     encode_chunk(encoder, chunk)
 }
 
 fn encode_chunk(
     mut encoder: Box<dyn DictEncoder>,
-    chunk: &dyn Array,
+    chunk: &ArrayRef,
 ) -> VortexResult<EncodingState> {
     let encoded = encoder.encode(chunk);
     match remainder(chunk, encoded.len())? {
@@ -557,7 +557,7 @@ fn encode_chunk(
     }
 }
 
-fn remainder(array: &dyn Array, encoded_len: usize) -> VortexResult<Option<ArrayRef>> {
+fn remainder(array: &ArrayRef, encoded_len: usize) -> VortexResult<Option<ArrayRef>> {
     if encoded_len < array.len() {
         Ok(Some(array.slice(encoded_len..array.len())?))
     } else {

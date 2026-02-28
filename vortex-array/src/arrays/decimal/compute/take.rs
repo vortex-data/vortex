@@ -4,7 +4,6 @@
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::arrays::DecimalArray;
@@ -20,11 +19,11 @@ use crate::vtable::ValidityHelper;
 impl TakeExecute for DecimalVTable {
     fn take(
         array: &DecimalArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.to_primitive();
-        let validity = array.validity().take(indices.as_ref())?;
+        let validity = array.validity().take(&indices.to_array())?;
 
         // TODO(joe): if the true count of take indices validity is low, only take array values with
         // valid indices.
@@ -128,6 +127,6 @@ mod tests {
         )
     })]
     fn test_take_decimal_conformance(#[case] array: DecimalArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.to_array());
     }
 }

@@ -18,7 +18,7 @@ use crate::scalar_fn::fns::like::LikeReduce;
 impl LikeReduce for DictVTable {
     fn like(
         array: &DictArray,
-        pattern: &dyn Array,
+        pattern: &ArrayRef,
         options: LikeOptions,
     ) -> VortexResult<Option<ArrayRef>> {
         // If we have more values than codes, it is faster to canonicalize first.

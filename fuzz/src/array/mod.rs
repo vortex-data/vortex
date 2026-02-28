@@ -516,7 +516,7 @@ fn random_action_from_list(
 
 /// Compress an array using the given strategy.
 #[cfg(feature = "zstd")]
-pub fn compress_array(array: &dyn Array, strategy: CompressorStrategy) -> ArrayRef {
+pub fn compress_array(array: &ArrayRef, strategy: CompressorStrategy) -> ArrayRef {
     use vortex_btrblocks::BtrBlocksCompressorBuilder;
     use vortex_btrblocks::FloatCode;
     use vortex_btrblocks::IntCode;
@@ -538,7 +538,7 @@ pub fn compress_array(array: &dyn Array, strategy: CompressorStrategy) -> ArrayR
 
 /// Compress an array using the given strategy (only Default).
 #[cfg(not(feature = "zstd"))]
-pub fn compress_array(array: &dyn Array, _strategy: CompressorStrategy) -> ArrayRef {
+pub fn compress_array(array: &ArrayRef, _strategy: CompressorStrategy) -> ArrayRef {
     BtrBlocksCompressor::default()
         .compress(array)
         .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test")
@@ -566,7 +566,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 let canonical = current_array
                     .to_canonical()
                     .vortex_expect("to_canonical should succeed in fuzz test");
-                current_array = compress_array(canonical.as_ref(), strategy);
+                current_array = compress_array(&canonical.into_array(), strategy);
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Slice(range) => {

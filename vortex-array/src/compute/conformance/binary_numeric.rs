@@ -45,7 +45,7 @@ use crate::scalar::NumericOperator;
 use crate::scalar::PrimitiveScalar;
 use crate::scalar::Scalar;
 
-fn to_vec_of_scalar(array: &dyn Array) -> Vec<Scalar> {
+fn to_vec_of_scalar(array: &ArrayRef) -> Vec<Scalar> {
     // Not fast, but obviously correct
     (0..array.len())
         .map(|index| {

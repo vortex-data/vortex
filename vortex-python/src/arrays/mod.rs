@@ -523,8 +523,8 @@ impl PyArray {
     /// ```
     fn filter(slf: Bound<Self>, mask: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let mask = (&*mask as &dyn Array).to_bool().to_mask_fill_null_false();
-        let inner = vortex::compute::filter(&*slf, &mask)?;
+        let mask = (&*mask as &ArrayRef).to_bool().to_mask_fill_null_false();
+        let inner = vortex::compute::filter(&slf, &mask)?;
         Ok(PyArrayRef::from(inner))
     }
 

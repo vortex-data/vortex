@@ -10,6 +10,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray as _;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
@@ -37,7 +39,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 }
 
 /// Computes the number of NaN values in the array.
-pub fn nan_count(array: &dyn Array) -> VortexResult<usize> {
+pub fn nan_count(array: &ArrayRef) -> VortexResult<usize> {
     Ok(NAN_COUNT_FN
         .invoke(&InvocationArgs {
             inputs: &[array.into()],
@@ -58,8 +60,9 @@ impl ComputeFnVTable for NaNCount {
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
+        let array = array.to_array();
 
-        let nan_count = nan_count_impl(array, kernels)?;
+        let nan_count = nan_count_impl(&array, kernels)?;
 
         // Update the stats set with the computed NaN count
         array.statistics().set(
@@ -114,7 +117,7 @@ impl<V: VTable + NaNCountKernel> Kernel for NaNCountKernelAdapter<V> {
     }
 }
 
-fn nan_count_impl(array: &dyn Array, kernels: &[ArcRef<dyn Kernel>]) -> VortexResult<usize> {
+fn nan_count_impl(array: &ArrayRef, kernels: &[ArcRef<dyn Kernel>]) -> VortexResult<usize> {
     if array.is_empty() || array.valid_count()? == 0 {
         return Ok(0);
     }
@@ -144,8 +147,8 @@ fn nan_count_impl(array: &dyn Array, kernels: &[ArcRef<dyn Kernel>]) -> VortexRe
     }
 
     if !array.is_canonical() {
-        let canonical = array.to_canonical()?;
-        return nan_count(canonical.as_ref());
+        let canonical = array.to_canonical()?.into_array();
+        return nan_count(&canonical);
     }
 
     vortex_bail!(

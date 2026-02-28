@@ -43,7 +43,7 @@ mod test {
             Some(99999),
         ];
         let array = DecimalArray::from_option_iter(values, decimal_dtype);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
     }
 
     #[test]
@@ -51,6 +51,6 @@ mod test {
         let decimal_dtype = DecimalDType::new(38, 4);
         let values = vec![Some(12345i128), None, Some(-12345), Some(0), None];
         let array = DecimalArray::from_option_iter(values, decimal_dtype);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
     }
 }

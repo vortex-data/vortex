@@ -63,7 +63,7 @@ fn take_bool(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<BoolArray> {
     Ok(
-        <BoolVTable as TakeExecute>::take(array, codes.as_ref(), ctx)?
+        <BoolVTable as TakeExecute>::take(array, &codes.to_array(), ctx)?
             .vortex_expect("take bool should not return None")
             .as_::<BoolVTable>()
             .clone(),
@@ -75,7 +75,7 @@ fn take_primitive(
     codes: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> PrimitiveArray {
-    <PrimitiveVTable as TakeExecute>::take(array, codes.as_ref(), ctx)
+    <PrimitiveVTable as TakeExecute>::take(array, &codes.to_array(), ctx)
         .vortex_expect("take primitive array")
         .vortex_expect("take primitive should not return None")
         .as_::<PrimitiveVTable>()
@@ -87,7 +87,7 @@ fn take_decimal(
     codes: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> DecimalArray {
-    <DecimalVTable as TakeExecute>::take(array, codes.as_ref(), ctx)
+    <DecimalVTable as TakeExecute>::take(array, &codes.to_array(), ctx)
         .vortex_expect("take decimal array")
         .vortex_expect("take decimal should not return None")
         .as_::<DecimalVTable>()
@@ -99,7 +99,7 @@ fn take_varbinview(
     codes: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VarBinViewArray {
-    <VarBinViewVTable as TakeExecute>::take(array, codes.as_ref(), ctx)
+    <VarBinViewVTable as TakeExecute>::take(array, &codes.to_array(), ctx)
         .vortex_expect("take varbinview array")
         .vortex_expect("take varbinview should not return None")
         .as_::<VarBinViewVTable>()
@@ -111,7 +111,7 @@ fn take_listview(
     codes: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> ListViewArray {
-    <ListViewVTable as TakeExecute>::take(array, codes.as_ref(), ctx)
+    <ListViewVTable as TakeExecute>::take(array, &codes.to_array(), ctx)
         .vortex_expect("take listview array")
         .vortex_expect("take listview should not return None")
         .as_::<ListViewVTable>()
@@ -123,7 +123,7 @@ fn take_fixed_size_list(
     codes: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> FixedSizeListArray {
-    <FixedSizeListVTable as TakeExecute>::take(array, codes.as_ref(), ctx)
+    <FixedSizeListVTable as TakeExecute>::take(array, &codes.to_array(), ctx)
         .vortex_expect("take fixed size list array")
         .vortex_expect("take fixed size list should not return None")
         .as_::<FixedSizeListVTable>()
@@ -131,7 +131,7 @@ fn take_fixed_size_list(
 }
 
 fn take_struct(array: &StructArray, codes: &PrimitiveArray, ctx: &mut ExecutionCtx) -> StructArray {
-    <StructVTable as TakeExecute>::take(array, codes.as_ref(), ctx)
+    <StructVTable as TakeExecute>::take(array, &codes.to_array(), ctx)
         .vortex_expect("take struct array")
         .vortex_expect("take struct should not return None")
         .as_::<StructVTable>()
@@ -143,7 +143,7 @@ fn take_extension(
     codes: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> ExtensionArray {
-    <ExtensionVTable as TakeExecute>::take(array, codes.as_ref(), ctx)
+    <ExtensionVTable as TakeExecute>::take(array, &codes.to_array(), ctx)
         .vortex_expect("take extension storage")
         .vortex_expect("take extension should not return None")
         .as_::<ExtensionVTable>()

@@ -9,7 +9,6 @@ use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::BinaryView;
@@ -24,7 +23,7 @@ use crate::scalar_fn::fns::zip::ZipKernel;
 impl ZipKernel for VarBinViewVTable {
     fn zip(
         if_true: &VarBinViewArray,
-        if_false: &dyn Array,
+        if_false: &ArrayRef,
         mask: &Mask,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -244,7 +243,9 @@ mod tests {
         let mask = Mask::from_iter([true, false, true, false, false, true]);
 
         #[expect(deprecated)]
-        let zipped = zip(a.as_ref(), b.as_ref(), &mask).unwrap().to_varbinview();
+        let zipped = zip(&a.to_array(), &b.to_array(), &mask)
+            .unwrap()
+            .to_varbinview();
 
         let values = zipped.with_iterator(|it| {
             it.map(|v| v.map(|bytes| String::from_utf8(bytes.to_vec()).unwrap()))

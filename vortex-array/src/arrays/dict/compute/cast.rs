@@ -84,7 +84,7 @@ mod tests {
     fn test_cast_dict_nullable() {
         let values =
             PrimitiveArray::from_option_iter([Some(10i32), None, Some(20), Some(10), None]);
-        let dict = dict_encode(values.as_ref()).unwrap();
+        let dict = dict_encode(&values.to_array()).unwrap();
 
         let casted = dict
             .to_array()
@@ -182,7 +182,7 @@ mod tests {
     #[case(dict_encode(&PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).into_array()).unwrap().into_array())]
     #[case(dict_encode(&buffer![1.5f32, 2.5, 1.5, 3.5].into_array()).unwrap().into_array())]
     fn test_cast_dict_conformance(#[case] array: crate::ArrayRef) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array);
     }
 
     #[test]

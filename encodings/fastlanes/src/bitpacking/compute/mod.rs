@@ -82,7 +82,7 @@ mod tests {
     #[case::alternating_bits(bitpack_encode(&PrimitiveArray::from_iter([0u16, 255, 0, 255, 0, 255]), 8, None).unwrap())]
 
     fn test_bitpacked_consistency(#[case] array: BitPackedArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 
     #[rstest]

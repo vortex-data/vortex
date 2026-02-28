@@ -82,6 +82,6 @@ mod tests {
         None::<&str>, None, None, None
     ]))]
     fn test_varbinview_consistency(#[case] array: VarBinViewArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 }

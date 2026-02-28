@@ -112,6 +112,6 @@ mod tests {
         Scalar::from(0u8)
     ).unwrap())]
     fn test_cast_sparse_conformance(#[case] array: SparseArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 }

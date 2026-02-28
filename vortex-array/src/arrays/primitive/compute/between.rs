@@ -4,7 +4,6 @@
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -22,8 +21,8 @@ use crate::vtable::ValidityHelper;
 impl BetweenKernel for PrimitiveVTable {
     fn between(
         arr: &PrimitiveArray,
-        lower: &dyn Array,
-        upper: &dyn Array,
+        lower: &ArrayRef,
+        upper: &ArrayRef,
         options: &BetweenOptions,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

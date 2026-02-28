@@ -46,7 +46,7 @@ mod benchmarks {
             .with_inputs(|| &array)
             .input_counter(|array| ItemsCount::new(array.len()))
             .input_counter(|array| BytesCount::of_many::<i32>(array.len()))
-            .bench_refs(|array| compressor.compress(array.as_ref()).unwrap());
+            .bench_refs(|array| compressor.compress(&array.to_array()).unwrap());
     }
 }
 

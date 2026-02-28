@@ -11,7 +11,6 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
@@ -187,7 +186,7 @@ impl ArrayBuilder for DecimalBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let decimal_array = array.to_decimal();
 
         match_each_decimal_value_type!(decimal_array.values_type(), |D| {

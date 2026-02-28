@@ -5,7 +5,6 @@ use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -24,8 +23,8 @@ use crate::vtable::ValidityHelper;
 impl BetweenKernel for DecimalVTable {
     fn between(
         arr: &DecimalArray,
-        lower: &dyn Array,
-        upper: &dyn Array,
+        lower: &ArrayRef,
+        upper: &ArrayRef,
         options: &BetweenOptions,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

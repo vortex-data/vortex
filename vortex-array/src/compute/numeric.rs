@@ -22,59 +22,59 @@ use crate::scalar_fn::fns::operators::Operator;
 ///
 /// The result is null at any index that either input is null.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
-pub fn add(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+pub fn add(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
     lhs.to_array().binary(rhs.to_array(), Operator::Add)
 }
 
 /// Point-wise add a scalar value to this array on the right-hand-side.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
-pub fn add_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
+pub fn add_scalar(lhs: &ArrayRef, rhs: Scalar) -> VortexResult<ArrayRef> {
     lhs.to_array()
         .binary(ConstantArray::new(rhs, lhs.len()).to_array(), Operator::Add)
 }
 
 /// Point-wise subtract two numeric arrays.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
-pub fn sub(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+pub fn sub(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
     lhs.to_array().binary(rhs.to_array(), Operator::Sub)
 }
 
 /// Point-wise subtract a scalar value from this array on the right-hand-side.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
-pub fn sub_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
+pub fn sub_scalar(lhs: &ArrayRef, rhs: Scalar) -> VortexResult<ArrayRef> {
     lhs.to_array()
         .binary(ConstantArray::new(rhs, lhs.len()).to_array(), Operator::Sub)
 }
 
 /// Point-wise multiply two numeric arrays.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
-pub fn mul(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+pub fn mul(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
     lhs.to_array().binary(rhs.to_array(), Operator::Mul)
 }
 
 /// Point-wise multiply a scalar value into this array on the right-hand-side.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
-pub fn mul_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
+pub fn mul_scalar(lhs: &ArrayRef, rhs: Scalar) -> VortexResult<ArrayRef> {
     lhs.to_array()
         .binary(ConstantArray::new(rhs, lhs.len()).to_array(), Operator::Mul)
 }
 
 /// Point-wise divide two numeric arrays.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
-pub fn div(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+pub fn div(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
     lhs.to_array().binary(rhs.to_array(), Operator::Div)
 }
 
 /// Point-wise divide a scalar value into this array on the right-hand-side.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
-pub fn div_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
+pub fn div_scalar(lhs: &ArrayRef, rhs: Scalar) -> VortexResult<ArrayRef> {
     lhs.to_array()
         .binary(ConstantArray::new(rhs, lhs.len()).to_array(), Operator::Div)
 }
 
 /// Point-wise numeric operation between two arrays of the same type and length.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
-pub fn numeric(lhs: &dyn Array, rhs: &dyn Array, op: NumericOperator) -> VortexResult<ArrayRef> {
+pub fn numeric(lhs: &ArrayRef, rhs: &ArrayRef, op: NumericOperator) -> VortexResult<ArrayRef> {
     arrow_numeric(lhs, rhs, op)
 }
 
@@ -86,8 +86,8 @@ impl Options for NumericOperator {
 
 /// Implementation of numeric operations using the Arrow crate.
 pub(crate) fn arrow_numeric(
-    lhs: &dyn Array,
-    rhs: &dyn Array,
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
     operator: NumericOperator,
 ) -> VortexResult<ArrayRef> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
@@ -133,7 +133,7 @@ mod test {
     #[test]
     fn test_scalar_subtract_nullable() {
         let values = PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]);
-        let result = sub_scalar(values.as_ref(), Some(1u16).into()).unwrap();
+        let result = sub_scalar(&values.to_array(), Some(1u16).into()).unwrap();
         assert_arrays_eq!(
             result,
             PrimitiveArray::from_option_iter([Some(0u16), Some(1), None, Some(2)])

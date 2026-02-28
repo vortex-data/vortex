@@ -86,6 +86,6 @@ mod tests {
     #[case::single(pco_single())]
     #[case::large(pco_large())]
     fn test_pco_consistency(#[case] array: PcoArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 }

@@ -134,6 +134,6 @@ mod tests {
     )).unwrap())]
     fn test_cast_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
         use vortex_array::compute::conformance::cast::test_cast_conformance;
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 }

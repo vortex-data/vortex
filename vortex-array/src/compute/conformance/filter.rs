@@ -5,6 +5,7 @@ use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
 use crate::Array;
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
@@ -16,7 +17,7 @@ pub const LARGE_SIZE: usize = 1024;
 
 /// Test filter compute function with various array sizes and patterns.
 /// The input array can be of any length.
-pub fn test_filter_conformance(array: &dyn Array) {
+pub fn test_filter_conformance(array: &ArrayRef) {
     let len = array.len();
 
     // Test with arrays of any size
@@ -59,7 +60,7 @@ pub fn create_runs_pattern(len: usize, run_length: usize) -> Vec<bool> {
 }
 
 /// Tests that filtering with an all-true mask returns all elements unchanged
-fn test_all_filter(array: &dyn Array) {
+fn test_all_filter(array: &ArrayRef) {
     let len = array.len();
     let mask = Mask::new_true(len);
     let filtered = array
@@ -69,7 +70,7 @@ fn test_all_filter(array: &dyn Array) {
 }
 
 /// Tests that filtering with an all-false mask returns an empty array with the same dtype
-fn test_none_filter(array: &dyn Array) {
+fn test_none_filter(array: &ArrayRef) {
     let len = array.len();
     let mask = Mask::new_false(len);
     let filtered = array
@@ -79,7 +80,7 @@ fn test_none_filter(array: &dyn Array) {
     assert_eq!(filtered.dtype(), array.dtype());
 }
 
-fn test_selective_filter(array: &dyn Array) {
+fn test_selective_filter(array: &ArrayRef) {
     let len = array.len();
     if len < 2 {
         return; // Skip for very small arrays
@@ -135,7 +136,7 @@ fn test_selective_filter(array: &dyn Array) {
     }
 }
 
-fn test_single_element_filter(array: &dyn Array) {
+fn test_single_element_filter(array: &ArrayRef) {
     let len = array.len();
     if len == 0 {
         return;
@@ -195,7 +196,7 @@ fn test_empty_array_filter(dtype: &DType) {
     assert_eq!(filtered.len(), 0);
 }
 
-fn test_mismatched_lengths(array: &dyn Array) {
+fn test_mismatched_lengths(array: &ArrayRef) {
     let len = array.len();
 
     // Test mask shorter than array
@@ -218,7 +219,7 @@ fn test_mismatched_lengths(array: &dyn Array) {
 }
 
 /// Tests filtering with alternating true/false pattern
-fn test_alternating_pattern_filter(array: &dyn Array) {
+fn test_alternating_pattern_filter(array: &ArrayRef) {
     let len = array.len();
     let pattern = create_alternating_pattern(len);
     let expected_count = pattern.iter().filter(|&&v| v).count();
@@ -247,7 +248,7 @@ fn test_alternating_pattern_filter(array: &dyn Array) {
 }
 
 /// Tests filtering with runs of true/false values
-fn test_runs_pattern_filter(array: &dyn Array) {
+fn test_runs_pattern_filter(array: &ArrayRef) {
     let len = array.len();
     if len < 4 {
         return; // Skip for very small arrays
@@ -265,7 +266,7 @@ fn test_runs_pattern_filter(array: &dyn Array) {
 }
 
 /// Tests filtering with sparse true values (mostly false)
-fn test_sparse_true_filter(array: &dyn Array) {
+fn test_sparse_true_filter(array: &ArrayRef) {
     let len = array.len();
     if len < 10 {
         return; // Skip for small arrays
@@ -283,7 +284,7 @@ fn test_sparse_true_filter(array: &dyn Array) {
 }
 
 /// Tests filtering with sparse false values (mostly true)
-fn test_sparse_false_filter(array: &dyn Array) {
+fn test_sparse_false_filter(array: &ArrayRef) {
     let len = array.len();
     if len < 10 {
         return; // Skip for small arrays
@@ -301,7 +302,7 @@ fn test_sparse_false_filter(array: &dyn Array) {
 }
 
 /// Tests filtering with random pattern
-fn test_random_pattern_filter(array: &dyn Array) {
+fn test_random_pattern_filter(array: &ArrayRef) {
     let len = array.len();
 
     // Create a pseudo-random pattern based on array length

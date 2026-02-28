@@ -24,7 +24,7 @@ use crate::validity::Validity;
 // we also want to return a chunked array ideally.
 fn take_chunked(
     array: &ChunkedArray,
-    indices: &dyn Array,
+    indices: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let indices = indices
@@ -103,7 +103,7 @@ fn take_chunked(
 impl TakeExecute for ChunkedVTable {
     fn take(
         array: &ChunkedArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         take_chunked(array, indices, ctx).map(Some)
@@ -325,14 +325,14 @@ mod test {
                 .clone(),
         )
         .unwrap();
-        test_take_conformance(arr.as_ref());
+        test_take_conformance(&arr.to_array());
 
         // Test with nullable chunked array
         let a = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]);
         let b = PrimitiveArray::from_option_iter([Some(4i32), Some(5)]);
         let dtype = a.dtype().clone();
         let arr = ChunkedArray::try_new(vec![a.into_array(), b.into_array()], dtype).unwrap();
-        test_take_conformance(arr.as_ref());
+        test_take_conformance(&arr.to_array());
 
         // Test with multiple identical chunks
         let chunk = buffer![10i32, 20, 30, 40, 50].into_array();
@@ -341,6 +341,6 @@ mod test {
             chunk.dtype().clone(),
         )
         .unwrap();
-        test_take_conformance(arr.as_ref());
+        test_take_conformance(&arr.to_array());
     }
 }

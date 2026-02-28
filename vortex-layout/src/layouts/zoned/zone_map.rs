@@ -194,7 +194,7 @@ impl StatsAccumulator {
         }
     }
 
-    pub fn push_chunk_without_compute(&mut self, array: &dyn Array) -> VortexResult<()> {
+    pub fn push_chunk_without_compute(&mut self, array: &ArrayRef) -> VortexResult<()> {
         for builder in self.builders.iter_mut() {
             if let Some(Precision::Exact(v)) = array.statistics().get(builder.stat()) {
                 builder.append_scalar(v.cast(&v.dtype().as_nullable())?)?;
@@ -206,7 +206,7 @@ impl StatsAccumulator {
         Ok(())
     }
 
-    pub fn push_chunk(&mut self, array: &dyn Array) -> VortexResult<()> {
+    pub fn push_chunk(&mut self, array: &ArrayRef) -> VortexResult<()> {
         for builder in self.builders.iter_mut() {
             if let Some(v) = array.statistics().compute_stat(builder.stat())? {
                 builder.append_scalar(v.cast(&v.dtype().as_nullable())?)?;

@@ -51,7 +51,7 @@ where
         .collect();
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable);
-    BitPackedArray::encode(primitive_array.as_ref(), bit_width)
+    BitPackedArray::encode(&primitive_array.to_array(), bit_width)
         .vortex_expect("failed to create BitPacked array")
 }
 

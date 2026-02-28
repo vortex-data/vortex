@@ -5,7 +5,6 @@ use arrow_array::BooleanArray;
 use arrow_ord::cmp;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -35,7 +34,7 @@ use crate::vtable::VTable;
 pub trait CompareKernel: VTable {
     fn compare(
         lhs: &Self::Array,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
@@ -98,7 +97,7 @@ where
             ));
         }
 
-        V::compare(array, other.as_ref(), cmp_op, ctx)
+        V::compare(array, other, cmp_op, ctx)
     }
 }
 
@@ -107,8 +106,8 @@ where
 /// This is the entry point for compare operations from the binary expression.
 /// Handles empty, constant-null, and constant-constant directly, otherwise falls back to Arrow.
 pub(crate) fn execute_compare(
-    lhs: &dyn Array,
-    rhs: &dyn Array,
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
     op: CompareOperator,
 ) -> VortexResult<ArrayRef> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
@@ -139,8 +138,8 @@ pub(crate) fn execute_compare(
 
 /// Fall back to Arrow for comparison.
 fn arrow_compare_arrays(
-    left: &dyn Array,
-    right: &dyn Array,
+    left: &ArrayRef,
+    right: &ArrayRef,
     operator: CompareOperator,
 ) -> VortexResult<ArrayRef> {
     assert_eq!(left.len(), right.len());

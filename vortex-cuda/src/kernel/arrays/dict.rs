@@ -99,7 +99,7 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
         validity: values_validity,
         ..
     } = values.into_parts();
-    let output_validity = values_validity.take(codes.as_ref())?;
+    let output_validity = values_validity.take(&codes.to_array())?;
     let PrimitiveArrayParts {
         buffer: codes_buffer,
         ..
@@ -184,7 +184,7 @@ async fn execute_dict_decimal_typed<
         validity: values_validity,
         ..
     } = values.into_parts();
-    let output_validity = values_validity.take(codes.as_ref())?;
+    let output_validity = values_validity.take(&codes.to_array())?;
 
     let PrimitiveArrayParts {
         buffer: codes_buffer,
@@ -252,7 +252,7 @@ async fn execute_dict_varbinview(
         validity: values_validity,
         ..
     } = values_vbv.into_parts();
-    let output_validity = values_validity.take(codes_prim.as_ref())?;
+    let output_validity = values_validity.take(&codes_prim.to_array())?;
 
     let PrimitiveArrayParts {
         buffer: codes_buffer,

@@ -35,7 +35,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::canonical::Canonical;
 use crate::dtype::DType;
@@ -157,12 +156,12 @@ pub trait ArrayBuilder: Send {
     ///
     /// The array that must have an equal [`DType`] to the array builder's `DType` (with nullability
     /// superset semantics).
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array);
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef);
 
     /// Extends the array with the provided array, canonicalizing if necessary.
     ///
     /// Implementors must validate that the passed in [`Array`] has the correct [`DType`].
-    fn extend_from_array(&mut self, array: &dyn Array) {
+    fn extend_from_array(&mut self, array: &ArrayRef) {
         if !self.dtype().eq_with_nullability_superset(array.dtype()) {
             vortex_panic!(
                 "tried to extend a builder with `DType` {} with an array with `DType {}",

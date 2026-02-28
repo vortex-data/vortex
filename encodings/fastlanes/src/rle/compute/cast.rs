@@ -139,6 +139,6 @@ mod tests {
     )]
     fn test_cast_rle_conformance(#[case] primitive: PrimitiveArray) {
         let rle_array = RLEArray::encode(&primitive).unwrap();
-        test_cast_conformance(rle_array.as_ref());
+        test_cast_conformance(&rle_array.to_array());
     }
 }

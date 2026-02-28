@@ -32,7 +32,7 @@ pub trait TakeReduce: VTable {
     /// # Preconditions
     ///
     /// The indices are guaranteed to be non-empty.
-    fn take(array: &Self::Array, indices: &dyn Array) -> VortexResult<Option<ArrayRef>>;
+    fn take(array: &Self::Array, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
 }
 
 pub trait TakeExecute: VTable {
@@ -46,7 +46,7 @@ pub trait TakeExecute: VTable {
     /// The indices are guaranteed to be non-empty.
     fn take(
         array: &Self::Array,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
 }
@@ -55,7 +55,7 @@ pub trait TakeExecute: VTable {
 ///
 /// Returns `Some(result)` if the precondition short-circuits the take operation,
 /// or `None` if the take should proceed normally.
-fn precondition<V: VTable>(array: &V::Array, indices: &dyn Array) -> Option<ArrayRef> {
+fn precondition<V: VTable>(array: &V::Array, indices: &ArrayRef) -> Option<ArrayRef> {
     // Fast-path for empty indices.
     if indices.is_empty() {
         let result_dtype = array
@@ -100,7 +100,7 @@ where
         }
         let result = <V as TakeReduce>::take(array, parent.codes())?;
         if let Some(ref taken) = result {
-            propagate_take_stats(&**array, taken.as_ref(), parent.codes())?;
+            propagate_take_stats(&array.to_array(), taken, parent.codes())?;
         }
         Ok(result)
     }
@@ -131,16 +131,16 @@ where
         }
         let result = <V as TakeExecute>::take(array, parent.codes(), ctx)?;
         if let Some(ref taken) = result {
-            propagate_take_stats(&**array, taken.as_ref(), parent.codes())?;
+            propagate_take_stats(&array.to_array(), taken, parent.codes())?;
         }
         Ok(result)
     }
 }
 
 pub(crate) fn propagate_take_stats(
-    source: &dyn Array,
-    target: &dyn Array,
-    indices: &dyn Array,
+    source: &ArrayRef,
+    target: &ArrayRef,
+    indices: &ArrayRef,
 ) -> VortexResult<()> {
     target.statistics().with_mut_typed_stats_set(|mut st| {
         if indices.all_valid().unwrap_or(false) {

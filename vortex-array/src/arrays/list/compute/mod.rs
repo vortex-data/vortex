@@ -36,7 +36,7 @@ mod tests {
         let array =
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
-        test_mask_conformance(array.as_ref());
+        test_mask_conformance(&array.to_array());
     }
 
     #[test]
@@ -47,7 +47,7 @@ mod tests {
         let array =
             ListArray::try_new(elements.into_array(), offsets.into_array(), validity).unwrap();
 
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
     }
 
     #[rstest]
@@ -79,6 +79,6 @@ mod tests {
         Validity::NonNullable,
     ).unwrap())]
     fn test_list_consistency(#[case] array: ListArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 }

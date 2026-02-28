@@ -82,7 +82,7 @@ mod tests {
     ).unwrap())]
 
     fn test_chunked_consistency(#[case] array: ChunkedArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 
     #[rstest]

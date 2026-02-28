@@ -63,6 +63,6 @@ mod tests {
         DType::Utf8(Nullability::NonNullable),
     ))]
     fn test_varbin_consistency(#[case] array: VarBinArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 }

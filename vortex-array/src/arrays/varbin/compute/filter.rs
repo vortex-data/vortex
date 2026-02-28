@@ -315,12 +315,12 @@ mod test {
             vec!["hello", "world", "filter", "good", "bye"],
             DType::Utf8(NonNullable),
         );
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
 
         let array = VarBinArray::from_iter(
             vec![Some("hello"), None, Some("filter"), Some("good"), None],
             DType::Utf8(Nullable),
         );
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
     }
 }

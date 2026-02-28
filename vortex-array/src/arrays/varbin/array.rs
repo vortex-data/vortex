@@ -167,7 +167,7 @@ impl VarBinArray {
     ///
     /// This function checks all the invariants required by [`VarBinArray::new_unchecked`].
     pub fn validate(
-        offsets: &dyn Array,
+        offsets: &ArrayRef,
         bytes: &BufferHandle,
         dtype: &DType,
         validity: &Validity,

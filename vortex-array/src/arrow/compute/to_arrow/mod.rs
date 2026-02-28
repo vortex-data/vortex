@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::Array;
+use crate::ArrayRef;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrow::ArrowArrayExecutor;
@@ -23,20 +24,20 @@ use crate::compute::Options;
 /// may have a different preferred Arrow type. Use [`to_arrow`] instead.
 #[deprecated(note = "Use ArrowArrayExecutor::execute_arrow instead")]
 #[expect(deprecated)]
-pub fn to_arrow_preferred(array: &dyn Array) -> VortexResult<ArrowArrayRef> {
+pub fn to_arrow_preferred(array: &ArrayRef) -> VortexResult<ArrowArrayRef> {
     to_arrow_opts(array, &ToArrowOptions { arrow_type: None })
 }
 
 /// Convert a Vortex array to an Arrow array of the given type.
 #[deprecated(note = "Use ArrowArrayExecutor::execute_arrow instead")]
-pub fn to_arrow(array: &dyn Array, arrow_type: &DataType) -> VortexResult<ArrowArrayRef> {
+pub fn to_arrow(array: &ArrayRef, arrow_type: &DataType) -> VortexResult<ArrowArrayRef> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     array.to_array().execute_arrow(Some(arrow_type), &mut ctx)
 }
 
 #[deprecated(note = "Use ArrowArrayExecutor::execute_arrow instead")]
 #[expect(deprecated)]
-pub fn to_arrow_opts(array: &dyn Array, options: &ToArrowOptions) -> VortexResult<ArrowArrayRef> {
+pub fn to_arrow_opts(array: &ArrayRef, options: &ToArrowOptions) -> VortexResult<ArrowArrayRef> {
     let data_type = if let Some(data_type) = &options.arrow_type {
         data_type.clone()
     } else {

@@ -12,7 +12,7 @@ use crate::array::SequenceVTable;
 use crate::compute::compare::find_intersection_scalar;
 
 impl ListContainsElementReduce for SequenceVTable {
-    fn list_contains(list: &dyn Array, element: &Self::Array) -> VortexResult<Option<ArrayRef>> {
+    fn list_contains(list: &ArrayRef, element: &Self::Array) -> VortexResult<Option<ArrayRef>> {
         let Some(list_scalar) = list.as_constant() else {
             return Ok(None);
         };

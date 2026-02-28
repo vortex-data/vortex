@@ -174,8 +174,8 @@ impl ScalarFnVTable for Zip {
 }
 
 pub(crate) fn zip_impl(
-    if_true: &dyn Array,
-    if_false: &dyn Array,
+    if_true: &ArrayRef,
+    if_false: &ArrayRef,
     mask: &Mask,
 ) -> VortexResult<ArrayRef> {
     assert_eq!(
@@ -197,8 +197,8 @@ pub(crate) fn zip_impl(
 }
 
 fn zip_impl_with_builder(
-    if_true: &dyn Array,
-    if_false: &dyn Array,
+    if_true: &ArrayRef,
+    if_false: &ArrayRef,
     mask: &Mask,
     mut builder: Box<dyn ArrayBuilder>,
 ) -> VortexResult<ArrayRef> {

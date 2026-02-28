@@ -461,7 +461,7 @@ mod test {
             Validity::from_iter(valid_values),
         );
         assert!(values.ptype().is_unsigned_int());
-        let compressed = BitPackedArray::encode(values.as_ref(), 4).unwrap();
+        let compressed = BitPackedArray::encode(&values.to_array(), 4).unwrap();
         assert!(compressed.patches().is_none());
         assert_eq!(
             (0..(1 << 4)).collect::<Vec<_>>(),
@@ -480,7 +480,7 @@ mod test {
         let array = PrimitiveArray::new(values, Validity::AllValid);
         assert!(array.ptype().is_signed_int());
 
-        let err = BitPackedArray::encode(array.as_ref(), 1024u32.ilog2() as u8).unwrap_err();
+        let err = BitPackedArray::encode(&array.to_array(), 1024u32.ilog2() as u8).unwrap_err();
         assert!(matches!(err, VortexError::InvalidArgument(_, _)));
     }
 

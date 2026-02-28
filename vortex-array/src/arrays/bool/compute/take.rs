@@ -25,7 +25,7 @@ use crate::vtable::ValidityHelper;
 impl TakeExecute for BoolVTable {
     fn take(
         array: &BoolArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let indices_nulls_zeroed = match indices.validity_mask()? {
@@ -172,6 +172,6 @@ mod test {
     #[case(BoolArray::from_iter([true, false]))]
     #[case(BoolArray::from_iter([true]))]
     fn test_take_bool_conformance(#[case] array: BoolArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.to_array());
     }
 }

@@ -4,7 +4,6 @@
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::ExactScalarFn;
@@ -27,7 +26,7 @@ use crate::vtable::VTable;
 pub trait LikeReduce: VTable {
     fn like(
         array: &Self::Array,
-        pattern: &dyn Array,
+        pattern: &ArrayRef,
         options: LikeOptions,
     ) -> VortexResult<Option<ArrayRef>>;
 }
@@ -42,7 +41,7 @@ pub trait LikeReduce: VTable {
 pub trait LikeKernel: VTable {
     fn like(
         array: &Self::Array,
-        pattern: &dyn Array,
+        pattern: &ArrayRef,
         options: LikeOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
@@ -71,7 +70,7 @@ where
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let children = scalar_fn_array.children();
-        let pattern = &*children[1];
+        let pattern = &children[1];
         let options = *parent.options;
         <V as LikeReduce>::like(array, pattern, options)
     }
@@ -101,7 +100,7 @@ where
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let children = scalar_fn_array.children();
-        let pattern = &*children[1];
+        let pattern = &children[1];
         let options = *parent.options;
         <V as LikeKernel>::like(array, pattern, options, ctx)
     }

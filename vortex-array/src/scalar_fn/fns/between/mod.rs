@@ -103,9 +103,9 @@ impl StrictComparison {
 /// (empty array, null bounds), or `None` if between should proceed with the
 /// encoding-specific implementation.
 pub(super) fn precondition(
-    arr: &dyn Array,
-    lower: &dyn Array,
-    upper: &dyn Array,
+    arr: &ArrayRef,
+    lower: &ArrayRef,
+    upper: &ArrayRef,
 ) -> VortexResult<Option<ArrayRef>> {
     let return_dtype =
         Bool(arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability());
@@ -140,9 +140,9 @@ pub(super) fn precondition(
 ///
 /// Falls back to compare + boolean and if no kernel handles the input.
 fn between_canonical(
-    arr: &dyn Array,
-    lower: &dyn Array,
-    upper: &dyn Array,
+    arr: &ArrayRef,
+    lower: &ArrayRef,
+    upper: &ArrayRef,
     options: &BetweenOptions,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -312,7 +312,7 @@ impl ScalarFnVTable for Between {
             );
         }
 
-        between_canonical(arr.as_ref(), lower.as_ref(), upper.as_ref(), options, ctx)
+        between_canonical(&arr, &lower, &upper, options, ctx)
     }
 
     fn stat_falsification(
@@ -408,9 +408,9 @@ mod tests {
         let upper = buffer![2, 1, 1, 0, 0].into_array();
 
         let matches = between_canonical(
-            array.as_ref(),
-            lower.as_ref(),
-            upper.as_ref(),
+            &array,
+            &lower,
+            &upper,
             &BetweenOptions {
                 lower_strict,
                 upper_strict,
@@ -433,12 +433,13 @@ mod tests {
         let upper = ConstantArray::new(
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
             5,
-        );
+        )
+        .into_array();
 
         let matches = between_canonical(
-            array.as_ref(),
-            lower.as_ref(),
-            upper.as_ref(),
+            &array,
+            &lower,
+            &upper,
             &BetweenOptions {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
@@ -452,11 +453,11 @@ mod tests {
         assert!(indices.is_empty());
 
         // upper is a fixed constant
-        let upper = ConstantArray::new(Scalar::from(2), 5);
+        let upper = ConstantArray::new(Scalar::from(2), 5).into_array();
         let matches = between_canonical(
-            array.as_ref(),
-            lower.as_ref(),
-            upper.as_ref(),
+            &array,
+            &lower,
+            &upper,
             &BetweenOptions {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
@@ -469,12 +470,12 @@ mod tests {
         assert_eq!(indices, vec![0, 1, 3]);
 
         // lower is also a constant
-        let lower = ConstantArray::new(Scalar::from(0), 5);
+        let lower = ConstantArray::new(Scalar::from(0), 5).into_array();
 
         let matches = between_canonical(
-            array.as_ref(),
-            lower.as_ref(),
-            upper.as_ref(),
+            &array,
+            &lower,
+            &upper,
             &BetweenOptions {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
@@ -491,7 +492,7 @@ mod tests {
     fn test_between_decimal() {
         let values = buffer![100i128, 200i128, 300i128, 400i128];
         let decimal_type = DecimalDType::new(3, 2);
-        let array = DecimalArray::new(values, decimal_type, Validity::NonNullable);
+        let array = DecimalArray::new(values, decimal_type, Validity::NonNullable).into_array();
 
         let lower = ConstantArray::new(
             Scalar::decimal(
@@ -500,7 +501,8 @@ mod tests {
                 Nullability::NonNullable,
             ),
             array.len(),
-        );
+        )
+        .into_array();
         let upper = ConstantArray::new(
             Scalar::decimal(
                 DecimalValue::I128(400i128),
@@ -508,13 +510,14 @@ mod tests {
                 Nullability::NonNullable,
             ),
             array.len(),
-        );
+        )
+        .into_array();
 
         // Strict lower bound, non-strict upper bound
         let between_strict = between_canonical(
-            array.as_ref(),
-            lower.as_ref(),
-            upper.as_ref(),
+            &array,
+            &lower,
+            &upper,
             &BetweenOptions {
                 lower_strict: StrictComparison::Strict,
                 upper_strict: StrictComparison::NonStrict,
@@ -529,9 +532,9 @@ mod tests {
 
         // Non-strict lower bound, strict upper bound
         let between_strict = between_canonical(
-            array.as_ref(),
-            lower.as_ref(),
-            upper.as_ref(),
+            &array,
+            &lower,
+            &upper,
             &BetweenOptions {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::Strict,

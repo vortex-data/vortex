@@ -17,7 +17,7 @@ use crate::scalar_fn::fns::operators::Operator;
 impl CompareKernel for ExtensionVTable {
     fn compare(
         lhs: &ExtensionArray,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

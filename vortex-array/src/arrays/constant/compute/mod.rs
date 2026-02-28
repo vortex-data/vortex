@@ -61,6 +61,6 @@ mod test {
     #[case::constant_single(ConstantArray::new(Scalar::from(99u64), 1))]
     #[case::constant_large(ConstantArray::new(Scalar::from("hello"), 1000))]
     fn test_constant_consistency(#[case] array: ConstantArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 }

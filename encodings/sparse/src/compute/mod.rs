@@ -97,7 +97,7 @@ mod test {
     fn test_mask_sparse_array() {
         let null_fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
         test_mask_conformance(
-            SparseArray::try_new(
+            &SparseArray::try_new(
                 buffer![1u64, 2, 4].into_array(),
                 buffer![100i32, 200, 300]
                     .into_array()
@@ -107,19 +107,19 @@ mod test {
                 null_fill_value,
             )
             .unwrap()
-            .as_ref(),
+            .to_array(),
         );
 
         let ten_fill_value = Scalar::from(10i32);
         test_mask_conformance(
-            SparseArray::try_new(
+            &SparseArray::try_new(
                 buffer![1u64, 2, 4].into_array(),
                 buffer![100i32, 200, 300].into_array(),
                 5,
                 ten_fill_value,
             )
             .unwrap()
-            .as_ref(),
+            .to_array(),
         )
     }
 }
@@ -202,7 +202,7 @@ mod tests {
     })]
 
     fn test_sparse_consistency(#[case] array: SparseArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 
     #[rstest]

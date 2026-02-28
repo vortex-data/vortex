@@ -345,7 +345,7 @@ impl SparseArray {
     /// Encode given array as a SparseArray.
     ///
     /// Optionally provided fill value will be respected if the array is less than 90% null.
-    pub fn encode(array: &dyn Array, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
+    pub fn encode(array: &ArrayRef, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
         if let Some(fill_value) = fill_value.as_ref()
             && array.dtype() != fill_value.dtype()
         {
