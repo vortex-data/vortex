@@ -10,6 +10,8 @@ use vortex_session::registry::Registry;
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::fns::mean::Mean;
+use crate::aggregate_fn::fns::min_max::Max;
+use crate::aggregate_fn::fns::min_max::Min;
 use crate::aggregate_fn::fns::sum::Sum;
 
 /// Registry of aggregate function vtables.
@@ -27,6 +29,8 @@ impl Default for AggregateFnSession {
             registry: AggregateFnRegistry::default(),
         };
         session.register(Mean);
+        session.register(Min);
+        session.register(Max);
         session.register(Sum);
         session
     }
