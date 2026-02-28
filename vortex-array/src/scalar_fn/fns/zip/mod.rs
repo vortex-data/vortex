@@ -134,8 +134,7 @@ impl ScalarFnVTable for Zip {
         //  slicing a ConstantArray directly into the result). For now, we canonicalize and
         //  re-dispatch through ArrayBuiltins::zip to preserve the existing behavior where
         //  encoding-specific execute_parent kernels (e.g. VarBinView) handle it.
-        if matches!(&if_true, Columnar::Constant(_)) || matches!(&if_false, Columnar::Constant(_))
-        {
+        if matches!(&if_true, Columnar::Constant(_)) || matches!(&if_false, Columnar::Constant(_)) {
             let if_true = if_true.as_ref().to_canonical()?.into_array();
             let if_false = if_false.as_ref().to_canonical()?.into_array();
             return if_true.zip(if_false, mask.into_array());
