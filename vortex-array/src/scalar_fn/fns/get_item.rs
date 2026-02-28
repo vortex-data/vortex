@@ -10,8 +10,10 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::arrays::StructArray;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::builtins::ExprBuiltins;
 use crate::dtype::DType;
@@ -22,6 +24,7 @@ use crate::expr::Expression;
 use crate::expr::StatsCatalog;
 use crate::expr::lit;
 use crate::expr::stats::Stat;
+use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::EmptyOptions;
@@ -109,14 +112,44 @@ impl ScalarFnVTable for GetItem {
         &self,
         field_name: &FieldName,
         args: &dyn ExecutionArgs,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let input = args.get(0)?.execute::<StructArray>(ctx)?;
-        let field = input.unmasked_field_by_name(field_name).cloned()?;
+        let input = args.get(0)?;
+        match input {
+            Columnar::Canonical(canonical) => {
+                let input = canonical.into_struct();
+                let field = input.unmasked_field_by_name(field_name).cloned()?;
 
-        match input.dtype().nullability() {
-            Nullability::NonNullable => Ok(field),
-            Nullability::Nullable => field.mask(input.validity()?.to_array(input.len())),
+                match input.dtype().nullability() {
+                    Nullability::NonNullable => Ok(field),
+                    Nullability::Nullable => field.mask(input.validity()?.to_array(input.len())),
+                }
+            }
+            Columnar::Constant(constant) => {
+                let struct_scalar = constant.scalar();
+                if struct_scalar.is_null() {
+                    // The whole struct is null, so the field is also null.
+                    let field_dtype = struct_scalar
+                        .dtype()
+                        .as_struct_fields_opt()
+                        .and_then(|sf| sf.field(field_name))
+                        .ok_or_else(|| {
+                            vortex_err!("Couldn't find the {} field in the input scope", field_name)
+                        })?;
+                    let null_scalar = Scalar::null(field_dtype.as_nullable());
+                    return Ok(ConstantArray::new(null_scalar, constant.len()).into_array());
+                }
+                let field_scalar =
+                    struct_scalar.as_struct().field(field_name).ok_or_else(|| {
+                        vortex_err!("Couldn't find the {} field in the input scope", field_name)
+                    })?;
+                let field_scalar = if constant.dtype().is_nullable() {
+                    field_scalar.cast(&field_scalar.dtype().as_nullable())?
+                } else {
+                    field_scalar
+                };
+                Ok(ConstantArray::new(field_scalar, constant.len()).into_array())
+            }
         }
     }
 

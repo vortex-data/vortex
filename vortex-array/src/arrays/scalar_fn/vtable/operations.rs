@@ -4,7 +4,6 @@
 use vortex_error::VortexResult;
 
 use crate::Array;
-use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
@@ -20,7 +19,12 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
         let inputs: Vec<_> = array
             .children
             .iter()
-            .map(|child| Ok(ConstantArray::new(child.scalar_at(index)?, 1).into_array()))
+            .map(|child| {
+                Ok(Columnar::Constant(ConstantArray::new(
+                    child.scalar_at(index)?,
+                    1,
+                )))
+            })
             .collect::<VortexResult<_>>()?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();

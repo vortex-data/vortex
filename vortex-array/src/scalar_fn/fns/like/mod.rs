@@ -16,6 +16,7 @@ use vortex_session::VortexSession;
 use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
 use crate::dtype::DType;
@@ -143,10 +144,10 @@ impl ScalarFnVTable for Like {
         args: &dyn ExecutionArgs,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let child = args.get(0)?;
-        let pattern = args.get(1)?;
+        let child = args.get(0)?.into_array();
+        let pattern = args.get(1)?.into_array();
 
-        arrow_like(&child, &pattern, *options)
+        arrow_like(child.as_ref(), pattern.as_ref(), *options)
     }
 
     fn validity(

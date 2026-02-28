@@ -15,6 +15,7 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::dtype::DType;
 use crate::expr::StatsCatalog;
 use crate::expr::and;
@@ -128,8 +129,8 @@ impl ScalarFnVTable for Binary {
         args: &dyn ExecutionArgs,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let lhs = args.get(0)?;
-        let rhs = args.get(1)?;
+        let lhs = args.get(0)?.into_array();
+        let rhs = args.get(1)?.into_array();
 
         match op {
             Operator::Eq => execute_compare(&lhs, &rhs, CompareOperator::Eq),

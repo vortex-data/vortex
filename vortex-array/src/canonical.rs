@@ -837,6 +837,22 @@ pub enum CanonicalView<'a> {
     Extension(&'a ExtensionArray),
 }
 
+impl<'a> From<&'a Canonical> for CanonicalView<'a> {
+    fn from(value: &'a Canonical) -> Self {
+        match value {
+            Canonical::Null(a) => CanonicalView::Null(a),
+            Canonical::Bool(a) => CanonicalView::Bool(a),
+            Canonical::Primitive(a) => CanonicalView::Primitive(a),
+            Canonical::Decimal(a) => CanonicalView::Decimal(a),
+            Canonical::VarBinView(a) => CanonicalView::VarBinView(a),
+            Canonical::List(a) => CanonicalView::List(a),
+            Canonical::FixedSizeList(a) => CanonicalView::FixedSizeList(a),
+            Canonical::Struct(a) => CanonicalView::Struct(a),
+            Canonical::Extension(a) => CanonicalView::Extension(a),
+        }
+    }
+}
+
 impl From<CanonicalView<'_>> for Canonical {
     fn from(value: CanonicalView<'_>) -> Self {
         match value {

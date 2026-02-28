@@ -139,7 +139,7 @@ impl ScalarFnVTable for Pack {
     ) -> VortexResult<ArrayRef> {
         let len = args.row_count();
         let value_arrays: Vec<ArrayRef> = (0..args.num_inputs())
-            .map(|i| args.get(i))
+            .map(|i| Ok(args.get(i)?.into_array()))
             .collect::<VortexResult<_>>()?;
         let validity: Validity = options.nullability.into();
         StructArray::try_new(options.names.clone(), value_arrays, len, validity)?

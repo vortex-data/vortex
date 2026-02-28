@@ -12,15 +12,13 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
-use crate::AnyColumnar;
 use crate::ArrayRef;
 use crate::CanonicalView;
-use crate::ColumnarView;
+use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::arrays::BoolVTable;
 use crate::arrays::DecimalVTable;
 use crate::arrays::PrimitiveVTable;
-use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::scalar::Scalar;
@@ -101,17 +99,18 @@ impl ScalarFnVTable for FillNull {
         let input = args.get(0)?;
         let fill_value = args.get(1)?;
 
-        let fill_scalar = fill_value
-            .as_constant()
-            .ok_or_else(|| vortex_err!("fill_null fill_value must be a constant/scalar"))?;
-
-        let Some(columnar) = input.as_opt::<AnyColumnar>() else {
-            return input.execute::<ArrayRef>(ctx)?.fill_null(fill_scalar);
+        let fill_scalar = match &fill_value {
+            Columnar::Constant(c) => c.scalar().clone(),
+            Columnar::Canonical(_) => {
+                vortex_bail!("fill_null fill_value must be a constant/scalar")
+            }
         };
 
-        match columnar {
-            ColumnarView::Canonical(canonical) => fill_null_canonical(canonical, &fill_scalar, ctx),
-            ColumnarView::Constant(constant) => fill_null_constant(constant, &fill_scalar),
+        match input {
+            Columnar::Canonical(ref canonical) => {
+                fill_null_canonical(CanonicalView::from(canonical), &fill_scalar, ctx)
+            }
+            Columnar::Constant(ref constant) => fill_null_constant(constant, &fill_scalar),
         }
     }
 

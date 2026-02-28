@@ -18,7 +18,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::StructArray;
+use crate::arrays::StructVTable;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
@@ -145,7 +145,10 @@ impl ScalarFnVTable for Select {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let child = args.get(0)?.execute::<StructArray>(ctx)?;
+        let child_array = args.get(0)?.into_array();
+        let child = child_array
+            .as_opt::<StructVTable>()
+            .ok_or_else(|| vortex_err!("Select expects a struct input"))?;
 
         let result = match selection {
             FieldSelection::Include(f) => child.project(f.as_ref()),

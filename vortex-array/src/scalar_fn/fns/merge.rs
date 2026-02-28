@@ -17,6 +17,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray as _;
 use crate::arrays::StructArray;
+use crate::arrays::StructVTable;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -143,7 +144,7 @@ impl ScalarFnVTable for Merge {
         &self,
         options: &Self::Options,
         args: &dyn ExecutionArgs,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         // Collect fields in order of appearance. Later fields overwrite earlier fields.
         let mut field_names = Vec::new();
@@ -151,7 +152,10 @@ impl ScalarFnVTable for Merge {
         let mut duplicate_names = HashSet::<_>::new();
 
         for i in 0..args.num_inputs() {
-            let array = args.get(i)?.execute::<StructArray>(ctx)?;
+            let child_array = args.get(i)?.into_array();
+            let array = child_array
+                .as_opt::<StructVTable>()
+                .ok_or_else(|| vortex_error::vortex_err!("merge expects struct input"))?;
             if array.dtype().is_nullable() {
                 vortex_bail!("merge expects non-nullable input");
             }

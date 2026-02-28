@@ -10,14 +10,13 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
 use crate::arrays::ConstantArray;
-use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::scalar::Scalar;
@@ -88,26 +87,28 @@ impl ScalarFnVTable for Not {
         &self,
         _data: &Self::Options,
         args: &dyn ExecutionArgs,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let child = args.get(0)?;
 
-        // For constant boolean
-        if let Some(scalar) = child.as_constant() {
-            let value = match scalar.as_bool().value() {
-                Some(b) => Scalar::bool(!b, child.dtype().nullability()),
-                None => Scalar::null(child.dtype().clone()),
-            };
-            return Ok(ConstantArray::new(value, args.row_count()).into_array());
+        match child {
+            Columnar::Constant(constant) => {
+                let value = match constant.scalar().as_bool().value() {
+                    Some(b) => Scalar::bool(!b, constant.dtype().nullability()),
+                    None => Scalar::null(constant.dtype().clone()),
+                };
+                Ok(ConstantArray::new(value, args.row_count()).into_array())
+            }
+            Columnar::Canonical(canonical) => {
+                let Canonical::Bool(bool_arr) = canonical else {
+                    vortex_bail!(
+                        "Not expression expects a boolean array, got: {}",
+                        canonical.as_ref().encoding_id()
+                    );
+                };
+                Ok(BoolArray::new(!bool_arr.to_bit_buffer(), bool_arr.validity()?).into_array())
+            }
         }
-
-        // For boolean array
-        if let Some(bool) = child.as_opt::<BoolVTable>() {
-            return Ok(BoolArray::new(!bool.to_bit_buffer(), bool.validity()?).into_array());
-        }
-
-        // Otherwise, execute and try again
-        child.execute::<ArrayRef>(ctx)?.not()
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

@@ -21,6 +21,8 @@ use crate::Array;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::Columnar;
+use crate::Executable;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
@@ -196,7 +198,12 @@ impl VTable for ScalarFnVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
-        let args = VecExecutionArgs::new(array.children.clone(), array.len);
+        let inputs: Vec<Columnar> = array
+            .children
+            .iter()
+            .map(|child| Columnar::execute(child.clone(), ctx))
+            .collect::<VortexResult<_>>()?;
+        let args = VecExecutionArgs::new(inputs, array.len);
         array.scalar_fn.execute(&args, ctx)
     }
 
@@ -361,7 +368,7 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
         _args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        crate::Executable::execute(options.0.clone(), ctx)
+        Executable::execute(options.0.clone(), ctx)
     }
 
     fn validity(

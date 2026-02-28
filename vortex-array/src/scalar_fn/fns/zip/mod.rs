@@ -14,6 +14,7 @@ use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::builders::ArrayBuilder;
@@ -112,7 +113,7 @@ impl ScalarFnVTable for Zip {
     ) -> VortexResult<ArrayRef> {
         let if_true = args.get(0)?;
         let if_false = args.get(1)?;
-        let mask_array = args.get(2)?;
+        let mask_array = args.get(2)?.into_array();
 
         let mask = mask_array.try_to_mask_fill_null_false()?;
 
@@ -122,25 +123,25 @@ impl ScalarFnVTable for Zip {
             .union_nullability(if_false.dtype().nullability());
 
         if mask.all_true() {
-            return if_true.cast(return_dtype)?.execute(ctx);
+            return if_true.into_array().cast(return_dtype)?.execute(ctx);
         }
-
-        let return_dtype = if_true
-            .dtype()
-            .clone()
-            .union_nullability(if_false.dtype().nullability());
 
         if mask.all_false() {
-            return if_false.cast(return_dtype)?.execute(ctx);
+            return if_false.into_array().cast(return_dtype)?.execute(ctx);
         }
 
-        if !if_true.is_canonical() || !if_false.is_canonical() {
-            let if_true = if_true.execute::<ArrayRef>(ctx)?;
-            let if_false = if_false.execute::<ArrayRef>(ctx)?;
+        // TODO(ngates): zip should natively handle Columnar::Constant inputs (e.g. by
+        //  slicing a ConstantArray directly into the result). For now, we canonicalize and
+        //  re-dispatch through ArrayBuiltins::zip to preserve the existing behavior where
+        //  encoding-specific execute_parent kernels (e.g. VarBinView) handle it.
+        if matches!(&if_true, Columnar::Constant(_)) || matches!(&if_false, Columnar::Constant(_))
+        {
+            let if_true = if_true.as_ref().to_canonical()?.into_array();
+            let if_false = if_false.as_ref().to_canonical()?.into_array();
             return if_true.zip(if_false, mask.into_array());
         }
 
-        zip_impl(&if_true, &if_false, &mask)
+        zip_impl(&if_true.into_array(), &if_false.into_array(), &mask)
     }
 
     fn simplify(

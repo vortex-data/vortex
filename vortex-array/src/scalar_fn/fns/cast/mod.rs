@@ -13,10 +13,9 @@ use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
-use crate::AnyColumnar;
 use crate::ArrayRef;
 use crate::CanonicalView;
-use crate::ColumnarView;
+use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantArray;
@@ -29,7 +28,6 @@ use crate::arrays::NullVTable;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinViewVTable;
-use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::StatsCatalog;
 use crate::expr::cast;
@@ -109,23 +107,20 @@ impl ScalarFnVTable for Cast {
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
 
-        let Some(columnar) = input.as_opt::<AnyColumnar>() else {
-            return input.execute::<ArrayRef>(ctx)?.cast(target_dtype.clone());
-        };
-
-        match columnar {
-            ColumnarView::Canonical(canonical) => {
-                match cast_canonical(canonical.clone(), target_dtype, ctx)? {
+        match input {
+            Columnar::Canonical(ref canonical) => {
+                let view = CanonicalView::from(canonical);
+                match cast_canonical(view, target_dtype, ctx)? {
                     Some(result) => Ok(result),
                     None => vortex_bail!(
                         "No CastKernel to cast canonical array {} from {} to {}",
                         canonical.as_ref().encoding_id(),
-                        canonical.as_ref().dtype(),
+                        canonical.dtype(),
                         target_dtype,
                     ),
                 }
             }
-            ColumnarView::Constant(constant) => match cast_constant(constant, target_dtype)? {
+            Columnar::Constant(ref constant) => match cast_constant(constant, target_dtype)? {
                 Some(result) => Ok(result),
                 None => vortex_bail!(
                     "No CastReduce to cast constant array from {} to {}",

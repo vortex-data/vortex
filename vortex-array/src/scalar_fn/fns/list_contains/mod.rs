@@ -126,16 +126,18 @@ impl ScalarFnVTable for ListContains {
         args: &dyn ExecutionArgs,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let list_array = args.get(0)?;
-        let value_array = args.get(1)?;
+        let list_input = args.get(0)?;
+        let value_input = args.get(1)?;
 
-        if let Some(list_scalar) = list_array.as_constant()
-            && let Some(value_scalar) = value_array.as_constant()
+        if let (crate::Columnar::Constant(list_const), crate::Columnar::Constant(value_const)) =
+            (&list_input, &value_input)
         {
-            let result = compute_contains_scalar(&list_scalar, &value_scalar)?;
+            let result = compute_contains_scalar(list_const.scalar(), value_const.scalar())?;
             return Ok(ConstantArray::new(result, args.row_count()).into_array());
         }
 
+        let list_array = list_input.into_array();
+        let value_array = value_input.into_array();
         compute_list_contains(list_array.as_ref(), value_array.as_ref())
     }
 

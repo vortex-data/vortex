@@ -27,6 +27,7 @@ use crate::scalar::Scalar;
 /// Since the [`Canonical`] enum has one variant per logical data type, it is inefficient for
 /// representing constant arrays. The [`Columnar`] enum allows holding an array of data in either
 /// canonical or constant form enabling efficient handling of constants during execution.
+#[derive(Clone)]
 pub enum Columnar {
     /// A columnar array in canonical form.
     Canonical(Canonical),
@@ -58,6 +59,15 @@ impl Columnar {
         match self {
             Columnar::Canonical(canonical) => canonical.dtype(),
             Columnar::Constant(constant) => constant.dtype(),
+        }
+    }
+}
+
+impl AsRef<dyn Array> for Columnar {
+    fn as_ref(&self) -> &dyn Array {
+        match self {
+            Columnar::Canonical(c) => c.as_ref(),
+            Columnar::Constant(c) => c.as_ref(),
         }
     }
 }

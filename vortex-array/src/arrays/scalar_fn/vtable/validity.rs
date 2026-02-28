@@ -4,9 +4,12 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::Columnar;
+use crate::Executable;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ArrayExpr;
 use crate::arrays::scalar_fn::vtable::FakeEq;
@@ -34,14 +37,17 @@ fn execute_expr(expr: &Expression, row_count: usize) -> VortexResult<ArrayRef> {
     // Handle Literal expression - create a constant array
     if expr.is::<Literal>() {
         let scalar = expr.as_::<Literal>();
-        return Ok(crate::arrays::ConstantArray::new(scalar.clone(), row_count).into_array());
+        return Ok(ConstantArray::new(scalar.clone(), row_count).into_array());
     }
 
-    // Recursively execute child expressions to get input arrays
-    let inputs: Vec<ArrayRef> = expr
+    // Recursively execute child expressions to get input arrays, then categorize as Columnar
+    let inputs: Vec<Columnar> = expr
         .children()
         .iter()
-        .map(|child| execute_expr(child, row_count))
+        .map(|child| {
+            let arr = execute_expr(child, row_count)?;
+            Columnar::execute(arr, &mut ctx)
+        })
         .collect::<VortexResult<_>>()?;
 
     let args = VecExecutionArgs::new(inputs, row_count);

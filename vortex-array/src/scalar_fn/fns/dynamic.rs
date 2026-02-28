@@ -13,8 +13,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
@@ -102,7 +102,7 @@ impl ScalarFnVTable for DynamicComparison {
     ) -> VortexResult<ArrayRef> {
         if let Some(scalar) = data.rhs.scalar() {
             let lhs = args.get(0)?;
-            let rhs = ConstantArray::new(scalar, args.row_count()).into_array();
+            let rhs = Columnar::Constant(ConstantArray::new(scalar, args.row_count()));
 
             let delegate_args = VecExecutionArgs::new(vec![lhs, rhs], args.row_count());
             return Binary

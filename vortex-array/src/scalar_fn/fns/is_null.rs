@@ -7,6 +7,7 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
@@ -82,16 +83,17 @@ impl ScalarFnVTable for IsNull {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let child = args.get(0)?;
-        if let Some(scalar) = child.as_constant() {
-            return Ok(ConstantArray::new(scalar.is_null(), args.row_count()).into_array());
-        }
-
-        match child.validity()? {
-            Validity::NonNullable | Validity::AllValid => {
-                Ok(ConstantArray::new(false, args.row_count()).into_array())
+        match child {
+            Columnar::Constant(constant) => {
+                Ok(ConstantArray::new(constant.scalar().is_null(), args.row_count()).into_array())
             }
-            Validity::AllInvalid => Ok(ConstantArray::new(true, args.row_count()).into_array()),
-            Validity::Array(a) => a.not(),
+            Columnar::Canonical(canonical) => match canonical.as_ref().validity()? {
+                Validity::NonNullable | Validity::AllValid => {
+                    Ok(ConstantArray::new(false, args.row_count()).into_array())
+                }
+                Validity::AllInvalid => Ok(ConstantArray::new(true, args.row_count()).into_array()),
+                Validity::Array(a) => a.not(),
+            },
         }
     }
 

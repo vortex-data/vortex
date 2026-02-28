@@ -101,13 +101,16 @@ impl ScalarFnVTable for Mask {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
-        let mask_array = args.get(1)?;
+        let mask_input = args.get(1)?;
 
-        if let Some(result) = execute_constant(&input, &mask_array)? {
+        let input_array = input.into_array();
+        let mask_array = mask_input.into_array();
+
+        if let Some(result) = execute_constant(&input_array, &mask_array)? {
             return Ok(result);
         }
 
-        execute_canonical(input, mask_array, ctx)
+        execute_canonical(input_array, mask_array, ctx)
     }
 
     fn simplify(
