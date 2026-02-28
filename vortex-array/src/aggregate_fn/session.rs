@@ -9,14 +9,25 @@ use vortex_session::registry::Registry;
 
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::fns::mean::Mean;
 
 /// Registry of aggregate function vtables.
 pub type AggregateFnRegistry = Registry<AggregateFnPluginRef>;
 
 /// Session state for aggregate function vtables.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct AggregateFnSession {
     registry: AggregateFnRegistry,
+}
+
+impl Default for AggregateFnSession {
+    fn default() -> Self {
+        let session = Self {
+            registry: AggregateFnRegistry::default(),
+        };
+        session.register(Mean);
+        session
+    }
 }
 
 impl AggregateFnSession {
