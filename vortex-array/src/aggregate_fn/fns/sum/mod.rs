@@ -57,7 +57,20 @@ fn sum_output_ptype(ptype: PType) -> PType {
 ///
 /// For primitive numeric types, the output is widened (unsigned -> u64, signed -> i64,
 /// float -> f64). For boolean inputs, `true` counts as 1 and `false` as 0, producing
-/// a u64 output.
+/// a u64 output. All output types are nullable.
+///
+/// # Flush semantics
+///
+/// - **Empty group** (flush with no prior accumulate/merge): produces **zero** (the additive
+///   identity).
+/// - **All-null group** (accumulate called but every value was null): produces **null**.
+/// - **Checked overflow**: produces **null**, and `is_saturated()` returns true so callers can
+///   skip further accumulation.
+///
+/// Note: this differs from the [`compute::sum`](crate::compute::sum) function, which treats
+/// both empty and all-null arrays identically (returning the zero accumulator). The aggregate
+/// distinguishes the two cases because all-null is semantically "unknown" while empty is
+/// "no data, so the identity applies".
 #[derive(Clone)]
 pub struct Sum;
 
