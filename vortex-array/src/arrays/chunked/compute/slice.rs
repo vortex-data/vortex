@@ -7,18 +7,13 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
-use crate::arrays::SliceKernel;
+use crate::arrays::SliceReduce;
 
-impl SliceKernel for ChunkedVTable {
-    fn slice(
-        array: &Self::Array,
-        range: Range<usize>,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
+impl SliceReduce for ChunkedVTable {
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         assert!(
             !array.is_empty() || (range.start > 0 && range.end > 0),
             "Empty chunked array can't be sliced from {} to {}",

@@ -614,9 +614,9 @@ impl vortex_array::arrays::FilterKernel for vortex_array::arrays::ChunkedVTable
 
 pub fn vortex_array::arrays::ChunkedVTable::filter(array: &vortex_array::arrays::ChunkedArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::arrays::SliceKernel for vortex_array::arrays::ChunkedVTable
+impl vortex_array::arrays::SliceReduce for vortex_array::arrays::ChunkedVTable
 
-pub fn vortex_array::arrays::ChunkedVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::ChunkedVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::arrays::TakeExecute for vortex_array::arrays::ChunkedVTable
 
@@ -3952,10 +3952,6 @@ pub trait vortex_array::arrays::SliceKernel: vortex_array::vtable::VTable
 
 pub fn vortex_array::arrays::SliceKernel::slice(array: &Self::Array, range: core::ops::range::Range<usize>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::arrays::SliceKernel for vortex_array::arrays::ChunkedVTable
-
-pub fn vortex_array::arrays::ChunkedVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
 pub trait vortex_array::arrays::SliceReduce: vortex_array::vtable::VTable
 
 pub fn vortex_array::arrays::SliceReduce::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -3963,6 +3959,10 @@ pub fn vortex_array::arrays::SliceReduce::slice(array: &Self::Array, range: core
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::BoolVTable
 
 pub fn vortex_array::arrays::BoolVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::arrays::SliceReduce for vortex_array::arrays::ChunkedVTable
+
+pub fn vortex_array::arrays::ChunkedVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::ConstantVTable
 

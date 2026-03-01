@@ -156,9 +156,9 @@ impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_alp::ALPRDVTa
 
 pub fn vortex_alp::ALPRDVTable::filter(array: &vortex_alp::ALPRDArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::arrays::slice::SliceKernel for vortex_alp::ALPRDVTable
+impl vortex_array::arrays::slice::SliceReduce for vortex_alp::ALPRDVTable
 
-pub fn vortex_alp::ALPRDVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_alp::ALPRDVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_alp::ALPRDVTable
 
@@ -244,9 +244,9 @@ impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_alp::ALPVTabl
 
 pub fn vortex_alp::ALPVTable::filter(array: &vortex_alp::ALPArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-impl vortex_array::arrays::slice::SliceKernel for vortex_alp::ALPVTable
+impl vortex_array::arrays::slice::SliceReduce for vortex_alp::ALPVTable
 
-pub fn vortex_alp::ALPVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_alp::ALPVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::compute::nan_count::NaNCountKernel for vortex_alp::ALPVTable
 

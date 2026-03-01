@@ -4,26 +4,16 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::SliceExecuteAdaptor;
-use vortex_array::arrays::SliceKernel;
-use vortex_array::kernel::ParentKernelSet;
+use vortex_array::arrays::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
 use crate::RLEArray;
 use crate::RLEVTable;
 
-pub(crate) static PARENT_KERNELS: ParentKernelSet<RLEVTable> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&SliceExecuteAdaptor(RLEVTable))]);
-
-impl SliceKernel for RLEVTable {
-    fn slice(
-        array: &RLEArray,
-        range: Range<usize>,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
+impl SliceReduce for RLEVTable {
+    fn slice(array: &RLEArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let offset_in_chunk = array.offset();
         let chunk_start_idx = (offset_in_chunk + range.start) / FL_CHUNK_SIZE;
         let chunk_end_idx = (offset_in_chunk + range.end).div_ceil(FL_CHUNK_SIZE);

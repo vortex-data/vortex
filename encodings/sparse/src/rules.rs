@@ -3,6 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::arrays::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
@@ -16,6 +17,7 @@ use crate::SparseVTable;
 pub(crate) static RULES: ParentRuleSet<SparseVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&CastReduceAdaptor(SparseVTable)),
     ParentRuleSet::lift(&NotReduceAdaptor(SparseVTable)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(SparseVTable)),
 ]);
 
 impl NotReduce for SparseVTable {

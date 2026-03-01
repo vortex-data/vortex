@@ -4,20 +4,15 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::SliceKernel;
+use vortex_array::arrays::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
 use crate::ALPVTable;
 
-impl SliceKernel for ALPVTable {
-    fn slice(
-        array: &Self::Array,
-        range: Range<usize>,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
+impl SliceReduce for ALPVTable {
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let sliced_alp = ALPArray::new(
             array.encoded().slice(range.clone())?,
             array.exponents(),

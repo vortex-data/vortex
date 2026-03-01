@@ -28,7 +28,6 @@ use vortex_session::VortexSession;
 
 use crate::RLEArray;
 use crate::rle::array::rle_decompress::rle_decompress;
-use crate::rle::kernel::PARENT_KERNELS;
 use crate::rle::vtable::rules::RULES;
 
 mod operations;
@@ -219,15 +218,6 @@ impl VTable for RLEVTable {
             metadata.offset as usize,
             len,
         )
-    }
-
-    fn execute_parent(
-        array: &Self::Array,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
