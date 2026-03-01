@@ -103,6 +103,14 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::Nullable)
         );
+        
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::new(
+                Buffer::copy_from(vec![10u32, 20, 30, 40]),
+                Validity::AllValid,
+            )
+        );
     }
 
     #[test]
