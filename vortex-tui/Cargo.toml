@@ -34,6 +34,7 @@ serde_json = { workspace = true }
 taffy = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 vortex = { workspace = true, features = ["tokio"] }
+vortex-cuda = { workspace = true }
 vortex-datafusion = { workspace = true }
 
 [lints]
