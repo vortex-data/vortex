@@ -121,7 +121,8 @@ async fn main() -> VortexResult<()> {
 
     // Parse source and create reader
     let reader: Arc<dyn vortex::io::VortexReadAt> = if cli.source.starts_with("s3://") {
-        let url = Url::parse(&cli.source)?;
+        let url = Url::parse(&cli.source)
+            .map_err(|e| vortex::error::vortex_err!("invalid S3 URL: {e}"))?;
         let bucket = url
             .host_str()
             .ok_or_else(|| vortex::error::vortex_err!("S3 URL missing bucket name"))?;
