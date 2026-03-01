@@ -24,6 +24,6 @@ tracing = { workspace = true, features = ["std", "attributes"] }
 tracing-perfetto = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 url = { workspace = true }
-vortex = { workspace = true, features = ["tokio"] }
-vortex-cuda = { workspace = true, features = ["_test-harness"] }
+vortex = { workspace = true, features = ["tokio", "zstd"] }
+vortex-cuda = { workspace = true, features = ["_test-harness", "unstable_encodings"] }
 vortex-cuda-macros = { workspace = true }
