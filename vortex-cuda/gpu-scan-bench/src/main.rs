@@ -81,7 +81,7 @@ async fn main() -> VortexResult<()> {
             .with_span_events(FmtSpan::NONE)
             .with_ansi(false);
 
-        let mut registry = tracing_subscriber::registry()
+        let registry = tracing_subscriber::registry()
             .with(log_layer.with_filter(EnvFilter::from_default_env()));
 
         if let Some(perfetto) = perfetto_guard {
@@ -96,7 +96,7 @@ async fn main() -> VortexResult<()> {
             .with_ansi(false)
             .event_format(tracing_subscriber::fmt::format().with_target(true));
 
-        let mut registry = tracing_subscriber::registry()
+        let registry = tracing_subscriber::registry()
             .with(log_layer.with_filter(EnvFilter::from_default_env()));
 
         if let Some(perfetto) = perfetto_guard {
@@ -106,7 +106,7 @@ async fn main() -> VortexResult<()> {
         }
     }
 
-    let session = VortexSession::default();
+    let session = VortexSession::default().with_tokio();
     register_cuda_layout(&session);
 
     let mut cuda_ctx = CudaSession::create_execution_ctx(&session)?
@@ -195,8 +195,6 @@ async fn main() -> VortexResult<()> {
     let file_size = reader.size().await?;
     let file_size_mb = file_size as f64 / (1024.0 * 1024.0);
     let throughput_mbs = file_size_mb / avg.as_secs_f64();
-    let iteration_secs: Vec<f64> = iteration_times.iter().map(|d| d.as_secs_f64()).collect();
-
     // Always print human-readable to stderr
     eprintln!();
     eprintln!("=== Benchmark Results ===");
