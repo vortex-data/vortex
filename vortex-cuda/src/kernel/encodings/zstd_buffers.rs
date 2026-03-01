@@ -154,6 +154,7 @@ async fn decode_zstd_buffers(
         record_statuses,
     ));
 
+    #[cfg(debug_assertions)]
     validate_decompress_results(&plan, device_actual_sizes, device_statuses).await?;
 
     let output_handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)));
