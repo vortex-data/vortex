@@ -109,8 +109,10 @@ async fn main() -> VortexResult<()> {
     let session = VortexSession::default().with_tokio();
     register_cuda_layout(&session);
 
-    let mut cuda_ctx = CudaSession::create_execution_ctx(&session)?
-        .with_launch_strategy(Arc::new(TracingLaunchStrategy));
+    let mut cuda_ctx = CudaSession::create_execution_ctx(&session)?;
+    if cli.perfetto.is_some() {
+        cuda_ctx = cuda_ctx.with_launch_strategy(Arc::new(TracingLaunchStrategy));
+    }
 
     let pool = Arc::new(PinnedByteBufferPool::new(Arc::clone(
         cuda_ctx.stream().context(),
