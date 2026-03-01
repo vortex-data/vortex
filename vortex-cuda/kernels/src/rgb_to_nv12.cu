@@ -1,16 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-/// Converts planar RGB to NV12 for NVENC input.
-///
-/// Input: three separate R, G, B planes of width*height uint8 values (one byte per pixel).
-/// Output: NV12 layout — Y plane (width*height bytes) followed by interleaved UV plane
-///         (width * height/2 bytes, with U and V subsampled 2x2).
-///
-/// Uses BT.601 color space conversion:
-///   Y  =  0.299*R + 0.587*G + 0.114*B
-///   Cb = -0.169*R - 0.331*G + 0.500*B + 128
-///   Cr =  0.500*R - 0.419*G - 0.081*B + 128
+// Converts planar RGB to NV12 for NVENC input.
+//
+// Input: three separate R, G, B planes of width*height uint8 values (one byte per pixel).
+// Output: NV12 layout — Y plane (width*height bytes) followed by interleaved UV plane
+//         (width * height/2 bytes, with U and V subsampled 2x2).
+//
+// Uses BT.601 color space conversion:
+//   Y  =  0.299*R + 0.587*G + 0.114*B
+//   Cb = -0.169*R - 0.331*G + 0.500*B + 128
+//   Cr =  0.500*R - 0.419*G - 0.081*B + 128
+
+#include <stdint.h>
+
+static __device__ uint8_t clamp_to_u8(float v) {
+    return static_cast<uint8_t>(fminf(fmaxf(v + 0.5f, 0.0f), 255.0f));
+}
 
 extern "C" __global__ void rgb_to_nv12(
     const uint8_t* __restrict__ R,
@@ -27,13 +33,13 @@ extern "C" __global__ void rgb_to_nv12(
 
     uint32_t idx = y * width + x;
 
-    float r = (float)R[idx];
-    float g = (float)G[idx];
-    float b = (float)B[idx];
+    float r = static_cast<float>(R[idx]);
+    float g = static_cast<float>(G[idx]);
+    float b = static_cast<float>(B[idx]);
 
     // BT.601 luma
     float yf = 0.299f * r + 0.587f * g + 0.114f * b;
-    nv12[idx] = (uint8_t)fminf(fmaxf(yf + 0.5f, 0.0f), 255.0f);
+    nv12[idx] = clamp_to_u8(yf);
 
     // Chroma: only compute for top-left pixel of each 2x2 block
     if ((x & 1) == 0 && (y & 1) == 0) {
@@ -43,27 +49,27 @@ extern "C" __global__ void rgb_to_nv12(
 
         if (x + 1 < width) {
             uint32_t idx_r = idx + 1;
-            r_sum += (float)R[idx_r];
-            g_sum += (float)G[idx_r];
-            b_sum += (float)B[idx_r];
+            r_sum += static_cast<float>(R[idx_r]);
+            g_sum += static_cast<float>(G[idx_r]);
+            b_sum += static_cast<float>(B[idx_r]);
             count++;
         }
         if (y + 1 < height) {
             uint32_t idx_b = idx + width;
-            r_sum += (float)R[idx_b];
-            g_sum += (float)G[idx_b];
-            b_sum += (float)B[idx_b];
+            r_sum += static_cast<float>(R[idx_b]);
+            g_sum += static_cast<float>(G[idx_b]);
+            b_sum += static_cast<float>(B[idx_b]);
             count++;
         }
         if (x + 1 < width && y + 1 < height) {
             uint32_t idx_br = idx + width + 1;
-            r_sum += (float)R[idx_br];
-            g_sum += (float)G[idx_br];
-            b_sum += (float)B[idx_br];
+            r_sum += static_cast<float>(R[idx_br]);
+            g_sum += static_cast<float>(G[idx_br]);
+            b_sum += static_cast<float>(B[idx_br]);
             count++;
         }
 
-        float inv = 1.0f / (float)count;
+        float inv = 1.0f / static_cast<float>(count);
         float r_avg = r_sum * inv;
         float g_avg = g_sum * inv;
         float b_avg = b_sum * inv;
@@ -78,7 +84,7 @@ extern "C" __global__ void rgb_to_nv12(
         uint32_t uv_col = x / 2;
         uint32_t uv_idx = uv_offset + uv_row * width + uv_col * 2;
 
-        nv12[uv_idx]     = (uint8_t)fminf(fmaxf(cb + 0.5f, 0.0f), 255.0f);
-        nv12[uv_idx + 1] = (uint8_t)fminf(fmaxf(cr + 0.5f, 0.0f), 255.0f);
+        nv12[uv_idx]     = clamp_to_u8(cb);
+        nv12[uv_idx + 1] = clamp_to_u8(cr);
     }
 }
