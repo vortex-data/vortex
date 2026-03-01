@@ -103,7 +103,7 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::Nullable)
         );
-        
+
         assert_arrays_eq!(
             casted,
             PrimitiveArray::new(
