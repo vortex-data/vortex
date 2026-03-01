@@ -52,8 +52,11 @@ impl CudaExecute for FoRExecutor {
         let array = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected FoRArray"))?;
 
         // Fuse FOR + BP => FFOR
+        // Dispatch on the FoR's ptype (not bitpacked's) so the output has the
+        // correct signedness. The CUDA kernel only depends on bit-width which is
+        // the same for signed/unsigned pairs (e.g. i16/u16).
         if let Some(bitpacked) = array.encoded().as_opt::<BitPackedVTable>() {
-            match_each_integer_ptype!(bitpacked.ptype(), |P| {
+            match_each_integer_ptype!(array.ptype(), |P| {
                 let reference: P = array.reference_scalar().try_into()?;
                 return decode_bitpacked(bitpacked.clone(), reference, ctx).await;
             })
@@ -64,7 +67,7 @@ impl CudaExecute for FoRExecutor {
             && let Some(bitpacked) = slice_array.child().as_opt::<BitPackedVTable>()
         {
             let slice_range = slice_array.slice_range().clone();
-            let unpacked = match_each_integer_ptype!(bitpacked.ptype(), |P| {
+            let unpacked = match_each_integer_ptype!(array.ptype(), |P| {
                 let reference: P = array.reference_scalar().try_into()?;
                 decode_bitpacked(bitpacked.clone(), reference, ctx).await?
             });
