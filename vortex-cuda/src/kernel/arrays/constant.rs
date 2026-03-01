@@ -10,9 +10,11 @@ use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::ConstantVTable;
 use vortex::array::arrays::DecimalArray;
+use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_decimal_value_type;
@@ -75,6 +77,16 @@ impl CudaExecute for ConstantNumericExecutor {
                 match_each_decimal_value_type!(values_type, |D| {
                     materialize_constant_decimal::<D>(array, decimal_dtype, validity, ctx).await
                 })
+            }
+            DType::Extension(ext_dtype) => {
+                let ext_dtype = ext_dtype.clone();
+                let storage_scalar = array.scalar().as_extension().to_storage_scalar();
+                let storage_constant = ConstantArray::new(storage_scalar, array.len()).into_array();
+                let storage_canonical = self.execute(storage_constant, ctx).await?;
+                Ok(Canonical::Extension(ExtensionArray::new(
+                    ext_dtype,
+                    storage_canonical.into_array(),
+                )))
             }
             dt => vortex_bail!(
                 "CUDA constant array only supports numeric types, got {:?}",
