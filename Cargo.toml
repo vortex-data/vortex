@@ -26,6 +26,9 @@ members = [
     "vortex-cuda/gpu-scan-cli",
     "vortex-cuda/macros",
     "vortex-cuda/nvcomp",
+    "vortex-cuda/nvenc",
+    "vortex-cuda/gpu-video-demo",
+    "vortex-cuda/video-prep",
     "vortex-cxx",
     "vortex-ffi",
     "fuzz",
@@ -211,6 +214,7 @@ serde_test = "1.0.176"
 simdutf8 = "0.1.5"
 similar = "2.7.0"
 sketches-ddsketch = "0.3.0"
+srt-tokio = "0.4"
 smol = "2.0.2"
 static_assertions = "1.1"
 strum = "0.27"
@@ -280,6 +284,7 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 vortex-bench = { path = "./vortex-bench", default-features = false }
 vortex-cuda = { path = "./vortex-cuda", default-features = false }
 vortex-cuda-macros = { path = "./vortex-cuda/macros" }
+vortex-nvenc = { path = "./vortex-cuda/nvenc" }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-test-e2e = { path = "./vortex-test/e2e", default-features = false }
 vortex-test-e2e-cuda = { path = "./vortex-test/e2e-cuda", default-features = false }

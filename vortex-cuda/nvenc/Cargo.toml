@@ -1,0 +1,25 @@
+[package]
+name = "vortex-nvenc"
+authors.workspace = true
+description = "Rust bindings to NVIDIA NVENC video encoder"
+edition = { workspace = true }
+homepage = { workspace = true }
+categories = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+libloading = { workspace = true }
+vortex-cuda-macros = { workspace = true }
+
+[build-dependencies]
+bindgen = { workspace = true }

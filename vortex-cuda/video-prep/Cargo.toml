@@ -1,0 +1,25 @@
+[package]
+name = "video-prep"
+authors = { workspace = true }
+description = "Convert video files to Vortex format with RGB frame data"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+async-fs = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+futures = { workspace = true }
+tokio = { workspace = true, features = ["macros", "full"] }
+tracing = { workspace = true, features = ["std"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+vortex = { workspace = true }
