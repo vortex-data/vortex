@@ -106,6 +106,13 @@ impl CudaExecute for DateTimePartsExecutor {
         let seconds_prim = seconds_canonical.into_primitive();
         let subseconds_prim = subseconds_canonical.into_primitive();
 
+        // Components may decompress as unsigned (e.g. from BitPacked). Reinterpret
+        // as signed since the CUDA kernel only has signed variants and casts
+        // everything to int64_t anyway — the bit pattern is identical.
+        let days_prim = days_prim.reinterpret_cast(days_prim.ptype().to_signed());
+        let seconds_prim = seconds_prim.reinterpret_cast(seconds_prim.ptype().to_signed());
+        let subseconds_prim = subseconds_prim.reinterpret_cast(subseconds_prim.ptype().to_signed());
+
         let days_ptype = days_prim.ptype();
         let seconds_ptype = seconds_prim.ptype();
         let subseconds_ptype = subseconds_prim.ptype();
