@@ -10069,6 +10069,8 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "vortex",
+ "vortex-cuda",
+ "vortex-cuda-macros",
 ]
 
 [[package]]

@@ -44,7 +44,10 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::file::WriteStrategyBuilder;
 use vortex::session::VortexSession;
+use vortex_cuda::layout::CudaFlatLayoutStrategy;
+use vortex_cuda::layout::register_cuda_layout;
 
 #[derive(Parser)]
 #[command(
@@ -126,6 +129,13 @@ async fn main() -> VortexResult<()> {
         .ok_or_else(|| vortex_err!("Failed to capture ffmpeg stdout"))?;
 
     let session = VortexSession::default();
+    register_cuda_layout(&session);
+
+    let write_strategy = WriteStrategyBuilder::default()
+        .with_cuda_compatible_encodings()
+        .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
+        .build();
+
     let output_path = cli.output.clone();
     let mut output = async_fs::File::create(&output_path).await?;
 
@@ -224,6 +234,7 @@ async fn main() -> VortexResult<()> {
 
     session
         .write_options()
+        .with_strategy(write_strategy)
         .write(&mut output, array_stream)
         .await?;
 
