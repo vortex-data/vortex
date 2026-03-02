@@ -2,6 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod visitor;
+pub use visitor::*;
+
+mod typed;
+pub use typed::*;
 
 use std::any::Any;
 use std::fmt::Debug;
@@ -12,7 +16,6 @@ use std::ops::Deref;
 use std::ops::Range;
 use std::sync::Arc;
 
-pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -372,6 +375,7 @@ mod private {
     pub trait Sealed {}
 
     impl<V: VTable> Sealed for ArrayAdapter<V> {}
+    impl<V: VTable> Sealed for Array<V> {}
     impl Sealed for Arc<dyn DynArray> {}
 }
 
