@@ -196,7 +196,7 @@ pub fn vortex_zstd::ZstdVTable::deserialize(bytes: &[u8], _dtype: &vortex_array:
 
 pub fn vortex_zstd::ZstdVTable::dtype(array: &vortex_zstd::ZstdArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_zstd::ZstdVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
+pub fn vortex_zstd::ZstdVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
 
 pub fn vortex_zstd::ZstdVTable::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
 
