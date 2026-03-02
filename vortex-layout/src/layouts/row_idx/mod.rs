@@ -246,7 +246,7 @@ impl LayoutReader for RowIdxLayoutReader {
 
 // Returns a SequenceArray representing the row indices for the given row range,
 fn idx_array(row_offset: u64, row_range: &Range<u64>) -> SequenceArray {
-    SequenceArray::new(
+    SequenceArray::try_new(
         PValue::U64(row_offset + row_range.start),
         PValue::U64(1),
         PType::U64,

@@ -73,7 +73,7 @@ mod tests {
             // [1, 3] in  1
             //            2
             //            3
-            let array = SequenceArray::typed_new(1, 1, Nullability::NonNullable, 3).unwrap();
+            let array = SequenceArray::try_new_typed(1, 1, Nullability::NonNullable, 3).unwrap();
 
             let expr = list_contains(lit(list_scalar.clone()), root());
             let result = array.apply(&expr).unwrap();
@@ -85,7 +85,7 @@ mod tests {
             // [1, 3] in  1
             //            3
             //            5
-            let array = SequenceArray::typed_new(1, 2, Nullability::NonNullable, 3).unwrap();
+            let array = SequenceArray::try_new_typed(1, 2, Nullability::NonNullable, 3).unwrap();
 
             let expr = list_contains(lit(list_scalar), root());
             let result = array.apply(&expr).unwrap();

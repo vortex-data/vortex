@@ -32,7 +32,7 @@ impl CastReduce for SequenceVTable {
             // For SequenceArray, we can just create a new one with the same parameters
             // but different nullability
             return Ok(Some(
-                SequenceArray::new(
+                SequenceArray::try_new(
                     array.base(),
                     array.multiplier(),
                     *target_ptype,
@@ -71,7 +71,7 @@ impl CastReduce for SequenceVTable {
                 .ok_or_else(|| vortex_err!("Cast resulted in null multiplier value"))?;
 
             return Ok(Some(
-                SequenceArray::new(
+                SequenceArray::try_new(
                     new_base,
                     new_multiplier,
                     *target_ptype,
@@ -102,7 +102,8 @@ mod tests {
 
     #[test]
     fn test_cast_sequence_nullability() {
-        let sequence = SequenceArray::typed_new(0u32, 1u32, Nullability::NonNullable, 4).unwrap();
+        let sequence =
+            SequenceArray::try_new_typed(0u32, 1u32, Nullability::NonNullable, 4).unwrap();
 
         // Cast to nullable
         let casted = sequence
@@ -118,7 +119,7 @@ mod tests {
     #[test]
     fn test_cast_sequence_u32_to_i64() {
         let sequence =
-            SequenceArray::typed_new(100u32, 10u32, Nullability::NonNullable, 4).unwrap();
+            SequenceArray::try_new_typed(100u32, 10u32, Nullability::NonNullable, 4).unwrap();
 
         let casted = sequence
             .to_array()
@@ -137,7 +138,8 @@ mod tests {
     #[test]
     fn test_cast_sequence_i16_to_i32_nullable() {
         // Test ptype change AND nullability change in one cast
-        let sequence = SequenceArray::typed_new(5i16, 3i16, Nullability::NonNullable, 3).unwrap();
+        let sequence =
+            SequenceArray::try_new_typed(5i16, 3i16, Nullability::NonNullable, 3).unwrap();
 
         let casted = sequence
             .to_array()
@@ -158,7 +160,8 @@ mod tests {
 
     #[test]
     fn test_cast_sequence_to_float_delegates_to_canonical() {
-        let sequence = SequenceArray::typed_new(0i32, 1i32, Nullability::NonNullable, 5).unwrap();
+        let sequence =
+            SequenceArray::try_new_typed(0i32, 1i32, Nullability::NonNullable, 5).unwrap();
 
         // Cast to float should delegate to canonical (SequenceArray doesn't support float)
         let casted = sequence
@@ -180,15 +183,15 @@ mod tests {
     }
 
     #[rstest]
-    #[case::i32(SequenceArray::typed_new(0i32, 1i32, Nullability::NonNullable, 5).unwrap())]
-    #[case::u64(SequenceArray::typed_new(1000u64, 100u64, Nullability::NonNullable, 4).unwrap())]
+    #[case::i32(SequenceArray::try_new_typed(0i32, 1i32, Nullability::NonNullable, 5).unwrap())]
+    #[case::u64(SequenceArray::try_new_typed(1000u64, 100u64, Nullability::NonNullable, 4).unwrap())]
     // TODO(DK): SequenceArray does not actually conform. You cannot cast this array to u8 even
     // though all its values are representable therein.
     //
     // #[case::negative_step(SequenceArray::typed_new(100i32, -10i32, Nullability::NonNullable,
     // 5).unwrap())]
-    #[case::single(SequenceArray::typed_new(42i64, 0i64, Nullability::NonNullable, 1).unwrap())]
-    #[case::constant(SequenceArray::typed_new(
+    #[case::single(SequenceArray::try_new_typed(42i64, 0i64, Nullability::NonNullable, 1).unwrap())]
+    #[case::constant(SequenceArray::try_new_typed(
         100i32,
         0i32, // multiplier of 0 means constant array
         Nullability::NonNullable,
