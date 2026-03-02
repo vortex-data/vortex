@@ -62,7 +62,7 @@ pub fn vortex_bytebool::ByteBoolVTable::fmt(&self, f: &mut core::fmt::Formatter<
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_bytebool::ByteBoolVTable
 
-pub fn vortex_bytebool::ByteBoolVTable::take(array: &vortex_bytebool::ByteBoolArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_bytebool::ByteBoolVTable::take(array: &vortex_bytebool::ByteBoolArray, indices: &vortex_array::array::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::slice::SliceReduce for vortex_bytebool::ByteBoolVTable
 
