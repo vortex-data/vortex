@@ -22,6 +22,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
+use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
@@ -180,30 +181,24 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// of children must be expected.
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
 
-    /// Execute this array to produce an [`ArrayRef`].
+    /// Execute this array by returning an [`ExecutionStep`] that tells the scheduler what to
+    /// do next.
+    ///
+    /// Instead of recursively executing children, implementations should return
+    /// [`ExecutionStep::ExecuteChild(i)`] or [`ExecutionStep::ColumnarizeChild(i)`] to request
+    /// that the scheduler execute a child first, or [`ExecutionStep::Done(result)`] when the
+    /// encoding can produce a result directly.
     ///
     /// Array execution is designed such that repeated execution of an array will eventually
     /// converge to a canonical representation. Implementations of this function should therefore
     /// ensure they make progress towards that goal.
     ///
-    /// This includes fully evaluating the array, such us decoding run-end encoding, or executing
-    /// one of the array's children and re-building the array with the executed child.
-    ///
-    /// It is recommended to only perform a single step of execution per call to this function,
-    /// such that surrounding arrays have an opportunity to perform their own parent reduction
-    /// or execution logic.
-    ///
-    /// The returned array must be logically equivalent to the input array. In other words, the
-    /// recursively canonicalized forms of both arrays must be equal.
+    /// The returned array (in `Done`) must be logically equivalent to the input array. In other
+    /// words, the recursively canonicalized forms of both arrays must be equal.
     ///
     /// Debug builds will panic if the returned array is of the wrong type, wrong length, or
     /// incorrectly contains null values.
-    ///
-    // TODO(ngates): in the future, we may pass a "target encoding hint" such that this array
-    //  can produce a more optimal representation for the parent. This could be used to preserve
-    //  varbin vs varbinview or list vs listview encodings when the parent knows it prefers
-    //  one representation over another, such as when exporting to a specific Arrow array.
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep>;
 
     /// Attempt to execute the parent of this array.
     ///

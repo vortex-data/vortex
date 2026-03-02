@@ -17,7 +17,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
+use crate::ExecutionStep;
 use crate::Precision;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
@@ -242,7 +242,7 @@ impl VTable for VarBinViewVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(array.clone().into_array())
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(array.to_array()))
     }
 }

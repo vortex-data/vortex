@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -11,12 +12,14 @@ use crate::CanonicalView;
 use crate::DynArray;
 use crate::Executable;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::dtype::DType;
 use crate::executor::MAX_ITERATIONS;
 use crate::matcher::Matcher;
+use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 
 /// Represents a columnnar array of data, either in canonical form or as a constant array.
@@ -68,32 +71,113 @@ impl IntoArray for Columnar {
     }
 }
 
-/// Executing into a [`Columnar`] is implemented by repeatedly executing the array until we
-/// converge on either a constant or canonical.
+/// Executing into a [`Columnar`] is implemented using an iterative scheduler with an explicit
+/// work stack.
+///
+/// The scheduler repeatedly:
+/// 1. Checks if the current array is columnar (constant or canonical) — if so, pops the stack.
+/// 2. Runs reduce/reduce_parent rules to fixpoint.
+/// 3. Tries execute_parent on each child.
+/// 4. Calls `execute` which returns an [`ExecutionStep`].
 ///
 /// For safety, we will error when the number of execution iterations reaches 128. We may want this
 /// to be configurable in the future in case of highly complex array trees, but in practice we
 /// don't expect to ever reach this limit.
 impl Executable for Columnar {
-    fn execute(mut array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+    fn execute(root: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let mut current = root.optimize()?;
+        let mut stack: Vec<(ArrayRef, usize)> = Vec::new();
+
         for _ in 0..*MAX_ITERATIONS {
-            // Check for termination conditions
-            if let Some(constant) = array.as_opt::<ConstantVTable>() {
-                ctx.log(format_args!("-> constant({})", constant.scalar()));
-                return Ok(Columnar::Constant(constant.clone()));
-            }
-            if let Some(canonical) = array.as_opt::<AnyCanonical>() {
-                ctx.log(format_args!("-> canonical {}", array));
-                return Ok(Columnar::Canonical(canonical.into()));
+            // Check for columnar termination (constant or canonical)
+            if let Some(columnar) = try_as_columnar(&current) {
+                match stack.pop() {
+                    None => {
+                        // Stack empty — we're done
+                        ctx.log(format_args!("-> columnar {}", current));
+                        return Ok(columnar);
+                    }
+                    Some((parent, child_idx)) => {
+                        // Replace the child in the parent and continue
+                        current = parent.with_child(child_idx, current)?;
+                        current = current.optimize()?;
+                        continue;
+                    }
+                }
             }
 
-            // Otherwise execute the array one step
-            array = array.execute(ctx)?;
+            // Try execute_parent (child-driven optimized execution)
+            if let Some(rewritten) = try_execute_parent(&current, ctx)? {
+                ctx.log(format_args!(
+                    "execute_parent rewrote {} -> {}",
+                    current, rewritten
+                ));
+                current = rewritten.optimize()?;
+                continue;
+            }
+
+            // Execute the array itself
+            match current.vtable().execute(&current, ctx)? {
+                ExecutionStep::ExecuteChild(i) => {
+                    let child = current
+                        .nth_child(i)
+                        .vortex_expect("ExecuteChild index in bounds");
+                    ctx.log(format_args!(
+                        "ExecuteChild({i}): pushing {}, focusing on {}",
+                        current, child
+                    ));
+                    stack.push((current, i));
+                    current = child.optimize()?;
+                }
+                ExecutionStep::ColumnarizeChild(i) => {
+                    let child = current
+                        .nth_child(i)
+                        .vortex_expect("ColumnarizeChild index in bounds");
+                    ctx.log(format_args!(
+                        "ColumnarizeChild({i}): pushing {}, focusing on {}",
+                        current, child
+                    ));
+                    stack.push((current, i));
+                    // No cross-step optimization for ColumnarizeChild
+                    current = child;
+                }
+                ExecutionStep::Done(result) => {
+                    ctx.log(format_args!("Done: {} -> {}", current, result));
+                    current = result;
+                }
+            }
         }
 
-        // If we reach here, we exceeded the maximum number of iterations, so error.
         vortex_bail!("Exceeded maximum execution iterations while executing to Columnar")
     }
+}
+
+/// Try to interpret an array as columnar (constant or canonical).
+fn try_as_columnar(array: &ArrayRef) -> Option<Columnar> {
+    if let Some(constant) = array.as_opt::<ConstantVTable>() {
+        Some(Columnar::Constant(constant.clone()))
+    } else {
+        array
+            .as_opt::<AnyCanonical>()
+            .map(|c| Columnar::Canonical(c.into()))
+    }
+}
+
+/// Try execute_parent on each child of the array.
+fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<ArrayRef>> {
+    for child_idx in 0..array.nchildren() {
+        let child = array
+            .nth_child(child_idx)
+            .vortex_expect("checked nchildren");
+        if let Some(result) = child
+            .vtable()
+            .execute_parent(&child, array, child_idx, ctx)?
+        {
+            result.statistics().inherit_from(array.statistics());
+            return Ok(Some(result));
+        }
+    }
+    Ok(None)
 }
 
 pub enum ColumnarView<'a> {

@@ -25,6 +25,7 @@ use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
+use crate::executor::ExecutionStep;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::scalar::Scalar;
@@ -160,15 +161,15 @@ impl VTable for MaskedVTable {
         MaskedArray::try_new(child, validity)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         let validity_mask = array.validity_mask()?;
 
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {
-            return Ok(
+            return Ok(ExecutionStep::Done(
                 ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
                     .into_array(),
-            );
+            ));
         }
 
         // NB: We intentionally do NOT have a fast path for `validity_mask.all_true()`.
@@ -178,7 +179,9 @@ impl VTable for MaskedVTable {
         // `AllTrue` masks (no data copying), so there's no benefit.
 
         let child = array.child().clone().execute::<Canonical>(ctx)?;
-        Ok(mask_validity_canonical(child, &validity_mask, ctx)?.into_array())
+        Ok(ExecutionStep::Done(
+            mask_validity_canonical(child, &validity_mask, ctx)?.into_array(),
+        ))
     }
 
     fn reduce_parent(

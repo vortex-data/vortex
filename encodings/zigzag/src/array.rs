@@ -9,6 +9,7 @@ use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::buffer::BufferHandle;
@@ -148,8 +149,10 @@ impl VTable for ZigZagVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(zigzag_decode(array.encoded().clone().execute(ctx)?).into_array())
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(
+            zigzag_decode(array.encoded().clone().execute(ctx)?).into_array(),
+        ))
     }
 
     fn reduce_parent(
