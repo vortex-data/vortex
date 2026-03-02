@@ -41,6 +41,7 @@ impl TsMuxer {
     pub fn write_access_unit(&mut self, h264_nals: &[u8], frame_idx: u64) -> Vec<u8> {
         let pts = frame_idx * 90000 / u64::from(self.fps);
         let pcr = pts;
+        let is_random_access = Self::contains_idr(h264_nals);
 
         let mut output = Vec::new();
 
@@ -76,7 +77,8 @@ impl TsMuxer {
                 let af_len = 8; // 1 (flags) + 6 (PCR) + 1 (stuffing flag byte)
                 packet[3] = 0x30 | cc; // adaptation_field + payload + cc
                 packet[4] = af_len as u8; // adaptation field length
-                packet[5] = 0x10; // PCR flag set
+                // PCR flag + random_access_indicator for IDR frames
+                packet[5] = if is_random_access { 0x50 } else { 0x10 };
 
                 // PCR: 33 bits base + 6 reserved + 9 extension
                 let pcr_base = pcr;
@@ -278,6 +280,36 @@ impl TsMuxer {
         pes.extend_from_slice(h264_nals);
 
         pes
+    }
+
+    /// Checks if H.264 Annex B data contains an IDR NAL unit (type 5).
+    fn contains_idr(h264_nals: &[u8]) -> bool {
+        let mut i = 0;
+        while i + 4 < h264_nals.len() {
+            if h264_nals[i] == 0 && h264_nals[i + 1] == 0 {
+                if h264_nals[i + 2] == 1 {
+                    // 3-byte start code
+                    let nal_type = h264_nals[i + 3] & 0x1F;
+                    if nal_type == 5 {
+                        return true;
+                    }
+                    i += 3;
+                } else if h264_nals[i + 2] == 0 && h264_nals[i + 3] == 1 && i + 4 < h264_nals.len()
+                {
+                    // 4-byte start code
+                    let nal_type = h264_nals[i + 4] & 0x1F;
+                    if nal_type == 5 {
+                        return true;
+                    }
+                    i += 4;
+                } else {
+                    i += 1;
+                }
+            } else {
+                i += 1;
+            }
+        }
+        false
     }
 }
 
