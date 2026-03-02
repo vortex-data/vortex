@@ -142,7 +142,7 @@ typedef struct NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS {
     uint32_t          version;
     NV_ENC_DEVICE_TYPE deviceType;
     void              *device;
-    uint32_t          reserved;
+    void              *reserved;
     uint32_t          apiVersion;
     uint32_t          reserved1[253];
     void              *reserved2[64];
