@@ -234,6 +234,7 @@ pub enum CompactionStrategy {
 
 impl CompactionStrategy {
     pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
+        const CUDA_COALESCING_TARGET_BYTES: u64 = 128 * 1024 * 1024;
         match self {
             CompactionStrategy::Compact => options.with_strategy(
                 WriteStrategyBuilder::default()
@@ -243,6 +244,7 @@ impl CompactionStrategy {
             CompactionStrategy::CudaCompatible => options.with_strategy(
                 WriteStrategyBuilder::default()
                     .with_cuda_compatible_encodings()
+                    .with_coalescing_block_size(CUDA_COALESCING_TARGET_BYTES)
                     .build(),
             ),
             CompactionStrategy::Default => options,

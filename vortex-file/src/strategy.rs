@@ -126,6 +126,8 @@ pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
 pub struct WriteStrategyBuilder {
     compressor: Option<Arc<dyn CompressorPlugin>>,
     row_block_size: usize,
+    coalescing_block_size_minimum: u64,
+    coalescing_block_size_target: Option<u64>,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     allow_encodings: Option<ArrayRegistry>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
@@ -138,6 +140,8 @@ impl Default for WriteStrategyBuilder {
         Self {
             compressor: None,
             row_block_size: 8192,
+            coalescing_block_size_minimum: ONE_MEG,
+            coalescing_block_size_target: Some(ONE_MEG),
             field_writers: HashMap::new(),
             allow_encodings: None,
             flat_strategy: None,
@@ -158,6 +162,16 @@ impl WriteStrategyBuilder {
     /// Override the row block size used to determine the zone map sizes.
     pub fn with_row_block_size(mut self, row_block_size: usize) -> Self {
         self.row_block_size = row_block_size;
+        self
+    }
+
+    /// Override the coalescing partition target used before compression.
+    ///
+    /// This controls the uncompressed size of data chunks produced by the coalescing repartition
+    /// stage. Larger values produce fewer, larger chunks.
+    pub fn with_coalescing_block_size(mut self, bytes: u64) -> Self {
+        self.coalescing_block_size_minimum = bytes;
+        self.coalescing_block_size_target = Some(bytes);
         self
     }
 
@@ -262,9 +276,9 @@ impl WriteStrategyBuilder {
                 // sufficient read concurrency for the desired throughput. One megabyte is small
                 // enough to achieve this for S3 (Durner et al., "Exploiting Cloud Object Storage for
                 // High-Performance Analytics", VLDB Vol 16, Iss 11).
-                block_size_minimum: ONE_MEG,
+                block_size_minimum: self.coalescing_block_size_minimum,
                 block_len_multiple: self.row_block_size,
-                block_size_target: Some(ONE_MEG),
+                block_size_target: self.coalescing_block_size_target,
                 canonicalize: true,
             },
         );
