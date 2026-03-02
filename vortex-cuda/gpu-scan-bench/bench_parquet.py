@@ -19,8 +19,6 @@
 #   uv run bench_parquet.py dataset.parquet --iterations 5
 
 import argparse
-import json
-import os
 import sys
 import time
 
@@ -31,27 +29,60 @@ def main():
     )
     parser.add_argument("source", help="Path to parquet file")
     parser.add_argument("--iterations", type=int, default=1, help="Number of scan iterations")
+    parser.add_argument(
+        "--row-group-batch-size",
+        type=int,
+        default=1,
+        help="Number of parquet row groups to read per cuDF call when streaming",
+    )
+    parser.add_argument(
+        "--full-file-read",
+        action="store_true",
+        help="Read the full parquet file in one call (old behavior, can OOM)",
+    )
     args = parser.parse_args()
 
     import cudf
     import fsspec
+    import pyarrow.parquet as pq
 
     source = args.source
+    if args.row_group_batch_size < 1:
+        raise ValueError("--row-group-batch-size must be >= 1")
+
     fs, fs_path = fsspec.core.url_to_fs(source)
     file_size = fs.size(fs_path)
     file_size_mb = file_size / (1024 * 1024)
 
+    num_row_groups = None
+    if not args.full_file_read:
+        with fs.open(fs_path, "rb") as parquet_file:
+            num_row_groups = pq.ParquetFile(parquet_file).metadata.num_row_groups
+        print(
+            f"Streaming parquet by row groups: {num_row_groups} total, "
+            f"batch size={args.row_group_batch_size}",
+            file=sys.stderr,
+        )
+
     iteration_secs = []
     for i in range(args.iterations):
         start = time.perf_counter()
-        df = cudf.read_parquet(source)
+        if args.full_file_read:
+            df = cudf.read_parquet(source)
+            del df
+        else:
+            for rg_start in range(0, num_row_groups, args.row_group_batch_size):
+                row_groups = list(
+                    range(rg_start, min(rg_start + args.row_group_batch_size, num_row_groups))
+                )
+                df = cudf.read_parquet(source, row_groups=row_groups)
+                del df
         elapsed = time.perf_counter() - start
         iteration_secs.append(elapsed)
         print(
             f"Iteration {i + 1}/{args.iterations}: {elapsed:.3f}s",
             file=sys.stderr,
         )
-        del df
 
     avg_secs = sum(iteration_secs) / len(iteration_secs)
     throughput_mbs = file_size_mb / avg_secs
