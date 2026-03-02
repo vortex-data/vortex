@@ -54,8 +54,7 @@ class VortexDatasource(Datasource):
         columns: IntoProjection = None,
         filter: pc.Expression | VortexExpr | None = None,
         batch_size: int | None = None,
-        meta_provider: BaseFileMetadataProvider = DefaultFileMetadataProvider(),
-        # pyright: ignore[reportCallInDefaultInitializer]
+        meta_provider: BaseFileMetadataProvider = DefaultFileMetadataProvider(),  # pyright: ignore[reportCallInDefaultInitializer]
     ):
         super().__init__()
         self._columns = columns
