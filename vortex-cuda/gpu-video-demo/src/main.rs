@@ -117,7 +117,7 @@ async fn main() -> VortexResult<()> {
         .with_ansi(false)
         .event_format(tracing_subscriber::fmt::format().with_target(true));
 
-    let mut registry =
+    let registry =
         tracing_subscriber::registry().with(log_layer.with_filter(EnvFilter::from_default_env()));
 
     if let Some(perfetto) = perfetto_guard {
@@ -127,7 +127,7 @@ async fn main() -> VortexResult<()> {
     }
 
     // CUDA setup
-    let session = VortexSession::default();
+    let session = VortexSession::default().with_tokio();
     register_cuda_layout(&session);
 
     let mut cuda_ctx = CudaSession::create_execution_ctx(&session)?
