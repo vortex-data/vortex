@@ -60,6 +60,8 @@ pub enum NvencError {
     ResourceNotRegistered,
     /// Resource not mapped.
     ResourceNotMapped,
+    /// Detailed error with context message.
+    DetailedError(String),
     /// Unknown error with raw status code.
     Unknown(u32),
 }
@@ -93,6 +95,7 @@ impl std::fmt::Display for NvencError {
             Self::ResourceRegisterFailed => write!(f, "nvenc: resource register failed"),
             Self::ResourceNotRegistered => write!(f, "nvenc: resource not registered"),
             Self::ResourceNotMapped => write!(f, "nvenc: resource not mapped"),
+            Self::DetailedError(msg) => write!(f, "nvenc: {msg}"),
             Self::Unknown(code) => write!(f, "nvenc: unknown error (status code {code})"),
         }
     }

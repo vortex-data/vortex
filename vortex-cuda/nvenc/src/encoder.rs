@@ -65,6 +65,28 @@ impl NvEncoder {
     ) -> Result<Self, NvencError> {
         let library = nvenc_library()?;
 
+        // Check max supported API version
+        let mut max_version: u32 = 0;
+        let status =
+            unsafe { library.NvEncodeAPIGetMaxSupportedVersion(&raw mut max_version) };
+        check_status(status).map_err(|e| {
+            NvencError::DetailedError(format!(
+                "NvEncodeAPIGetMaxSupportedVersion failed: {e}"
+            ))
+        })?;
+        let max_major = max_version & 0xFF;
+        let max_minor = (max_version >> 24) & 0xFF;
+        let our_major = sys::NVENCAPI_MAJOR_VERSION;
+        let our_minor = sys::NVENCAPI_MINOR_VERSION;
+        eprintln!(
+            "NVENC: driver supports API {max_major}.{max_minor}, we request {our_major}.{our_minor}"
+        );
+        if max_version < crate::NVENCAPI_VERSION {
+            return Err(NvencError::DetailedError(format!(
+                "Driver NVENC API {max_major}.{max_minor} is older than required {our_major}.{our_minor}"
+            )));
+        }
+
         // Initialize function table
         let mut fn_table: Box<sys::NV_ENCODE_API_FUNCTION_LIST> =
             Box::new(unsafe { std::mem::zeroed() });
@@ -72,7 +94,9 @@ impl NvEncoder {
 
         // SAFETY: fn_table is valid and zeroed with correct version set.
         let status = unsafe { library.NvEncodeAPICreateInstance(&raw mut *fn_table) };
-        check_status(status)?;
+        check_status(status).map_err(|e| {
+            NvencError::DetailedError(format!("NvEncodeAPICreateInstance failed: {e}"))
+        })?;
 
         // Open encode session
         let mut session_params: sys::NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS =
@@ -82,13 +106,21 @@ impl NvEncoder {
         session_params.device = cu_context;
         session_params.apiVersion = crate::NVENCAPI_VERSION;
 
+        eprintln!(
+            "NVENC: opening session with cu_context={cu_context:?}, version=0x{:08X}, apiVersion=0x{:08X}",
+            session_params.version,
+            session_params.apiVersion
+        );
+
         let mut encoder: *mut std::ffi::c_void = ptr::null_mut();
         let open_fn = fn_table
             .nvEncOpenEncodeSessionEx
             .ok_or(NvencError::Generic)?;
         // SAFETY: session_params is properly initialized.
         let status = unsafe { open_fn(&raw mut session_params, &raw mut encoder) };
-        check_status(status)?;
+        check_status(status).map_err(|e| {
+            NvencError::DetailedError(format!("nvEncOpenEncodeSessionEx failed: {e}"))
+        })?;
 
         // Configure encode params
         let mut encode_config: sys::NV_ENC_CONFIG = unsafe { std::mem::zeroed() };
