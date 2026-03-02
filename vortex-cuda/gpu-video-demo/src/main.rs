@@ -188,10 +188,13 @@ async fn main() -> VortexResult<()> {
         ptr
     };
 
-    // Create NVENC encoder
-    let cu_context = cuda_ctx.stream().context().cu_ctx();
+    // Create NVENC encoder — bind the CUDA context to this thread first.
+    let cuda_context = cuda_ctx.stream().context().clone();
+    cuda_context
+        .bind_to_thread()
+        .map_err(|e| vortex_err!("Failed to bind CUDA context: {e}"))?;
     let mut encoder = vortex_nvenc::NvEncoder::new(
-        cu_context as *mut std::ffi::c_void,
+        cuda_context.cu_ctx() as *mut std::ffi::c_void,
         width,
         height,
         fps,
