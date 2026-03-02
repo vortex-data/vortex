@@ -5,9 +5,9 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::CastReduce;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -195,6 +195,6 @@ mod tests {
         5,
     ).unwrap())]
     fn test_cast_sequence_conformance(#[case] sequence: SequenceArray) {
-        test_cast_conformance(sequence.as_ref());
+        test_cast_conformance(&sequence.to_array());
     }
 }

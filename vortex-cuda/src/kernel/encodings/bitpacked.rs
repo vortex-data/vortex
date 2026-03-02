@@ -74,7 +74,7 @@ pub fn bitpacked_cuda_kernel(
     // bit_unpack_{bits}_{bit_width}bw_{thread_count}t
     let thread_count = bitpacked_thread_count(output_width);
     let suffixes: [&str; _] = [&format!("{bit_width}bw"), &format!("{thread_count}t")];
-    ctx.load_function(&format!("bit_unpack_{}", output_width), &suffixes)
+    ctx.load_function_with_suffixes(&format!("bit_unpack_{}", output_width), &suffixes)
 }
 
 pub fn bitpacked_cuda_launch_config(output_width: usize, len: usize) -> VortexResult<LaunchConfig> {
@@ -180,7 +180,7 @@ mod tests {
         let array = PrimitiveArray::new((0u16..=513).collect::<Buffer<_>>(), NonNullable);
 
         // Last two items should be patched
-        let bp_with_patches = BitPackedArray::encode(array.as_ref(), 9)?;
+        let bp_with_patches = BitPackedArray::encode(&array.to_array(), 9)?;
         assert!(bp_with_patches.patches().is_some());
 
         let cpu_result = bp_with_patches.to_canonical()?.into_array();
@@ -221,7 +221,7 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPackedArray::encode(primitive_array.as_ref(), bit_width)
+        let bitpacked_array = BitPackedArray::encode(&primitive_array.to_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
 
@@ -269,7 +269,7 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPackedArray::encode(primitive_array.as_ref(), bit_width)
+        let bitpacked_array = BitPackedArray::encode(&primitive_array.to_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
 
@@ -333,7 +333,7 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPackedArray::encode(primitive_array.as_ref(), bit_width)
+        let bitpacked_array = BitPackedArray::encode(&primitive_array.to_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
 
@@ -429,7 +429,7 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPackedArray::encode(primitive_array.as_ref(), bit_width)
+        let bitpacked_array = BitPackedArray::encode(&primitive_array.to_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
         let gpu_result = block_on(async {
@@ -462,7 +462,7 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPackedArray::encode(primitive_array.as_ref(), bit_width)
+        let bitpacked_array = BitPackedArray::encode(&primitive_array.to_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let slice_ref = bitpacked_array.clone().into_array().slice(67..3969)?;
         let mut exec_ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());

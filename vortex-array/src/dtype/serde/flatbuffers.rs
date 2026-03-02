@@ -338,7 +338,7 @@ impl WriteFlatBuffer for DType {
             Self::Extension(ext) => {
                 let id = Some(fbb.create_string(ext.id().as_ref()));
                 let storage_dtype = Some(ext.storage_dtype().write_flatbuffer(fbb)?);
-                let metadata = Some(fbb.create_vector(&ext.metadata_erased().serialize()?));
+                let metadata = Some(fbb.create_vector(&ext.serialize_metadata()?));
                 fb::Extension::create(
                     fbb,
                     &fb::ExtensionArgs {

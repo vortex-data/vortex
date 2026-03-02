@@ -16,14 +16,14 @@ pub fn label_is_fallible(expr: &Expression) -> BooleanLabels<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::expr::exprs::binary::checked_add;
-    use crate::expr::exprs::binary::eq;
-    use crate::expr::exprs::get_item::col;
-    use crate::expr::exprs::is_null::is_null;
-    use crate::expr::exprs::literal::lit;
-    use crate::expr::exprs::merge::DuplicateHandling;
-    use crate::expr::exprs::merge::merge_opts;
-    use crate::expr::exprs::not::not;
+    use crate::expr::checked_add;
+    use crate::expr::col;
+    use crate::expr::eq;
+    use crate::expr::is_null;
+    use crate::expr::lit;
+    use crate::expr::merge_opts;
+    use crate::expr::not;
+    use crate::scalar_fn::fns::merge::DuplicateHandling;
 
     #[test]
     fn not_is_not_fallible() {

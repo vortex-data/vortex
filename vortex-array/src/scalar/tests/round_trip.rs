@@ -317,14 +317,14 @@ mod tests {
     #[case::binary_short(Scalar::binary(vec![1u8, 2, 3], Nullability::NonNullable))]
     fn test_nbytes_approx_eq_to_proto_bytes(#[case] scalar: Scalar) {
         let proto_bytes: Vec<u8> = ScalarValue::to_proto_bytes(scalar.value());
-        let diff = (scalar.nbytes() as isize - proto_bytes.len() as isize).abs();
+        let diff = (scalar.approx_nbytes() as isize - proto_bytes.len() as isize).abs();
 
         // NOTE: THE 4 HERE IS COMPLETELY ARBITRARY!!!
         assert!(
             diff <= 4,
             "nbytes() should be within 4 of proto-serialized length for {:?}, got {} vs {}",
             scalar,
-            scalar.nbytes(),
+            scalar.approx_nbytes(),
             proto_bytes.len(),
         );
     }

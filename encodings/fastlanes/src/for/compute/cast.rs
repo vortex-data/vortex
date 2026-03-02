@@ -5,7 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::expr::CastReduce;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::r#for::FoRArray;
@@ -101,6 +101,6 @@ mod tests {
         Scalar::from(-100i32)
     ).unwrap())]
     fn test_cast_for_conformance(#[case] array: FoRArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 }

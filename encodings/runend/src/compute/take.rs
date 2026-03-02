@@ -29,7 +29,7 @@ impl TakeExecute for RunEndVTable {
     )]
     fn take(
         array: &RunEndArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let primitive_indices = indices.to_primitive();
@@ -182,7 +182,7 @@ mod test {
         RunEndArray::encode(PrimitiveArray::from_iter(values).into_array()).unwrap()
     })]
     fn test_take_runend_conformance(#[case] array: RunEndArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.to_array());
     }
 
     #[rstest]
@@ -195,6 +195,6 @@ mod test {
         array.slice(2..8).unwrap()
     })]
     fn test_take_sliced_runend_conformance(#[case] sliced: ArrayRef) {
-        test_take_conformance(sliced.as_ref());
+        test_take_conformance(&sliced);
     }
 }

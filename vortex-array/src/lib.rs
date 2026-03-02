@@ -58,6 +58,7 @@ pub mod optimizer;
 mod partial_ord;
 pub mod patches;
 pub mod scalar;
+pub mod scalar_fn;
 pub mod search_sorted;
 pub mod serde;
 pub mod session;

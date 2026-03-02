@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
+
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -13,6 +16,7 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::Precision;
 use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
@@ -24,18 +28,17 @@ use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
+use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
-
-mod array;
 mod canonical;
 mod operations;
 mod validity;
-mod visitor;
-
 vtable!(Chunked);
 
 #[derive(Debug)]
@@ -49,14 +52,76 @@ impl VTable for ChunkedVTable {
     type Array = ChunkedArray;
 
     type Metadata = EmptyMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
-
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ChunkedArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &ChunkedArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ChunkedArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ChunkedArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.len.hash(state);
+        array.chunk_offsets.as_ref().array_hash(state, precision);
+        for chunk in &array.chunks {
+            chunk.array_hash(state, precision);
+        }
+    }
+
+    fn array_eq(array: &ChunkedArray, other: &ChunkedArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.len == other.len
+            && array
+                .chunk_offsets
+                .as_ref()
+                .array_eq(other.chunk_offsets.as_ref(), precision)
+            && array.chunks.len() == other.chunks.len()
+            && array
+                .chunks
+                .iter()
+                .zip(&other.chunks)
+                .all(|(a, b)| a.array_eq(b, precision))
+    }
+
+    fn nbuffers(_array: &ChunkedArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &ChunkedArray, idx: usize) -> BufferHandle {
+        vortex_panic!("ChunkedArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &ChunkedArray, idx: usize) -> Option<String> {
+        vortex_panic!("ChunkedArray buffer_name index {idx} out of bounds")
+    }
+
+    fn nchildren(array: &ChunkedArray) -> usize {
+        1 + array.chunks().len()
+    }
+
+    fn child(array: &ChunkedArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.chunk_offsets.to_array(),
+            n => array.chunks()[n - 1].clone(),
+        }
+    }
+
+    fn child_name(_array: &ChunkedArray, idx: usize) -> String {
+        match idx {
+            0 => "chunk_offsets".to_string(),
+            n => format!("chunks[{}]", n - 1),
+        }
     }
 
     fn metadata(_array: &ChunkedArray) -> VortexResult<Self::Metadata> {

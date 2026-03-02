@@ -4,8 +4,6 @@
 use std::hash::Hash;
 
 use num_traits::cast::FromPrimitive;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
@@ -35,17 +33,16 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
-use vortex_array::vtable::VisitorVTable;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::kernel::PARENT_KERNELS;
@@ -230,14 +227,65 @@ impl VTable for SequenceVTable {
     type Array = SequenceArray;
 
     type Metadata = ProstMetadata<SequenceMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &SequenceArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &SequenceArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &SequenceArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &SequenceArray,
+        state: &mut H,
+        _precision: Precision,
+    ) {
+        array.base.hash(state);
+        array.multiplier.hash(state);
+        array.dtype.hash(state);
+        array.len.hash(state);
+    }
+
+    fn array_eq(array: &SequenceArray, other: &SequenceArray, _precision: Precision) -> bool {
+        array.base == other.base
+            && array.multiplier == other.multiplier
+            && array.dtype == other.dtype
+            && array.len == other.len
+    }
+
+    fn nbuffers(_array: &SequenceArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &SequenceArray, idx: usize) -> BufferHandle {
+        vortex_panic!("SequenceArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &SequenceArray, idx: usize) -> Option<String> {
+        vortex_panic!("SequenceArray buffer_name index {idx} out of bounds")
+    }
+
+    fn nchildren(_array: &SequenceArray) -> usize {
+        0
+    }
+
+    fn child(_array: &SequenceArray, idx: usize) -> ArrayRef {
+        vortex_panic!("SequenceArray child index {idx} out of bounds")
+    }
+
+    fn child_name(_array: &SequenceArray, idx: usize) -> String {
+        vortex_panic!("SequenceArray child_name index {idx} out of bounds")
     }
 
     fn metadata(array: &SequenceArray) -> VortexResult<Self::Metadata> {
@@ -347,38 +395,6 @@ impl VTable for SequenceVTable {
     }
 }
 
-impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
-    fn len(array: &SequenceArray) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &SequenceArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &SequenceArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        array: &SequenceArray,
-        state: &mut H,
-        _precision: Precision,
-    ) {
-        array.base.hash(state);
-        array.multiplier.hash(state);
-        array.dtype.hash(state);
-        array.len.hash(state);
-    }
-
-    fn array_eq(array: &SequenceArray, other: &SequenceArray, _precision: Precision) -> bool {
-        array.base == other.base
-            && array.multiplier == other.multiplier
-            && array.dtype == other.dtype
-            && array.len == other.len
-    }
-}
-
 impl OperationsVTable<SequenceVTable> for SequenceVTable {
     fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
         Scalar::try_new(
@@ -391,22 +407,6 @@ impl OperationsVTable<SequenceVTable> for SequenceVTable {
 impl ValidityVTable<SequenceVTable> for SequenceVTable {
     fn validity(_array: &SequenceArray) -> VortexResult<Validity> {
         Ok(Validity::AllValid)
-    }
-}
-
-impl VisitorVTable<SequenceVTable> for SequenceVTable {
-    fn visit_buffers(_array: &SequenceArray, _visitor: &mut dyn ArrayBufferVisitor) {
-        // TODO(joe): expose scalar values
-    }
-
-    fn nbuffers(_array: &SequenceArray) -> usize {
-        0
-    }
-
-    fn visit_children(_array: &SequenceArray, _visitor: &mut dyn ArrayChildVisitor) {}
-
-    fn nchildren(_array: &SequenceArray) -> usize {
-        0
     }
 }
 

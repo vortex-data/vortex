@@ -10,10 +10,10 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativePType;
-use vortex_array::expr::CompareKernel;
-use vortex_array::expr::CompareOperator;
-use vortex_array::expr::Operator;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::binary::CompareKernel;
+use vortex_array::scalar_fn::fns::operators::CompareOperator;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -28,7 +28,7 @@ use crate::match_each_alp_float_ptype;
 impl CompareKernel for ALPVTable {
     fn compare(
         lhs: &ALPArray,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -160,9 +160,9 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::expr::CompareOperator;
-    use vortex_array::expr::Operator;
     use vortex_array::scalar::Scalar;
+    use vortex_array::scalar_fn::fns::operators::CompareOperator;
+    use vortex_array::scalar_fn::fns::operators::Operator;
 
     use super::*;
     use crate::alp_encode;

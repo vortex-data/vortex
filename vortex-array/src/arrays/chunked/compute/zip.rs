@@ -10,7 +10,7 @@ use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::expr::ZipReduce;
+use crate::scalar_fn::fns::zip::ZipReduce;
 
 // Push down the zip call to the chunks. Without this rule
 // the default implementation canonicalises the chunked array
@@ -18,7 +18,7 @@ use crate::expr::ZipReduce;
 impl ZipReduce for ChunkedVTable {
     fn zip(
         if_true: &ChunkedArray,
-        if_false: &dyn Array,
+        if_false: &ArrayRef,
         mask: &Mask,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(if_false) = if_false.as_opt::<ChunkedVTable>() else {
@@ -110,7 +110,7 @@ mod tests {
         let mask = Mask::from_iter([true, false, true, false, true]);
 
         #[expect(deprecated)]
-        let zipped = zip(if_true.as_ref(), if_false.as_ref(), &mask).unwrap();
+        let zipped = zip(&if_true.to_array(), &if_false.to_array(), &mask).unwrap();
         let zipped = zipped
             .as_opt::<ChunkedVTable>()
             .expect("zip should keep chunked encoding");

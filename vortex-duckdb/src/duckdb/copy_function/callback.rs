@@ -91,7 +91,7 @@ pub(crate) unsafe extern "C-unwind" fn copy_to_sink_callback<T: CopyFunction>(
 ) {
     let bind_data =
         unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null pointer");
-    let global_data = unsafe { global_data.cast::<T::GlobalState>().as_mut() }
+    let global_data = unsafe { global_data.cast::<T::GlobalState>().as_ref() }
         .vortex_expect("bind_data null pointer");
     let local_data = unsafe { local_data.cast::<T::LocalState>().as_mut() }
         .vortex_expect("bind_data null pointer");

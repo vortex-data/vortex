@@ -25,7 +25,6 @@ flatbuffers = { workspace = true, optional = true }
 jiff = { workspace = true }
 object_store = { workspace = true, optional = true }
 prost = { workspace = true }
-pyo3 = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 
 [dev-dependencies]

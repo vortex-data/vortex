@@ -36,7 +36,7 @@ impl Executor for WasmRuntime {
         Box::new(NoOpAbortHandle)
     }
 
-    fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+    fn spawn_blocking_io(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         spawn_local(async move { task() });
         Box::new(NoOpAbortHandle)
     }

@@ -9,6 +9,7 @@
 //! Run with: cargo run --example compression_showcase
 
 use vortex::array::Array;
+use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
@@ -57,13 +58,13 @@ fn compress_sequential_data() -> Result<(), Box<dyn std::error::Error>> {
     // Create sequential data (e.g., timestamps, IDs)
     let sequential: PrimitiveArray = (1000..11000).map(|i| i as u64).collect();
 
-    let uncompressed_size = estimate_size(sequential.as_ref());
+    let uncompressed_size = estimate_size(&sequential.to_array());
     println!("  Original sequential data (10,000 values):");
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
     // Compress using default strategy
     let compressor = BtrBlocksCompressor::default();
-    let compressed = compressor.compress(sequential.as_ref())?;
+    let compressed = compressor.compress(&sequential.to_array())?;
 
     let compressed_size = compressed.nbytes();
     let ratio = uncompressed_size as f64 / compressed_size as f64;
@@ -86,12 +87,12 @@ fn compress_repetitive_data() -> Result<(), Box<dyn std::error::Error>> {
     }
     let array: PrimitiveArray = repetitive.into_iter().collect();
 
-    let uncompressed_size = estimate_size(array.as_ref());
+    let uncompressed_size = estimate_size(&array.to_array());
     println!("  Repetitive data (100 values, each repeated 100 times):");
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
     let compressor = BtrBlocksCompressor::default();
-    let compressed = compressor.compress(array.as_ref())?;
+    let compressed = compressor.compress(&array.to_array())?;
 
     let compressed_size = compressed.nbytes();
     let ratio = uncompressed_size as f64 / compressed_size as f64;
@@ -118,12 +119,12 @@ fn compress_string_data() -> Result<(), Box<dyn std::error::Error>> {
 
     let array = VarBinArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
 
-    let uncompressed_size = estimate_size(array.as_ref());
+    let uncompressed_size = estimate_size(&array.to_array());
     println!("  Categorical string data (10,000 strings, 4 categories):");
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
     let compressor = BtrBlocksCompressor::default();
-    let compressed = compressor.compress(array.as_ref())?;
+    let compressed = compressor.compress(&array.to_array())?;
 
     let compressed_size = compressed.nbytes();
     let ratio = uncompressed_size as f64 / compressed_size as f64;
@@ -146,7 +147,7 @@ fn compress_float_data() -> Result<(), Box<dyn std::error::Error>> {
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
     let compressor = BtrBlocksCompressor::default();
-    let compressed = compressor.compress(array.as_ref())?;
+    let compressed = compressor.compress(&array.to_array())?;
 
     let compressed_size = compressed.nbytes();
     let ratio = uncompressed_size as f64 / compressed_size as f64;
@@ -167,12 +168,12 @@ fn compress_sparse_data() -> Result<(), Box<dyn std::error::Error>> {
     }
     let array: PrimitiveArray = sparse.into_iter().collect();
 
-    let uncompressed_size = estimate_size(array.as_ref());
+    let uncompressed_size = estimate_size(&array.to_array());
     println!("  Sparse data (10,000 values, 99% zeros):");
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
     let compressor = BtrBlocksCompressor::default();
-    let compressed = compressor.compress(array.as_ref())?;
+    let compressed = compressor.compress(&array.to_array())?;
 
     let compressed_size = compressed.nbytes();
     let ratio = uncompressed_size as f64 / compressed_size as f64;
@@ -217,12 +218,12 @@ fn compress_structured_data() -> Result<(), Box<dyn std::error::Error>> {
         Validity::NonNullable,
     )?;
 
-    let uncompressed_size = estimate_size(struct_array.as_ref());
+    let uncompressed_size = estimate_size(&struct_array.to_array());
     println!("  Structured data (5,000 records, 3 columns):");
     println!("    Uncompressed size: ~{} bytes", uncompressed_size);
 
     let compressor = BtrBlocksCompressor::default();
-    let compressed = compressor.compress(struct_array.as_ref())?;
+    let compressed = compressor.compress(&struct_array.to_array())?;
 
     let compressed_size = compressed.nbytes();
     let ratio = uncompressed_size as f64 / compressed_size as f64;
@@ -237,6 +238,6 @@ fn compress_structured_data() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Estimate the size of an array in bytes (approximation)
 #[allow(clippy::cast_possible_truncation)]
-fn estimate_size(array: &dyn Array) -> usize {
+fn estimate_size(array: &ArrayRef) -> usize {
     array.nbytes() as usize
 }

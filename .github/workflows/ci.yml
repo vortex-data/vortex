@@ -308,6 +308,7 @@ jobs:
         run: |
           git ls-files vortex-cuda vortex-cxx vortex-duckdb vortex-ffi \
             | grep -E '\.(cpp|hpp|cu|cuh|h)$' \
+            | grep -v 'kernels/src/bit_unpack_.*\.cu$' \
             | xargs clang-format --dry-run --Werror --style=file
 
   rust-lint-no-default:

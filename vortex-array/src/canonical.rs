@@ -121,6 +121,23 @@ pub enum Canonical {
     Extension(ExtensionArray),
 }
 
+/// Match on every canonical variant and evaluate a code block on all variants
+macro_rules! match_each_canonical {
+    ($self:expr, | $ident:ident | $eval:expr) => {{
+        match $self {
+            Canonical::Null($ident) => $eval,
+            Canonical::Bool($ident) => $eval,
+            Canonical::Primitive($ident) => $eval,
+            Canonical::Decimal($ident) => $eval,
+            Canonical::VarBinView($ident) => $eval,
+            Canonical::List($ident) => $eval,
+            Canonical::FixedSizeList($ident) => $eval,
+            Canonical::Struct($ident) => $eval,
+            Canonical::Extension($ident) => $eval,
+        }
+    }};
+}
+
 impl Canonical {
     // TODO(connor): This can probably be specialized for each of the canonical arrays.
     /// Create an empty canonical array of the given dtype.
@@ -129,45 +146,15 @@ impl Canonical {
     }
 
     pub fn len(&self) -> usize {
-        match self {
-            Canonical::Null(c) => c.len(),
-            Canonical::Bool(c) => c.len(),
-            Canonical::Primitive(c) => c.len(),
-            Canonical::Decimal(c) => c.len(),
-            Canonical::VarBinView(c) => c.len(),
-            Canonical::List(c) => c.len(),
-            Canonical::FixedSizeList(c) => c.len(),
-            Canonical::Struct(c) => c.len(),
-            Canonical::Extension(c) => c.len(),
-        }
+        match_each_canonical!(self, |arr| arr.len())
     }
 
     pub fn dtype(&self) -> &DType {
-        match self {
-            Canonical::Null(c) => c.dtype(),
-            Canonical::Bool(c) => c.dtype(),
-            Canonical::Primitive(c) => c.dtype(),
-            Canonical::Decimal(c) => c.dtype(),
-            Canonical::VarBinView(c) => c.dtype(),
-            Canonical::List(c) => c.dtype(),
-            Canonical::FixedSizeList(c) => c.dtype(),
-            Canonical::Struct(c) => c.dtype(),
-            Canonical::Extension(c) => c.dtype(),
-        }
+        match_each_canonical!(self, |arr| arr.dtype())
     }
 
     pub fn is_empty(&self) -> bool {
-        match self {
-            Canonical::Null(c) => c.is_empty(),
-            Canonical::Bool(c) => c.is_empty(),
-            Canonical::Primitive(c) => c.is_empty(),
-            Canonical::Decimal(c) => c.is_empty(),
-            Canonical::VarBinView(c) => c.is_empty(),
-            Canonical::List(c) => c.is_empty(),
-            Canonical::FixedSizeList(c) => c.is_empty(),
-            Canonical::Struct(c) => c.is_empty(),
-            Canonical::Extension(c) => c.is_empty(),
-        }
+        match_each_canonical!(self, |arr| arr.is_empty())
     }
 }
 
@@ -339,33 +326,13 @@ impl Canonical {
 
 impl AsRef<dyn Array> for Canonical {
     fn as_ref(&self) -> &(dyn Array + 'static) {
-        match &self {
-            Canonical::Null(a) => a.as_ref(),
-            Canonical::Bool(a) => a.as_ref(),
-            Canonical::Primitive(a) => a.as_ref(),
-            Canonical::Decimal(a) => a.as_ref(),
-            Canonical::Struct(a) => a.as_ref(),
-            Canonical::List(a) => a.as_ref(),
-            Canonical::FixedSizeList(a) => a.as_ref(),
-            Canonical::VarBinView(a) => a.as_ref(),
-            Canonical::Extension(a) => a.as_ref(),
-        }
+        match_each_canonical!(self, |arr| arr.as_ref())
     }
 }
 
 impl IntoArray for Canonical {
     fn into_array(self) -> ArrayRef {
-        match self {
-            Canonical::Null(a) => a.into_array(),
-            Canonical::Bool(a) => a.into_array(),
-            Canonical::Primitive(a) => a.into_array(),
-            Canonical::Decimal(a) => a.into_array(),
-            Canonical::Struct(a) => a.into_array(),
-            Canonical::List(a) => a.into_array(),
-            Canonical::FixedSizeList(a) => a.into_array(),
-            Canonical::VarBinView(a) => a.into_array(),
-            Canonical::Extension(a) => a.into_array(),
-        }
+        match_each_canonical!(self, |arr| arr.into_array())
     }
 }
 
@@ -467,17 +434,7 @@ impl<A: Array + ?Sized> ToCanonical for A {
 
 impl From<Canonical> for ArrayRef {
     fn from(value: Canonical) -> Self {
-        match value {
-            Canonical::Null(a) => a.into_array(),
-            Canonical::Bool(a) => a.into_array(),
-            Canonical::Primitive(a) => a.into_array(),
-            Canonical::Decimal(a) => a.into_array(),
-            Canonical::Struct(a) => a.into_array(),
-            Canonical::List(a) => a.into_array(),
-            Canonical::FixedSizeList(a) => a.into_array(),
-            Canonical::VarBinView(a) => a.into_array(),
-            Canonical::Extension(a) => a.into_array(),
-        }
+        match_each_canonical!(value, |arr| arr.into_array())
     }
 }
 

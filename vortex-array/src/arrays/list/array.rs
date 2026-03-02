@@ -20,9 +20,9 @@ use crate::builtins::ArrayBuiltins;
 use crate::compute::min_max;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
-use crate::expr::Operator;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
@@ -158,8 +158,8 @@ impl ListArray {
     ///
     /// This function checks all the invariants required by [`ListArray::new_unchecked`].
     pub fn validate(
-        elements: &dyn Array,
-        offsets: &dyn Array,
+        elements: &ArrayRef,
+        offsets: &ArrayRef,
         validity: &Validity,
     ) -> VortexResult<()> {
         // Offsets must have at least one element

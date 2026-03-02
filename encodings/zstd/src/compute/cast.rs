@@ -4,7 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::CastReduce;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::ZstdArray;
@@ -188,6 +188,6 @@ mod tests {
     ))]
     fn test_cast_zstd_conformance(#[case] values: PrimitiveArray) {
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
-        test_cast_conformance(zstd.as_ref());
+        test_cast_conformance(&zstd.to_array());
     }
 }

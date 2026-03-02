@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 
 use crate::Array;
+use crate::ArrayRef;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::compute::IsSortedKernel;
@@ -27,7 +28,7 @@ register_kernel!(IsSortedKernelAdapter(ChunkedVTable).lift());
 fn is_sorted_impl(
     array: &ChunkedArray,
     strict: bool,
-    reentry_fn: impl Fn(&dyn Array) -> VortexResult<Option<bool>>,
+    reentry_fn: impl Fn(&ArrayRef) -> VortexResult<Option<bool>>,
 ) -> VortexResult<Option<bool>> {
     let mut first_last = Vec::default();
 

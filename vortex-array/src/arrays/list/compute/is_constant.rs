@@ -10,8 +10,8 @@ use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;
 use crate::compute::is_constant;
-use crate::expr::Operator;
 use crate::register_kernel;
+use crate::scalar_fn::fns::operators::Operator;
 
 const SMALL_ARRAY_THRESHOLD: usize = 64;
 
@@ -109,7 +109,7 @@ mod tests {
                 .unwrap()
         );
         assert!(
-            is_constant(struct_of_lists.as_ref())
+            is_constant(&struct_of_lists.to_array())
                 .unwrap()
                 .unwrap_or_default()
         );

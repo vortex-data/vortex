@@ -7,7 +7,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
-use crate::expr::MaskReduce;
+use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -41,12 +41,12 @@ mod test {
             vec!["hello", "world", "filter", "good", "bye"],
             DType::Utf8(Nullability::NonNullable),
         );
-        test_mask_conformance(array.as_ref());
+        test_mask_conformance(&array.to_array());
 
         let array = VarBinArray::from_iter(
             vec![Some("hello"), None, Some("filter"), Some("good"), None],
             DType::Utf8(Nullability::Nullable),
         );
-        test_mask_conformance(array.as_ref());
+        test_mask_conformance(&array.to_array());
     }
 }

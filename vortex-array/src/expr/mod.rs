@@ -14,43 +14,35 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::dtype::FieldName;
 use crate::expr::traversal::NodeExt;
 use crate::expr::traversal::ReferenceCollector;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::operators::Operator;
 
 pub mod aliases;
 pub mod analysis;
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 pub mod display;
-mod expression;
-pub(crate) mod exprs;
-mod field;
+pub(crate) mod expression;
+mod exprs;
+pub(crate) mod field;
 pub mod forms;
 mod optimize;
-mod options;
 pub mod proto;
 pub mod pruning;
-mod scalar_fn;
-pub mod session;
-mod signature;
 pub mod stats;
 pub mod transform;
 pub mod traversal;
-mod vtable;
 
 pub use analysis::*;
 pub use expression::*;
 pub use exprs::*;
 pub use pruning::StatsCatalog;
-pub use scalar_fn::*;
-pub use vtable::*;
-
-pub type ExprId = ArcRef<str>;
 
 pub trait VortexExprExt {
     /// Accumulate all field references from this expression and its children in a set
@@ -135,21 +127,21 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::expr::exprs::binary::and;
-    use crate::expr::exprs::binary::eq;
-    use crate::expr::exprs::binary::gt;
-    use crate::expr::exprs::binary::gt_eq;
-    use crate::expr::exprs::binary::lt;
-    use crate::expr::exprs::binary::lt_eq;
-    use crate::expr::exprs::binary::not_eq;
-    use crate::expr::exprs::binary::or;
-    use crate::expr::exprs::get_item::col;
-    use crate::expr::exprs::get_item::get_item;
-    use crate::expr::exprs::literal::lit;
-    use crate::expr::exprs::not::not;
-    use crate::expr::exprs::root::root;
-    use crate::expr::exprs::select::select;
-    use crate::expr::exprs::select::select_exclude;
+    use crate::expr::and;
+    use crate::expr::col;
+    use crate::expr::eq;
+    use crate::expr::get_item;
+    use crate::expr::gt;
+    use crate::expr::gt_eq;
+    use crate::expr::lit;
+    use crate::expr::lt;
+    use crate::expr::lt_eq;
+    use crate::expr::not;
+    use crate::expr::not_eq;
+    use crate::expr::or;
+    use crate::expr::root;
+    use crate::expr::select;
+    use crate::expr::select_exclude;
     use crate::scalar::Scalar;
 
     #[test]

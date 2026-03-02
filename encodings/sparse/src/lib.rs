@@ -7,8 +7,6 @@ use std::hash::Hash;
 use kernel::PARENT_KERNELS;
 use prost::Message as _;
 use vortex_array::Array;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -23,27 +21,29 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::filter;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::Operator;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
-use vortex_array::vtable::VisitorVTable;
+use vortex_array::vtable::patches_child;
+use vortex_array::vtable::patches_child_name;
+use vortex_array::vtable::patches_nchildren;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -71,14 +71,66 @@ impl VTable for SparseVTable {
     type Array = SparseArray;
 
     type Metadata = ProstMetadata<SparseMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &SparseArray) -> usize {
+        array.patches.array_len()
+    }
+
+    fn dtype(array: &SparseArray) -> &DType {
+        array.fill_scalar().dtype()
+    }
+
+    fn stats(array: &SparseArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &SparseArray, state: &mut H, precision: Precision) {
+        array.patches.array_hash(state, precision);
+        array.fill_value.hash(state);
+    }
+
+    fn array_eq(array: &SparseArray, other: &SparseArray, precision: Precision) -> bool {
+        array.patches.array_eq(&other.patches, precision) && array.fill_value == other.fill_value
+    }
+
+    fn nbuffers(_array: &SparseArray) -> usize {
+        1
+    }
+
+    fn buffer(array: &SparseArray, idx: usize) -> BufferHandle {
+        match idx {
+            0 => {
+                let fill_value_buffer =
+                    ScalarValue::to_proto_bytes::<ByteBufferMut>(array.fill_value.value()).freeze();
+                BufferHandle::new_host(fill_value_buffer)
+            }
+            _ => vortex_panic!("SparseArray buffer index {idx} out of bounds"),
+        }
+    }
+
+    fn buffer_name(_array: &SparseArray, idx: usize) -> Option<String> {
+        match idx {
+            0 => Some("fill_value".to_string()),
+            _ => vortex_panic!("SparseArray buffer_name index {idx} out of bounds"),
+        }
+    }
+
+    fn nchildren(array: &SparseArray) -> usize {
+        patches_nchildren(array.patches())
+    }
+
+    fn child(array: &SparseArray, idx: usize) -> ArrayRef {
+        patches_child(array.patches(), idx)
+    }
+
+    fn child_name(_array: &SparseArray, idx: usize) -> String {
+        patches_child_name(idx).to_string()
     }
 
     fn metadata(array: &SparseArray) -> VortexResult<Self::Metadata> {
@@ -293,7 +345,7 @@ impl SparseArray {
     /// Encode given array as a SparseArray.
     ///
     /// Optionally provided fill value will be respected if the array is less than 90% null.
-    pub fn encode(array: &dyn Array, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
+    pub fn encode(array: &ArrayRef, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
         if let Some(fill_value) = fill_value.as_ref()
             && array.dtype() != fill_value.dtype()
         {
@@ -382,29 +434,6 @@ impl SparseArray {
     }
 }
 
-impl BaseArrayVTable<SparseVTable> for SparseVTable {
-    fn len(array: &SparseArray) -> usize {
-        array.patches.array_len()
-    }
-
-    fn dtype(array: &SparseArray) -> &DType {
-        array.fill_scalar().dtype()
-    }
-
-    fn stats(array: &SparseArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &SparseArray, state: &mut H, precision: Precision) {
-        array.patches.array_hash(state, precision);
-        array.fill_value.hash(state);
-    }
-
-    fn array_eq(array: &SparseArray, other: &SparseArray, precision: Precision) -> bool {
-        array.patches.array_eq(&other.patches, precision) && array.fill_value == other.fill_value
-    }
-}
-
 impl ValidityVTable<SparseVTable> for SparseVTable {
     fn validity(array: &SparseArray) -> VortexResult<Validity> {
         let patches = unsafe {
@@ -426,27 +455,6 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
             unsafe { SparseArray::new_unchecked(patches, array.fill_value.is_valid().into()) }
                 .into_array(),
         ))
-    }
-}
-
-impl VisitorVTable<SparseVTable> for SparseVTable {
-    fn visit_buffers(array: &SparseArray, visitor: &mut dyn ArrayBufferVisitor) {
-        let fill_value_buffer =
-            ScalarValue::to_proto_bytes::<ByteBufferMut>(array.fill_value.value()).freeze();
-        visitor.visit_buffer_handle("fill_value", &BufferHandle::new_host(fill_value_buffer));
-    }
-
-    fn nbuffers(_array: &SparseArray) -> usize {
-        1
-    }
-
-    fn visit_children(array: &SparseArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_patches(array.patches())
-    }
-
-    fn nchildren(array: &SparseArray) -> usize {
-        // patches have indices + values + optional chunk_offsets
-        2 + array.patches().chunk_offsets().is_some() as usize
     }
 }
 

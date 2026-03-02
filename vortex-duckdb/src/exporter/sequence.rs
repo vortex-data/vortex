@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use bitvec::macros::internal::funty::Fundamental;
+use vortex::array::ExecutionCtx;
 use vortex::encodings::sequence::SequenceArray;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -25,7 +26,13 @@ pub(crate) fn new_exporter(array: &SequenceArray) -> VortexResult<Box<dyn Column
 }
 
 impl ColumnExporter for SequenceExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
+    fn export(
+        &self,
+        offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         let offset = offset.as_i64();
         let start = (offset * self.step) + self.start;
 
@@ -37,8 +44,10 @@ impl ColumnExporter for SequenceExporter {
 #[cfg(test)]
 mod tests {
     use vortex::dtype::Nullability;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
+    use crate::SESSION;
     use crate::cpp;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
@@ -50,7 +59,12 @@ mod tests {
 
         new_exporter(&arr)
             .unwrap()
-            .export(0, 4, chunk.get_vector_mut(0))
+            .export(
+                0,
+                4,
+                chunk.get_vector_mut(0),
+                &mut SESSION.create_execution_ctx(),
+            )
             .unwrap();
         chunk.set_len(4);
 

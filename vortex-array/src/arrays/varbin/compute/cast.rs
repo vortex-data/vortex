@@ -8,7 +8,7 @@ use crate::IntoArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
 use crate::dtype::DType;
-use crate::expr::CastReduce;
+use crate::scalar_fn::fns::cast::CastReduce;
 use crate::vtable::ValidityHelper;
 
 impl CastReduce for VarBinVTable {
@@ -87,6 +87,6 @@ mod tests {
     #[case(VarBinArray::from_iter(vec![Some(b"test".as_slice()), None], DType::Binary(Nullability::Nullable)))]
     #[case(VarBinArray::from_iter(vec![Some("single")], DType::Utf8(Nullability::NonNullable)))]
     fn test_cast_varbin_conformance(#[case] array: VarBinArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 }

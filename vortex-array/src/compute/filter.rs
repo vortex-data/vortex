@@ -32,10 +32,11 @@ use crate::scalar::Scalar;
 ///
 /// # fn main() -> VortexResult<()> {
 /// let array =
-///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
+///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
+///         .into_array();
 /// let mask = Mask::from_iter([true, false, false, false, true]);
 ///
-/// let filtered = filter(array.as_ref(), &mask)?;
+/// let filtered = filter(&array, &mask)?;
 /// assert_eq!(filtered.len(), 2);
 /// assert_eq!(filtered.scalar_at(0)?, Scalar::from(Some(0_i32)));
 /// assert_eq!(filtered.scalar_at(1)?, Scalar::from(Some(2_i32)));
@@ -47,7 +48,7 @@ use crate::scalar::Scalar;
 ///
 /// The `predicate` must receive an Array with type non-nullable bool, and will panic if this is
 /// not the case.
-pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
+pub fn filter(array: &ArrayRef, mask: &Mask) -> VortexResult<ArrayRef> {
     // TODO(connor): Remove this function completely!!!
     Ok(array.filter(mask.clone())?.to_canonical()?.into_array())
 }
@@ -68,7 +69,7 @@ impl dyn Array + '_ {
     }
 }
 
-pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
+pub fn arrow_filter_fn(array: &ArrayRef, mask: &Mask) -> VortexResult<ArrayRef> {
     let values = match &mask {
         Mask::Values(values) => values,
         Mask::AllTrue(_) | Mask::AllFalse(_) => unreachable!("check in filter invoke"),

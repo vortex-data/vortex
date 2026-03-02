@@ -32,7 +32,6 @@ async-trait = { workspace = true }
 bit-vec = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
-kanal = { workspace = true }
 parking_lot = { workspace = true }
 roaring = { workspace = true }
 sketches-ddsketch = { workspace = true }

@@ -16,8 +16,6 @@ publish = false
 
 [dependencies]
 anyhow = { workspace = true }
-arrow-ipc.workspace = true
-async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 custom-labels = { workspace = true }
 datafusion = { workspace = true, features = [
@@ -44,7 +42,6 @@ vortex-datafusion = { workspace = true }
 vortex-metrics = { workspace = true }
 
 [build-dependencies]
-get_dir = { workspace = true }
 custom-labels = { workspace = true }
 
 [features]

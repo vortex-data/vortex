@@ -25,28 +25,8 @@ pub mod _benchmarking {
     use super::*;
 }
 
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::session::ArraySessionExt;
-use vortex_array::vtable::VisitorVTable;
 use vortex_session::VortexSession;
-
-impl VisitorVTable<RunEndVTable> for RunEndVTable {
-    fn visit_buffers(_array: &RunEndArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn nbuffers(_array: &RunEndArray) -> usize {
-        0
-    }
-
-    fn visit_children(array: &RunEndArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("ends", array.ends());
-        visitor.visit_child("values", array.values());
-    }
-
-    fn nchildren(_array: &RunEndArray) -> usize {
-        2
-    }
-}
 
 /// Initialize run-end encoding in the given session.
 pub fn initialize(session: &mut VortexSession) {

@@ -62,7 +62,13 @@ pub(crate) fn new_exporter(array: ConstantArray) -> VortexResult<Box<dyn ColumnE
 }
 
 impl ColumnExporter for ConstantExporter {
-    fn export(&self, _offset: usize, len: usize, vector: &mut VectorRef) -> VortexResult<()> {
+    fn export(
+        &self,
+        _offset: usize,
+        len: usize,
+        vector: &mut VectorRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         match self.value.as_ref() {
             None => {
                 // TODO(ngates): would be good if DuckDB supported constant null vectors.

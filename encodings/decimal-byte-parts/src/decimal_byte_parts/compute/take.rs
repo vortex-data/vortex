@@ -13,7 +13,7 @@ use crate::DecimalBytePartsVTable;
 impl TakeExecute for DecimalBytePartsVTable {
     fn take(
         array: &DecimalBytePartsArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         DecimalBytePartsArray::try_new(array.msp.take(indices.to_array())?, *array.decimal_dtype())

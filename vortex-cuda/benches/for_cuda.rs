@@ -55,8 +55,7 @@ where
         PrimitiveArray::new(Buffer::from(data), Validity::NonNullable).into_array();
 
     if bp && T::PTYPE != PType::U8 {
-        let child =
-            BitPackedArray::encode(primitive_array.as_ref(), 8).vortex_expect("failed to bitpack");
+        let child = BitPackedArray::encode(&primitive_array, 8).vortex_expect("failed to bitpack");
         FoRArray::try_new(child.into_array(), reference.into())
             .vortex_expect("failed to create FoR array")
     } else {

@@ -319,7 +319,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::buffer::BufferHandle;
     use vortex_array::dtype::session::DTypeSession;
-    use vortex_array::expr::session::ExprSession;
+    use vortex_array::scalar_fn::session::ScalarFnSession;
     use vortex_array::session::ArraySession;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
@@ -371,7 +371,7 @@ mod tests {
             .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<LayoutSession>()
-            .with::<ExprSession>()
+            .with::<ScalarFnSession>()
             .with::<RuntimeSession>();
 
         crate::register_default_encodings(&mut session);

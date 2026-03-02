@@ -80,7 +80,7 @@ impl FixedSizeListBuilder {
     ///
     /// Note that the list entry will be non-null but the elements themselves are allowed to be null
     /// (only if the elements [`DType`] is nullable, of course).
-    pub fn append_array_as_list(&mut self, array: &dyn Array) -> VortexResult<()> {
+    pub fn append_array_as_list(&mut self, array: &ArrayRef) -> VortexResult<()> {
         vortex_ensure!(
             array.dtype() == self.element_dtype(),
             "Array dtype {:?} does not match list element dtype {:?}",
@@ -234,7 +234,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
 
     /// This will increase the capacity if extending with this `array` would go past the original
     /// capacity.
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let fsl = array.to_fixed_size_list();
         if fsl.is_empty() {
             return;

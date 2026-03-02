@@ -7,7 +7,7 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::expr::CastReduce;
+use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for ExtensionVTable {
     fn cast(array: &ExtensionArray, dtype: &DType) -> vortex_error::VortexResult<Option<ArrayRef>> {
@@ -109,7 +109,7 @@ mod tests {
     #[case(create_timestamp_array(TimeUnit::Nanoseconds, false))]
     #[case(create_timestamp_array(TimeUnit::Seconds, true))]
     fn test_cast_extension_conformance(#[case] array: ExtensionArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 
     fn create_timestamp_array(time_unit: TimeUnit, nullable: bool) -> ExtensionArray {

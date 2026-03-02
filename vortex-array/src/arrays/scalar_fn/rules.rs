@@ -21,15 +21,15 @@ use crate::arrays::ScalarFnVTable;
 use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::StructArray;
 use crate::dtype::DType;
-use crate::expr::Pack;
-use crate::expr::ReduceCtx;
-use crate::expr::ReduceNode;
-use crate::expr::ReduceNodeRef;
-use crate::expr::ScalarFn;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
+use crate::scalar_fn::ReduceCtx;
+use crate::scalar_fn::ReduceNode;
+use crate::scalar_fn::ReduceNodeRef;
+use crate::scalar_fn::ScalarFnRef;
+use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
 pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> = ReduceRuleSet::new(&[
@@ -115,7 +115,7 @@ impl ReduceNode for ScalarFnArray {
     }
 
     #[allow(clippy::same_name_method)]
-    fn scalar_fn(&self) -> Option<&ScalarFn> {
+    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
         Some(ScalarFnArray::scalar_fn(self))
     }
 
@@ -137,7 +137,7 @@ impl ReduceNode for ArrayRef {
         self.as_ref().node_dtype()
     }
 
-    fn scalar_fn(&self) -> Option<&ScalarFn> {
+    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
         self.as_ref().scalar_fn()
     }
 
@@ -157,7 +157,7 @@ struct ArrayReduceCtx {
 impl ReduceCtx for ArrayReduceCtx {
     fn new_node(
         &self,
-        scalar_fn: ScalarFn,
+        scalar_fn: ScalarFnRef,
         children: &[ReduceNodeRef],
     ) -> VortexResult<ReduceNodeRef> {
         Ok(Arc::new(

@@ -20,23 +20,23 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArrayExt;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
-use crate::expr::Between;
-use crate::expr::BetweenOptions;
-use crate::expr::Binary;
-use crate::expr::Cast;
-use crate::expr::EmptyOptions;
 use crate::expr::Expression;
-use crate::expr::FillNull;
-use crate::expr::GetItem;
-use crate::expr::IsNull;
-use crate::expr::ListContains;
-use crate::expr::Mask;
-use crate::expr::Not;
-use crate::expr::Operator;
-use crate::expr::VTableExt;
-use crate::expr::Zip;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
+use crate::scalar_fn::EmptyOptions;
+use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::fns::between::Between;
+use crate::scalar_fn::fns::between::BetweenOptions;
+use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::fill_null::FillNull;
+use crate::scalar_fn::fns::get_item::GetItem;
+use crate::scalar_fn::fns::is_null::IsNull;
+use crate::scalar_fn::fns::list_contains::ListContains;
+use crate::scalar_fn::fns::mask::Mask;
+use crate::scalar_fn::fns::not::Not;
+use crate::scalar_fn::fns::operators::Operator;
+use crate::scalar_fn::fns::zip::Zip;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
 pub trait ExprBuiltins: Sized {

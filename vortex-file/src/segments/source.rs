@@ -5,7 +5,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::task;
 use std::task::Context;
 use std::task::Poll;
 
@@ -169,6 +168,7 @@ impl SegmentSource for FileSegmentSource {
             id,
             recv,
             polled: false,
+            finished: false,
             events: self.events.clone(),
         };
 
@@ -185,6 +185,7 @@ struct ReadFuture {
     id: usize,
     recv: oneshot::Receiver<VortexResult<BufferHandle>>,
     polled: bool,
+    finished: bool,
     events: mpsc::UnboundedSender<ReadEvent>,
 }
 
@@ -192,25 +193,39 @@ impl Future for ReadFuture {
     type Output = VortexResult<BufferHandle>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if !self.polled {
-            self.polled = true;
-            // Notify the I/O stream that this request has been polled.
-            if let Err(e) = self.events.unbounded_send(ReadEvent::Polled(self.id)) {
-                return Poll::Ready(Err(vortex_err!("ReadRequest dropped by runtime: {e}")));
+        match self.recv.poll_unpin(cx) {
+            Poll::Ready(result) => {
+                self.finished = true;
+                // note: we are skipping polled and dropped events for this if the future
+                //       is ready on the first poll, that means this request was completed
+                //       before it was polled, as part of a coalesced request.
+                Poll::Ready(
+                    result.unwrap_or_else(|e| {
+                        Err(vortex_err!("ReadRequest dropped by runtime: {e}"))
+                    }),
+                )
             }
-        }
-
-        match task::ready!(self.recv.poll_unpin(cx)) {
-            Ok(result) => Poll::Ready(result),
-            Err(e) => Poll::Ready(Err(vortex_err!("ReadRequest dropped by runtime: {e}"))),
+            Poll::Pending if !self.polled => {
+                self.polled = true;
+                // Notify the I/O stream that this request has been polled.
+                match self.events.unbounded_send(ReadEvent::Polled(self.id)) {
+                    Ok(()) => Poll::Pending,
+                    Err(e) => Poll::Ready(Err(vortex_err!("ReadRequest dropped by runtime: {e}"))),
+                }
+            }
+            _ => Poll::Pending,
         }
     }
 }
 
 impl Drop for ReadFuture {
     fn drop(&mut self) {
-        // When the FileHandle is dropped, we can send a shutdown event to the I/O stream.
-        // If the I/O stream has already been dropped, this will fail silently.
+        // Completed requests have already left driver state.
+        if self.finished {
+            return;
+        }
+
+        // Best-effort cancellation signal to the I/O stream.
         drop(self.events.unbounded_send(ReadEvent::Dropped(self.id)));
     }
 }

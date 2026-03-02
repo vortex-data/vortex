@@ -3,9 +3,9 @@
 
 use crate::arrays::DictVTable;
 use crate::arrays::TakeExecuteAdaptor;
-use crate::expr::CompareExecuteAdaptor;
-use crate::expr::FillNullExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
+use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use crate::scalar_fn::fns::fill_null::FillNullExecuteAdaptor;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<DictVTable> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&CompareExecuteAdaptor(DictVTable)),

@@ -21,7 +21,7 @@ use vortex_error::VortexResult;
 
 #[allow(clippy::unnecessary_fallible_conversions)]
 pub fn slice_canonical_array(
-    array: &dyn Array,
+    array: &ArrayRef,
     start: usize,
     stop: usize,
 ) -> VortexResult<ArrayRef> {

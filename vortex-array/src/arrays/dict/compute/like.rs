@@ -10,15 +10,15 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArrayExt;
-use crate::expr::Like;
-use crate::expr::LikeOptions;
-use crate::expr::LikeReduce;
 use crate::optimizer::ArrayOptimizer;
+use crate::scalar_fn::fns::like::Like;
+use crate::scalar_fn::fns::like::LikeOptions;
+use crate::scalar_fn::fns::like::LikeReduce;
 
 impl LikeReduce for DictVTable {
     fn like(
         array: &DictArray,
-        pattern: &dyn Array,
+        pattern: &ArrayRef,
         options: LikeOptions,
     ) -> VortexResult<Option<ArrayRef>> {
         // If we have more values than codes, it is faster to canonicalize first.
@@ -60,9 +60,9 @@ mod tests {
     use crate::arrays::ScalarFnArrayExt;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
-    use crate::expr::Like;
-    use crate::expr::LikeOptions;
     use crate::optimizer::ArrayOptimizer;
+    use crate::scalar_fn::fns::like::Like;
+    use crate::scalar_fn::fns::like::LikeOptions;
 
     #[test]
     fn like_reduce_dict() -> VortexResult<()> {

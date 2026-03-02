@@ -9,6 +9,7 @@ maxdepth: 2
 
 extending/index
 embedding/index
+language-bindings
 benchmarking
 ```
 

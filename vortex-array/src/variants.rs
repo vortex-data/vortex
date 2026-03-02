@@ -89,7 +89,7 @@ pub struct BoolTyped<'a>(&'a dyn Array);
 
 impl BoolTyped<'_> {
     pub fn true_count(&self) -> VortexResult<usize> {
-        let true_count = sum(self.0)?;
+        let true_count = sum(&self.0.to_array())?;
         Ok(true_count
             .as_primitive()
             .as_::<usize>()

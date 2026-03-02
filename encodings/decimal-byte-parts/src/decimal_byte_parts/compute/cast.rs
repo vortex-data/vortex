@@ -6,7 +6,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::expr::CastReduce;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::DecimalBytePartsArray;
@@ -118,6 +118,6 @@ mod tests {
         DecimalDType::new(10, 2),
     ).unwrap())]
     fn test_cast_decimal_byte_parts_conformance(#[case] array: DecimalBytePartsArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 }

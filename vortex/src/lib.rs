@@ -10,7 +10,8 @@ use vortex_array::dtype::session::DTypeSession;
 // vortex::expr is in the process of having its dependencies inverted, and will eventually be
 // pulled back out into a vortex_expr crate.
 pub use vortex_array::expr;
-use vortex_array::expr::session::ExprSession;
+pub use vortex_array::scalar_fn;
+use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
@@ -163,7 +164,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<LayoutSession>()
-            .with::<ExprSession>()
+            .with::<ScalarFnSession>()
             .with::<RuntimeSession>();
 
         #[cfg(feature = "files")]
@@ -244,7 +245,7 @@ mod test {
         let array = PrimitiveArray::new(buffer![42u64; 100_000], Validity::NonNullable);
 
         // You can compress an array in-memory with the BtrBlocks compressor
-        let compressed = BtrBlocksCompressor::default().compress(array.as_ref())?;
+        let compressed = BtrBlocksCompressor::default().compress(&array.to_array())?;
         println!(
             "BtrBlocks size: {} / {}",
             compressed.nbytes(),

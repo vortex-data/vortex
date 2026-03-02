@@ -4,13 +4,12 @@
 //! CUDA stream utility functions.
 
 use std::fmt::Debug;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use cudarc::driver::CudaSlice;
 use cudarc::driver::CudaStream;
-use cudarc::driver::DevicePtrMut;
 use cudarc::driver::DeviceRepr;
-use cudarc::driver::result::memcpy_htod_async;
 use cudarc::driver::result::stream;
 use futures::future::BoxFuture;
 use kanal::Sender;
@@ -23,6 +22,14 @@ use crate::CudaDeviceBuffer;
 
 #[derive(Clone)]
 pub struct VortexCudaStream(pub(crate) Arc<CudaStream>);
+
+impl Deref for VortexCudaStream {
+    type Target = Arc<CudaStream>;
+
+    fn deref(&self) -> &Arc<CudaStream> {
+        &self.0
+    }
+}
 
 impl VortexCudaStream {
     /// Allocates a typed buffer on the GPU.
@@ -40,8 +47,7 @@ impl VortexCudaStream {
     ) -> VortexResult<CudaSlice<T>> {
         // SAFETY: No safety guarantees for allocations on the GPU.
         unsafe {
-            self.0
-                .alloc::<T>(len)
+            self.alloc::<T>(len)
                 .map_err(|e| vortex_err!("Failed to allocate device memory: {}", e))
         }
     }
@@ -65,16 +71,14 @@ impl VortexCudaStream {
         D: AsRef<[T]> + Send + 'static,
     {
         let host_slice: &[T] = data.as_ref();
+        // `device_alloc` binds the CUDA context to the current thread.
         let mut cuda_slice: CudaSlice<T> = self.device_alloc(host_slice.len())?;
-        let device_ptr = cuda_slice.device_ptr_mut(&self.0).0;
 
-        unsafe {
-            memcpy_htod_async(device_ptr, host_slice, self.0.cu_stream())
-                .map_err(|e| vortex_err!("Failed to schedule async copy to device: {}", e))?;
-        }
+        self.memcpy_htod(host_slice, &mut cuda_slice)
+            .map_err(|e| vortex_err!("Failed to schedule H2D copy: {}", e))?;
 
         let cuda_buf = CudaDeviceBuffer::new(cuda_slice);
-        let stream = Arc::clone(&self.0);
+        let stream = self.0.clone();
 
         Ok(Box::pin(async move {
             await_stream_callback(&stream).await?;
@@ -125,6 +129,11 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
     let (tx, rx) = kanal::bounded::<()>(1);
 
     let tx_ptr = Box::into_raw(Box::new(tx));
+
+    stream
+        .context()
+        .bind_to_thread()
+        .map_err(|e| vortex_err!("Failed to bind CUDA context: {}", e))?;
 
     /// Called from CUDA driver thread when all preceding work on the stream completes.
     unsafe extern "C" fn callback(user_data: *mut std::ffi::c_void) {

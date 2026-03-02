@@ -186,19 +186,19 @@ pub fn vortex_layout::layouts::compressed::CompressingStrategy::write_stream<'li
 
 pub trait vortex_layout::layouts::compressed::CompressorPlugin: core::marker::Send + core::marker::Sync + 'static
 
-pub fn vortex_layout::layouts::compressed::CompressorPlugin::compress_chunk(&self, chunk: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_layout::layouts::compressed::CompressorPlugin::compress_chunk(&self, chunk: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 impl vortex_layout::layouts::compressed::CompressorPlugin for alloc::sync::Arc<dyn vortex_layout::layouts::compressed::CompressorPlugin>
 
-pub fn alloc::sync::Arc<dyn vortex_layout::layouts::compressed::CompressorPlugin>::compress_chunk(&self, chunk: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn alloc::sync::Arc<dyn vortex_layout::layouts::compressed::CompressorPlugin>::compress_chunk(&self, chunk: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 impl vortex_layout::layouts::compressed::CompressorPlugin for vortex_btrblocks::canonical_compressor::BtrBlocksCompressor
 
-pub fn vortex_btrblocks::canonical_compressor::BtrBlocksCompressor::compress_chunk(&self, chunk: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_btrblocks::canonical_compressor::BtrBlocksCompressor::compress_chunk(&self, chunk: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
-impl<F> vortex_layout::layouts::compressed::CompressorPlugin for F where F: core::ops::function::Fn(&dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef> + core::marker::Send + core::marker::Sync + 'static
+impl<F> vortex_layout::layouts::compressed::CompressorPlugin for F where F: core::ops::function::Fn(&vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::ArrayRef> + core::marker::Send + core::marker::Sync + 'static
 
-pub fn F::compress_chunk(&self, chunk: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn F::compress_chunk(&self, chunk: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 pub mod vortex_layout::layouts::dict
 
@@ -596,19 +596,23 @@ pub mod vortex_layout::layouts::row_idx
 
 pub struct vortex_layout::layouts::row_idx::RowIdx
 
-impl vortex_array::expr::vtable::VTable for vortex_layout::layouts::row_idx::RowIdx
+impl core::clone::Clone for vortex_layout::layouts::row_idx::RowIdx
 
-pub type vortex_layout::layouts::row_idx::RowIdx::Options = vortex_array::expr::vtable::EmptyOptions
+pub fn vortex_layout::layouts::row_idx::RowIdx::clone(&self) -> vortex_layout::layouts::row_idx::RowIdx
 
-pub fn vortex_layout::layouts::row_idx::RowIdx::arity(&self, _options: &Self::Options) -> vortex_array::expr::vtable::Arity
+impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_layout::layouts::row_idx::RowIdx
 
-pub fn vortex_layout::layouts::row_idx::RowIdx::child_name(&self, _instance: &Self::Options, _child_idx: usize) -> vortex_array::expr::vtable::ChildName
+pub type vortex_layout::layouts::row_idx::RowIdx::Options = vortex_array::scalar_fn::vtable::EmptyOptions
 
-pub fn vortex_layout::layouts::row_idx::RowIdx::execute(&self, _options: &Self::Options, _args: vortex_array::expr::vtable::ExecutionArgs<'_>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_layout::layouts::row_idx::RowIdx::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::vtable::Arity
+
+pub fn vortex_layout::layouts::row_idx::RowIdx::child_name(&self, _instance: &Self::Options, _child_idx: usize) -> vortex_array::scalar_fn::vtable::ChildName
+
+pub fn vortex_layout::layouts::row_idx::RowIdx::execute(&self, _options: &Self::Options, _args: &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 pub fn vortex_layout::layouts::row_idx::RowIdx::fmt_sql(&self, _options: &Self::Options, _expr: &vortex_array::expr::expression::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_layout::layouts::row_idx::RowIdx::id(&self) -> vortex_array::expr::ExprId
+pub fn vortex_layout::layouts::row_idx::RowIdx::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
 pub fn vortex_layout::layouts::row_idx::RowIdx::return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
@@ -768,6 +772,8 @@ pub fn vortex_layout::layouts::table::TableStrategy::with_validity_strategy(self
 
 impl vortex_layout::LayoutStrategy for vortex_layout::layouts::table::TableStrategy
 
+pub fn vortex_layout::layouts::table::TableStrategy::buffered_bytes(&self) -> u64
+
 pub fn vortex_layout::layouts::table::TableStrategy::write_stream<'life0, 'async_trait>(&'life0 self, ctx: vortex_array::context::ArrayContext, segment_sink: vortex_layout::segments::SegmentSinkRef, stream: vortex_layout::sequence::SendableSequentialStream, eof: vortex_layout::sequence::SequencePointer, handle: vortex_io::runtime::handle::Handle) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_layout::LayoutRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 
 pub mod vortex_layout::layouts::zoned
@@ -810,9 +816,9 @@ pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::as_stats_table
 
 pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::new(dtype: &vortex_array::dtype::DType, stats: &[vortex_array::expr::stats::Stat], max_variable_length_statistics_size: usize) -> Self
 
-pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::push_chunk(&mut self, array: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::push_chunk(&mut self, array: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<()>
 
-pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::push_chunk_without_compute(&mut self, array: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::zoned::zone_map::StatsAccumulator::push_chunk_without_compute(&mut self, array: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<()>
 
 pub struct vortex_layout::layouts::zoned::zone_map::ZoneMap
 
@@ -1196,6 +1202,8 @@ pub fn vortex_layout::sequence::SequentialArrayStreamExt::sequenced(self, pointe
 
 impl<S: vortex_array::stream::ArrayStream> vortex_layout::sequence::SequentialArrayStreamExt for S
 
+pub fn S::sequenced(self, pointer: vortex_layout::sequence::SequencePointer) -> vortex_layout::sequence::SendableSequentialStream where Self: core::marker::Sized + core::marker::Send + 'static
+
 pub trait vortex_layout::sequence::SequentialStream: futures_core::stream::Stream<Item = vortex_error::VortexResult<(vortex_layout::sequence::SequenceId, vortex_array::array::ArrayRef)>>
 
 pub fn vortex_layout::sequence::SequentialStream::dtype(&self) -> &vortex_array::dtype::DType
@@ -1213,6 +1221,8 @@ pub trait vortex_layout::sequence::SequentialStreamExt: vortex_layout::sequence:
 pub fn vortex_layout::sequence::SequentialStreamExt::sendable(self) -> vortex_layout::sequence::SendableSequentialStream where Self: core::marker::Sized + core::marker::Send + 'static
 
 impl<S: vortex_layout::sequence::SequentialStream> vortex_layout::sequence::SequentialStreamExt for S
+
+pub fn S::sendable(self) -> vortex_layout::sequence::SendableSequentialStream where Self: core::marker::Sized + core::marker::Send + 'static
 
 pub type vortex_layout::sequence::SendableSequentialStream = core::pin::Pin<alloc::boxed::Box<(dyn vortex_layout::sequence::SequentialStream + core::marker::Send)>>
 
@@ -1241,6 +1251,8 @@ pub trait vortex_layout::session::LayoutSessionExt: vortex_session::SessionExt
 pub fn vortex_layout::session::LayoutSessionExt::layouts(&self) -> vortex_session::Ref<'_, vortex_layout::session::LayoutSession>
 
 impl<S: vortex_session::SessionExt> vortex_layout::session::LayoutSessionExt for S
+
+pub fn S::layouts(&self) -> vortex_session::Ref<'_, vortex_layout::session::LayoutSession>
 
 pub type vortex_layout::session::LayoutRegistry = vortex_session::registry::Registry<vortex_layout::LayoutEncodingRef>
 
@@ -1739,6 +1751,8 @@ pub fn vortex_layout::layouts::struct_::writer::StructStrategy::buffered_bytes(&
 pub fn vortex_layout::layouts::struct_::writer::StructStrategy::write_stream<'life0, 'async_trait>(&'life0 self, ctx: vortex_array::context::ArrayContext, segment_sink: vortex_layout::segments::SegmentSinkRef, stream: vortex_layout::sequence::SendableSequentialStream, eof: vortex_layout::sequence::SequencePointer, handle: vortex_io::runtime::handle::Handle) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_layout::LayoutRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 
 impl vortex_layout::LayoutStrategy for vortex_layout::layouts::table::TableStrategy
+
+pub fn vortex_layout::layouts::table::TableStrategy::buffered_bytes(&self) -> u64
 
 pub fn vortex_layout::layouts::table::TableStrategy::write_stream<'life0, 'async_trait>(&'life0 self, ctx: vortex_array::context::ArrayContext, segment_sink: vortex_layout::segments::SegmentSinkRef, stream: vortex_layout::sequence::SendableSequentialStream, eof: vortex_layout::sequence::SequencePointer, handle: vortex_io::runtime::handle::Handle) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_layout::LayoutRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 

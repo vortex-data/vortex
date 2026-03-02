@@ -8,8 +8,6 @@ use pyo3::Python;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use vortex::array::ArrayBufferVisitor;
-use vortex::array::ArrayChildVisitor;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::Precision;
@@ -21,15 +19,14 @@ use vortex::array::stats::StatsSetRef;
 use vortex::array::validity::Validity;
 use vortex::array::vtable;
 use vortex::array::vtable::ArrayId;
-use vortex::array::vtable::BaseArrayVTable;
 use vortex::array::vtable::OperationsVTable;
 use vortex::array::vtable::VTable;
 use vortex::array::vtable::ValidityVTable;
-use vortex::array::vtable::VisitorVTable;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
+use vortex::error::vortex_panic;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
 
@@ -45,14 +42,61 @@ impl VTable for PythonVTable {
     type Array = PythonArray;
 
     type Metadata = RawMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
 
     fn id(array: &Self::Array) -> ArrayId {
         array.id.clone()
+    }
+
+    fn len(array: &PythonArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &PythonArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &PythonArray) -> StatsSetRef<'_> {
+        array.stats.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H, _precision: Precision) {
+        Arc::as_ptr(&array.object).hash(state);
+        array.id.hash(state);
+        array.len.hash(state);
+        array.dtype.hash(state);
+    }
+
+    fn array_eq(array: &PythonArray, other: &PythonArray, _precision: Precision) -> bool {
+        Arc::ptr_eq(&array.object, &other.object)
+            && array.id == other.id
+            && array.len == other.len
+            && array.dtype == other.dtype
+    }
+
+    fn nbuffers(_array: &PythonArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &PythonArray, idx: usize) -> BufferHandle {
+        vortex_panic!("PythonArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &PythonArray, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(_array: &PythonArray) -> usize {
+        0
+    }
+
+    fn child(_array: &PythonArray, idx: usize) -> ArrayRef {
+        vortex_panic!("PythonArray child index {idx} out of bounds")
+    }
+
+    fn child_name(_array: &PythonArray, idx: usize) -> String {
+        vortex_panic!("PythonArray child_name index {idx} out of bounds")
     }
 
     fn metadata(array: &PythonArray) -> VortexResult<Self::Metadata> {
@@ -116,34 +160,6 @@ impl VTable for PythonVTable {
     }
 }
 
-impl BaseArrayVTable<PythonVTable> for PythonVTable {
-    fn len(array: &PythonArray) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &PythonArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &PythonArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H, _precision: Precision) {
-        Arc::as_ptr(&array.object).hash(state);
-        array.id.hash(state);
-        array.len.hash(state);
-        array.dtype.hash(state);
-    }
-
-    fn array_eq(array: &PythonArray, other: &PythonArray, _precision: Precision) -> bool {
-        Arc::ptr_eq(&array.object, &other.object)
-            && array.id == other.id
-            && array.len == other.len
-            && array.dtype == other.dtype
-    }
-}
-
 impl OperationsVTable<PythonVTable> for PythonVTable {
     fn scalar_at(_array: &PythonArray, _index: usize) -> VortexResult<Scalar> {
         todo!()
@@ -152,16 +168,6 @@ impl OperationsVTable<PythonVTable> for PythonVTable {
 
 impl ValidityVTable<PythonVTable> for PythonVTable {
     fn validity(_array: &PythonArray) -> VortexResult<Validity> {
-        todo!()
-    }
-}
-
-impl VisitorVTable<PythonVTable> for PythonVTable {
-    fn visit_buffers(_array: &PythonArray, _visitor: &mut dyn ArrayBufferVisitor) {
-        todo!()
-    }
-
-    fn visit_children(_array: &PythonArray, _visitor: &mut dyn ArrayChildVisitor) {
         todo!()
     }
 }

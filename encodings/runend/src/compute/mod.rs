@@ -45,6 +45,6 @@ mod tests {
     ).unwrap())]
 
     fn test_runend_consistency(#[case] array: RunEndArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 }

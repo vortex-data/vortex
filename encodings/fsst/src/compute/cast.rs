@@ -6,7 +6,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::expr::CastReduce;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;
@@ -85,6 +85,6 @@ mod tests {
     fn test_cast_fsst_conformance(#[case] array: VarBinArray) {
         let compressor = fsst_train_compressor(&array);
         let fsst = fsst_compress(&array, &compressor);
-        test_cast_conformance(fsst.as_ref());
+        test_cast_conformance(&fsst.to_array());
     }
 }

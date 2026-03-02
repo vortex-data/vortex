@@ -23,6 +23,7 @@ impl PythonRepr for DType {
     }
 }
 
+// TODO(connor): We should probably just use the `Display` impl on `DType`.
 impl Display for DTypePythonRepr<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let DTypePythonRepr(dtype) = self;
@@ -96,7 +97,7 @@ impl Display for DTypePythonRepr<'_> {
                     ext.id().python_repr(),
                     ext.storage_dtype().python_repr()
                 )?;
-                let opts = format!("{}", ext.metadata_erased());
+                let opts = ext.display_metadata().to_string();
                 if !opts.is_empty() {
                     write!(f, ", {}", opts)?
                 }

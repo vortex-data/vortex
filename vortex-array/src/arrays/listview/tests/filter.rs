@@ -10,6 +10,7 @@ use super::common::create_empty_lists_listview;
 use super::common::create_large_listview;
 use super::common::create_nullable_listview;
 use super::common::create_overlapping_listview;
+use crate::Array;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ConstantArray;
@@ -27,7 +28,7 @@ use crate::validity::Validity;
 #[case::overlapping(create_overlapping_listview())]
 #[case::large(create_large_listview())]
 fn test_filter_listview_conformance(#[case] listview: ListViewArray) {
-    test_filter_conformance(listview.as_ref());
+    test_filter_conformance(&listview.to_array());
 }
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]

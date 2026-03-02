@@ -9,7 +9,7 @@ use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::expr::CastReduce;
+use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for ChunkedVTable {
     fn cast(array: &ChunkedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -92,6 +92,6 @@ mod test {
         DType::Primitive(PType::U8, Nullability::NonNullable)
     ).unwrap().into_array())]
     fn test_cast_chunked_conformance(#[case] array: crate::ArrayRef) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array);
     }
 }

@@ -5,8 +5,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use vortex_array::Array;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -25,16 +23,15 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
-use vortex_array::vtable::VisitorVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::canonical::decode_to_temporal;
@@ -77,14 +74,79 @@ impl VTable for DateTimePartsVTable {
     type Array = DateTimePartsArray;
 
     type Metadata = ProstMetadata<DateTimePartsMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &DateTimePartsArray) -> usize {
+        array.days.len()
+    }
+
+    fn dtype(array: &DateTimePartsArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &DateTimePartsArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &DateTimePartsArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
+        array.dtype.hash(state);
+        array.days.array_hash(state, precision);
+        array.seconds.array_hash(state, precision);
+        array.subseconds.array_hash(state, precision);
+    }
+
+    fn array_eq(
+        array: &DateTimePartsArray,
+        other: &DateTimePartsArray,
+        precision: Precision,
+    ) -> bool {
+        array.dtype == other.dtype
+            && array.days.array_eq(&other.days, precision)
+            && array.seconds.array_eq(&other.seconds, precision)
+            && array.subseconds.array_eq(&other.subseconds, precision)
+    }
+
+    fn nbuffers(_array: &DateTimePartsArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &DateTimePartsArray, idx: usize) -> BufferHandle {
+        vortex_panic!("DateTimePartsArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &DateTimePartsArray, idx: usize) -> Option<String> {
+        vortex_panic!("DateTimePartsArray buffer_name index {idx} out of bounds")
+    }
+
+    fn nchildren(_array: &DateTimePartsArray) -> usize {
+        3
+    }
+
+    fn child(array: &DateTimePartsArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.days().clone(),
+            1 => array.seconds().clone(),
+            2 => array.subseconds().clone(),
+            _ => vortex_panic!("DateTimePartsArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &DateTimePartsArray, idx: usize) -> String {
+        match idx {
+            0 => "days".to_string(),
+            1 => "seconds".to_string(),
+            2 => "subseconds".to_string(),
+            _ => vortex_panic!("DateTimePartsArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(array: &DateTimePartsArray) -> VortexResult<Self::Metadata> {
@@ -282,62 +344,8 @@ impl DateTimePartsArray {
     }
 }
 
-impl BaseArrayVTable<DateTimePartsVTable> for DateTimePartsVTable {
-    fn len(array: &DateTimePartsArray) -> usize {
-        array.days.len()
-    }
-
-    fn dtype(array: &DateTimePartsArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &DateTimePartsArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        array: &DateTimePartsArray,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.dtype.hash(state);
-        array.days.array_hash(state, precision);
-        array.seconds.array_hash(state, precision);
-        array.subseconds.array_hash(state, precision);
-    }
-
-    fn array_eq(
-        array: &DateTimePartsArray,
-        other: &DateTimePartsArray,
-        precision: Precision,
-    ) -> bool {
-        array.dtype == other.dtype
-            && array.days.array_eq(&other.days, precision)
-            && array.seconds.array_eq(&other.seconds, precision)
-            && array.subseconds.array_eq(&other.subseconds, precision)
-    }
-}
-
 impl ValidityChild<DateTimePartsVTable> for DateTimePartsVTable {
     fn validity_child(array: &DateTimePartsArray) -> &ArrayRef {
         array.days()
-    }
-}
-
-impl VisitorVTable<DateTimePartsVTable> for DateTimePartsVTable {
-    fn visit_buffers(_array: &DateTimePartsArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn nbuffers(_array: &DateTimePartsArray) -> usize {
-        0
-    }
-
-    fn visit_children(array: &DateTimePartsArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("days", array.days());
-        visitor.visit_child("seconds", array.seconds());
-        visitor.visit_child("subseconds", array.subseconds());
-    }
-
-    fn nchildren(_array: &DateTimePartsArray) -> usize {
-        3
     }
 }

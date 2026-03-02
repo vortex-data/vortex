@@ -72,6 +72,10 @@ impl vortex_file::v2::FileStatsLayoutReader
 
 pub fn vortex_file::v2::FileStatsLayoutReader::new(child: vortex_layout::reader::LayoutReaderRef, file_stats: vortex_file::FileStatistics, session: vortex_session::VortexSession) -> Self
 
+impl vortex_array::expr::pruning::StatsCatalog for vortex_file::v2::FileStatsLayoutReader
+
+pub fn vortex_file::v2::FileStatsLayoutReader::stats_ref(&self, field_path: &vortex_array::dtype::field::FieldPath, stat: vortex_array::expr::stats::Stat) -> core::option::Option<vortex_array::expr::expression::Expression>
+
 impl vortex_layout::reader::LayoutReader for vortex_file::v2::FileStatsLayoutReader
 
 pub fn vortex_file::v2::FileStatsLayoutReader::dtype(&self) -> &vortex_array::dtype::DType
@@ -155,6 +159,14 @@ impl vortex_flatbuffers::WriteFlatBuffer for vortex_file::FileStatistics
 pub type vortex_file::FileStatistics::Target<'a> = vortex_flatbuffers::footer::FileStatistics<'a>
 
 pub fn vortex_file::FileStatistics::write_flatbuffer<'fb>(&self, fbb: &mut flatbuffers::builder::FlatBufferBuilder<'fb>) -> vortex_error::VortexResult<flatbuffers::primitives::WIPOffset<Self::Target>>
+
+impl<'a> core::iter::traits::collect::IntoIterator for &'a vortex_file::FileStatistics
+
+pub type &'a vortex_file::FileStatistics::IntoIter = core::iter::adapters::zip::Zip<core::slice::iter::Iter<'a, vortex_array::stats::stats_set::StatsSet>, core::slice::iter::Iter<'a, vortex_array::dtype::DType>>
+
+pub type &'a vortex_file::FileStatistics::Item = (&'a vortex_array::stats::stats_set::StatsSet, &'a vortex_array::dtype::DType)
+
+pub fn &'a vortex_file::FileStatistics::into_iter(self) -> Self::IntoIter
 
 pub struct vortex_file::Footer
 
@@ -392,10 +404,14 @@ pub fn vortex_file::OpenOptionsSessionExt::open_options(&self) -> vortex_file::V
 
 impl<S: vortex_array::session::ArraySessionExt + vortex_layout::session::LayoutSessionExt + vortex_io::session::RuntimeSessionExt> vortex_file::OpenOptionsSessionExt for S
 
+pub fn S::open_options(&self) -> vortex_file::VortexOpenOptions
+
 pub trait vortex_file::WriteOptionsSessionExt: vortex_session::SessionExt
 
 pub fn vortex_file::WriteOptionsSessionExt::write_options(&self) -> vortex_file::VortexWriteOptions
 
 impl<S: vortex_session::SessionExt> vortex_file::WriteOptionsSessionExt for S
+
+pub fn S::write_options(&self) -> vortex_file::VortexWriteOptions
 
 pub fn vortex_file::register_default_encodings(session: &mut vortex_session::VortexSession)

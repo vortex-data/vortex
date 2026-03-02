@@ -111,7 +111,7 @@ impl CompressorStats for StringStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(self.src.as_ref(), sample_size, sample_count).to_varbinview();
+        let sampled = sample(&self.src.to_array(), sample_size, sample_count).to_varbinview();
 
         Self::generate_opts(&sampled, opts)
     }
@@ -412,7 +412,8 @@ impl Scheme for ConstantScheme {
             return Ok(0.0);
         }
 
-        if stats.estimated_distinct_count > 1 || !is_constant(stats.src.as_ref())?.unwrap_or(false)
+        if stats.estimated_distinct_count > 1
+            || !is_constant(&stats.src.to_array())?.unwrap_or(false)
         {
             return Ok(0.0);
         }
@@ -494,7 +495,7 @@ impl Scheme for NullDominated {
         assert!(ctx.allowed_cascading > 0);
 
         // We pass None as we only run this pathway for NULL-dominated string arrays
-        let sparse_encoded = SparseArray::encode(stats.src.as_ref(), None)?;
+        let sparse_encoded = SparseArray::encode(&stats.src.to_array(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
             // Compress the indices only (not the values for strings)
@@ -566,6 +567,7 @@ impl Scheme for ZstdBuffersScheme {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::IntoArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
@@ -587,7 +589,8 @@ mod tests {
         }
         let strings = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
 
-        let compressed = BtrBlocksCompressor::default().compress(strings.as_ref())?;
+        let array_ref = strings.into_array();
+        let compressed = BtrBlocksCompressor::default().compress(&array_ref)?;
         assert_eq!(compressed.len(), 2048);
 
         let display = compressed
@@ -608,7 +611,8 @@ mod tests {
 
         let strings = strings.finish_into_varbinview();
 
-        let compressed = BtrBlocksCompressor::default().compress(strings.as_ref())?;
+        let array_ref = strings.into_array();
+        let compressed = BtrBlocksCompressor::default().compress(&array_ref)?;
         assert_eq!(compressed.len(), 100);
 
         let display = compressed
@@ -624,6 +628,7 @@ mod tests {
 /// Tests to verify that each string compression scheme produces the expected encoding.
 #[cfg(test)]
 mod scheme_selection_tests {
+    use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantVTable;
     use vortex_array::arrays::DictVTable;
     use vortex_array::arrays::VarBinViewArray;
@@ -638,7 +643,8 @@ mod scheme_selection_tests {
     fn test_constant_compressed() -> VortexResult<()> {
         let strings: Vec<Option<&str>> = vec![Some("constant_value"); 100];
         let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
-        let compressed = BtrBlocksCompressor::default().compress(array.as_ref())?;
+        let array_ref = array.into_array();
+        let compressed = BtrBlocksCompressor::default().compress(&array_ref)?;
         assert!(compressed.is::<ConstantVTable>());
         Ok(())
     }
@@ -651,7 +657,8 @@ mod scheme_selection_tests {
             strings.push(Some(distinct_values[i % 3]));
         }
         let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
-        let compressed = BtrBlocksCompressor::default().compress(array.as_ref())?;
+        let array_ref = array.into_array();
+        let compressed = BtrBlocksCompressor::default().compress(&array_ref)?;
         assert!(compressed.is::<DictVTable>());
         Ok(())
     }
@@ -665,7 +672,8 @@ mod scheme_selection_tests {
             )));
         }
         let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
-        let compressed = BtrBlocksCompressor::default().compress(array.as_ref())?;
+        let array_ref = array.into_array();
+        let compressed = BtrBlocksCompressor::default().compress(&array_ref)?;
         assert!(compressed.is::<FSSTVTable>());
         Ok(())
     }

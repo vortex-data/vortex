@@ -11,17 +11,21 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
-use vortex_array::Columnar;
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::NullArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldPath;
-use vortex_array::dtype::FieldPathSet;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::Expression;
-use vortex_array::expr::pruning::checked_pruning_expr;
+use vortex_array::expr::StatsCatalog;
+use vortex_array::expr::lit;
+use vortex_array::expr::stats::Stat;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::literal::Literal;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;
@@ -29,10 +33,8 @@ use vortex_layout::LayoutReaderRef;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
-use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::FileStatistics;
-use crate::pruning::extract_relevant_file_stats_as_struct_row;
 
 /// A [`LayoutReader`] decorator that prunes entire files based on file-level statistics.
 ///
@@ -46,7 +48,6 @@ pub struct FileStatsLayoutReader {
     child: LayoutReaderRef,
     file_stats: FileStatistics,
     struct_fields: StructFields,
-    available_stats: FieldPathSet,
     session: VortexSession,
     prune_cache: DashMap<Expression, bool>,
 }
@@ -65,28 +66,12 @@ impl FileStatsLayoutReader {
             .cloned()
             .unwrap_or_default();
 
-        let available_stats = FieldPathSet::from_iter(
-            struct_fields
-                .names()
-                .iter()
-                .zip(file_stats.stats_sets().iter())
-                .flat_map(|(name, stats)| {
-                    stats.iter().map(|(stat, _)| {
-                        FieldPath::from_iter([
-                            Field::Name(name.clone()),
-                            Field::Name(stat.name().into()),
-                        ])
-                    })
-                }),
-        );
-
         Self {
             child,
             file_stats,
             struct_fields,
-            available_stats,
             session,
-            prune_cache: DashMap::with_hasher(Default::default()),
+            prune_cache: Default::default(),
         }
     }
 
@@ -94,37 +79,51 @@ impl FileStatsLayoutReader {
     ///
     /// Returns `true` if file-level stats prove no rows can match, `false` otherwise.
     fn evaluate_file_stats(&self, expr: &Expression) -> VortexResult<bool> {
-        let Some((predicate, required_stats)) = checked_pruning_expr(expr, &self.available_stats)
-        else {
+        let Some(pruning_expr) = expr.stat_falsification(self) else {
+            // If there is no pruning expression, we can't prune.
             return Ok(false);
         };
 
-        let required_file_stats = HashMap::from_iter(
-            required_stats
-                .map()
-                .iter()
-                .map(|(path, stats)| (path.clone(), stats.clone())),
-        );
+        // Given how we implemented the StatsCatalog, we know the expression must be all literals.
+        // We can therefore optimize with a null scope since there are no field references that
+        // need to be resolved.
+        let simplified = pruning_expr.optimize_recursive(&DType::Null)?;
+        if let Some(result) = simplified.as_opt::<Literal>() {
+            // Can prune if the result is non-nullable and true
+            return Ok(result.as_bool().value() == Some(true));
+        }
 
-        let Some(file_stats) = extract_relevant_file_stats_as_struct_row(
-            &required_file_stats,
-            self.file_stats.stats_sets(),
-            &self.struct_fields,
-        )?
-        else {
-            return Ok(false);
-        };
+        // Sometimes expressions don't implement constant folding to literals... In this case,
+        // we just execute the expression over a null array.
+        let pruning = NullArray::new(1).into_array().apply(&pruning_expr)?;
 
         let mut ctx = self.session.create_execution_ctx();
-        Ok(
-            match file_stats
-                .apply(&predicate)?
-                .execute::<Columnar>(&mut ctx)?
-            {
-                Columnar::Constant(s) => s.scalar().as_bool().value() == Some(true),
-                Columnar::Canonical(_) => false,
-            },
-        )
+        let result = pruning
+            .execute::<Canonical>(&mut ctx)?
+            .into_bool()
+            .scalar_at(0)?;
+
+        Ok(result.as_bool().value() == Some(true))
+    }
+}
+
+/// Implements [`StatsCatalog`] to provide file-level stats to expressions during pruning evaluation.
+impl StatsCatalog for FileStatsLayoutReader {
+    fn stats_ref(&self, field_path: &FieldPath, stat: Stat) -> Option<Expression> {
+        // FileStats currently only holds top-level field statistics.
+        if field_path.parts().len() != 1 {
+            return None;
+        }
+
+        let field_name = field_path.parts()[0].as_name()?;
+        let field_idx = self.struct_fields.find(field_name)?;
+        let field_stats = self.file_stats.stats_sets().get(field_idx)?;
+
+        let stat_value = field_stats.get(stat)?.as_exact()?;
+        let field_dtype = self.struct_fields.field_by_index(field_idx)?;
+        let stat_scalar = Scalar::try_new(field_dtype, Some(stat_value)).ok()?;
+
+        Some(lit(stat_scalar))
     }
 }
 
@@ -209,10 +208,10 @@ mod tests {
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
-    use vortex_array::expr::session::ExprSession;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::scalar::ScalarValue;
+    use vortex_array::scalar_fn::session::ScalarFnSession;
     use vortex_array::session::ArraySession;
     use vortex_array::stats::StatsSet;
     use vortex_buffer::buffer;
@@ -236,7 +235,7 @@ mod tests {
         VortexSession::empty()
             .with::<ArraySession>()
             .with::<LayoutSession>()
-            .with::<ExprSession>()
+            .with::<ScalarFnSession>()
             .with::<RuntimeSession>()
     });
 

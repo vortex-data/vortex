@@ -13,8 +13,8 @@ use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
-use crate::expr::CastKernel;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::cast::CastKernel;
 use crate::vtable::ValidityHelper;
 
 impl CastKernel for StructVTable {
@@ -115,7 +115,7 @@ mod tests {
     #[case(create_nested_struct())]
     #[case(create_simple_struct())]
     fn test_cast_struct_conformance(#[case] array: StructArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 
     fn create_test_struct(nullable: bool) -> StructArray {

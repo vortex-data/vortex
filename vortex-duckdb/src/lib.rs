@@ -20,15 +20,14 @@ use crate::duckdb::Database;
 use crate::duckdb::DatabaseRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::Value;
-use crate::scan::VortexTableFunction;
-use crate::scan_api::VortexScanApiTableFunction;
+use crate::multi_file::VortexMultiFileScan;
 
 mod convert;
+mod datasource;
 pub mod duckdb;
 mod exporter;
 mod filesystem;
-mod scan;
-mod scan_api;
+mod multi_file;
 
 #[rustfmt::skip]
 #[path = "./cpp.rs"]
@@ -55,13 +54,8 @@ pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
         LogicalType::varchar(),
         Value::from("vortex"),
     )?;
-    if std::env::var("VORTEX_USE_SCAN_API").is_ok_and(|v| v == "1") {
-        db.register_table_function::<VortexScanApiTableFunction>(c"vortex_scan")?;
-        db.register_table_function::<VortexScanApiTableFunction>(c"read_vortex")?;
-    } else {
-        db.register_table_function::<VortexTableFunction>(c"vortex_scan")?;
-        db.register_table_function::<VortexTableFunction>(c"read_vortex")?;
-    }
+    db.register_table_function::<VortexMultiFileScan>(c"vortex_scan")?;
+    db.register_table_function::<VortexMultiFileScan>(c"read_vortex")?;
     db.register_copy_function::<VortexCopyFunction>(c"vortex", c"vortex")
 }
 

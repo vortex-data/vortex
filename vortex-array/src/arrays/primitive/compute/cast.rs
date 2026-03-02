@@ -15,8 +15,8 @@ use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
-use crate::expr::CastKernel;
 use crate::match_each_native_ptype;
+use crate::scalar_fn::fns::cast::CastKernel;
 use crate::vtable::ValidityHelper;
 
 impl CastKernel for PrimitiveVTable {
@@ -237,6 +237,6 @@ mod test {
     #[case(PrimitiveArray::from_option_iter([Some(1i32), None, Some(-100), Some(0), None]).into_array())]
     #[case(buffer![42u32].into_array())]
     fn test_cast_primitive_conformance(#[case] array: crate::ArrayRef) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array);
     }
 }

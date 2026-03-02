@@ -26,17 +26,17 @@ use crate::builtins::ArrayBuiltins;
 use crate::compute::compare_lengths_to_empty;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
-use crate::expr::CompareKernel;
-use crate::expr::CompareOperator;
-use crate::expr::Operator;
 use crate::match_each_integer_ptype;
+use crate::scalar_fn::fns::binary::CompareKernel;
+use crate::scalar_fn::fns::operators::CompareOperator;
+use crate::scalar_fn::fns::operators::Operator;
 use crate::vtable::ValidityHelper;
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareKernel for VarBinVTable {
     fn compare(
         lhs: &VarBinArray,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -82,7 +82,7 @@ impl CompareKernel for VarBinVTable {
                 ));
             }
 
-            let lhs = Datum::try_new(lhs.as_ref())?;
+            let lhs = Datum::try_new(&lhs.to_array())?;
 
             // Use StringViewArray/BinaryViewArray to match the Utf8View/BinaryView types
             // produced by Datum::try_new (which uses into_arrow_preferred())
@@ -153,8 +153,8 @@ mod test {
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::expr::Operator;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::operators::Operator;
 
     #[test]
     fn test_binary_compare() {
@@ -220,8 +220,8 @@ mod tests {
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
-    use crate::expr::Operator;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::operators::Operator;
 
     #[test]
     fn test_null_compare() {

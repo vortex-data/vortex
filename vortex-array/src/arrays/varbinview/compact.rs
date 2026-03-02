@@ -130,7 +130,7 @@ impl VarBinViewArray {
             self.len(),
             buffer_utilization_threshold,
         );
-        builder.extend_from_array(self.as_ref());
+        builder.extend_from_array(&self.to_array());
         Ok(builder.finish_into_varbinview())
     }
 }

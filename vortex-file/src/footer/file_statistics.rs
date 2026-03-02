@@ -146,6 +146,15 @@ impl FileStatistics {
     }
 }
 
+impl<'a> IntoIterator for &'a FileStatistics {
+    type Item = (&'a StatsSet, &'a DType);
+    type IntoIter = std::iter::Zip<std::slice::Iter<'a, StatsSet>, std::slice::Iter<'a, DType>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.stats.iter().zip(self.dtypes.iter())
+    }
+}
+
 impl FlatBufferRoot for FileStatistics {}
 
 impl WriteFlatBuffer for FileStatistics {

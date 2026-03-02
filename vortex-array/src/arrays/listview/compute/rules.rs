@@ -11,10 +11,10 @@ use crate::arrays::FilterVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
 use crate::arrays::SliceReduceAdaptor;
-use crate::expr::CastReduceAdaptor;
-use crate::expr::MaskReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::vtable::ValidityHelper;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<ListViewVTable> = ParentRuleSet::new(&[

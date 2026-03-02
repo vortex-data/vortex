@@ -5,7 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::expr::CastReduce;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::SparseArray;
@@ -112,6 +112,6 @@ mod tests {
         Scalar::from(0u8)
     ).unwrap())]
     fn test_cast_sparse_conformance(#[case] array: SparseArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 }

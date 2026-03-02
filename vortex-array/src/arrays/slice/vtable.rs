@@ -11,12 +11,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
 use crate::Array;
-use crate::ArrayBufferVisitor;
-use crate::ArrayChildVisitor;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
@@ -33,11 +32,9 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::BaseArrayVTable;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
-use crate::vtable::VisitorVTable;
 
 vtable!(Slice);
 
@@ -51,13 +48,62 @@ impl SliceVTable {
 impl VTable for SliceVTable {
     type Array = SliceArray;
     type Metadata = SliceMetadata;
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
-
     fn id(_array: &Self::Array) -> ArrayId {
         SliceVTable::ID
+    }
+
+    fn len(array: &SliceArray) -> usize {
+        array.range.len()
+    }
+
+    fn dtype(array: &SliceArray) -> &DType {
+        array.child.dtype()
+    }
+
+    fn stats(array: &SliceArray) -> StatsSetRef<'_> {
+        array.stats.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: Hasher>(array: &SliceArray, state: &mut H, precision: Precision) {
+        array.child.array_hash(state, precision);
+        array.range.start.hash(state);
+        array.range.end.hash(state);
+    }
+
+    fn array_eq(array: &SliceArray, other: &SliceArray, precision: Precision) -> bool {
+        array.child.array_eq(&other.child, precision) && array.range == other.range
+    }
+
+    fn nbuffers(_array: &Self::Array) -> usize {
+        0
+    }
+
+    fn buffer(_array: &Self::Array, _idx: usize) -> BufferHandle {
+        vortex_panic!("SliceArray has no buffers")
+    }
+
+    fn buffer_name(_array: &Self::Array, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(_array: &Self::Array) -> usize {
+        1
+    }
+
+    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.child.clone(),
+            _ => vortex_panic!("SliceArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &Self::Array, idx: usize) -> String {
+        match idx {
+            0 => "child".to_string(),
+            _ => vortex_panic!("SliceArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -133,31 +179,6 @@ impl VTable for SliceVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
-
-impl BaseArrayVTable<SliceVTable> for SliceVTable {
-    fn len(array: &SliceArray) -> usize {
-        array.range.len()
-    }
-
-    fn dtype(array: &SliceArray) -> &DType {
-        array.child.dtype()
-    }
-
-    fn stats(array: &SliceArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: Hasher>(array: &SliceArray, state: &mut H, precision: Precision) {
-        array.child.array_hash(state, precision);
-        array.range.start.hash(state);
-        array.range.end.hash(state);
-    }
-
-    fn array_eq(array: &SliceArray, other: &SliceArray, precision: Precision) -> bool {
-        array.child.array_eq(&other.child, precision) && array.range == other.range
-    }
-}
-
 impl OperationsVTable<SliceVTable> for SliceVTable {
     fn scalar_at(array: &SliceArray, index: usize) -> VortexResult<Scalar> {
         array.child.scalar_at(array.range.start + index)
@@ -167,25 +188,6 @@ impl OperationsVTable<SliceVTable> for SliceVTable {
 impl ValidityVTable<SliceVTable> for SliceVTable {
     fn validity(array: &SliceArray) -> VortexResult<Validity> {
         array.child.validity()?.slice(array.range.clone())
-    }
-}
-
-impl VisitorVTable<SliceVTable> for SliceVTable {
-    fn visit_buffers(_array: &SliceArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn visit_children(array: &SliceArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("child", &array.child);
-    }
-
-    fn nchildren(_array: &SliceArray) -> usize {
-        1
-    }
-
-    fn nth_child(array: &SliceArray, idx: usize) -> Option<ArrayRef> {
-        match idx {
-            0 => Some(array.child.clone()),
-            _ => None,
-        }
     }
 }
 

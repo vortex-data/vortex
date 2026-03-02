@@ -9,7 +9,6 @@ use async_trait::async_trait;
 use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaFunction;
 use cudarc::driver::CudaSlice;
-use cudarc::driver::CudaStream;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchArgs;
 use cudarc::driver::LaunchConfig;
@@ -101,7 +100,7 @@ impl CudaExecutionCtx {
     ) -> VortexResult<()> {
         self.strategy
             .as_ref()
-            .with_strategy(&self.stream.0, len, function)
+            .with_strategy(&self.stream, len, function)
     }
 
     /// Launch a Kernel function with args setup done by the provided `build_args` closure.
@@ -163,13 +162,9 @@ impl CudaExecutionCtx {
     /// # Errors
     ///
     /// Returns an error if kernel loading fails.
-    pub fn load_function_ptype(
-        &self,
-        module_name: &str,
-        ptypes: &[PType],
-    ) -> VortexResult<CudaFunction> {
+    pub fn load_function(&self, module_name: &str, ptypes: &[PType]) -> VortexResult<CudaFunction> {
         let type_suffixes: Vec<String> = ptypes.iter().map(|ptype| ptype.to_string()).collect();
-        self.load_function(
+        self.load_function_with_suffixes(
             module_name,
             type_suffixes
                 .iter()
@@ -181,8 +176,8 @@ impl CudaExecutionCtx {
 
     /// Loads a CUDA kernel function by module name and type suffixes.
     ///
-    /// This is a lower-level version of `load_function` that accepts string suffixes
-    /// directly, useful for types that don't have a `PType` (e.g., i128, i256).
+    /// This is a lower-level version of [`load_function`][Self::load_function] that accepts
+    /// string suffixes directly, useful for types that don't have a `PType` (e.g., i128, i256).
     ///
     /// # Arguments
     ///
@@ -192,7 +187,7 @@ impl CudaExecutionCtx {
     /// # Errors
     ///
     /// Returns an error if kernel loading fails.
-    pub fn load_function(
+    pub(crate) fn load_function_with_suffixes(
         &self,
         module_name: &str,
         type_suffixes: &[&str],
@@ -209,10 +204,10 @@ impl CudaExecutionCtx {
     ///
     /// * `func` - CUDA kernel function to launch
     pub fn launch_builder<'a>(&'a self, func: &'a CudaFunction) -> LaunchArgs<'a> {
-        self.stream.0.launch_builder(func)
+        self.stream.launch_builder(func)
     }
 
-    /// See `VortexCudaStream::device_alloc`.
+    /// Allocates a typed buffer on the GPU.
     pub fn device_alloc<T: DeviceRepr + Send + Sync + 'static>(
         &self,
         len: usize,
@@ -239,7 +234,7 @@ impl CudaExecutionCtx {
     /// Ensures a buffer is resident on the device, copying from host if necessary.
     ///
     /// If the buffer is already on the device it is returned as-is. Otherwise
-    /// delegates to `copy_to_device`.
+    /// copies from host to device.
     pub async fn ensure_on_device(&self, handle: BufferHandle) -> VortexResult<BufferHandle> {
         if handle.is_on_device() {
             return Ok(handle);
@@ -251,9 +246,12 @@ impl CudaExecutionCtx {
         self.stream.copy_to_device(host_buffer)?.await
     }
 
-    /// Returns a reference to the underlying CUDA stream.
-    pub fn stream(&self) -> &Arc<CudaStream> {
-        &self.stream.0
+    /// Returns a reference to the underlying [`VortexCudaStream`].
+    ///
+    /// Through [`Deref`][std::ops::Deref], this also provides access to the
+    /// inner [`Arc<CudaStream>`] and all of cudarc's stream methods.
+    pub fn stream(&self) -> &VortexCudaStream {
+        &self.stream
     }
 
     /// Returns the Vortex session backing this CUDA execution context.
@@ -376,7 +374,6 @@ impl CudaArrayExt for ArrayRef {
 impl CudaExecutionCtx {
     pub fn synchronize_stream(&self) -> VortexResult<()> {
         self.stream
-            .0
             .synchronize()
             .map_err(|e| vortex_err!("cuda error: {e}"))
     }

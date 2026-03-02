@@ -22,7 +22,6 @@ datafusion-sqllogictest = { workspace = true }
 futures.workspace = true
 indicatif.workspace = true
 sqllogictest = "0.28"
-tempfile = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex = { workspace = true, features = ["tokio"] }

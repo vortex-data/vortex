@@ -16,7 +16,7 @@ use crate::ALPRDVTable;
 impl TakeExecute for ALPRDVTable {
     fn take(
         array: &ALPRDArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let taken_left_parts = array.left_parts().take(indices.to_array())?;

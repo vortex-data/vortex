@@ -17,24 +17,16 @@ use crate::vtable::ValidityHelper;
 impl TakeExecute for MaskedVTable {
     fn take(
         array: &MaskedArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let taken_child = if !indices.all_valid()? {
             // This is safe because we'll mask out these positions in the validity.
             let fill_scalar = Scalar::zero_value(indices.dtype());
             let filled_take_indices = indices.to_array().fill_null(fill_scalar)?;
-            array
-                .child
-                .take(filled_take_indices)?
-                .to_canonical()?
-                .into_array()
+            array.child.take(filled_take_indices)?
         } else {
-            array
-                .child
-                .take(indices.to_array())?
-                .to_canonical()?
-                .into_array()
+            array.child.take(indices.to_array())?
         };
 
         // Compute the new validity by taking from array's validity and merging with indices validity
@@ -77,6 +69,6 @@ mod tests {
         ).unwrap()
     )]
     fn test_take_masked_conformance(#[case] array: MaskedArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.to_array());
     }
 }

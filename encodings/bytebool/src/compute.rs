@@ -2,16 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::AsPrimitive;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::dtype::DType;
-use vortex_array::expr::CastReduce;
-use vortex_array::expr::MaskReduce;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
@@ -60,14 +59,14 @@ impl MaskReduce for ByteBoolVTable {
 impl TakeExecute for ByteBoolVTable {
     fn take(
         array: &ByteBoolArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.to_primitive();
         let bools = array.as_slice();
 
         // This handles combining validity from both source array and nullable indices
-        let validity = array.validity().take(indices.as_ref())?;
+        let validity = array.validity().take(&indices.to_array())?;
 
         let taken_bools = match_each_integer_ptype!(indices.ptype(), |I| {
             indices
@@ -98,7 +97,7 @@ mod tests {
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::Operator;
+    use vortex_array::scalar_fn::fns::operators::Operator;
 
     use super::*;
 
@@ -149,17 +148,21 @@ mod tests {
 
     #[test]
     fn test_mask_byte_bool() {
-        test_mask_conformance(ByteBoolArray::from(vec![true, false, true, true, false]).as_ref());
         test_mask_conformance(
-            ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]).as_ref(),
+            &ByteBoolArray::from(vec![true, false, true, true, false]).to_array(),
+        );
+        test_mask_conformance(
+            &ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]).to_array(),
         );
     }
 
     #[test]
     fn test_filter_byte_bool() {
-        test_filter_conformance(ByteBoolArray::from(vec![true, false, true, true, false]).as_ref());
         test_filter_conformance(
-            ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]).as_ref(),
+            &ByteBoolArray::from(vec![true, false, true, true, false]).to_array(),
+        );
+        test_filter_conformance(
+            &ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]).to_array(),
         );
     }
 
@@ -169,7 +172,7 @@ mod tests {
     #[case(ByteBoolArray::from(vec![true, false]))]
     #[case(ByteBoolArray::from(vec![true]))]
     fn test_take_byte_bool_conformance(#[case] array: ByteBoolArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.to_array());
     }
 
     #[test]
@@ -190,7 +193,7 @@ mod tests {
     #[case(ByteBoolArray::from(vec![true]))]
     #[case(ByteBoolArray::from(vec![Some(true), None]))]
     fn test_cast_bytebool_conformance(#[case] array: ByteBoolArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 
     #[rstest]
@@ -203,6 +206,6 @@ mod tests {
     #[case::single_null(ByteBoolArray::from(vec![None]))]
     #[case::mixed_with_nulls(ByteBoolArray::from(vec![Some(true), None, Some(false), None, Some(true)]))]
     fn test_bytebool_consistency(#[case] array: ByteBoolArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 }

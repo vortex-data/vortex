@@ -4,7 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
-use vortex_array::expr::CastReduce;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::PcoArray;
@@ -169,6 +169,6 @@ mod tests {
     ))]
     fn test_cast_pco_conformance(#[case] values: PrimitiveArray) {
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
-        test_cast_conformance(pco.as_ref());
+        test_cast_conformance(&pco.to_array());
     }
 }

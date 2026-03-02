@@ -9,9 +9,9 @@ use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::ScalarFnArrayExt;
-use crate::expr::EmptyOptions;
-use crate::expr::MaskKernel;
-use crate::expr::mask::Mask as MaskExpr;
+use crate::scalar_fn::EmptyOptions;
+use crate::scalar_fn::fns::mask::Mask as MaskExpr;
+use crate::scalar_fn::fns::mask::MaskKernel;
 
 impl MaskKernel for ChunkedVTable {
     fn mask(
@@ -79,6 +79,6 @@ mod test {
         DType::Primitive(PType::F32, Nullability::NonNullable),
     ).unwrap())]
     fn test_mask_chunked_conformance(#[case] chunked: ChunkedArray) {
-        test_mask_conformance(chunked.as_ref());
+        test_mask_conformance(&chunked.to_array());
     }
 }

@@ -140,7 +140,7 @@ impl Executor for Sender {
         })
     }
 
-    fn spawn_blocking(&self, work: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
+    fn spawn_blocking_io(&self, work: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         let (send, recv) = oneshot::channel();
         if let Err(e) = self.blocking.send(SpawnSync {
             sync: work,

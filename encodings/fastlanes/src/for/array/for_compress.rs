@@ -130,7 +130,7 @@ mod test {
         // Create a range offset by a million.
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
-        let bp = BitPackedArray::encode(array.as_ref(), 3).unwrap();
+        let bp = BitPackedArray::encode(&array.to_array(), 3).unwrap();
         let compressed = FoRArray::try_new(bp.into_array(), 10u32.into()).unwrap();
         assert_arrays_eq!(compressed, expect);
     }
@@ -140,7 +140,7 @@ mod test {
         // Create a range offset by a million.
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
-        let bp = BitPackedArray::encode(array.as_ref(), 2).unwrap();
+        let bp = BitPackedArray::encode(&array.to_array(), 2).unwrap();
         let compressed = FoRArray::try_new(bp.clone().into_array(), 10u32.into()).unwrap();
         let decompressed =
             fused_decompress::<u32>(&compressed, &bp, &mut SESSION.create_execution_ctx())?;

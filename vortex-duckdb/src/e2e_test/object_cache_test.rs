@@ -66,8 +66,8 @@ impl TableFunction for TestTableFunction {
 
     fn table_scan_progress(
         _client_context: &ClientContextRef,
-        _bind_data: &mut Self::BindData,
-        _global_state: &mut Self::GlobalState,
+        _bind_data: &Self::BindData,
+        _global_state: &Self::GlobalState,
     ) -> f64 {
         100.0
     }
@@ -76,7 +76,7 @@ impl TableFunction for TestTableFunction {
         _client_context: &ClientContextRef,
         _bind_data: &Self::BindData,
         _local_state: &mut Self::LocalState,
-        _global_state: &mut Self::GlobalState,
+        _global_state: &Self::GlobalState,
         chunk: &mut DataChunkRef,
     ) -> VortexResult<()> {
         chunk.set_len(0);
@@ -100,14 +100,14 @@ impl TableFunction for TestTableFunction {
 
     fn init_local(
         _init: &TableInitInput<Self>,
-        _global: &mut Self::GlobalState,
+        _global: &Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
         Ok(TestLocalState)
     }
 
     fn partition_data(
         _bind_data: &Self::BindData,
-        _global_init_data: &mut Self::GlobalState,
+        _global_init_data: &Self::GlobalState,
         _local_init_data: &mut Self::LocalState,
     ) -> VortexResult<u64> {
         Ok(0)

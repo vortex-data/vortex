@@ -42,6 +42,6 @@ mod tests {
         None, None, Some(true), None, None, None, Some(false), None, None
     ]))]
     fn test_bool_consistency(#[case] array: BoolArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 }

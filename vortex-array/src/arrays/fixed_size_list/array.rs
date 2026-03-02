@@ -177,7 +177,7 @@ impl FixedSizeListArray {
     ///
     /// This function checks all the invariants required by [`FixedSizeListArray::new_unchecked`].
     pub fn validate(
-        elements: &dyn Array,
+        elements: &ArrayRef,
         len: usize,
         list_size: u32,
         validity: &Validity,

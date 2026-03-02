@@ -6,7 +6,7 @@ use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
-use vortex_array::expr::CastReduce;
+use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -125,6 +125,6 @@ mod tests {
     )]
     fn test_cast_delta_conformance(#[case] primitive: PrimitiveArray) {
         let delta_array = DeltaArray::try_from_primitive_array(&primitive).unwrap();
-        test_cast_conformance(delta_array.as_ref());
+        test_cast_conformance(&delta_array.to_array());
     }
 }

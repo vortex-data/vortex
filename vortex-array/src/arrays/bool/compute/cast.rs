@@ -7,7 +7,7 @@ use crate::array::ArrayRef;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::dtype::DType;
-use crate::expr::CastReduce;
+use crate::scalar_fn::fns::cast::CastReduce;
 use crate::vtable::ValidityHelper;
 
 impl CastReduce for BoolVTable {
@@ -61,6 +61,6 @@ mod tests {
     #[case(BoolArray::from_iter(vec![true]))]
     #[case(BoolArray::from_iter(vec![false, false]))]
     fn test_cast_bool_conformance(#[case] array: BoolArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 }

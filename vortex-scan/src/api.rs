@@ -28,6 +28,7 @@ use futures::stream::BoxStream;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::expr::Expression;
+use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
 use vortex_array::stats::StatsSet;
 use vortex_array::stream::SendableArrayStream;
@@ -108,10 +109,10 @@ pub trait DataSource: 'static + Send + Sync {
 }
 
 /// A request to scan a data source.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ScanRequest {
-    /// Projection expression, `None` implies `root()`.
-    pub projection: Option<Expression>,
+    /// Projection expression. Defaults to `root()` which returns all columns.
+    pub projection: Expression,
     /// Filter expression, `None` implies no filter.
     pub filter: Option<Expression>,
     /// The row range to read.
@@ -125,6 +126,19 @@ pub struct ScanRequest {
     /// Optional limit on the number of rows returned by scan. Limits are applied after all
     /// filtering and row selection.
     pub limit: Option<u64>,
+}
+
+impl Default for ScanRequest {
+    fn default() -> Self {
+        Self {
+            projection: root(),
+            filter: None,
+            row_range: None,
+            selection: Selection::default(),
+            ordered: false,
+            limit: None,
+        }
+    }
 }
 
 /// A boxed data source scan.

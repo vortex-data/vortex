@@ -41,6 +41,6 @@ mod tests {
     }, false)]
     fn test_is_constant(#[case] input: Vec<bool>, #[case] expected: bool) {
         let array = BoolArray::from_iter(input);
-        assert_eq!(is_constant(array.as_ref()).unwrap(), Some(expected));
+        assert_eq!(is_constant(&array.to_array()).unwrap(), Some(expected));
     }
 }

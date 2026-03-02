@@ -31,9 +31,9 @@ use vortex::array::match_each_integer_ptype;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
-use vortex::expr::Operator;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
+use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::PyVortex;
 use crate::arrays::native::PyNativeArray;
@@ -523,8 +523,8 @@ impl PyArray {
     /// ```
     fn filter(slf: Bound<Self>, mask: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let mask = (&*mask as &dyn Array).to_bool().to_mask_fill_null_false();
-        let inner = vortex::compute::filter(&*slf, &mask)?;
+        let mask = (&*mask as &ArrayRef).to_bool().to_mask_fill_null_false();
+        let inner = vortex::compute::filter(&slf, &mask)?;
         Ok(PyArrayRef::from(inner))
     }
 

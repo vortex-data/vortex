@@ -168,6 +168,7 @@ impl MessageDecoder {
 mod test {
     use bytes::BytesMut;
     use vortex_array::Array;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_buffer::buffer;
@@ -178,7 +179,7 @@ mod test {
     use crate::messages::MessageEncoder;
     use crate::test::SESSION;
 
-    fn write_and_read(expected: &dyn Array) {
+    fn write_and_read(expected: &ArrayRef) {
         let mut ipc_bytes = BytesMut::new();
         let mut encoder = MessageEncoder::default();
         for buf in encoder.encode(EncoderMessage::Array(expected)).unwrap() {
@@ -213,6 +214,6 @@ mod test {
         // Constant arrays have a single buffer
         let array = ConstantArray::new(10i32, 20);
         assert_eq!(array.nbuffers(), 1, "Array should have a single buffer");
-        write_and_read(array.as_ref());
+        write_and_read(&array.to_array());
     }
 }

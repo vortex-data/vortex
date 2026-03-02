@@ -19,7 +19,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
-use vortex_array::expr::root;
 use vortex_array::expr::stats::Precision;
 use vortex_array::scalar::Scalar;
 use vortex_array::stats::StatsSet;
@@ -116,8 +115,7 @@ impl DataSource for LayoutReaderDataSource {
         let total_rows = self.reader.row_count();
         let row_range = scan_request.row_range.unwrap_or(0..total_rows);
 
-        let projection = scan_request.projection.unwrap_or_else(root);
-        let dtype = projection.return_dtype(self.reader.dtype())?;
+        let dtype = scan_request.projection.return_dtype(self.reader.dtype())?;
 
         // If the dtype is an empty struct, and there is no filter, we can return a special
         // length-only scan.
@@ -163,7 +161,7 @@ impl DataSource for LayoutReaderDataSource {
             reader: self.reader.clone(),
             session: self.session.clone(),
             dtype,
-            projection,
+            projection: scan_request.projection,
             filter: scan_request.filter,
             limit: scan_request.limit,
             selection: scan_request.selection,

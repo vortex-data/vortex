@@ -38,7 +38,7 @@ pub(super) fn _canonicalize(
         DType::Struct(struct_dtype, _) => {
             let struct_array = pack_struct_chunks(
                 array.chunks(),
-                Validity::copy_from_array(array.as_ref())?,
+                Validity::copy_from_array(&array.to_array())?,
                 struct_dtype,
                 ctx,
             )?;
@@ -46,7 +46,7 @@ pub(super) fn _canonicalize(
         }
         DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
             array.chunks(),
-            Validity::copy_from_array(array.as_ref())?,
+            Validity::copy_from_array(&array.to_array())?,
             elem_dtype,
             ctx,
         )?),
@@ -71,10 +71,14 @@ fn pack_struct_chunks(
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut field_arrays = Vec::new();
 
+    let executed_chunks: Vec<StructArray> = chunks
+        .iter()
+        .map(|c| c.clone().execute::<StructArray>(ctx))
+        .collect::<VortexResult<_>>()?;
+
     for (field_idx, field_dtype) in struct_dtype.fields().enumerate() {
         let mut field_chunks = Vec::with_capacity(chunks.len());
-        for c in chunks {
-            let struct_array = c.clone().execute::<StructArray>(ctx)?;
+        for struct_array in &executed_chunks {
             let field = struct_array
                 .unmasked_fields()
                 .get(field_idx)

@@ -5,8 +5,8 @@ use crate::arrays::ChunkedVTable;
 use crate::arrays::FilterExecuteAdaptor;
 use crate::arrays::SliceExecuteAdaptor;
 use crate::arrays::TakeExecuteAdaptor;
-use crate::expr::MaskExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
+use crate::scalar_fn::fns::mask::MaskExecuteAdaptor;
 
 pub(crate) static PARENT_KERNELS: ParentKernelSet<ChunkedVTable> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&FilterExecuteAdaptor(ChunkedVTable)),

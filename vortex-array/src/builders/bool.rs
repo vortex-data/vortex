@@ -10,7 +10,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -112,7 +111,7 @@ impl ArrayBuilder for BoolBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let bool_array = array.to_bool();
 
         self.inner.append_buffer(&bool_array.to_bit_buffer());

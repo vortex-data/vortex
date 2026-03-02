@@ -10,8 +10,8 @@ use crate::arrays::ConstantArray;
 use crate::arrays::NullArray;
 use crate::arrays::NullVTable;
 use crate::dtype::DType;
-use crate::expr::CastReduce;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for NullVTable {
     fn cast(array: &NullArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -82,6 +82,6 @@ mod tests {
     #[case(NullArray::new(100))]
     #[case(NullArray::new(0))]
     fn test_cast_null_conformance(#[case] array: NullArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 }

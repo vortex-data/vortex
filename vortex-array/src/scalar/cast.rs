@@ -41,7 +41,7 @@ impl Scalar {
             return Scalar::try_new(target_dtype.clone(), self.value().cloned());
         }
 
-        // TODO(connor): This isn't really correct but this will get fixed soon.
+        // TODO(connor): This isn't really correct for extension types.
         // If the target is an extension type, then we want to cast to its storage type.
         if let Some(ext_dtype) = target_dtype.as_extension_opt() {
             let cast_storage_scalar_value = self.cast(ext_dtype.storage_dtype())?.into_value();

@@ -9,11 +9,7 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::IntoArray;
-use crate::arrays::ConstantArray;
 use crate::buffer::BufferHandle;
-use crate::patches::Patches;
-use crate::validity::Validity;
 
 pub trait ArrayVisitor {
     /// Returns the children of the array.
@@ -151,78 +147,3 @@ pub trait ArrayVisitorExt: Array {
 }
 
 impl<A: Array + ?Sized> ArrayVisitorExt for A {}
-
-pub trait ArrayBufferVisitor {
-    fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle);
-}
-
-/// A visitor for array children that does not require names.
-///
-/// This is more efficient than [`ArrayChildVisitor`] when you only need to
-/// iterate over children without accessing their names (e.g., for counting
-/// or accessing by index).
-pub trait ArrayChildVisitorUnnamed {
-    /// Visit a child of this array.
-    fn visit_child(&mut self, array: &ArrayRef);
-
-    /// Utility for visiting Array validity.
-    fn visit_validity(&mut self, validity: &Validity, len: usize) {
-        if let Some(vlen) = validity.maybe_len() {
-            assert_eq!(vlen, len, "Validity length mismatch");
-        }
-
-        match validity {
-            Validity::NonNullable | Validity::AllValid => {}
-            Validity::AllInvalid => self.visit_child(&ConstantArray::new(false, len).into_array()),
-            Validity::Array(array) => {
-                self.visit_child(array);
-            }
-        }
-    }
-
-    /// Utility for visiting Array patches.
-    fn visit_patches(&mut self, patches: &Patches) {
-        self.visit_child(patches.indices());
-        self.visit_child(patches.values());
-        if let Some(chunk_offsets) = patches.chunk_offsets() {
-            self.visit_child(chunk_offsets);
-        }
-    }
-}
-
-pub trait ArrayChildVisitor {
-    /// Visit a child of this array.
-    fn visit_child(&mut self, _name: &str, _array: &ArrayRef);
-
-    /// Utility for visiting Array validity.
-    fn visit_validity(&mut self, validity: &Validity, len: usize) {
-        if let Some(vlen) = validity.maybe_len() {
-            assert_eq!(vlen, len, "Validity length mismatch");
-        }
-
-        match validity {
-            Validity::NonNullable | Validity::AllValid => {}
-            Validity::AllInvalid => {
-                // To avoid storing metadata about validity, we store all invalid as a
-                // constant array of false values.
-                // This gives:
-                //  * is_nullable & has_validity => Validity::Array (or Validity::AllInvalid)
-                //  * is_nullable & !has_validity => Validity::AllValid
-                //  * !is_nullable => Validity::NonNullable
-                self.visit_child("validity", &ConstantArray::new(false, len).into_array())
-            }
-            Validity::Array(array) => {
-                self.visit_child("validity", array);
-            }
-        }
-    }
-
-    /// Utility for visiting Array patches.
-    fn visit_patches(&mut self, patches: &Patches) {
-        self.visit_child("patch_indices", patches.indices());
-        self.visit_child("patch_values", patches.values());
-        if let Some(chunk_offsets) = patches.chunk_offsets() {
-            self.visit_child("patch_chunk_offsets", chunk_offsets);
-        }
-    }
-}

@@ -17,14 +17,14 @@ use crate::arrays::FilterReduceAdaptor;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
-use crate::expr::Cast;
-use crate::expr::CastReduceAdaptor;
-use crate::expr::LikeReduceAdaptor;
-use crate::expr::MaskReduceAdaptor;
-use crate::expr::Pack;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::cast::CastReduceAdaptor;
+use crate::scalar_fn::fns::like::LikeReduceAdaptor;
+use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::scalar_fn::fns::pack::Pack;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<DictVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FilterReduceAdaptor(DictVTable)),

@@ -9,11 +9,11 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::CompareKernel;
-use vortex_array::expr::CompareOperator;
-use vortex_array::expr::Operator;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::binary::CompareKernel;
+use vortex_array::scalar_fn::fns::operators::CompareOperator;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 
 use crate::array::DateTimePartsArray;
@@ -23,7 +23,7 @@ use crate::timestamp;
 impl CompareKernel for DateTimePartsVTable {
     fn compare(
         lhs: &DateTimePartsArray,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -170,7 +170,7 @@ fn compare_gt(
 }
 
 fn compare_dtp(
-    lhs: &dyn Array,
+    lhs: &ArrayRef,
     rhs: i64,
     operator: CompareOperator,
     nullability: Nullability,

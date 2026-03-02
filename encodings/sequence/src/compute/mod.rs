@@ -82,6 +82,6 @@ mod tests {
     ).unwrap())] // Results in [1000, 1100, 1200, ..., 150900]
 
     fn test_sequence_consistency(#[case] array: SequenceArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 }

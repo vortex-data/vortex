@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
@@ -11,10 +10,10 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativeDType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::BetweenOptions;
-use vortex_array::expr::BetweenReduce;
-use vortex_array::expr::StrictComparison;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::between::BetweenOptions;
+use vortex_array::scalar_fn::fns::between::BetweenReduce;
+use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
@@ -25,8 +24,8 @@ use crate::match_each_alp_float_ptype;
 impl BetweenReduce for ALPVTable {
     fn between(
         array: &ALPArray,
-        lower: &dyn Array,
-        upper: &dyn Array,
+        lower: &ArrayRef,
+        upper: &ArrayRef,
         options: &BetweenOptions,
     ) -> VortexResult<Option<ArrayRef>> {
         let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {
@@ -98,8 +97,8 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
-    use vortex_array::expr::BetweenOptions;
-    use vortex_array::expr::StrictComparison;
+    use vortex_array::scalar_fn::fns::between::BetweenOptions;
+    use vortex_array::scalar_fn::fns::between::StrictComparison;
 
     use crate::ALPArray;
     use crate::alp::compute::between::between_impl;

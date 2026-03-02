@@ -14,7 +14,7 @@ use crate::arrays::TakeExecute;
 impl TakeExecute for ExtensionVTable {
     fn take(
         array: &ExtensionArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let taken_storage = array.storage().take(indices.to_array())?;

@@ -244,6 +244,11 @@ impl DeviceBuffer for CudaDeviceBuffer {
             ByteBufferMut::with_capacity_aligned(self.len, alignment);
         let len = self.len;
 
+        stream
+            .context()
+            .bind_to_thread()
+            .map_err(|e| vortex_err!("Failed to bind CUDA context: {}", e))?;
+
         // SAFETY: We pass a valid pointer to a buffer with sufficient capacity.
         // `cuMemcpyDtoHAsync_v2` fully initializes the memory.
         unsafe {

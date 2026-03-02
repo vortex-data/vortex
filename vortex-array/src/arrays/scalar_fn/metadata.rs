@@ -5,11 +5,11 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 
 use crate::dtype::DType;
-use crate::expr::ScalarFn;
+use crate::scalar_fn::ScalarFnRef;
 
 #[derive(Clone)]
 pub struct ScalarFnMetadata {
-    pub(super) scalar_fn: ScalarFn,
+    pub(super) scalar_fn: ScalarFnRef,
     pub(super) child_dtypes: Vec<DType>,
 }
 

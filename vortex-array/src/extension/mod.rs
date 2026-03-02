@@ -7,6 +7,9 @@ use std::fmt;
 
 pub mod datetime;
 
+#[cfg(test)]
+mod tests;
+
 /// An empty metadata struct for extension dtypes that do not require any metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EmptyMetadata;

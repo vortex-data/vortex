@@ -66,7 +66,7 @@ impl CudaExecute for DateTimePartsExecutor {
 
         let time_unit = options.unit;
         let time_zone = options.tz.clone();
-        let validity = Validity::copy_from_array(array.as_ref())?;
+        let validity = Validity::copy_from_array(&array.to_array())?;
 
         if output_len == 0 {
             return Ok(Canonical::empty(array.dtype()));
@@ -175,13 +175,10 @@ where
     let subseconds_view = subseconds_device.cuda_view::<SubsecondsT>()?;
     let output_view = output_device.as_view::<i64>();
 
-    let kernel_suffixes = [
-        DaysT::PTYPE.to_string(),
-        SecondsT::PTYPE.to_string(),
-        SubsecondsT::PTYPE.to_string(),
-    ];
-    let kernel_suffix_strs: Vec<&str> = kernel_suffixes.iter().map(|s| s.as_str()).collect();
-    let cuda_function = ctx.load_function("date_time_parts", &kernel_suffix_strs)?;
+    let cuda_function = ctx.load_function(
+        "date_time_parts",
+        &[DaysT::PTYPE, SecondsT::PTYPE, SubsecondsT::PTYPE],
+    )?;
 
     let array_len_u64 = output_len as u64;
 

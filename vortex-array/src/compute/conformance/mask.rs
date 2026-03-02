@@ -5,12 +5,13 @@ use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
 use crate::Array;
+use crate::ArrayRef;
 use crate::arrays::BoolArray;
 use crate::compute::mask;
 
 /// Test mask compute function with various array sizes and patterns.
 /// The mask operation sets elements to null where the mask is true.
-pub fn test_mask_conformance(array: &dyn Array) {
+pub fn test_mask_conformance(array: &ArrayRef) {
     let len = array.len();
 
     if len > 0 {
@@ -32,7 +33,7 @@ pub fn test_mask_conformance(array: &dyn Array) {
 }
 
 /// Tests masking with a heterogeneous pattern
-fn test_heterogenous_mask(array: &dyn Array) {
+fn test_heterogenous_mask(array: &ArrayRef) {
     let len = array.len();
 
     // Create a pattern where roughly half the values are masked
@@ -65,7 +66,7 @@ fn test_heterogenous_mask(array: &dyn Array) {
 }
 
 /// Tests that an empty mask (all false) preserves all elements
-fn test_empty_mask(array: &dyn Array) {
+fn test_empty_mask(array: &ArrayRef) {
     let len = array.len();
     let all_unmasked = vec![false; len];
     let mask_array = Mask::from_iter(all_unmasked);
@@ -88,7 +89,7 @@ fn test_empty_mask(array: &dyn Array) {
 }
 
 /// Tests that a full mask (all true) makes all elements null
-fn test_full_mask(array: &dyn Array) {
+fn test_full_mask(array: &ArrayRef) {
     let len = array.len();
     let all_masked = vec![true; len];
     let mask_array = Mask::from_iter(all_masked);
@@ -107,7 +108,7 @@ fn test_full_mask(array: &dyn Array) {
 }
 
 /// Tests alternating mask pattern
-fn test_alternating_mask(array: &dyn Array) {
+fn test_alternating_mask(array: &ArrayRef) {
     let len = array.len();
     let pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
     let mask_array = Mask::from_iter(pattern);
@@ -137,7 +138,7 @@ fn test_alternating_mask(array: &dyn Array) {
 }
 
 /// Tests sparse mask (only a few elements masked)
-fn test_sparse_mask(array: &dyn Array) {
+fn test_sparse_mask(array: &ArrayRef) {
     let len = array.len();
     if len < 10 {
         return; // Skip for small arrays
@@ -175,7 +176,7 @@ fn test_sparse_mask(array: &dyn Array) {
 }
 
 /// Tests masking a single element
-fn test_single_element_mask(array: &dyn Array) {
+fn test_single_element_mask(array: &ArrayRef) {
     let len = array.len();
 
     // Mask only the first element
@@ -204,7 +205,7 @@ fn test_single_element_mask(array: &dyn Array) {
 }
 
 /// Tests double masking operations
-fn test_double_mask(array: &dyn Array) {
+fn test_double_mask(array: &ArrayRef) {
     let len = array.len();
 
     // Create two different mask patterns
@@ -241,7 +242,7 @@ fn test_double_mask(array: &dyn Array) {
 }
 
 /// Tests masking with nullable mask (nulls treated as false)
-fn test_nullable_mask_input(array: &dyn Array) {
+fn test_nullable_mask_input(array: &ArrayRef) {
     let len = array.len();
     if len < 3 {
         return; // Skip for very small arrays
