@@ -24,6 +24,9 @@ public:
     /// Get the number of rows in the file.
     uint64_t RowCount() const;
 
+    /// Check if file statistics are present in footer.
+    bool HasFileStatistics() const;
+
     /// Create a scan builder for the file.
     /// The scan builder can be used to scan the file.
     ScanBuilder CreateScanBuilder() const;

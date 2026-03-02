@@ -9,6 +9,7 @@
 #include <iostream>
 
 #include "vortex/file.hpp"
+#include "vortex/exception.hpp"
 #include "vortex/scan.hpp"
 #include "vortex/write_options.hpp"
 #include "vortex/scalar.hpp"
@@ -277,6 +278,59 @@ TEST_F(VortexTest, WriteArrayStream) {
     auto array = ReadFirstArrayFromUniqueStream(array_stream);
     auto [ref_array, ref_schema] = ReadFirstArrayFromStream(vortex::testing::CreateTestDataStream());
     ValidateArray(array, schema, ref_array, ref_schema);
+}
+
+TEST_F(VortexTest, WriterPushArrayStreamBasic) {
+    auto stream_1 = vortex::testing::CreateTestDataStream();
+    auto stream_2 = vortex::testing::CreateTestDataStream();
+
+    vortex::VortexWriteOptions write_options;
+    write_options.WithoutFileStatistics();
+    auto writer = write_options.CreateWriter(GetTestDataPath("test_writer.vortex"));
+
+    ASSERT_NO_THROW(writer.PushArrayStream(stream_1));
+    ASSERT_NO_THROW(writer.PushArrayStream(stream_2));
+    ASSERT_GT(writer.BytesWritten(), 0);
+    ASSERT_NO_THROW(writer.Finish());
+
+    auto written_file = vortex::VortexFile::Open(GetTestDataPath("test_writer.vortex"));
+    ASSERT_EQ(written_file.RowCount(), 10);
+    ASSERT_FALSE(written_file.HasFileStatistics());
+}
+
+TEST_F(VortexTest, WriterPushArrayStreamWithSessionAndStrategyAndStats) {
+    auto stream_1 = vortex::testing::CreateTestDataStream();
+    auto stream_2 = vortex::testing::CreateTestDataStream();
+
+    vortex::VortexSession session;
+    vortex::VortexWriteOptions write_options(session);
+    vortex::VortexWriteStrategyBuilder strategy_builder;
+    auto strategy = strategy_builder.Build();
+    constexpr vortex::FileStat kFileStats[] = {vortex::FileStat::Min, vortex::FileStat::Max};
+    write_options.WithStrategy(strategy).WithFileStatistics(kFileStats, 2);
+    auto writer = write_options.CreateWriter(GetTestDataPath("test_writer_strat_stat.vortex"));
+
+    ASSERT_NO_THROW(writer.PushArrayStream(stream_1));
+    ASSERT_NO_THROW(writer.PushArrayStream(stream_2));
+    ASSERT_NO_THROW(writer.Finish());
+
+    auto written_file = vortex::VortexFile::Open(GetTestDataPath("test_writer_strat_stat.vortex"));
+    ASSERT_EQ(written_file.RowCount(), 10);
+    ASSERT_TRUE(written_file.HasFileStatistics());
+}
+
+TEST_F(VortexTest, WriterPushArrayStreamExcludeDType) {
+    auto stream = vortex::testing::CreateTestDataStream();
+
+    vortex::VortexWriteOptions write_options;
+    write_options.ExcludeDType();
+    auto writer = write_options.CreateWriter(GetTestDataPath("test_writer_exclude_dtype.vortex"));
+
+    ASSERT_NO_THROW(writer.PushArrayStream(stream));
+    ASSERT_NO_THROW(writer.Finish());
+
+    ASSERT_THROW(vortex::VortexFile::Open(GetTestDataPath("test_writer_exclude_dtype.vortex")),
+                 vortex::VortexException);
 }
 
 TEST_F(VortexTest, ConcurrentMultiStreamRead) {

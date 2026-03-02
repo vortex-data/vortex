@@ -20,6 +20,10 @@ workspace = true
 [lib]
 crate-type = ["staticlib"]
 
+[features]
+default = []
+zstd = ["vortex/zstd"]
+
 [dependencies]
 anyhow = { workspace = true }
 arrow-array = { workspace = true, features = ["ffi"] }

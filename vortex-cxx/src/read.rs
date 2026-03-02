@@ -35,6 +35,10 @@ impl VortexFile {
         self.inner.row_count()
     }
 
+    pub(crate) fn has_file_stats(&self) -> bool {
+        self.inner.file_stats().is_some()
+    }
+
     pub(crate) fn scan_builder(&self) -> Result<Box<VortexScanBuilder>> {
         Ok(Box::new(VortexScanBuilder {
             inner: self.inner.scan()?,

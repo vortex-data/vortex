@@ -6,6 +6,7 @@ mod dtype;
 mod expr;
 mod read;
 mod scalar;
+mod session;
 mod write;
 
 use std::sync::LazyLock;
@@ -14,11 +15,12 @@ use dtype::*;
 use expr::*;
 use read::*;
 use scalar::*;
+use session::*;
 use vortex::VortexSessionDefault;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
-use vortex::session::VortexSession;
+use vortex::session::VortexSession as RustVortexSession;
 use write::*;
 
 /// By default, the C++ API uses a current-thread runtime, providing control of the threading
@@ -28,8 +30,8 @@ use write::*;
 //  this runtime.
 pub(crate) static RUNTIME: LazyLock<CurrentThreadRuntime> =
     LazyLock::new(CurrentThreadRuntime::new);
-pub(crate) static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
+pub(crate) static SESSION: LazyLock<RustVortexSession> =
+    LazyLock::new(|| RustVortexSession::default().with_handle(RUNTIME.handle()));
 
 #[cxx::bridge(namespace = "vortex::ffi")]
 #[allow(let_underscore_drop)]
@@ -84,6 +86,7 @@ mod ffi {
 
         type VortexFile;
         fn row_count(self: &VortexFile) -> u64;
+        fn has_file_stats(self: &VortexFile) -> bool;
         fn scan_builder(self: &VortexFile) -> Result<Box<VortexScanBuilder>>;
         fn open_file(path: &str) -> Result<Box<VortexFile>>;
         fn open_file_from_buffer(data: &[u8]) -> Result<Box<VortexFile>>;
@@ -111,13 +114,55 @@ mod ffi {
         type ThreadsafeCloneableReader;
         unsafe fn clone_a_stream(self: &ThreadsafeCloneableReader, out_stream: *mut u8);
 
+        type VortexWriteStrategyBuilder;
+        fn write_strategy_builder_new() -> Box<VortexWriteStrategyBuilder>;
+        fn write_strategy_builder_with_compact_encodings(
+            builder: &mut VortexWriteStrategyBuilder,
+        ) -> Result<()>;
+        fn write_strategy_builder_with_row_block_size(
+            builder: &mut VortexWriteStrategyBuilder,
+            row_block_size: usize,
+        ) -> Result<()>;
+        fn write_strategy_builder_build(
+            builder: Box<VortexWriteStrategyBuilder>,
+        ) -> Box<VortexWriteStrategy>;
+
+        type VortexWriteStrategy;
+
         type VortexWriteOptions;
         fn write_options_new() -> Box<VortexWriteOptions>;
+        fn write_options_new_with_session(session: &VortexSession) -> Box<VortexWriteOptions>;
+        fn write_options_exclude_dtype(options: &mut VortexWriteOptions);
+        fn write_options_with_strategy(
+            options: &mut VortexWriteOptions,
+            strategy: &VortexWriteStrategy,
+        );
+        fn write_options_with_file_statistics(
+            options: &mut VortexWriteOptions,
+            statistics: &[FileStat],
+        ) -> Result<()>;
+        fn write_options_without_file_statistics(options: &mut VortexWriteOptions);
+        fn write_options_into_writer(
+            options: Box<VortexWriteOptions>,
+            path: &str,
+        ) -> Box<VortexWriter>;
         unsafe fn write_array_stream(
             options: Box<VortexWriteOptions>,
             input_stream: *mut u8,
             path: &str,
         ) -> Result<()>;
+
+        type VortexWriter;
+        unsafe fn writer_push_array_stream(
+            writer: &mut VortexWriter,
+            input_stream: *mut u8,
+        ) -> Result<()>;
+        fn writer_bytes_written(writer: &VortexWriter) -> u64;
+        fn writer_buffered_bytes(writer: &VortexWriter) -> u64;
+        fn writer_finish(writer: Box<VortexWriter>) -> Result<()>;
+
+        type VortexSession;
+        fn session_new() -> Box<VortexSession>;
     }
 
     #[repr(u8)]
@@ -134,5 +179,19 @@ mod ffi {
         F16,
         F32,
         F64,
+    }
+
+    #[repr(u8)]
+    #[derive(Debug, Clone, Copy)]
+    enum FileStat {
+        IsConstant = 0,
+        IsSorted = 1,
+        IsStrictSorted = 2,
+        Max = 3,
+        Min = 4,
+        Sum = 5,
+        NullCount = 6,
+        UncompressedSizeInBytes = 7,
+        NaNCount = 8,
     }
 }

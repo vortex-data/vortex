@@ -29,6 +29,10 @@ uint64_t VortexFile::RowCount() const {
     return impl_->row_count();
 }
 
+bool VortexFile::HasFileStatistics() const {
+    return impl_->has_file_stats();
+}
+
 ScanBuilder VortexFile::CreateScanBuilder() const {
     return ScanBuilder(impl_->scan_builder());
 }
