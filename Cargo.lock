@@ -3385,7 +3385,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "object_store 0.13.1",
- "sqllogictest 0.29.1",
+ "sqllogictest",
  "sqlparser 0.61.0",
  "tempfile",
  "thiserror 2.0.18",
@@ -8636,31 +8636,6 @@ dependencies = [
  "num-traits",
  "robust",
  "smallvec",
-]
-
-[[package]]
-name = "sqllogictest"
-version = "0.28.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3566426f72a13e393aa34ca3d542c5b0eb86da4c0db137ee9b5cfccc6179e52d"
-dependencies = [
- "async-trait",
- "educe",
- "fs-err",
- "futures",
- "glob",
- "humantime",
- "itertools 0.13.0",
- "libtest-mimic",
- "md-5",
- "owo-colors",
- "rand 0.8.5",
- "regex",
- "similar",
- "subst",
- "tempfile",
- "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
