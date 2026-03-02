@@ -20,11 +20,9 @@ use std::time::Instant;
 use clap::Parser;
 use cudarc::driver::CudaSlice;
 use cudarc::driver::DevicePtr;
-use cudarc::driver::sys::CUdeviceptr;
 use futures::StreamExt;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_BUFFER_FORMAT;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_CODEC_H264_GUID;
-use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_INPUT_RESOURCE_TYPE;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_PRESET_P4_GUID;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_TUNING_INFO;
 use object_store::aws::AmazonS3Builder;
@@ -182,6 +180,12 @@ async fn main() -> VortexResult<()> {
     // Load RGB→NV12 kernel
     let nv12_kernel = nv12::load_rgb_to_nv12_kernel(&session)?;
 
+    // Bind CUDA context before any allocations or NVENC init
+    let cuda_context = cuda_ctx.stream().context().clone();
+    cuda_context
+        .bind_to_thread()
+        .map_err(|e| vortex_err!("Failed to bind CUDA context: {e}"))?;
+
     // Allocate NV12 buffer on GPU (width * height * 3/2 for Y + UV planes)
     let nv12_size = (width as usize) * (height as usize) * 3 / 2;
     let nv12_device: CudaSlice<u8> = cuda_ctx.device_alloc(nv12_size)?;
@@ -193,10 +197,6 @@ async fn main() -> VortexResult<()> {
     };
 
     // Create NVENC encoder
-    let cuda_context = cuda_ctx.stream().context().clone();
-    cuda_context
-        .bind_to_thread()
-        .map_err(|e| vortex_err!("Failed to bind CUDA context: {e}"))?;
 
     let encoder = nvidia_video_codec_sdk::Encoder::initialize_with_cuda(cuda_context)
         .map_err(|e| vortex_err!("NVENC init failed: {e}"))?;
@@ -214,15 +214,10 @@ async fn main() -> VortexResult<()> {
         .start_session(NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_NV12, init_params)
         .map_err(|e| vortex_err!("NVENC session start failed: {e}"))?;
 
-    // Register NV12 buffer with NVENC as an external CUDA resource
-    let mut registered_resource = nvenc_session
-        .register_generic_resource(
-            (),
-            NV_ENC_INPUT_RESOURCE_TYPE::NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR,
-            nv12_ptr as *mut std::ffi::c_void,
-            width,
-        )
-        .map_err(|e| vortex_err!("NVENC register failed: {e}"))?;
+    // Create NVENC-managed input and output buffers
+    let mut input_buffer = nvenc_session
+        .create_input_buffer()
+        .map_err(|e| vortex_err!("NVENC create input buffer failed: {e}"))?;
 
     let mut output_bitstream = nvenc_session
         .create_output_bitstream()
@@ -289,16 +284,28 @@ async fn main() -> VortexResult<()> {
                     height,
                 )?;
 
-                // Sync stream before NVENC reads the NV12 buffer
+                // Sync stream, then copy NV12 from GPU to NVENC input buffer
                 cuda_ctx
                     .stream()
                     .synchronize()
                     .map_err(|e| vortex_err!("CUDA stream sync failed: {e}"))?;
 
-                // Encode frame to H.264
+                // Download NV12 data from GPU to host
+                let nv12_host: Vec<u8> = cuda_ctx
+                    .stream()
+                    .clone_dtoh(&nv12_device)
+                    .map_err(|e| vortex_err!("NV12 dtoh copy failed: {e}"))?;
+
+                // Write to NVENC input buffer and encode
+                unsafe {
+                    input_buffer
+                        .lock()
+                        .map_err(|e| vortex_err!("NVENC lock input failed: {e}"))?
+                        .write(&nv12_host);
+                }
                 nvenc_session
                     .encode_picture(
-                        &mut registered_resource,
+                        &mut input_buffer,
                         &mut output_bitstream,
                         nvidia_video_codec_sdk::EncodePictureParams {
                             input_timestamp: frame_idx,
