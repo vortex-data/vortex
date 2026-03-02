@@ -22,6 +22,11 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::sys::CUdeviceptr;
 use futures::StreamExt;
+use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_BUFFER_FORMAT;
+use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_CODEC_H264_GUID;
+use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_INPUT_RESOURCE_TYPE;
+use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_PRESET_P4_GUID;
+use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_TUNING_INFO;
 use object_store::aws::AmazonS3Builder;
 use object_store::path::Path as ObjectPath;
 use tokio::time::Duration;
@@ -187,24 +192,41 @@ async fn main() -> VortexResult<()> {
         ptr
     };
 
-    // Create NVENC encoder — bind the CUDA context to this thread first.
+    // Create NVENC encoder
     let cuda_context = cuda_ctx.stream().context().clone();
     cuda_context
         .bind_to_thread()
         .map_err(|e| vortex_err!("Failed to bind CUDA context: {e}"))?;
-    let mut encoder = vortex_nvenc::NvEncoder::new(
-        cuda_context.cu_ctx() as *mut std::ffi::c_void,
-        width,
-        height,
-        fps,
-        bitrate,
-    )
-    .map_err(|e| vortex_err!("NVENC init failed: {e}"))?;
 
-    // Register NV12 buffer with NVENC
-    let registered_resource = encoder
-        .register_input(nv12_ptr, width)
-        .map_err(|e| vortex_err!("NVENC register_input failed: {e}"))?;
+    let encoder = nvidia_video_codec_sdk::Encoder::initialize_with_cuda(cuda_context)
+        .map_err(|e| vortex_err!("NVENC init failed: {e}"))?;
+
+    let mut init_params =
+        nvidia_video_codec_sdk::EncoderInitParams::new(NV_ENC_CODEC_H264_GUID, width, height);
+    init_params
+        .preset_guid(NV_ENC_PRESET_P4_GUID)
+        .tuning_info(NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_LOW_LATENCY)
+        .display_aspect_ratio(width, height)
+        .framerate(fps, 1)
+        .enable_picture_type_decision();
+
+    let session = encoder
+        .start_session(NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_NV12, init_params)
+        .map_err(|e| vortex_err!("NVENC session start failed: {e}"))?;
+
+    // Register NV12 buffer with NVENC as an external CUDA resource
+    let mut registered_resource = session
+        .register_generic_resource(
+            (),
+            NV_ENC_INPUT_RESOURCE_TYPE::NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR,
+            nv12_ptr as *mut std::ffi::c_void,
+            width,
+        )
+        .map_err(|e| vortex_err!("NVENC register failed: {e}"))?;
+
+    let mut output_bitstream = session
+        .create_output_bitstream()
+        .map_err(|e| vortex_err!("NVENC create bitstream failed: {e}"))?;
 
     // Create MPEG-TS muxer
     let mut mux = mux::TsMuxer::new(fps);
@@ -274,9 +296,21 @@ async fn main() -> VortexResult<()> {
                     .map_err(|e| vortex_err!("CUDA stream sync failed: {e}"))?;
 
                 // Encode frame to H.264
-                let h264_nals = encoder
-                    .encode_frame(&registered_resource)
+                session
+                    .encode_picture(
+                        &mut registered_resource,
+                        &mut output_bitstream,
+                        nvidia_video_codec_sdk::EncodePictureParams {
+                            input_timestamp: frame_idx,
+                            ..Default::default()
+                        },
+                    )
                     .map_err(|e| vortex_err!("NVENC encode failed: {e}"))?;
+                let lock = output_bitstream
+                    .lock()
+                    .map_err(|e| vortex_err!("NVENC lock bitstream failed: {e}"))?;
+                let h264_nals = lock.data().to_vec();
+                drop(lock);
 
                 // Mux to MPEG-TS
                 let ts_packets = mux.write_access_unit(&h264_nals, frame_idx);
@@ -302,13 +336,9 @@ async fn main() -> VortexResult<()> {
     }
 
     // Flush encoder
-    if let Some(flush_data) = encoder
-        .flush()
-        .map_err(|e| vortex_err!("NVENC flush failed: {e}"))?
-    {
-        let ts_packets = mux.write_access_unit(&flush_data, frame_idx);
-        srt_sender.send(ts_packets).await?;
-    }
+    session
+        .end_of_stream()
+        .map_err(|e| vortex_err!("NVENC flush failed: {e}"))?;
 
     srt_sender.close().await?;
 

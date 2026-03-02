@@ -27,6 +27,7 @@ members = [
     "vortex-cuda/macros",
     "vortex-cuda/nvcomp",
     "vortex-cuda/nvenc",
+    "vortex-cuda/nvidia-video-codec-sdk",
     "vortex-cuda/gpu-video-demo",
     "vortex-cuda/video-prep",
     "vortex-cxx",
@@ -285,6 +286,7 @@ vortex-bench = { path = "./vortex-bench", default-features = false }
 vortex-cuda = { path = "./vortex-cuda", default-features = false }
 vortex-cuda-macros = { path = "./vortex-cuda/macros" }
 vortex-nvenc = { path = "./vortex-cuda/nvenc" }
+nvidia-video-codec-sdk = { path = "./vortex-cuda/nvidia-video-codec-sdk" }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-test-e2e = { path = "./vortex-test/e2e", default-features = false }
 vortex-test-e2e-cuda = { path = "./vortex-test/e2e-cuda", default-features = false }

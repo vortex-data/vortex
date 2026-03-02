@@ -30,4 +30,4 @@ url = { workspace = true }
 vortex = { workspace = true, features = ["tokio"] }
 vortex-cuda = { workspace = true, features = ["_test-harness"] }
 vortex-cuda-macros = { workspace = true }
-vortex-nvenc = { workspace = true }
+nvidia-video-codec-sdk = { workspace = true }
