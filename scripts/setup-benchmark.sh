@@ -14,7 +14,7 @@ fi
 sudo sysctl vm.swappiness=0
 
 # Disable ASLR - https://docs.kernel.org/admin-guide/sysctl/kernel.html#randomize-va-space
-sudo sysctl kernel.randomize_va_space
+sudo sysctl kernel.randomize_va_space=0
 
 # Reduce kernel logging to minimum
 dmesg -n 1
