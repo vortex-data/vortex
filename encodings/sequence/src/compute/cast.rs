@@ -188,7 +188,7 @@ mod tests {
     // TODO(DK): SequenceArray does not actually conform. You cannot cast this array to u8 even
     // though all its values are representable therein.
     //
-    // #[case::negative_step(SequenceArray::typed_new(100i32, -10i32, Nullability::NonNullable,
+    // #[case::negative_step(SequenceArray::try_new_typed(100i32, -10i32, Nullability::NonNullable,
     // 5).unwrap())]
     #[case::single(SequenceArray::try_new_typed(42i64, 0i64, Nullability::NonNullable, 1).unwrap())]
     #[case::constant(SequenceArray::try_new_typed(
