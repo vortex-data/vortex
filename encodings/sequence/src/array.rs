@@ -50,8 +50,14 @@ use crate::rules::RULES;
 
 vtable!(Sequence);
 
-#[derive(Clone, prost::Message)]
+#[derive(Debug, Clone, Copy)]
 pub struct SequenceMetadata {
+    base: PValue,
+    multiplier: PValue,
+}
+
+#[derive(Clone, prost::Message)]
+pub struct ProstSequenceMetadata {
     #[prost(message, tag = "1")]
     base: Option<vortex_proto::scalar::ScalarValue>,
     #[prost(message, tag = "2")]
@@ -78,13 +84,13 @@ pub struct SequenceArray {
 }
 
 impl SequenceArray {
-    pub fn typed_new<T: NativePType + Into<PValue>>(
+    pub fn try_new_typed<T: NativePType + Into<PValue>>(
         base: T,
         multiplier: T,
         nullability: Nullability,
         length: usize,
     ) -> VortexResult<Self> {
-        Self::new(
+        Self::try_new(
             base.into(),
             multiplier.into(),
             T::PTYPE,
@@ -94,7 +100,7 @@ impl SequenceArray {
     }
 
     /// Constructs a sequence array using two integer values (with the same ptype).
-    pub fn new(
+    pub fn try_new(
         base: PValue,
         multiplier: PValue,
         ptype: PType,
@@ -111,16 +117,23 @@ impl SequenceArray {
             ))
         })?;
 
-        Ok(Self::unchecked_new(
-            base,
-            multiplier,
-            ptype,
-            nullability,
-            length,
-        ))
+        // SAFETY: we just validated that `ptype` is an integer and that the final
+        // element is representable via `try_last`.
+        Ok(unsafe { Self::new_unchecked(base, multiplier, ptype, nullability, length) })
     }
 
-    pub(crate) fn unchecked_new(
+    /// Constructs a [`SequenceArray`] without validating that the `ptype` is an integer
+    /// type or that the final element is representable.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that:
+    /// - `ptype` is an integer type (i.e., `ptype.is_int()` returns `true`).
+    /// - `base + (length - 1) * multiplier` does not overflow the range of `ptype`.
+    ///
+    /// Violating the first invariant will cause a panic. Violating the second will
+    /// cause silent wraparound when materializing elements, producing incorrect values.
+    pub(crate) unsafe fn new_unchecked(
         base: PValue,
         multiplier: PValue,
         ptype: PType,
@@ -226,7 +239,7 @@ impl SequenceArray {
 impl VTable for SequenceVTable {
     type Array = SequenceArray;
 
-    type Metadata = ProstMetadata<SequenceMetadata>;
+    type Metadata = SequenceMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
@@ -289,26 +302,60 @@ impl VTable for SequenceVTable {
     }
 
     fn metadata(array: &SequenceArray) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(SequenceMetadata {
-            base: Some((&array.base()).into()),
-            multiplier: Some((&array.multiplier()).into()),
-        }))
+        Ok(SequenceMetadata {
+            base: array.base(),
+            multiplier: array.multiplier(),
+        })
     }
 
     fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+        let prost = ProstMetadata(ProstSequenceMetadata {
+            base: Some((&metadata.base).into()),
+            multiplier: Some((&metadata.multiplier).into()),
+        });
+
+        Ok(Some(prost.serialize()))
     }
 
     fn deserialize(
         bytes: &[u8],
-        _dtype: &DType,
+        dtype: &DType,
         _len: usize,
         _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(
-            <ProstMetadata<SequenceMetadata> as DeserializeMetadata>::deserialize(bytes)?,
-        ))
+        let prost = ProstMetadata(
+            <ProstMetadata<ProstSequenceMetadata> as DeserializeMetadata>::deserialize(bytes)?,
+        );
+
+        let ptype = dtype.as_ptype();
+
+        // We go via Scalar to validate that the value is valid for the ptype.
+        let base = Scalar::from_proto_value(
+            prost
+                .0
+                .base
+                .as_ref()
+                .ok_or_else(|| vortex_err!("base required"))?,
+            &DType::Primitive(ptype, NonNullable),
+        )?
+        .as_primitive()
+        .pvalue()
+        .vortex_expect("sequence array base should be a non-nullable primitive");
+
+        let multiplier = Scalar::from_proto_value(
+            prost
+                .0
+                .multiplier
+                .as_ref()
+                .ok_or_else(|| vortex_err!("multiplier required"))?,
+            &DType::Primitive(ptype, NonNullable),
+        )?
+        .as_primitive()
+        .pvalue()
+        .vortex_expect("sequence array multiplier should be a non-nullable primitive");
+
+        Ok(SequenceMetadata { base, multiplier })
     }
 
     fn build(
@@ -318,40 +365,13 @@ impl VTable for SequenceVTable {
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<SequenceArray> {
-        let ptype = dtype.as_ptype();
-
-        // We go via scalar to cast the scalar values into the correct PType
-        let base = Scalar::from_proto_value(
-            metadata
-                .0
-                .base
-                .as_ref()
-                .ok_or_else(|| vortex_err!("base required"))?,
-            &DType::Primitive(ptype, NonNullable),
-        )?
-        .as_primitive()
-        .pvalue()
-        .vortex_expect("non-nullable primitive");
-
-        let multiplier = Scalar::from_proto_value(
-            metadata
-                .0
-                .multiplier
-                .as_ref()
-                .ok_or_else(|| vortex_err!("multiplier required"))?,
-            &DType::Primitive(ptype, NonNullable),
-        )?
-        .as_primitive()
-        .pvalue()
-        .vortex_expect("non-nullable primitive");
-
-        Ok(SequenceArray::unchecked_new(
-            base,
-            multiplier,
-            ptype,
+        SequenceArray::try_new(
+            metadata.base,
+            metadata.multiplier,
+            dtype.as_ptype(),
             dtype.nullability(),
             len,
-        ))
+        )
     }
 
     fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -433,7 +453,7 @@ mod tests {
 
     #[test]
     fn test_sequence_canonical() {
-        let arr = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4).unwrap();
+        let arr = SequenceArray::try_new_typed(2i64, 3, Nullability::NonNullable, 4).unwrap();
 
         let canon = PrimitiveArray::from_iter((0..4).map(|i| 2i64 + i * 3));
 
@@ -442,7 +462,7 @@ mod tests {
 
     #[test]
     fn test_sequence_slice_canonical() {
-        let arr = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
+        let arr = SequenceArray::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
             .slice(2..3)
             .unwrap();
@@ -454,7 +474,7 @@ mod tests {
 
     #[test]
     fn test_sequence_scalar_at() {
-        let scalar = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
+        let scalar = SequenceArray::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
             .scalar_at(2)
             .unwrap();
@@ -467,19 +487,19 @@ mod tests {
 
     #[test]
     fn test_sequence_min_max() {
-        assert!(SequenceArray::typed_new(-127i8, -1i8, Nullability::NonNullable, 2).is_ok());
-        assert!(SequenceArray::typed_new(126i8, -1i8, Nullability::NonNullable, 2).is_ok());
+        assert!(SequenceArray::try_new_typed(-127i8, -1i8, Nullability::NonNullable, 2).is_ok());
+        assert!(SequenceArray::try_new_typed(126i8, -1i8, Nullability::NonNullable, 2).is_ok());
     }
 
     #[test]
     fn test_sequence_too_big() {
-        assert!(SequenceArray::typed_new(127i8, 1i8, Nullability::NonNullable, 2).is_err());
-        assert!(SequenceArray::typed_new(-128i8, -1i8, Nullability::NonNullable, 2).is_err());
+        assert!(SequenceArray::try_new_typed(127i8, 1i8, Nullability::NonNullable, 2).is_err());
+        assert!(SequenceArray::try_new_typed(-128i8, -1i8, Nullability::NonNullable, 2).is_err());
     }
 
     #[test]
     fn positive_multiplier_is_strict_sorted() -> VortexResult<()> {
-        let arr = SequenceArray::typed_new(0i64, 3, Nullability::NonNullable, 4)?;
+        let arr = SequenceArray::try_new_typed(0i64, 3, Nullability::NonNullable, 4)?;
 
         let is_sorted = arr
             .statistics()
@@ -495,7 +515,7 @@ mod tests {
 
     #[test]
     fn zero_multiplier_is_sorted_not_strict() -> VortexResult<()> {
-        let arr = SequenceArray::typed_new(5i64, 0, Nullability::NonNullable, 4)?;
+        let arr = SequenceArray::try_new_typed(5i64, 0, Nullability::NonNullable, 4)?;
 
         let is_sorted = arr
             .statistics()
@@ -511,7 +531,7 @@ mod tests {
 
     #[test]
     fn negative_multiplier_not_sorted() -> VortexResult<()> {
-        let arr = SequenceArray::typed_new(10i64, -1, Nullability::NonNullable, 4)?;
+        let arr = SequenceArray::try_new_typed(10i64, -1, Nullability::NonNullable, 4)?;
 
         let is_sorted = arr
             .statistics()
@@ -530,7 +550,7 @@ mod tests {
     #[test]
     fn test_large_multiplier_sorted() -> VortexResult<()> {
         let large_multiplier = (i64::MAX as u64) + 1;
-        let arr = SequenceArray::typed_new(0, large_multiplier, Nullability::NonNullable, 2)?;
+        let arr = SequenceArray::try_new_typed(0, large_multiplier, Nullability::NonNullable, 2)?;
 
         let is_sorted = arr
             .statistics()

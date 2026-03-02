@@ -126,7 +126,7 @@ mod tests {
     ) {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
 
-        let array = SequenceArray::typed_new(base, multiplier, nullability, len).unwrap();
+        let array = SequenceArray::try_new_typed(base, multiplier, nullability, len).unwrap();
 
         let cpu_result = array.to_canonical().unwrap().into_array();
 
