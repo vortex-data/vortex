@@ -8,7 +8,6 @@ use std::sync::Arc;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::Array;
@@ -18,7 +17,6 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::StructFields;
-use crate::scalar::Scalar;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -177,25 +175,6 @@ impl StructArray {
     pub fn unmasked_field_by_name_opt(&self, name: impl AsRef<str>) -> Option<&ArrayRef> {
         let name = name.as_ref();
         self.struct_fields().find(name).map(|idx| &self.fields[idx])
-    }
-
-    /// Iterate over the scalar value of each field at the given row index.
-    ///
-    /// Returns `Ok(None)` if the row is null at the struct level. Returns `Ok(Some(iter))` for
-    /// valid rows, yielding one `VortexResult<Scalar>` per field.
-    pub fn scalar_at_fields(
-        &self,
-        index: usize,
-    ) -> VortexResult<Option<impl Iterator<Item = VortexResult<Scalar>> + '_>> {
-        vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
-        if !self.validity.is_valid(index)? {
-            return Ok(None);
-        }
-        Ok(Some(
-            self.unmasked_fields()
-                .iter()
-                .map(move |f| f.scalar_at(index)),
-        ))
     }
 
     pub fn names(&self) -> &FieldNames {
