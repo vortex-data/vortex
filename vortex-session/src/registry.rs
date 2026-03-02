@@ -9,7 +9,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use arcref::ArcRef;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::dash_map::DashMap;
 
