@@ -354,7 +354,7 @@ pub fn vortex_array::arrays::BoolArray::validate(bits: &vortex_buffer::bit::buf:
 
 impl vortex_array::arrays::BoolArray
 
-pub fn vortex_array::arrays::BoolArray::patch(self, patches: &vortex_array::patches::Patches) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::arrays::BoolArray::patch(self, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_array::arrays::BoolArray
 
@@ -438,9 +438,9 @@ impl core::fmt::Debug for vortex_array::arrays::BoolVTable
 
 pub fn vortex_array::arrays::BoolVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl vortex_array::arrays::FilterKernel for vortex_array::arrays::BoolVTable
+impl vortex_array::arrays::FilterReduce for vortex_array::arrays::BoolVTable
 
-pub fn vortex_array::arrays::BoolVTable::filter(array: &vortex_array::arrays::BoolArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::BoolVTable::filter(array: &vortex_array::arrays::BoolArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::BoolVTable
 
@@ -892,7 +892,7 @@ pub unsafe fn vortex_array::arrays::DecimalArray::new_unchecked_from_byte_buffer
 
 pub unsafe fn vortex_array::arrays::DecimalArray::new_unchecked_handle(values: vortex_array::buffer::BufferHandle, values_type: vortex_array::dtype::DecimalType, decimal_dtype: vortex_array::dtype::DecimalDType, validity: vortex_array::validity::Validity) -> Self
 
-pub fn vortex_array::arrays::DecimalArray::patch(self, patches: &vortex_array::patches::Patches) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::arrays::DecimalArray::patch(self, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::DecimalArray::precision(&self) -> u8
 
@@ -2074,9 +2074,9 @@ impl vortex_array::arrays::SliceReduce for vortex_array::arrays::ListViewVTable
 
 pub fn vortex_array::arrays::ListViewVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::arrays::TakeExecute for vortex_array::arrays::ListViewVTable
+impl vortex_array::arrays::TakeReduce for vortex_array::arrays::ListViewVTable
 
-pub fn vortex_array::arrays::ListViewVTable::take(array: &vortex_array::arrays::ListViewArray, indices: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::ListViewVTable::take(array: &vortex_array::arrays::ListViewArray, indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::compute::IsConstantKernel for vortex_array::arrays::ListViewVTable
 
@@ -2214,9 +2214,9 @@ impl vortex_array::arrays::SliceReduce for vortex_array::arrays::MaskedVTable
 
 pub fn vortex_array::arrays::MaskedVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::arrays::TakeExecute for vortex_array::arrays::MaskedVTable
+impl vortex_array::arrays::TakeReduce for vortex_array::arrays::MaskedVTable
 
-pub fn vortex_array::arrays::MaskedVTable::take(array: &vortex_array::arrays::MaskedArray, indices: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::MaskedVTable::take(array: &vortex_array::arrays::MaskedArray, indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::mask::MaskReduce for vortex_array::arrays::MaskedVTable
 
@@ -2540,7 +2540,7 @@ pub fn vortex_array::arrays::PrimitiveArray::into_parts(self) -> vortex_array::a
 
 impl vortex_array::arrays::PrimitiveArray
 
-pub fn vortex_array::arrays::PrimitiveArray::patch(self, patches: &vortex_array::patches::Patches) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::arrays::PrimitiveArray::patch(self, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrays::PrimitiveArray
 
@@ -3268,9 +3268,9 @@ impl vortex_array::arrays::SliceReduce for vortex_array::arrays::StructVTable
 
 pub fn vortex_array::arrays::StructVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::arrays::TakeExecute for vortex_array::arrays::StructVTable
+impl vortex_array::arrays::TakeReduce for vortex_array::arrays::StructVTable
 
-pub fn vortex_array::arrays::StructVTable::take(array: &vortex_array::arrays::StructArray, indices: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::StructVTable::take(array: &vortex_array::arrays::StructArray, indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::compute::IsConstantKernel for vortex_array::arrays::StructVTable
 
@@ -3900,10 +3900,6 @@ pub trait vortex_array::arrays::FilterKernel: vortex_array::vtable::VTable
 
 pub fn vortex_array::arrays::FilterKernel::filter(array: &Self::Array, mask: &vortex_mask::Mask, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::arrays::FilterKernel for vortex_array::arrays::BoolVTable
-
-pub fn vortex_array::arrays::BoolVTable::filter(array: &vortex_array::arrays::BoolArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
 impl vortex_array::arrays::FilterKernel for vortex_array::arrays::ChunkedVTable
 
 pub fn vortex_array::arrays::ChunkedVTable::filter(array: &vortex_array::arrays::ChunkedArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -3919,6 +3915,10 @@ pub fn vortex_array::arrays::VarBinVTable::filter(array: &vortex_array::arrays::
 pub trait vortex_array::arrays::FilterReduce: vortex_array::vtable::VTable
 
 pub fn vortex_array::arrays::FilterReduce::filter(array: &Self::Array, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::arrays::FilterReduce for vortex_array::arrays::BoolVTable
+
+pub fn vortex_array::arrays::BoolVTable::filter(array: &vortex_array::arrays::BoolArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::arrays::FilterReduce for vortex_array::arrays::ConstantVTable
 
@@ -4056,21 +4056,9 @@ impl vortex_array::arrays::TakeExecute for vortex_array::arrays::ListVTable
 
 pub fn vortex_array::arrays::ListVTable::take(array: &vortex_array::arrays::ListArray, indices: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::arrays::TakeExecute for vortex_array::arrays::ListViewVTable
-
-pub fn vortex_array::arrays::ListViewVTable::take(array: &vortex_array::arrays::ListViewArray, indices: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::arrays::TakeExecute for vortex_array::arrays::MaskedVTable
-
-pub fn vortex_array::arrays::MaskedVTable::take(array: &vortex_array::arrays::MaskedArray, indices: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
 impl vortex_array::arrays::TakeExecute for vortex_array::arrays::PrimitiveVTable
 
 pub fn vortex_array::arrays::PrimitiveVTable::take(array: &vortex_array::arrays::PrimitiveArray, indices: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::arrays::TakeExecute for vortex_array::arrays::StructVTable
-
-pub fn vortex_array::arrays::StructVTable::take(array: &vortex_array::arrays::StructArray, indices: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::arrays::TakeExecute for vortex_array::arrays::VarBinVTable
 
@@ -4088,9 +4076,21 @@ impl vortex_array::arrays::TakeReduce for vortex_array::arrays::ConstantVTable
 
 pub fn vortex_array::arrays::ConstantVTable::take(array: &vortex_array::arrays::ConstantArray, indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+impl vortex_array::arrays::TakeReduce for vortex_array::arrays::ListViewVTable
+
+pub fn vortex_array::arrays::ListViewVTable::take(array: &vortex_array::arrays::ListViewArray, indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::arrays::TakeReduce for vortex_array::arrays::MaskedVTable
+
+pub fn vortex_array::arrays::MaskedVTable::take(array: &vortex_array::arrays::MaskedArray, indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 impl vortex_array::arrays::TakeReduce for vortex_array::arrays::NullVTable
 
 pub fn vortex_array::arrays::NullVTable::take(array: &vortex_array::arrays::NullArray, indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::arrays::TakeReduce for vortex_array::arrays::StructVTable
+
+pub fn vortex_array::arrays::StructVTable::take(array: &vortex_array::arrays::StructArray, indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::arrays::chunk_range(chunk_idx: usize, offset: usize, array_len: usize) -> core::ops::range::Range<usize>
 
@@ -11010,7 +11010,7 @@ pub struct vortex_array::patches::Patches
 
 impl vortex_array::patches::Patches
 
-pub unsafe fn vortex_array::patches::Patches::apply_to_buffer<P: vortex_array::dtype::NativePType>(&self, buffer: &mut [P], validity: &mut vortex_mask::mask_mut::MaskMut)
+pub unsafe fn vortex_array::patches::Patches::apply_to_buffer<P: vortex_array::dtype::NativePType>(&self, buffer: &mut [P], validity: &mut vortex_mask::mask_mut::MaskMut, ctx: &mut vortex_array::ExecutionCtx)
 
 pub fn vortex_array::patches::Patches::array_len(&self) -> usize
 
@@ -11022,7 +11022,7 @@ pub fn vortex_array::patches::Patches::chunk_offsets(&self) -> &core::option::Op
 
 pub fn vortex_array::patches::Patches::dtype(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::patches::Patches::filter(&self, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<Self>>
+pub fn vortex_array::patches::Patches::filter(&self, mask: &vortex_mask::Mask, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<Self>>
 
 pub fn vortex_array::patches::Patches::get_patched(&self, index: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
 
@@ -11038,7 +11038,7 @@ pub fn vortex_array::patches::Patches::into_values(self) -> vortex_array::ArrayR
 
 pub fn vortex_array::patches::Patches::map_values<F>(self, f: F) -> vortex_error::VortexResult<Self> where F: core::ops::function::FnOnce(vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::patches::Patches::mask(&self, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<Self>>
+pub fn vortex_array::patches::Patches::mask(&self, mask: &vortex_mask::Mask, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<Self>>
 
 pub fn vortex_array::patches::Patches::max_index(&self) -> vortex_error::VortexResult<usize>
 
@@ -11058,13 +11058,13 @@ pub fn vortex_array::patches::Patches::search_index(&self, index: usize) -> vort
 
 pub fn vortex_array::patches::Patches::slice(&self, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<Self>>
 
-pub fn vortex_array::patches::Patches::take(&self, take_indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<Self>>
+pub fn vortex_array::patches::Patches::take(&self, take_indices: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<Self>>
 
-pub fn vortex_array::patches::Patches::take_map(&self, take_indices: vortex_array::arrays::PrimitiveArray, include_nulls: bool) -> vortex_error::VortexResult<core::option::Option<Self>>
+pub fn vortex_array::patches::Patches::take_map(&self, take_indices: vortex_array::arrays::PrimitiveArray, include_nulls: bool, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<Self>>
 
-pub fn vortex_array::patches::Patches::take_search(&self, take_indices: vortex_array::arrays::PrimitiveArray, include_nulls: bool) -> vortex_error::VortexResult<core::option::Option<Self>>
+pub fn vortex_array::patches::Patches::take_search(&self, take_indices: vortex_array::arrays::PrimitiveArray, include_nulls: bool, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<Self>>
 
-pub fn vortex_array::patches::Patches::take_with_nulls(&self, take_indices: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<Self>>
+pub fn vortex_array::patches::Patches::take_with_nulls(&self, take_indices: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<Self>>
 
 pub fn vortex_array::patches::Patches::to_metadata(&self, len: usize, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::patches::PatchesMetadata>
 
@@ -16242,7 +16242,7 @@ pub fn vortex_array::validity::Validity::not(&self) -> vortex_error::VortexResul
 
 pub fn vortex_array::validity::Validity::nullability(&self) -> vortex_array::dtype::Nullability
 
-pub fn vortex_array::validity::Validity::patch(self, len: usize, indices_offset: usize, indices: &vortex_array::ArrayRef, patches: &vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::validity::Validity::patch(self, len: usize, indices_offset: usize, indices: &vortex_array::ArrayRef, patches: &vortex_array::validity::Validity, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::validity::Validity::slice(&self, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<Self>
 
