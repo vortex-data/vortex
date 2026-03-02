@@ -14,6 +14,7 @@ use vortex_session::VortexSession;
 use super::DictArray;
 use super::DictMetadata;
 use super::take_canonical;
+use crate::AnyCanonical;
 use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
@@ -23,6 +24,8 @@ use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::arrays::constant::constant_canonicalize;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -196,18 +199,24 @@ impl VTable for DictVTable {
             return Ok(ExecutionStep::Done(canonical));
         }
 
-        // TODO(joe): if the values are constant return a constant
-        let values = array.values().clone().execute::<Canonical>(ctx)?;
-        let codes = array
-            .codes()
-            .clone()
-            .execute::<Canonical>(ctx)?
-            .into_primitive();
+        // Ensure codes (child 0) are in canonical form.
+        let codes = if let Some(canonical) = array.codes().as_opt::<AnyCanonical>() {
+            Canonical::from(canonical)
+        } else if let Some(constant) = array.codes().as_opt::<ConstantVTable>() {
+            constant_canonicalize(constant)?
+        } else {
+            return Ok(ExecutionStep::ExecuteChild(0));
+        };
+        let codes = codes.into_primitive();
 
-        // TODO(ngates): if indices are sorted and unique (strict-sorted), then we should delegate to
-        //  the filter function since they're typically optimised for this case.
-        // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
-        //  such that canonicalize does less work.
+        // Ensure values (child 1) are in canonical form.
+        let values = if let Some(canonical) = array.values().as_opt::<AnyCanonical>() {
+            Canonical::from(canonical)
+        } else if let Some(constant) = array.values().as_opt::<ConstantVTable>() {
+            constant_canonicalize(constant)?
+        } else {
+            return Ok(ExecutionStep::ExecuteChild(1));
+        };
 
         Ok(ExecutionStep::Done(
             take_canonical(values, &codes, ctx)?.into_array(),
