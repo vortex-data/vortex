@@ -272,11 +272,8 @@ impl VTable for ZstdVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        array
-            .decompress()?
-            .execute::<ArrayRef>(ctx)
-            .map(ExecutionStep::Done)
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(array.decompress()?))
     }
 
     fn reduce_parent(
