@@ -22,9 +22,9 @@ impl core::clone::Clone for vortex_sequence::SequenceArray
 
 pub fn vortex_sequence::SequenceArray::clone(&self) -> vortex_sequence::SequenceArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_sequence::SequenceArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_sequence::SequenceArray
 
-pub fn vortex_sequence::SequenceArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_sequence::SequenceArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_sequence::SequenceArray> for vortex_array::array::ArrayRef
 
@@ -36,7 +36,7 @@ pub fn vortex_sequence::SequenceArray::fmt(&self, f: &mut core::fmt::Formatter<'
 
 impl core::ops::deref::Deref for vortex_sequence::SequenceArray
 
-pub type vortex_sequence::SequenceArray::Target = dyn vortex_array::array::Array
+pub type vortex_sequence::SequenceArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_sequence::SequenceArray::deref(&self) -> &Self::Target
 

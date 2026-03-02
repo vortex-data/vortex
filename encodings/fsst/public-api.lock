@@ -26,9 +26,9 @@ impl core::clone::Clone for vortex_fsst::FSSTArray
 
 pub fn vortex_fsst::FSSTArray::clone(&self) -> vortex_fsst::FSSTArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_fsst::FSSTArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_fsst::FSSTArray
 
-pub fn vortex_fsst::FSSTArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_fsst::FSSTArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_fsst::FSSTArray> for vortex_array::array::ArrayRef
 
@@ -40,7 +40,7 @@ pub fn vortex_fsst::FSSTArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> c
 
 impl core::ops::deref::Deref for vortex_fsst::FSSTArray
 
-pub type vortex_fsst::FSSTArray::Target = dyn vortex_array::array::Array
+pub type vortex_fsst::FSSTArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_fsst::FSSTArray::deref(&self) -> &Self::Target
 
@@ -172,7 +172,7 @@ impl vortex_array::vtable::validity::ValidityChild<vortex_fsst::FSSTVTable> for 
 
 pub fn vortex_fsst::FSSTVTable::validity_child(array: &vortex_fsst::FSSTArray) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_fsst::fsst_compress<A: vortex_array::accessor::ArrayAccessor<[u8]> + core::convert::AsRef<dyn vortex_array::array::Array>>(strings: A, compressor: &fsst::Compressor) -> vortex_fsst::FSSTArray
+pub fn vortex_fsst::fsst_compress<A: vortex_array::accessor::ArrayAccessor<[u8]> + core::convert::AsRef<dyn vortex_array::array::DynArray>>(strings: A, compressor: &fsst::Compressor) -> vortex_fsst::FSSTArray
 
 pub fn vortex_fsst::fsst_compress_iter<'a, I>(iter: I, len: usize, dtype: vortex_array::dtype::DType, compressor: &fsst::Compressor) -> vortex_fsst::FSSTArray where I: core::iter::traits::iterator::Iterator<Item = core::option::Option<&'a [u8]>>
 

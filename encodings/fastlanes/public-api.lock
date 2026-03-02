@@ -138,9 +138,9 @@ impl core::clone::Clone for vortex_fastlanes::BitPackedArray
 
 pub fn vortex_fastlanes::BitPackedArray::clone(&self) -> vortex_fastlanes::BitPackedArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_fastlanes::BitPackedArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_fastlanes::BitPackedArray
 
-pub fn vortex_fastlanes::BitPackedArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_fastlanes::BitPackedArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_fastlanes::BitPackedArray> for vortex_array::array::ArrayRef
 
@@ -152,7 +152,7 @@ pub fn vortex_fastlanes::BitPackedArray::fmt(&self, f: &mut core::fmt::Formatter
 
 impl core::ops::deref::Deref for vortex_fastlanes::BitPackedArray
 
-pub type vortex_fastlanes::BitPackedArray::Target = dyn vortex_array::array::Array
+pub type vortex_fastlanes::BitPackedArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_fastlanes::BitPackedArray::deref(&self) -> &Self::Target
 
@@ -292,9 +292,9 @@ impl core::clone::Clone for vortex_fastlanes::DeltaArray
 
 pub fn vortex_fastlanes::DeltaArray::clone(&self) -> vortex_fastlanes::DeltaArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_fastlanes::DeltaArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_fastlanes::DeltaArray
 
-pub fn vortex_fastlanes::DeltaArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_fastlanes::DeltaArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_fastlanes::DeltaArray> for vortex_array::array::ArrayRef
 
@@ -306,7 +306,7 @@ pub fn vortex_fastlanes::DeltaArray::fmt(&self, f: &mut core::fmt::Formatter<'_>
 
 impl core::ops::deref::Deref for vortex_fastlanes::DeltaArray
 
-pub type vortex_fastlanes::DeltaArray::Target = dyn vortex_array::array::Array
+pub type vortex_fastlanes::DeltaArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_fastlanes::DeltaArray::deref(&self) -> &Self::Target
 
@@ -408,9 +408,9 @@ impl core::clone::Clone for vortex_fastlanes::FoRArray
 
 pub fn vortex_fastlanes::FoRArray::clone(&self) -> vortex_fastlanes::FoRArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_fastlanes::FoRArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_fastlanes::FoRArray
 
-pub fn vortex_fastlanes::FoRArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_fastlanes::FoRArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_fastlanes::FoRArray> for vortex_array::array::ArrayRef
 
@@ -422,7 +422,7 @@ pub fn vortex_fastlanes::FoRArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) 
 
 impl core::ops::deref::Deref for vortex_fastlanes::FoRArray
 
-pub type vortex_fastlanes::FoRArray::Target = dyn vortex_array::array::Array
+pub type vortex_fastlanes::FoRArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_fastlanes::FoRArray::deref(&self) -> &Self::Target
 
@@ -558,9 +558,9 @@ impl core::clone::Clone for vortex_fastlanes::RLEArray
 
 pub fn vortex_fastlanes::RLEArray::clone(&self) -> vortex_fastlanes::RLEArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_fastlanes::RLEArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_fastlanes::RLEArray
 
-pub fn vortex_fastlanes::RLEArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_fastlanes::RLEArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_fastlanes::RLEArray> for vortex_array::array::ArrayRef
 
@@ -572,7 +572,7 @@ pub fn vortex_fastlanes::RLEArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) 
 
 impl core::ops::deref::Deref for vortex_fastlanes::RLEArray
 
-pub type vortex_fastlanes::RLEArray::Target = dyn vortex_array::array::Array
+pub type vortex_fastlanes::RLEArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_fastlanes::RLEArray::deref(&self) -> &Self::Target
 

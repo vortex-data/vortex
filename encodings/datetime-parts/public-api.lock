@@ -18,9 +18,9 @@ impl core::clone::Clone for vortex_datetime_parts::DateTimePartsArray
 
 pub fn vortex_datetime_parts::DateTimePartsArray::clone(&self) -> vortex_datetime_parts::DateTimePartsArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_datetime_parts::DateTimePartsArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_datetime_parts::DateTimePartsArray
 
-pub fn vortex_datetime_parts::DateTimePartsArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_datetime_parts::DateTimePartsArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_datetime_parts::DateTimePartsArray> for vortex_array::array::ArrayRef
 
@@ -38,7 +38,7 @@ pub fn vortex_datetime_parts::DateTimePartsArray::fmt(&self, f: &mut core::fmt::
 
 impl core::ops::deref::Deref for vortex_datetime_parts::DateTimePartsArray
 
-pub type vortex_datetime_parts::DateTimePartsArray::Target = dyn vortex_array::array::Array
+pub type vortex_datetime_parts::DateTimePartsArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_datetime_parts::DateTimePartsArray::deref(&self) -> &Self::Target
 

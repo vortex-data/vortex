@@ -26,9 +26,9 @@ impl core::clone::Clone for vortex_zstd::ZstdArray
 
 pub fn vortex_zstd::ZstdArray::clone(&self) -> vortex_zstd::ZstdArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_zstd::ZstdArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_zstd::ZstdArray
 
-pub fn vortex_zstd::ZstdArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_zstd::ZstdArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_zstd::ZstdArray> for vortex_array::array::ArrayRef
 
@@ -40,7 +40,7 @@ pub fn vortex_zstd::ZstdArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> c
 
 impl core::ops::deref::Deref for vortex_zstd::ZstdArray
 
-pub type vortex_zstd::ZstdArray::Target = dyn vortex_array::array::Array
+pub type vortex_zstd::ZstdArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_zstd::ZstdArray::deref(&self) -> &Self::Target
 
