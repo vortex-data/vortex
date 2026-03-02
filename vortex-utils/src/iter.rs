@@ -19,7 +19,7 @@
 /// |\
 /// a b
 /// ```
-pub trait ReduceBalancedIterExt: Iterator + Sized {
+pub trait ReduceBalancedIterExt: Iterator {
     /// Like [`Iterator::reduce`], but builds a balanced binary tree instead of a linear chain.
     ///
     /// `[a, b, c, d]` becomes `combine(combine(a, b), combine(c, d))`.
