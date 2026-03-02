@@ -117,25 +117,27 @@ mod tests {
 
     #[tokio::test]
     async fn test_patches() {
-        test_case::<u8>().await;
-        test_case::<u16>().await;
-        test_case::<u32>().await;
-        test_case::<u64>().await;
-
-        test_case::<i8>().await;
-        test_case::<i16>().await;
-        test_case::<i32>().await;
-        test_case::<i64>().await;
-
-        test_case::<f32>().await;
-        test_case::<f64>().await;
+        tokio::join!(
+            test_case::<u8>(),
+            test_case::<u16>(),
+            test_case::<u32>(),
+            test_case::<u64>(),
+            test_case::<i8>(),
+            test_case::<i16>(),
+            test_case::<i32>(),
+            test_case::<i64>(),
+            test_case::<f32>(),
+            test_case::<f64>(),
+        );
     }
 
     async fn test_case<Values: NativePType + DeviceRepr>() {
-        full_test_case::<Values, u8>().await;
-        full_test_case::<Values, u16>().await;
-        full_test_case::<Values, u32>().await;
-        full_test_case::<Values, u64>().await;
+        tokio::join!(
+            full_test_case::<Values, u8>(),
+            full_test_case::<Values, u16>(),
+            full_test_case::<Values, u32>(),
+            full_test_case::<Values, u64>(),
+        );
     }
 
     async fn full_test_case<Values: NativePType + DeviceRepr, Indices: NativePType + DeviceRepr>() {
