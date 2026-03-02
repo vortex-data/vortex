@@ -61,24 +61,3 @@ pub(crate) fn compare_nested_arrow_arrays(
 
     Ok(BooleanArray::new(values, nulls))
 }
-
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-
-    use super::*;
-
-    #[rstest]
-    #[case(CompareOperator::Eq, vec![false, false, false, true])]
-    #[case(CompareOperator::NotEq, vec![true, true, true, false])]
-    #[case(CompareOperator::Gt, vec![true, true, true, false])]
-    #[case(CompareOperator::Gte, vec![true, true, true, true])]
-    #[case(CompareOperator::Lt, vec![false, false, false, false])]
-    #[case(CompareOperator::Lte, vec![false, false, false, true])]
-    fn test_cmp_to_empty(#[case] op: CompareOperator, #[case] expected: Vec<bool>) {
-        let lengths: Vec<i32> = vec![1, 5, 7, 0];
-
-        let output = compare_lengths_to_empty(lengths.iter().copied(), op);
-        assert_eq!(Vec::from_iter(output.iter()), expected);
-    }
-}

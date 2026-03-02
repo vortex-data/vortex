@@ -15,6 +15,7 @@ use pco::wrapped::ChunkDecompressor;
 use pco::wrapped::FileCompressor;
 use pco::wrapped::FileDecompressor;
 use prost::Message;
+use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -26,7 +27,6 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::compute::filter;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::half;
@@ -293,7 +293,7 @@ pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {
 
 fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
     let mask = parray.validity_mask()?;
-    Ok(filter(&parray.to_array(), &mask)?.to_primitive())
+    Ok(parray.to_array().filter(mask)?.to_primitive())
 }
 
 pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {

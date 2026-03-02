@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use itertools::Itertools as _;
 use prost::Message as _;
+use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -22,7 +23,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::build_views::BinaryView;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::compute::filter;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
@@ -341,7 +341,7 @@ fn choose_max_dict_size(uncompressed_size: usize) -> usize {
 
 fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
     let mask = parray.validity_mask()?;
-    Ok(filter(&parray.to_array(), &mask)?.to_primitive())
+    Ok(parray.to_array().filter(mask)?.to_primitive())
 }
 
 fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usize>)> {

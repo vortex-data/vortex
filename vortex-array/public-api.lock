@@ -6318,8 +6318,6 @@ pub fn vortex_array::compute::add_scalar(lhs: &vortex_array::ArrayRef, rhs: vort
 
 pub fn vortex_array::compute::and_kleene(lhs: &vortex_array::ArrayRef, rhs: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::compute::arrow_filter_fn(array: &vortex_array::ArrayRef, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 pub fn vortex_array::compute::cast(array: &dyn vortex_array::Array, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::compute::compare_lengths_to_empty<P, I>(lengths: I, op: vortex_array::scalar_fn::fns::operators::CompareOperator) -> vortex_buffer::bit::buf::BitBuffer where P: vortex_array::dtype::IntegerPType, I: core::iter::traits::iterator::Iterator<Item = P>
@@ -6329,8 +6327,6 @@ pub fn vortex_array::compute::div(lhs: &vortex_array::ArrayRef, rhs: &vortex_arr
 pub fn vortex_array::compute::div_scalar(lhs: &vortex_array::ArrayRef, rhs: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::compute::fill_null(array: &vortex_array::ArrayRef, fill_value: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::filter(array: &vortex_array::ArrayRef, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::compute::invert(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
