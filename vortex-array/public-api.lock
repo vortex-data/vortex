@@ -3138,7 +3138,7 @@ pub fn vortex_array::arrays::SliceVTable::deserialize(_bytes: &[u8], _dtype: &vo
 
 pub fn vortex_array::arrays::SliceVTable::dtype(array: &vortex_array::arrays::SliceArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::SliceVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
+pub fn vortex_array::arrays::SliceVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::SliceVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -17402,7 +17402,7 @@ pub fn vortex_array::arrays::SliceVTable::deserialize(_bytes: &[u8], _dtype: &vo
 
 pub fn vortex_array::arrays::SliceVTable::dtype(array: &vortex_array::arrays::SliceArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::arrays::SliceVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
+pub fn vortex_array::arrays::SliceVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionStep>
 
 pub fn vortex_array::arrays::SliceVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
