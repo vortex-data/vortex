@@ -18,7 +18,6 @@ use arcref::ArcRef;
 pub use boolean::*;
 #[expect(deprecated)]
 pub use cast::cast;
-pub use compare::*;
 pub use fill_null::*;
 pub use filter::*;
 #[expect(deprecated)]
@@ -31,6 +30,7 @@ pub use list_contains::list_contains;
 pub use mask::*;
 pub use min_max::*;
 pub use nan_count::*;
+#[allow(deprecated)]
 pub use numeric::*;
 use parking_lot::RwLock;
 pub use sum::*;
@@ -51,7 +51,6 @@ use crate::scalar::Scalar;
 mod arbitrary;
 mod boolean;
 mod cast;
-mod compare;
 #[cfg(feature = "_test-harness")]
 pub mod conformance;
 mod fill_null;
