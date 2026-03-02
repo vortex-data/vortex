@@ -3,6 +3,7 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #   "cudf-cu12",
+#   "s3fs",
 # ]
 #
 # [tool.uv]
