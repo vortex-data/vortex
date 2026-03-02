@@ -190,10 +190,12 @@ async fn main() -> VortexResult<()> {
         ptr
     };
 
-    // Create NVENC encoder
-
-    let encoder = nvidia_video_codec_sdk::Encoder::initialize_with_cuda(cuda_context)
-        .map_err(|e| vortex_err!("NVENC init failed: {e}"))?;
+    // Create NVENC encoder.
+    // NVENC internally pushes/pops the CUDA context, so we rebind it afterward
+    // to ensure the pinned buffer pool on worker threads can access CUDA memory.
+    let encoder =
+        nvidia_video_codec_sdk::Encoder::initialize_with_cuda(cuda_context.clone())
+            .map_err(|e| vortex_err!("NVENC init failed: {e}"))?;
 
     let mut init_params =
         nvidia_video_codec_sdk::EncoderInitParams::new(NV_ENC_CODEC_H264_GUID, width, height);
@@ -216,6 +218,11 @@ async fn main() -> VortexResult<()> {
     let mut output_bitstream = nvenc_session
         .create_output_bitstream()
         .map_err(|e| vortex_err!("NVENC create bitstream failed: {e}"))?;
+
+    // Rebind CUDA context after NVENC init to restore context stack.
+    cuda_context
+        .bind_to_thread()
+        .map_err(|e| vortex_err!("Failed to rebind CUDA context: {e}"))?;
 
     // Create MPEG-TS muxer
     let mut mux = mux::TsMuxer::new(fps);
