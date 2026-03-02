@@ -178,15 +178,22 @@ impl StructArray {
         self.struct_fields().find(name).map(|idx| &self.fields[idx])
     }
 
-    /// Return an iterator over the scalar value of each field at the given row index
+    /// Iterate over the scalar value of each field at the given row index.
+    ///
+    /// Returns `Ok(None)` if the row is null at the struct level. Returns `Ok(Some(iter))` for
+    /// valid rows, yielding one `VortexResult<Scalar>` per field.
     pub fn scalar_at_fields(
         &self,
         index: usize,
-    ) -> VortexResult<impl Iterator<Item = VortexResult<Scalar>> + '_> {
-        Ok(self
-            .unmasked_fields()
-            .iter()
-            .map(move |f| f.scalar_at(index)))
+    ) -> VortexResult<Option<impl Iterator<Item = VortexResult<Scalar>> + '_>> {
+        if !self.validity.is_valid(index)? {
+            return Ok(None);
+        }
+        Ok(Some(
+            self.unmasked_fields()
+                .iter()
+                .map(move |f| f.scalar_at(index)),
+        ))
     }
 
     pub fn names(&self) -> &FieldNames {

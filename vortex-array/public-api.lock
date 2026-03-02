@@ -3188,6 +3188,8 @@ pub fn vortex_array::arrays::StructArray::project(&self, projection: &[vortex_ar
 
 pub fn vortex_array::arrays::StructArray::remove_column(&mut self, name: impl core::convert::Into<vortex_array::dtype::FieldName>) -> core::option::Option<vortex_array::ArrayRef>
 
+pub fn vortex_array::arrays::StructArray::scalar_at_fields(&self, index: usize) -> vortex_error::VortexResult<core::option::Option<impl core::iter::traits::iterator::Iterator<Item = vortex_error::VortexResult<vortex_array::scalar::Scalar>> + '_>>
+
 pub fn vortex_array::arrays::StructArray::struct_fields(&self) -> &vortex_array::dtype::StructFields
 
 pub fn vortex_array::arrays::StructArray::try_from_iter<N: core::convert::AsRef<str>, A: vortex_array::IntoArray, T: core::iter::traits::collect::IntoIterator<Item = (N, A)>>(iter: T) -> vortex_error::VortexResult<Self>

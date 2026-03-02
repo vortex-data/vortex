@@ -142,13 +142,31 @@ fn test_scalar_at_fields() -> VortexResult<()> {
         Validity::NonNullable,
     )?;
 
-    // scalar_at_fields should yield the same field scalars as scalar_at
     let via_fields: Vec<_> = struct_array
         .scalar_at_fields(1)?
+        .expect("row 1 is valid")
         .collect::<VortexResult<_>>()?;
     assert_eq!(via_fields.len(), 2);
     assert_eq!(via_fields[0], 2i32.into());
     assert_eq!(via_fields[1], 20i64.into());
+
+    Ok(())
+}
+
+#[test]
+fn test_scalar_at_fields_null_row() -> VortexResult<()> {
+    let xs = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
+    let ys = PrimitiveArray::new(buffer![10i64, 20, 30], Validity::NonNullable);
+
+    let struct_array = StructArray::try_new(
+        FieldNames::from(["xs", "ys"]),
+        vec![xs.into_array(), ys.into_array()],
+        3,
+        Validity::from_iter([true, false, true]),
+    )?;
+
+    assert!(struct_array.scalar_at_fields(1)?.is_none());
+    assert!(struct_array.scalar_at_fields(0)?.is_some());
 
     Ok(())
 }
