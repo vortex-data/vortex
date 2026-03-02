@@ -10,6 +10,9 @@ use rand::distr::Uniform;
 use rand::rngs::StdRng;
 use vortex_array::Array;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::RecursiveCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
@@ -47,8 +50,19 @@ fn take_struct_simple(bencher: Bencher) {
     let indices_array = indices.into_array();
 
     bencher
-        .with_inputs(|| (&struct_array, &indices_array))
-        .bench_refs(|(array, indices)| array.take(indices.to_array()).unwrap());
+        .with_inputs(|| {
+            (
+                &struct_array,
+                &indices_array,
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, indices, ctx)| {
+            array
+                .take(indices.to_array())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 #[divan::bench(args = [8])]
@@ -78,8 +92,19 @@ fn take_struct_wide(bencher: Bencher, width: usize) {
     let indices_array = indices.into_array();
 
     bencher
-        .with_inputs(|| (&struct_array, &indices_array))
-        .bench_refs(|(array, indices)| array.take(indices.to_array()).unwrap());
+        .with_inputs(|| {
+            (
+                &struct_array,
+                &indices_array,
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, indices, ctx)| {
+            array
+                .take(indices.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
 
 #[divan::bench]
@@ -106,6 +131,17 @@ fn take_struct_sequential_indices(bencher: Bencher) {
     let indices_array = indices.into_array();
 
     bencher
-        .with_inputs(|| (&struct_array, &indices_array))
-        .bench_refs(|(array, indices)| array.take(indices.to_array()).unwrap());
+        .with_inputs(|| {
+            (
+                &struct_array,
+                &indices_array,
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, indices, ctx)| {
+            array
+                .take(indices.to_array())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+        });
 }
