@@ -30,8 +30,6 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::invert;
-use crate::compute::mask;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -127,9 +125,14 @@ fn test_double_mask_consistency(array: &ArrayRef) {
     let mask2: Mask = (0..len).map(|i| i % 2 == 0).collect();
 
     // Apply masks sequentially
-    let first_masked = mask(array, &mask1).vortex_expect("mask should succeed in conformance test");
-    let double_masked =
-        mask(&first_masked, &mask2).vortex_expect("mask should succeed in conformance test");
+    let first_masked = array
+        .clone()
+        .mask((!&mask1).into_array())
+        .vortex_expect("mask should succeed in conformance test");
+    let double_masked = first_masked
+        .clone()
+        .mask((!&mask2).into_array())
+        .vortex_expect("mask should succeed in conformance test");
 
     // Create combined mask (OR operation - element is masked if EITHER mask is true)
     let combined_pattern: BitBuffer = mask1
@@ -141,8 +144,10 @@ fn test_double_mask_consistency(array: &ArrayRef) {
     let combined_mask = Mask::from_buffer(combined_pattern);
 
     // Apply combined mask directly
-    let directly_masked =
-        mask(array, &combined_mask).vortex_expect("mask should succeed in conformance test");
+    let directly_masked = array
+        .clone()
+        .mask((!&combined_mask).into_array())
+        .vortex_expect("mask should succeed in conformance test");
 
     // Results should be identical
     assert_eq!(
@@ -239,8 +244,10 @@ fn test_mask_identity(array: &ArrayRef) {
     }
 
     let all_false_mask = Mask::new_false(len);
-    let masked =
-        mask(array, &all_false_mask).vortex_expect("mask should succeed in conformance test");
+    let masked = array
+        .clone()
+        .mask((!&all_false_mask).into_array())
+        .vortex_expect("mask should succeed in conformance test");
 
     // Masked array should have same values (just nullable)
     assert_eq!(
@@ -468,7 +475,10 @@ fn test_mask_filter_null_consistency(array: &ArrayRef) {
     // First mask some elements
     let mask_pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
     let mask_array = Mask::from_iter(mask_pattern);
-    let masked = mask(array, &mask_array).vortex_expect("mask should succeed in conformance test");
+    let masked = array
+        .clone()
+        .mask((!&mask_array).into_array())
+        .vortex_expect("mask should succeed in conformance test");
 
     // Then filter to remove the nulls
     let filter_pattern: Vec<bool> = (0..len).map(|i| i % 2 != 0).collect();
@@ -685,7 +695,6 @@ fn test_large_array_consistency(array: &ArrayRef) {
 /// Comparison operations must maintain logical consistency across encodings.
 /// This test catches bugs where an encoding might implement one comparison
 /// correctly but fail on its logical inverse.
-#[expect(deprecated)]
 fn test_comparison_inverse_consistency(array: &ArrayRef) {
     let len = array.len();
     if len == 0 {
@@ -717,8 +726,9 @@ fn test_comparison_inverse_consistency(array: &ArrayRef) {
             .to_array()
             .binary(const_array.to_array(), Operator::NotEq),
     ) {
-        let inverted_eq =
-            invert(&eq_result).vortex_expect("invert should succeed in conformance test");
+        let inverted_eq = eq_result
+            .not()
+            .vortex_expect("not should succeed in conformance test");
 
         assert_eq!(
             inverted_eq.len(),
@@ -750,8 +760,9 @@ fn test_comparison_inverse_consistency(array: &ArrayRef) {
             .to_array()
             .binary(const_array.to_array(), Operator::Lte),
     ) {
-        let inverted_gt =
-            invert(&gt_result).vortex_expect("invert should succeed in conformance test");
+        let inverted_gt = gt_result
+            .not()
+            .vortex_expect("not should succeed in conformance test");
 
         for i in 0..inverted_gt.len() {
             let inv_val = inverted_gt
@@ -777,8 +788,9 @@ fn test_comparison_inverse_consistency(array: &ArrayRef) {
             .to_array()
             .binary(const_array.to_array(), Operator::Gte),
     ) {
-        let inverted_lt =
-            invert(&lt_result).vortex_expect("invert should succeed in conformance test");
+        let inverted_lt = lt_result
+            .not()
+            .vortex_expect("not should succeed in conformance test");
 
         for i in 0..inverted_lt.len() {
             let inv_val = inverted_lt
@@ -906,26 +918,26 @@ fn test_comparison_symmetry_consistency(array: &ArrayRef) {
 /// Boolean operations must maintain logical consistency across encodings.
 /// This test catches bugs where encodings might optimize boolean operations
 /// incorrectly, breaking fundamental logical properties.
-#[expect(deprecated)]
 fn test_boolean_demorgan_consistency(array: &ArrayRef) {
     if !matches!(array.dtype(), DType::Bool(_)) {
         return;
     }
 
-    let mask = {
+    let bool_mask = {
         let mask_pattern: Vec<bool> = (0..array.len()).map(|i| i % 3 == 0).collect();
         BoolArray::from_iter(mask_pattern)
     };
-    let mask = mask.to_array();
+    let bool_mask = bool_mask.to_array();
 
     // Test first De Morgan's law: NOT(A AND B) = (NOT A) OR (NOT B)
     if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) = (
-        array.to_array().binary(mask.clone(), Operator::And),
-        invert(array),
-        invert(&mask),
+        array.to_array().binary(bool_mask.clone(), Operator::And),
+        array.not(),
+        bool_mask.not(),
     ) {
-        let not_a_and_b =
-            invert(&a_and_b).vortex_expect("invert should succeed in conformance test");
+        let not_a_and_b = a_and_b
+            .not()
+            .vortex_expect("not should succeed in conformance test");
         let not_a_or_not_b = not_a
             .binary(not_b.clone(), Operator::Or)
             .vortex_expect("or should succeed in conformance test");
@@ -953,11 +965,13 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef) {
 
     // Test second De Morgan's law: NOT(A OR B) = (NOT A) AND (NOT B)
     if let (Ok(a_or_b), Ok(not_a), Ok(not_b)) = (
-        array.to_array().binary(mask.clone(), Operator::Or),
-        invert(array),
-        invert(&mask),
+        array.to_array().binary(bool_mask.clone(), Operator::Or),
+        array.not(),
+        bool_mask.not(),
     ) {
-        let not_a_or_b = invert(&a_or_b).vortex_expect("invert should succeed in conformance test");
+        let not_a_or_b = a_or_b
+            .not()
+            .vortex_expect("not should succeed in conformance test");
         let not_a_and_not_b = not_a
             .binary(not_b.clone(), Operator::And)
             .vortex_expect("and should succeed in conformance test");

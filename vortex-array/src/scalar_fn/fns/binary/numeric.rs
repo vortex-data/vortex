@@ -7,7 +7,8 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
-use crate::compute::arrow_numeric;
+use crate::arrow::Datum;
+use crate::arrow::from_arrow_array_with_len;
 use crate::scalar::NumericOperator;
 
 /// Execute a numeric operation between two arrays.
@@ -23,6 +24,28 @@ pub(crate) fn execute_numeric(
         return Ok(result);
     }
     arrow_numeric(lhs, rhs, op)
+}
+
+/// Implementation of numeric operations using the Arrow crate.
+pub(crate) fn arrow_numeric(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    operator: NumericOperator,
+) -> VortexResult<ArrayRef> {
+    let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
+    let len = lhs.len();
+
+    let left = Datum::try_new(lhs)?;
+    let right = Datum::try_new_with_target_datatype(rhs, left.data_type())?;
+
+    let array = match operator {
+        NumericOperator::Add => arrow_arith::numeric::add(&left, &right)?,
+        NumericOperator::Sub => arrow_arith::numeric::sub(&left, &right)?,
+        NumericOperator::Mul => arrow_arith::numeric::mul(&left, &right)?,
+        NumericOperator::Div => arrow_arith::numeric::div(&left, &right)?,
+    };
+
+    from_arrow_array_with_len(array.as_ref(), len, nullable)
 }
 
 fn constant_numeric(
