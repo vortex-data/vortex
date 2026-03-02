@@ -46,6 +46,7 @@ mod tests {
     use vortex_array::Array;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::dtype::DType;
@@ -64,14 +65,11 @@ mod tests {
         );
         let rle = RLEArray::encode(&primitive).unwrap();
 
-        let res = rle
+        let casted = rle
             .to_array()
-            .cast(DType::Primitive(PType::U16, Nullability::NonNullable));
-        assert!(res.is_ok());
-        assert_eq!(
-            res.unwrap().dtype(),
-            &DType::Primitive(PType::U16, Nullability::NonNullable)
-        );
+            .cast(DType::Primitive(PType::U16, Nullability::NonNullable))
+            .unwrap();
+        assert_arrays_eq!(casted, PrimitiveArray::from_iter([10u16, 20, 30, 40, 50]));
     }
 
     #[test]
