@@ -69,12 +69,9 @@ impl NvEncoder {
         // NvEncodeAPIGetMaxSupportedVersion returns version as (major << 4) | minor,
         // which differs from the NVENCAPI_VERSION macro format.
         let mut max_version: u32 = 0;
-        let status =
-            unsafe { library.NvEncodeAPIGetMaxSupportedVersion(&raw mut max_version) };
+        let status = unsafe { library.NvEncodeAPIGetMaxSupportedVersion(&raw mut max_version) };
         check_status(status).map_err(|e| {
-            NvencError::DetailedError(format!(
-                "NvEncodeAPIGetMaxSupportedVersion failed: {e}"
-            ))
+            NvencError::DetailedError(format!("NvEncodeAPIGetMaxSupportedVersion failed: {e}"))
         })?;
         let max_major = max_version >> 4;
         let max_minor = max_version & 0xF;
@@ -102,7 +99,7 @@ impl NvEncoder {
         let mut session_params: sys::NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS =
             unsafe { std::mem::zeroed() };
         session_params.version = crate::NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER;
-        session_params.deviceType = sys::NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_CUDA;
+        session_params.deviceType = sys::NV_ENC_DEVICE_TYPE_CUDA;
         session_params.device = cu_context;
         session_params.apiVersion = crate::NVENCAPI_VERSION;
 
@@ -122,13 +119,19 @@ impl NvEncoder {
         encode_config.profileGUID = crate::NV_ENC_CODEC_PROFILE_AUTOSELECT_GUID;
         encode_config.gopLength = fps; // 1-second GOPs
         encode_config.frameIntervalP = 1; // No B-frames
-        encode_config.rcParams.rateControlMode = sys::NV_ENC_PARAMS_RC_MODE_NV_ENC_PARAMS_RC_CBR;
+        encode_config.rcParams.rateControlMode = sys::NV_ENC_PARAMS_RC_CBR;
         encode_config.rcParams.averageBitRate = bitrate;
         encode_config.rcParams.maxBitRate = bitrate;
         encode_config.rcParams.vbvBufferSize = bitrate / fps; // 1 frame
         encode_config.rcParams.vbvInitialDelay = bitrate / fps;
         // Enable repeat SPS/PPS for stream joining
-        encode_config.encodeCodecConfig.h264Config.repeatSPSPPS = 1;
+        // SAFETY: We know we're configuring H.264, so h264Config is the active union variant.
+        unsafe {
+            encode_config
+                .encodeCodecConfig
+                .h264Config
+                .set_repeatSPSPPS(1);
+        }
 
         let mut init_params: sys::NV_ENC_INITIALIZE_PARAMS = unsafe { std::mem::zeroed() };
         init_params.version = crate::NV_ENC_INITIALIZE_PARAMS_VER;
@@ -183,12 +186,12 @@ impl NvEncoder {
     ) -> Result<RegisteredResource, NvencError> {
         let mut reg: sys::NV_ENC_REGISTER_RESOURCE = unsafe { std::mem::zeroed() };
         reg.version = crate::NV_ENC_REGISTER_RESOURCE_VER;
-        reg.resourceType = sys::NV_ENC_INPUT_RESOURCE_TYPE_NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR;
+        reg.resourceType = sys::NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR;
         reg.width = self.width;
         reg.height = self.height;
         reg.pitch = pitch;
         reg.resourceToRegister = device_ptr as *mut std::ffi::c_void;
-        reg.bufferFormat = sys::NV_ENC_BUFFER_FORMAT_NV_ENC_BUFFER_FORMAT_NV12;
+        reg.bufferFormat = sys::NV_ENC_BUFFER_FORMAT_NV12;
 
         let register_fn = self
             .fn_table
@@ -231,7 +234,7 @@ impl NvEncoder {
         pic_params.inputBuffer = map_params.mappedResource;
         pic_params.outputBitstream = self.bitstream_buffer;
         pic_params.bufferFmt = map_params.mappedBufferFmt;
-        pic_params.pictureStruct = sys::NV_ENC_PIC_STRUCT_NV_ENC_PIC_STRUCT_FRAME;
+        pic_params.pictureStruct = sys::NV_ENC_PIC_STRUCT_FRAME;
 
         let encode_fn = self
             .fn_table
@@ -270,11 +273,11 @@ impl NvEncoder {
         let status = unsafe { encode_fn(self.encoder, &raw mut pic_params) };
 
         match status {
-            sys::NVENCSTATUS_NV_ENC_SUCCESS => {
+            sys::NV_ENC_SUCCESS => {
                 let data = self.lock_and_copy_bitstream()?;
                 Ok(Some(data))
             }
-            sys::NVENCSTATUS_NV_ENC_ERR_NEED_MORE_INPUT => Ok(None),
+            sys::NV_ENC_ERR_NEED_MORE_INPUT => Ok(None),
             _ => {
                 check_status(status)?;
                 Ok(None)

@@ -25,9 +25,19 @@ use std::sync::OnceLock;
     non_camel_case_types,
     non_snake_case,
     dead_code,
-    clippy::all
+    unused_qualifications,
+    unnecessary_transmutes,
+    clippy::all,
+    clippy::cast_possible_truncation
 )]
 pub mod sys;
+
+// SAFETY: NvencLibrary contains only function pointers loaded from the shared
+// library plus the libloading::Library handle. The raw `*mut _GUID` pointers
+// in function pointer signatures don't affect thread safety — the library
+// itself is safe to share across threads.
+unsafe impl Send for sys::NvencLibrary {}
+unsafe impl Sync for sys::NvencLibrary {}
 
 pub mod encoder;
 mod error;

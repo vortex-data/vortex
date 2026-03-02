@@ -108,40 +108,32 @@ pub(crate) fn check_status(status: sys::NVENCSTATUS) -> Result<(), NvencError> {
     #![allow(non_upper_case_globals)]
 
     match status {
-        sys::NVENCSTATUS_NV_ENC_SUCCESS => Ok(()),
-        sys::NVENCSTATUS_NV_ENC_ERR_NO_ENCODE_DEVICE => Err(NvencError::NoEncodeDevice),
-        sys::NVENCSTATUS_NV_ENC_ERR_UNSUPPORTED_DEVICE => Err(NvencError::UnsupportedDevice),
-        sys::NVENCSTATUS_NV_ENC_ERR_INVALID_ENCODERDEVICE => Err(NvencError::InvalidEncoderDevice),
-        sys::NVENCSTATUS_NV_ENC_ERR_INVALID_DEVICE => Err(NvencError::InvalidDevice),
-        sys::NVENCSTATUS_NV_ENC_ERR_DEVICE_NOT_EXIST => Err(NvencError::DeviceNotExist),
-        sys::NVENCSTATUS_NV_ENC_ERR_INVALID_PTR => Err(NvencError::InvalidPtr),
-        sys::NVENCSTATUS_NV_ENC_ERR_INVALID_EVENT => Err(NvencError::InvalidEvent),
-        sys::NVENCSTATUS_NV_ENC_ERR_INVALID_PARAM => Err(NvencError::InvalidParam),
-        sys::NVENCSTATUS_NV_ENC_ERR_INVALID_CALL => Err(NvencError::InvalidCall),
-        sys::NVENCSTATUS_NV_ENC_ERR_OUT_OF_MEMORY => Err(NvencError::OutOfMemory),
-        sys::NVENCSTATUS_NV_ENC_ERR_ENCODER_NOT_INITIALIZED => {
-            Err(NvencError::EncoderNotInitialized)
-        }
-        sys::NVENCSTATUS_NV_ENC_ERR_UNSUPPORTED_PARAM => Err(NvencError::UnsupportedParam),
-        sys::NVENCSTATUS_NV_ENC_ERR_LOCK_BUSY => Err(NvencError::LockBusy),
-        sys::NVENCSTATUS_NV_ENC_ERR_NOT_ENOUGH_BUFFER => Err(NvencError::NotEnoughBuffer),
-        sys::NVENCSTATUS_NV_ENC_ERR_INVALID_VERSION => Err(NvencError::InvalidVersion),
-        sys::NVENCSTATUS_NV_ENC_ERR_MAP_FAILED => Err(NvencError::MapFailed),
-        sys::NVENCSTATUS_NV_ENC_ERR_NEED_MORE_INPUT => Err(NvencError::NeedMoreInput),
-        sys::NVENCSTATUS_NV_ENC_ERR_ENCODER_BUSY => Err(NvencError::EncoderBusy),
-        sys::NVENCSTATUS_NV_ENC_ERR_EVENT_NOT_REGISTERD => Err(NvencError::EventNotRegistered),
-        sys::NVENCSTATUS_NV_ENC_ERR_GENERIC => Err(NvencError::Generic),
-        sys::NVENCSTATUS_NV_ENC_ERR_INCOMPATIBLE_CLIENT_KEY => {
-            Err(NvencError::IncompatibleClientKey)
-        }
-        sys::NVENCSTATUS_NV_ENC_ERR_UNIMPLEMENTED => Err(NvencError::Unimplemented),
-        sys::NVENCSTATUS_NV_ENC_ERR_RESOURCE_REGISTER_FAILED => {
-            Err(NvencError::ResourceRegisterFailed)
-        }
-        sys::NVENCSTATUS_NV_ENC_ERR_RESOURCE_NOT_REGISTERED => {
-            Err(NvencError::ResourceNotRegistered)
-        }
-        sys::NVENCSTATUS_NV_ENC_ERR_RESOURCE_NOT_MAPPED => Err(NvencError::ResourceNotMapped),
+        sys::NV_ENC_SUCCESS => Ok(()),
+        sys::NV_ENC_ERR_NO_ENCODE_DEVICE => Err(NvencError::NoEncodeDevice),
+        sys::NV_ENC_ERR_UNSUPPORTED_DEVICE => Err(NvencError::UnsupportedDevice),
+        sys::NV_ENC_ERR_INVALID_ENCODERDEVICE => Err(NvencError::InvalidEncoderDevice),
+        sys::NV_ENC_ERR_INVALID_DEVICE => Err(NvencError::InvalidDevice),
+        sys::NV_ENC_ERR_DEVICE_NOT_EXIST => Err(NvencError::DeviceNotExist),
+        sys::NV_ENC_ERR_INVALID_PTR => Err(NvencError::InvalidPtr),
+        sys::NV_ENC_ERR_INVALID_EVENT => Err(NvencError::InvalidEvent),
+        sys::NV_ENC_ERR_INVALID_PARAM => Err(NvencError::InvalidParam),
+        sys::NV_ENC_ERR_INVALID_CALL => Err(NvencError::InvalidCall),
+        sys::NV_ENC_ERR_OUT_OF_MEMORY => Err(NvencError::OutOfMemory),
+        sys::NV_ENC_ERR_ENCODER_NOT_INITIALIZED => Err(NvencError::EncoderNotInitialized),
+        sys::NV_ENC_ERR_UNSUPPORTED_PARAM => Err(NvencError::UnsupportedParam),
+        sys::NV_ENC_ERR_LOCK_BUSY => Err(NvencError::LockBusy),
+        sys::NV_ENC_ERR_NOT_ENOUGH_BUFFER => Err(NvencError::NotEnoughBuffer),
+        sys::NV_ENC_ERR_INVALID_VERSION => Err(NvencError::InvalidVersion),
+        sys::NV_ENC_ERR_MAP_FAILED => Err(NvencError::MapFailed),
+        sys::NV_ENC_ERR_NEED_MORE_INPUT => Err(NvencError::NeedMoreInput),
+        sys::NV_ENC_ERR_ENCODER_BUSY => Err(NvencError::EncoderBusy),
+        sys::NV_ENC_ERR_EVENT_NOT_REGISTERD => Err(NvencError::EventNotRegistered),
+        sys::NV_ENC_ERR_GENERIC => Err(NvencError::Generic),
+        sys::NV_ENC_ERR_INCOMPATIBLE_CLIENT_KEY => Err(NvencError::IncompatibleClientKey),
+        sys::NV_ENC_ERR_UNIMPLEMENTED => Err(NvencError::Unimplemented),
+        sys::NV_ENC_ERR_RESOURCE_REGISTER_FAILED => Err(NvencError::ResourceRegisterFailed),
+        sys::NV_ENC_ERR_RESOURCE_NOT_REGISTERED => Err(NvencError::ResourceNotRegistered),
+        sys::NV_ENC_ERR_RESOURCE_NOT_MAPPED => Err(NvencError::ResourceNotMapped),
         code => Err(NvencError::Unknown(code)),
     }
 }

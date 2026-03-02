@@ -142,8 +142,7 @@ async fn main() -> VortexResult<()> {
 
     // Parse source and create reader
     let reader: Arc<dyn vortex::io::VortexReadAt> = if cli.source.starts_with("s3://") {
-        let url =
-            Url::parse(&cli.source).map_err(|e| vortex_err!("Invalid S3 URL: {e}"))?;
+        let url = Url::parse(&cli.source).map_err(|e| vortex_err!("Invalid S3 URL: {e}"))?;
         let bucket = url
             .host_str()
             .ok_or_else(|| vortex_err!("S3 URL missing bucket name"))?;
@@ -303,7 +302,10 @@ async fn main() -> VortexResult<()> {
     }
 
     // Flush encoder
-    if let Some(flush_data) = encoder.flush().map_err(|e| vortex_err!("NVENC flush failed: {e}"))? {
+    if let Some(flush_data) = encoder
+        .flush()
+        .map_err(|e| vortex_err!("NVENC flush failed: {e}"))?
+    {
         let ts_packets = mux.write_access_unit(&flush_data, frame_idx);
         srt_sender.send(ts_packets).await?;
     }
