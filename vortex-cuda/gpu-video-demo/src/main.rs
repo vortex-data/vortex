@@ -13,6 +13,7 @@
 #![allow(unused_imports)]
 
 use std::fs::File;
+use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -94,6 +95,33 @@ struct Cli {
     /// Loop the video file continuously.
     #[arg(long)]
     loop_playback: bool,
+}
+
+/// Parse H.264 NAL unit types from Annex B bitstream for debug logging.
+#[cuda_available]
+fn parse_nal_types(data: &[u8]) -> Vec<u8> {
+    let mut types = Vec::new();
+    let mut i = 0;
+    while i + 3 < data.len() {
+        if data[i] == 0 && data[i + 1] == 0 {
+            if data[i + 2] == 1 {
+                types.push(data[i + 3] & 0x1F);
+                i += 4;
+            } else if data[i + 2] == 0
+                && i + 3 < data.len()
+                && data[i + 3] == 1
+                && i + 4 < data.len()
+            {
+                types.push(data[i + 4] & 0x1F);
+                i += 5;
+            } else {
+                i += 1;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    types
 }
 
 #[cuda_not_available]
@@ -193,9 +221,29 @@ async fn main() -> VortexResult<()> {
     // Create NVENC encoder.
     // NVENC internally pushes/pops the CUDA context, so we rebind it afterward
     // to ensure the pinned buffer pool on worker threads can access CUDA memory.
-    let encoder =
-        nvidia_video_codec_sdk::Encoder::initialize_with_cuda(cuda_context.clone())
-            .map_err(|e| vortex_err!("NVENC init failed: {e}"))?;
+    let encoder = nvidia_video_codec_sdk::Encoder::initialize_with_cuda(cuda_context.clone())
+        .map_err(|e| vortex_err!("NVENC init failed: {e}"))?;
+
+    // Get preset config as baseline, then customize GOP and SPS/PPS repeat.
+    let preset_config = encoder
+        .get_preset_config(
+            NV_ENC_CODEC_H264_GUID,
+            NV_ENC_PRESET_P4_GUID,
+            NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_LOW_LATENCY,
+        )
+        .map_err(|e| vortex_err!("NVENC get preset config failed: {e}"))?;
+
+    let mut encode_config = preset_config.presetCfg;
+    // IDR every 1 second so ffplay can start decoding mid-stream
+    encode_config.gopLength = fps;
+    unsafe {
+        encode_config.encodeCodecConfig.h264Config.idrPeriod = fps;
+        // Repeat SPS/PPS with every IDR so the decoder can join at any keyframe
+        encode_config
+            .encodeCodecConfig
+            .h264Config
+            .set_repeatSPSPPS(1);
+    }
 
     let mut init_params =
         nvidia_video_codec_sdk::EncoderInitParams::new(NV_ENC_CODEC_H264_GUID, width, height);
@@ -204,7 +252,8 @@ async fn main() -> VortexResult<()> {
         .tuning_info(NV_ENC_TUNING_INFO::NV_ENC_TUNING_INFO_LOW_LATENCY)
         .display_aspect_ratio(width, height)
         .framerate(fps, 1)
-        .enable_picture_type_decision();
+        .enable_picture_type_decision()
+        .encode_config(&mut encode_config);
 
     let nvenc_session = encoder
         .start_session(NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_NV12, init_params)
@@ -226,6 +275,9 @@ async fn main() -> VortexResult<()> {
 
     // Create MPEG-TS muxer
     let mut mux = mux::TsMuxer::new(fps);
+
+    // Debug: save first 5 seconds of TS output to file
+    let mut debug_file = File::create("/tmp/gpu-video-debug.ts")?;
 
     // Wait for TCP connection
     let mut sender = transport::TcpSender::listen(cli.port).await?;
@@ -297,12 +349,15 @@ async fn main() -> VortexResult<()> {
                     .clone_dtoh(&nv12_device)
                     .map_err(|e| vortex_err!("NV12 dtoh copy failed: {e}"))?;
 
-                // Write to NVENC input buffer and encode
+                // Write to NVENC input buffer (pitch-aware for NV12)
                 unsafe {
-                    input_buffer
+                    let mut lock = input_buffer
                         .lock()
-                        .map_err(|e| vortex_err!("NVENC lock input failed: {e}"))?
-                        .write(&nv12_host);
+                        .map_err(|e| vortex_err!("NVENC lock input failed: {e}"))?;
+                    if frame_idx == 0 {
+                        tracing::info!(pitch = lock.pitch(), width, "NVENC input buffer pitch");
+                    }
+                    lock.write_nv12(&nv12_host, width, height);
                 }
                 nvenc_session
                     .encode_picture(
@@ -320,8 +375,28 @@ async fn main() -> VortexResult<()> {
                 let h264_nals = lock.data().to_vec();
                 drop(lock);
 
+                // Log first frame's H.264 NAL types for debugging
+                if frame_idx < 5 {
+                    let nal_types = parse_nal_types(&h264_nals);
+                    tracing::info!(
+                        frame = frame_idx,
+                        h264_bytes = h264_nals.len(),
+                        ?nal_types,
+                        "encoded frame"
+                    );
+                }
+
                 // Mux to MPEG-TS
                 let ts_packets = mux.write_access_unit(&h264_nals, frame_idx);
+
+                // Save first 5 seconds to file for debugging with ffprobe
+                if frame_idx < 300 {
+                    debug_file.write_all(&ts_packets)?;
+                    if frame_idx == 0 {
+                        // Also save raw H.264 for testing with ffplay
+                        std::fs::write("/tmp/gpu-video-frame0.h264", &h264_nals)?;
+                    }
+                }
 
                 // Send over TCP
                 sender.send(ts_packets).await?;

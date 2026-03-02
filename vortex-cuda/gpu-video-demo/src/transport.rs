@@ -31,6 +31,10 @@ impl TcpSender {
             .await
             .map_err(|e| vortex_err!("TCP accept failed: {e}"))?;
 
+        stream
+            .set_nodelay(true)
+            .map_err(|e| vortex_err!("TCP set nodelay failed: {e}"))?;
+
         tracing::info!("Client connected from {addr}");
 
         Ok(Self { stream })

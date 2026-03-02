@@ -415,11 +415,20 @@ impl EncoderInput for Buffer<'_> {
 pub struct BufferLock<'a, 'b> {
     buffer: &'a Buffer<'b>,
     data_ptr: *mut c_void,
-    #[allow(dead_code)]
     pitch: u32,
 }
 
 impl BufferLock<'_, '_> {
+    /// Returns the pitch (row stride in bytes) of the locked buffer.
+    ///
+    /// For NV12 format, each row of both the Y and UV planes uses `pitch`
+    /// bytes of storage, even though only the first `width` bytes contain
+    /// pixel data. The caller must account for this when writing data.
+    #[must_use]
+    pub fn pitch(&self) -> u32 {
+        self.pitch
+    }
+
     /// Write data to the buffer.
     ///
     /// # Safety
@@ -435,6 +444,52 @@ impl BufferLock<'_, '_> {
         // - Write pitched?
         data.as_ptr()
             .copy_to(self.data_ptr.cast::<u8>(), data.len());
+    }
+
+    /// Write tightly-packed NV12 data into a pitched buffer.
+    ///
+    /// Source data is expected to have stride equal to `width` (no padding).
+    /// This method copies row-by-row, inserting padding to match the buffer's
+    /// pitch for both the Y plane (height rows) and the UV plane (height/2
+    /// rows).
+    ///
+    /// # Safety
+    ///
+    /// - `data` must contain exactly `width * height * 3 / 2` bytes.
+    /// - `width` and `height` must match the encoder's configured dimensions.
+    pub unsafe fn write_nv12(&mut self, data: &[u8], width: u32, height: u32) {
+        let src_stride = width as usize;
+        let dst_stride = self.pitch as usize;
+        let h = height as usize;
+
+        if src_stride == dst_stride {
+            data.as_ptr()
+                .copy_to(self.data_ptr.cast::<u8>(), data.len());
+            return;
+        }
+
+        let dst = self.data_ptr.cast::<u8>();
+
+        // Y plane: height rows of width bytes
+        for y in 0..h {
+            std::ptr::copy_nonoverlapping(
+                data.as_ptr().add(y * src_stride),
+                dst.add(y * dst_stride),
+                src_stride,
+            );
+        }
+
+        // UV plane: height/2 rows of width bytes (interleaved U, V)
+        let src_uv_start = src_stride * h;
+        let dst_uv_start = dst_stride * h;
+        let uv_height = h / 2;
+        for y in 0..uv_height {
+            std::ptr::copy_nonoverlapping(
+                data.as_ptr().add(src_uv_start + y * src_stride),
+                dst.add(dst_uv_start + y * dst_stride),
+                src_stride,
+            );
+        }
     }
 }
 
