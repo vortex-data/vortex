@@ -59,6 +59,26 @@ FooRef::downcast::<V>(self) -> Arc<Foo<V>>   owned, free after type check
 reconstruct a `FooRef` from serialized bytes without knowing `V` at compile time. Plugins are
 registered in the session by their ID.
 
+## File Conventions
+
+For a concept `Foo`, the components are organized into these files:
+
+| File          | Contains                                                              |
+|---------------|-----------------------------------------------------------------------|
+| `vtable.rs`   | `FooVTable` trait definition                                         |
+| `typed.rs`    | `Foo<V>` data struct, inherent methods, `Deref` impl                |
+| `erased.rs`   | `FooRef` struct, `DynFoo` sealed trait, blanket impl                 |
+| `plugin.rs`   | `FooPlugin` trait, registration                                      |
+| `matcher.rs`  | Downcasting helpers (`is`, `as_`, `as_opt`, pattern matching traits) |
+
+For Array encodings, each encoding has its own module (e.g. `arrays/primitive/`):
+
+| File                    | Contains                                                    |
+|-------------------------|-------------------------------------------------------------|
+| `arrays/foo/mod.rs`     | `V::Array` associated type, encoding-specific methods on it |
+| `arrays/foo/vtable.rs`  | `ArrayVTable` impl for this encoding                        |
+| `arrays/foo/compute/`   | Compute kernel implementations                              |
+
 ## Example: ExtDType
 
 Extension dtypes follow this pattern:
@@ -126,10 +146,11 @@ All four vtable-backed types are converging on the pattern described above.
 
 ### ExtDType -- Partially done
 
-`ExtVTable`, `ExtDType<V>`, `ExtDTypeRef`, and `ExtDTypePlugin` are in place. Remaining:
+File split already matches conventions: `vtable.rs`, `typed.rs`, `erased.rs`,
+`plugin.rs`, `matcher.rs`. Remaining:
 
-- **Drop internal Arc from `ExtDType<V>`.** Currently `ExtDType<V>` wraps
-  `Arc<ExtDTypeAdapter<V>>`. It should become the data struct itself, with
+- **Drop internal Arc from `ExtDType<V>`.** Currently wraps
+  `Arc<ExtDTypeAdapter<V>>`. Should become the data struct itself, with
   `ExtDTypeRef(Arc<dyn DynExtDType>)` holding the Arc. Remove `ExtDTypeAdapter`.
 - **Rename** `ExtDTypeImpl` → `DynExtDType`, `DynExtVTable` → `ExtDTypePlugin`.
 - **Remove `ExtDTypeMetadata`** erased wrapper. Its methods (`serialize`, `Display`,
