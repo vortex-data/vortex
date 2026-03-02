@@ -94,8 +94,8 @@ where
         })
         .collect();
 
-    let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable);
-    BitPackedArray::encode(primitive_array.as_ref(), bit_width)
+    let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable).to_array();
+    BitPackedArray::encode(&primitive_array, bit_width)
         .vortex_expect("failed to create BitPacked array with patches")
 }
 
