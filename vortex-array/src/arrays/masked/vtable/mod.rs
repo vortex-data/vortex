@@ -198,7 +198,7 @@ impl VTable for MaskedVTable {
         }
 
         // Otherwise, ask the scheduler to execute the child first.
-        Ok(ExecutionStep::ColumnarizeChild(0))
+        Ok(ExecutionStep::ExecuteChild(0))
     }
 
     fn reduce_parent(
