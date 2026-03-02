@@ -63,6 +63,7 @@ threshold_pct = 30 if is_s3_benchmark else 10
 improvement_threshold = 1.0 - (threshold_pct / 100.0)  # e.g., 0.7 for 30%, 0.9 for 10%
 regression_threshold = 1.0 + (threshold_pct / 100.0)  # e.g., 1.3 for 30%, 1.1 for 10%
 
+
 def compute_abs_z_score(runtimes):
     """Compute |median - mean| / stddev from a list of runtimes."""
     if not isinstance(runtimes, list) or len(runtimes) < 2:
