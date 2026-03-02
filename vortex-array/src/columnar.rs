@@ -129,18 +129,6 @@ impl Executable for Columnar {
                     stack.push((current, i));
                     current = child.optimize()?;
                 }
-                ExecutionStep::ColumnarizeChild(i) => {
-                    let child = current
-                        .nth_child(i)
-                        .vortex_expect("ColumnarizeChild index in bounds");
-                    ctx.log(format_args!(
-                        "ColumnarizeChild({i}): pushing {}, focusing on {}",
-                        current, child
-                    ));
-                    stack.push((current, i));
-                    // No cross-step optimization for ColumnarizeChild
-                    current = child;
-                }
                 ExecutionStep::Done(result) => {
                     ctx.log(format_args!("Done: {} -> {}", current, result));
                     current = result;

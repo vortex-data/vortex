@@ -185,8 +185,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// do next.
     ///
     /// Instead of recursively executing children, implementations should return
-    /// [`ExecutionStep::ExecuteChild(i)`] or [`ExecutionStep::ColumnarizeChild(i)`] to request
-    /// that the scheduler execute a child first, or [`ExecutionStep::Done(result)`] when the
+    /// [`ExecutionStep::ExecuteChild(i)`] to request that the scheduler execute a child first,
+    /// or [`ExecutionStep::Done(result)`] when the
     /// encoding can produce a result directly.
     ///
     /// Array execution is designed such that repeated execution of an array will eventually

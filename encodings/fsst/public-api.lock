@@ -146,7 +146,7 @@ pub fn vortex_fsst::FSSTVTable::deserialize(bytes: &[u8], _dtype: &vortex_array:
 
 pub fn vortex_fsst::FSSTVTable::dtype(array: &vortex_fsst::FSSTArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_fsst::FSSTVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_fsst::FSSTVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
 
 pub fn vortex_fsst::FSSTVTable::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 

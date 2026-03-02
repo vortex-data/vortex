@@ -205,7 +205,7 @@ impl Executable for ArrayRef {
                 ctx.log(format_args!("-> {}", result.as_ref()));
                 Ok(result)
             }
-            ExecutionStep::ExecuteChild(i) | ExecutionStep::ColumnarizeChild(i) => {
+            ExecutionStep::ExecuteChild(i) => {
                 // For single-step execution, handle ExecuteChild by executing the child,
                 // replacing it, and returning the updated array.
                 let child = array.nth_child(i).vortex_expect("valid child index");
@@ -229,14 +229,6 @@ pub enum ExecutionStep {
     /// Between steps, the scheduler runs reduce/reduce_parent rules to fixpoint, enabling
     /// cross-step optimization (e.g., pushing scalar functions through newly-decoded children).
     ExecuteChild(usize),
-
-    /// Request that the scheduler execute child at index `i` to columnar form, replace it in
-    /// this array, then re-enter execution on the updated array.
-    ///
-    /// Unlike [`ExecuteChild`](Self::ExecuteChild), the scheduler does **not** run cross-step
-    /// optimizations when popping back up. Use this when the parent knows it will consume the
-    /// child directly (e.g., Dict taking from its values).
-    ColumnarizeChild(usize),
 
     /// Execution is complete. The result may be in any encoding — not necessarily canonical.
     /// The scheduler will continue executing the result if it is not yet columnar.
