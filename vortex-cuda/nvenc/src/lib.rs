@@ -72,6 +72,8 @@ pub const NV_ENC_CREATE_BITSTREAM_BUFFER_VER: u32 = nvencapi_struct_version(1);
 pub const NV_ENC_PIC_PARAMS_VER: u32 = nvencapi_struct_version(7) | (1 << 31);
 /// Version tag for [`sys::NV_ENC_LOCK_BITSTREAM`].
 pub const NV_ENC_LOCK_BITSTREAM_VER: u32 = nvencapi_struct_version(2) | (1 << 31);
+/// Version tag for [`sys::NV_ENC_RC_PARAMS`].
+pub const NV_ENC_RC_PARAMS_VER: u32 = nvencapi_struct_version(1);
 /// Version tag for [`sys::NV_ENCODE_API_FUNCTION_LIST`].
 pub const NV_ENCODE_API_FUNCTION_LIST_VER: u32 = nvencapi_struct_version(2);
 

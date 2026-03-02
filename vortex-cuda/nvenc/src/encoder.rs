@@ -119,6 +119,7 @@ impl NvEncoder {
         encode_config.profileGUID = crate::NV_ENC_CODEC_PROFILE_AUTOSELECT_GUID;
         encode_config.gopLength = fps; // 1-second GOPs
         encode_config.frameIntervalP = 1; // No B-frames
+        encode_config.rcParams.version = crate::NV_ENC_RC_PARAMS_VER;
         encode_config.rcParams.rateControlMode = sys::NV_ENC_PARAMS_RC_CBR;
         encode_config.rcParams.averageBitRate = bitrate;
         encode_config.rcParams.maxBitRate = bitrate;
@@ -144,6 +145,7 @@ impl NvEncoder {
         init_params.frameRateNum = fps;
         init_params.frameRateDen = 1;
         init_params.enablePTD = 1; // Picture type decision by encoder
+        init_params.tuningInfo = sys::NV_ENC_TUNING_INFO_LOW_LATENCY;
         init_params.encodeConfig = &raw mut encode_config;
 
         let init_fn = fn_table.nvEncInitializeEncoder.ok_or(NvencError::Generic)?;
