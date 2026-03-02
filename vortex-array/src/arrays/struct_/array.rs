@@ -8,6 +8,7 @@ use std::sync::Arc;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::Array;
@@ -186,6 +187,7 @@ impl StructArray {
         &self,
         index: usize,
     ) -> VortexResult<Option<impl Iterator<Item = VortexResult<Scalar>> + '_>> {
+        vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
         if !self.validity.is_valid(index)? {
             return Ok(None);
         }

@@ -172,6 +172,19 @@ fn test_scalar_at_fields_null_row() -> VortexResult<()> {
 }
 
 #[test]
+fn test_scalar_at_fields_out_of_bounds() {
+    let struct_array = StructArray::try_new(
+        FieldNames::from(["xs"]),
+        vec![buffer![1i32, 2, 3].into_array()],
+        3,
+        Validity::NonNullable,
+    )
+    .unwrap();
+
+    assert!(struct_array.scalar_at_fields(3).is_err());
+}
+
+#[test]
 fn test_uncompressed_size_in_bytes() -> VortexResult<()> {
     let struct_array = StructArray::new(
         FieldNames::from(["integers"]),
