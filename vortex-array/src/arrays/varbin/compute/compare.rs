@@ -59,13 +59,13 @@ impl CompareKernel for VarBinVTable {
                     CompareOperator::Gte => BitBuffer::new_set(len), // Every possible value is >= ""
                     CompareOperator::Lt => BitBuffer::new_unset(len), // No value is < ""
                     CompareOperator::Eq | CompareOperator::Lte => {
-                        let lhs_offsets = lhs.offsets().to_primitive();
+                        let lhs_offsets = lhs.offsets().clone().execute::<PrimitiveArray>(ctx)?;
                         match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
                             compare_offsets_to_empty::<P>(lhs_offsets, true)
                         })
                     }
                     CompareOperator::NotEq | CompareOperator::Gt => {
-                        let lhs_offsets = lhs.offsets().to_primitive();
+                        let lhs_offsets = lhs.offsets().clone().execute::<PrimitiveArray>(ctx)?;
                         match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
                             compare_offsets_to_empty::<P>(lhs_offsets, false)
                         })
