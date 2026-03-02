@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_compare_match() {
-        let lhs = SequenceArray::typed_new(2i64, 1, NonNullable, 4).unwrap();
+        let lhs = SequenceArray::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(4i64, lhs.len());
         let result = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([false, false, true, false]);
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_compare_match_scale() {
-        let lhs = SequenceArray::typed_new(2i64, 3, Nullable, 4).unwrap();
+        let lhs = SequenceArray::try_new_typed(2i64, 3, Nullable, 4).unwrap();
         let rhs = ConstantArray::new(8i64, lhs.len());
         let result = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(true), Some(false)]);
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_compare_no_match() {
-        let lhs = SequenceArray::typed_new(2i64, 1, NonNullable, 4).unwrap();
+        let lhs = SequenceArray::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(1i64, lhs.len());
         let result = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([false, false, false, false]);

@@ -116,27 +116,25 @@ mod tests {
     use crate::CudaSession;
     use crate::kernel::patches::execute_patches;
 
+    #[rstest::rstest]
+    #[case::u8(0_u8)]
+    #[case::u16(0_u16)]
+    #[case::u32(0_u32)]
+    #[case::u64(0_u64)]
+    #[case::i8(0_i8)]
+    #[case::i16(0_i16)]
+    #[case::i32(0_i32)]
+    #[case::i64(0_i64)]
+    #[case::f32(0_f32)]
+    #[case::f64(0_f64)]
     #[tokio::test]
-    async fn test_patches() {
-        test_case::<u8>().await;
-        test_case::<u16>().await;
-        test_case::<u32>().await;
-        test_case::<u64>().await;
-
-        test_case::<i8>().await;
-        test_case::<i16>().await;
-        test_case::<i32>().await;
-        test_case::<i64>().await;
-
-        test_case::<f32>().await;
-        test_case::<f64>().await;
-    }
-
-    async fn test_case<Values: NativePType + DeviceRepr>() {
-        full_test_case::<Values, u8>().await;
-        full_test_case::<Values, u16>().await;
-        full_test_case::<Values, u32>().await;
-        full_test_case::<Values, u64>().await;
+    async fn test_patches<Values: NativePType + DeviceRepr>(#[case] _v: Values) {
+        tokio::join!(
+            full_test_case::<Values, u8>(),
+            full_test_case::<Values, u16>(),
+            full_test_case::<Values, u32>(),
+            full_test_case::<Values, u64>(),
+        );
     }
 
     async fn full_test_case<Values: NativePType + DeviceRepr, Indices: NativePType + DeviceRepr>() {

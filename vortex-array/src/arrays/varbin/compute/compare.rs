@@ -4,7 +4,6 @@
 use arrow_array::BinaryArray;
 use arrow_array::StringArray;
 use arrow_ord::cmp;
-use itertools::Itertools;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
@@ -23,7 +22,6 @@ use crate::arrays::VarBinViewArray;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::compare_lengths_to_empty;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
@@ -60,14 +58,16 @@ impl CompareKernel for VarBinVTable {
                 let buffer = match operator {
                     CompareOperator::Gte => BitBuffer::new_set(len), // Every possible value is >= ""
                     CompareOperator::Lt => BitBuffer::new_unset(len), // No value is < ""
-                    CompareOperator::Eq
-                    | CompareOperator::NotEq
-                    | CompareOperator::Gt
-                    | CompareOperator::Lte => {
-                        let lhs_offsets =
-                            lhs.offsets().to_array().execute::<PrimitiveArray>(ctx)?;
+                    CompareOperator::Eq | CompareOperator::Lte => {
+                        let lhs_offsets = lhs.offsets().clone().execute::<PrimitiveArray>(ctx)?;
                         match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
-                            compare_offsets_to_empty::<P>(lhs_offsets, operator)
+                            compare_offsets_to_empty::<P>(lhs_offsets, true)
+                        })
+                    }
+                    CompareOperator::NotEq | CompareOperator::Gt => {
+                        let lhs_offsets = lhs.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+                        match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
+                            compare_offsets_to_empty::<P>(lhs_offsets, false)
                         })
                     }
                 };
@@ -131,16 +131,14 @@ impl CompareKernel for VarBinVTable {
     }
 }
 
-fn compare_offsets_to_empty<P: IntegerPType>(
-    offsets: PrimitiveArray,
-    operator: CompareOperator,
-) -> BitBuffer {
-    let lengths_iter = offsets
-        .as_slice::<P>()
-        .iter()
-        .tuple_windows()
-        .map(|(&s, &e)| e - s);
-    compare_lengths_to_empty(lengths_iter, operator)
+fn compare_offsets_to_empty<P: IntegerPType>(offsets: PrimitiveArray, eq: bool) -> BitBuffer {
+    let fn_ = if eq { P::eq } else { P::ne };
+    let offsets = offsets.as_slice::<P>();
+    BitBuffer::collect_bool(offsets.len() - 1, |idx| {
+        let left = unsafe { offsets.get_unchecked(idx) };
+        let right = unsafe { offsets.get_unchecked(idx + 1) };
+        fn_(left, right)
+    })
 }
 
 #[cfg(test)]

@@ -11,7 +11,6 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::Precision;
@@ -43,7 +42,7 @@ impl ConstantVTable {
 impl VTable for ConstantVTable {
     type Array = ConstantArray;
 
-    type Metadata = EmptyMetadata;
+    type Metadata = Scalar;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
@@ -108,31 +107,23 @@ impl VTable for ConstantVTable {
         vortex_panic!("ConstantArray child_name index {idx} out of bounds")
     }
 
-    fn metadata(_array: &ConstantArray) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
+    fn metadata(array: &ConstantArray) -> VortexResult<Self::Metadata> {
+        Ok(array.scalar().clone())
     }
 
     fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(Vec::new()))
+        // HACK: Because the scalar is stored in the buffers, we do not need to serialize the
+        // metadata at all.
+        Ok(Some(vec![]))
     }
 
     fn deserialize(
         _bytes: &[u8],
-        _dtype: &DType,
+        dtype: &DType,
         _len: usize,
-        _buffers: &[BufferHandle],
+        buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn build(
-        dtype: &DType,
-        len: usize,
-        _metadata: &Self::Metadata,
-        buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-    ) -> VortexResult<ConstantArray> {
         vortex_ensure!(
             buffers.len() == 1,
             "Expected 1 buffer, got {}",
@@ -145,7 +136,17 @@ impl VTable for ConstantVTable {
         let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype)?;
         let scalar = Scalar::try_new(dtype.clone(), scalar_value)?;
 
-        Ok(ConstantArray::new(scalar, len))
+        Ok(scalar)
+    }
+
+    fn build(
+        _dtype: &DType,
+        len: usize,
+        metadata: &Self::Metadata,
+        _buffers: &[BufferHandle],
+        _children: &dyn ArrayChildren,
+    ) -> VortexResult<ConstantArray> {
+        Ok(ConstantArray::new(metadata.clone(), len))
     }
 
     fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

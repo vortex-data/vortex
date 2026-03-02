@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -736,6 +737,20 @@ impl Executable for BoolArray {
             Ok(bool_array) => Ok(bool_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_bool()),
         }
+    }
+}
+
+/// Execute the array to a [`BitBuffer`], aka a non-nullable  [`BoolArray`].
+///
+/// This will panic if the array's dtype is not non-nullable bool.
+impl Executable for BitBuffer {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let bool = BoolArray::execute(array, ctx)?;
+        assert!(
+            !bool.dtype().is_nullable(),
+            "bit buffer execute only works with non-nullable bool arrays"
+        );
+        Ok(bool.into_bit_buffer())
     }
 }
 

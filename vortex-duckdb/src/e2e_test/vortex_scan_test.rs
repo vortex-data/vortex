@@ -792,7 +792,7 @@ async fn write_vortex_file_with_encodings() -> NamedTempFile {
     let rle_array = RunEndArray::try_new(run_ends.into_array(), run_values.into_array()).unwrap();
 
     // 5. Sequence array
-    let sequence_array = SequenceArray::new(
+    let sequence_array = SequenceArray::try_new(
         PValue::I64(0),
         PValue::I64(10),
         PType::I64,

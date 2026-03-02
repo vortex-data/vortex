@@ -12,11 +12,11 @@ pub fn vortex_sequence::SequenceArray::last(&self) -> vortex_array::scalar::type
 
 pub fn vortex_sequence::SequenceArray::multiplier(&self) -> vortex_array::scalar::typed_view::primitive::pvalue::PValue
 
-pub fn vortex_sequence::SequenceArray::new(base: vortex_array::scalar::typed_view::primitive::pvalue::PValue, multiplier: vortex_array::scalar::typed_view::primitive::pvalue::PValue, ptype: vortex_array::dtype::ptype::PType, nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
-
 pub fn vortex_sequence::SequenceArray::ptype(&self) -> vortex_array::dtype::ptype::PType
 
-pub fn vortex_sequence::SequenceArray::typed_new<T: vortex_array::dtype::ptype::NativePType + core::convert::Into<vortex_array::scalar::typed_view::primitive::pvalue::PValue>>(base: T, multiplier: T, nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_sequence::SequenceArray::try_new(base: vortex_array::scalar::typed_view::primitive::pvalue::PValue, multiplier: vortex_array::scalar::typed_view::primitive::pvalue::PValue, ptype: vortex_array::dtype::ptype::PType, nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_sequence::SequenceArray::try_new_typed<T: vortex_array::dtype::ptype::NativePType + core::convert::Into<vortex_array::scalar::typed_view::primitive::pvalue::PValue>>(base: T, multiplier: T, nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_sequence::SequenceArray
 
@@ -104,7 +104,7 @@ impl vortex_array::vtable::VTable for vortex_sequence::SequenceVTable
 
 pub type vortex_sequence::SequenceVTable::Array = vortex_sequence::SequenceArray
 
-pub type vortex_sequence::SequenceVTable::Metadata = vortex_array::metadata::ProstMetadata<vortex_sequence::array::SequenceMetadata>
+pub type vortex_sequence::SequenceVTable::Metadata = vortex_sequence::array::SequenceMetadata
 
 pub type vortex_sequence::SequenceVTable::OperationsVTable = vortex_sequence::SequenceVTable
 
@@ -124,7 +124,7 @@ pub fn vortex_sequence::SequenceVTable::child(_array: &vortex_sequence::Sequence
 
 pub fn vortex_sequence::SequenceVTable::child_name(_array: &vortex_sequence::SequenceArray, idx: usize) -> alloc::string::String
 
-pub fn vortex_sequence::SequenceVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_sequence::SequenceVTable::deserialize(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_sequence::SequenceVTable::dtype(array: &vortex_sequence::SequenceArray) -> &vortex_array::dtype::DType
 
