@@ -19,6 +19,7 @@ use vortex_proto::scalar::scalar_value::Kind;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
+use crate::dtype::DecimalDType;
 use crate::dtype::PType;
 use crate::dtype::half::f16;
 use crate::dtype::i256;
@@ -365,53 +366,63 @@ fn string_from_proto(s: &str, dtype: &DType) -> VortexResult<ScalarValue> {
     }
 }
 
-/// Deserialize a [`ScalarValue`] from a protobuf bytes and a `DType`.
+/// Deserialize a [`ScalarValue`] from a protobuf bytes and a [`DType`].
 ///
-/// Handles [`Utf8`](ScalarValue::Utf8), [`Binary`](ScalarValue::Binary), and
-/// [`Decimal`](ScalarValue::Decimal) dtypes.
+/// Handles all variable-size scalars, including:
+///
+/// - `Utf8` -> `ScalarValue::Utf8`
+/// - `Binary` -> `ScalarValue::Binary`
+/// - `Decimal` -> `ScalarValue::Decimal` (Since decimal has different width representations)
 fn bytes_from_proto(bytes: &[u8], dtype: &DType) -> VortexResult<ScalarValue> {
     match dtype {
         DType::Utf8(_) => Ok(ScalarValue::Utf8(BufferString::try_from(bytes)?)),
         DType::Binary(_) => Ok(ScalarValue::Binary(ByteBuffer::copy_from(bytes))),
-        // TODO(connor): This is incorrect, we need to verify this matches the inner decimal_dtype.
-        DType::Decimal(..) => Ok(ScalarValue::Decimal(match bytes.len() {
-            1 => DecimalValue::I8(bytes[0] as i8),
-            2 => DecimalValue::I16(i16::from_le_bytes(
-                bytes
-                    .try_into()
-                    .ok()
-                    .vortex_expect("Buffer has invalid number of bytes"),
-            )),
-            4 => DecimalValue::I32(i32::from_le_bytes(
-                bytes
-                    .try_into()
-                    .ok()
-                    .vortex_expect("Buffer has invalid number of bytes"),
-            )),
-            8 => DecimalValue::I64(i64::from_le_bytes(
-                bytes
-                    .try_into()
-                    .ok()
-                    .vortex_expect("Buffer has invalid number of bytes"),
-            )),
-            16 => DecimalValue::I128(i128::from_le_bytes(
-                bytes
-                    .try_into()
-                    .ok()
-                    .vortex_expect("Buffer has invalid number of bytes"),
-            )),
-            32 => DecimalValue::I256(i256::from_le_bytes(
-                bytes
-                    .try_into()
-                    .ok()
-                    .vortex_expect("Buffer has invalid number of bytes"),
-            )),
-            l => vortex_bail!(Serde: "invalid decimal byte length: {l}"),
-        })),
+        DType::Decimal(decimal_dtype, _) => decimal_from_proto(bytes, decimal_dtype),
         _ => vortex_bail!(
             Serde: "expected Utf8, Binary, or Decimal dtype for BytesValue, got {dtype}"
         ),
     }
+}
+
+/// Deserialize a [`ScalarValue::Decimal`] from a protobuf bytes.
+fn decimal_from_proto(bytes: &[u8], decimal_dtype: &DecimalDType) -> VortexResult<ScalarValue> {
+    let nbytes = bytes.len();
+    vortex_ensure!(
+        decimal_dtype.required_bit_width() <= nbytes * 8,
+        Serde: "invalid decimal byte length {nbytes} for decimal dtype {decimal_dtype}"
+    );
+
+    let value = match nbytes {
+        1 => DecimalValue::I8(bytes[0] as i8),
+        2 => {
+            DecimalValue::I16(i16::from_le_bytes(bytes.try_into().ok().vortex_expect(
+                "we just checked that there was the correct number of bytes",
+            )))
+        }
+        4 => {
+            DecimalValue::I32(i32::from_le_bytes(bytes.try_into().ok().vortex_expect(
+                "we just checked that there was the correct number of bytes",
+            )))
+        }
+        8 => {
+            DecimalValue::I64(i64::from_le_bytes(bytes.try_into().ok().vortex_expect(
+                "we just checked that there was the correct number of bytes",
+            )))
+        }
+        16 => {
+            DecimalValue::I128(i128::from_le_bytes(bytes.try_into().ok().vortex_expect(
+                "we just checked that there was the correct number of bytes",
+            )))
+        }
+        32 => {
+            DecimalValue::I256(i256::from_le_bytes(bytes.try_into().ok().vortex_expect(
+                "we just checked that there was the correct number of bytes",
+            )))
+        }
+        l => vortex_bail!(Serde: "invalid decimal byte length: {l}"),
+    };
+
+    Ok(ScalarValue::Decimal(value))
 }
 
 /// Deserialize a [`ScalarValue::List`] from a protobuf `ListValue`.

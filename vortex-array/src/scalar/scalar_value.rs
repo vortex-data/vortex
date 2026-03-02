@@ -16,7 +16,7 @@ use crate::dtype::DType;
 use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
 
-/// The value stored in a [`Scalar`][crate::scalar::Scalar].
+/// The value stored in a [`Scalar`](crate::scalar::Scalar).
 ///
 /// This enum represents the possible non-null values that can be stored in a scalar. When the
 /// scalar is null, the value is represented as `None` in the `Option<ScalarValue>` field.
