@@ -163,7 +163,7 @@ impl TsMuxer {
         let pat = &mut packet[5..];
         pat[0] = 0x00; // table_id = PAT
         // section_syntax_indicator=1, 0, reserved=11
-        let section_len = 9u16; // 5 (header after length) + 4 (CRC)
+        let section_len = 13u16; // 5 (header) + 4 (program entry) + 4 (CRC)
         pat[1] = 0xB0 | ((section_len >> 8) as u8 & 0x0F);
         pat[2] = (section_len & 0xFF) as u8;
         pat[3] = 0x00; // transport_stream_id
@@ -203,7 +203,7 @@ impl TsMuxer {
         // PMT table
         let pmt = &mut packet[5..];
         pmt[0] = 0x02; // table_id = PMT
-        let section_len = 13u16; // header + stream info + CRC
+        let section_len = 18u16; // 5 (header) + 4 (PCR+info_len) + 5 (stream entry) + 4 (CRC)
         pmt[1] = 0xB0 | ((section_len >> 8) as u8 & 0x0F);
         pmt[2] = (section_len & 0xFF) as u8;
         pmt[3] = 0x00; // program_number
@@ -262,8 +262,8 @@ impl TsMuxer {
             pes.push(0x00);
         }
 
-        // Flags: data_alignment=1, PTS_DTS_flags=10 (PTS only)
-        pes.push(0x80); // 10 00 0 0 0 0
+        // Flags: data_alignment_indicator=1, PTS_DTS_flags=10 (PTS only)
+        pes.push(0x84); // 10 00 0 1 0 0 (marker bits + data_alignment)
         pes.push(0x80); // PTS only
         pes.push(pes_header_data_len);
 
