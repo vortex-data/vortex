@@ -1,55 +1,56 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! SRT transport for streaming MPEG-TS packets to a remote viewer.
+//! TCP transport for streaming MPEG-TS packets to a remote viewer.
 
-use std::time::Instant;
-
-use bytes::Bytes;
-use futures::SinkExt;
-use srt_tokio::SrtSocket;
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpListener;
+use tokio::net::TcpStream;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
-/// SRT sender in listener mode.
+/// TCP sender that accepts a single client and writes raw MPEG-TS.
 ///
-/// Waits for a client to connect, then sends MPEG-TS data.
-pub struct SrtSender {
-    socket: SrtSocket,
+/// Connect with: `ffplay tcp://host:port`
+pub struct TcpSender {
+    stream: TcpStream,
 }
 
-impl SrtSender {
-    /// Creates an SRT listener on the given port and waits for a connection.
+impl TcpSender {
+    /// Creates a TCP listener on the given port and waits for a connection.
     pub async fn listen(port: u16) -> VortexResult<Self> {
-        tracing::info!("Waiting for SRT connection on port {port}...");
-        tracing::info!("Connect with: vlc srt://<host>:{port}");
-
-        let socket = SrtSocket::builder()
-            .listen_on(port)
+        let listener = TcpListener::bind(("0.0.0.0", port))
             .await
-            .map_err(|e| vortex_err!("SRT listen failed: {e}"))?;
+            .map_err(|e| vortex_err!("TCP bind failed: {e}"))?;
 
-        tracing::info!("SRT client connected");
+        tracing::info!("Waiting for TCP connection on port {port}...");
+        tracing::info!("Connect with: ffplay tcp://localhost:{port}");
 
-        Ok(Self { socket })
+        let (stream, addr) = listener
+            .accept()
+            .await
+            .map_err(|e| vortex_err!("TCP accept failed: {e}"))?;
+
+        tracing::info!("Client connected from {addr}");
+
+        Ok(Self { stream })
     }
 
-    /// Sends MPEG-TS packets over SRT.
+    /// Sends MPEG-TS packets over TCP.
     pub async fn send(&mut self, data: Vec<u8>) -> VortexResult<()> {
-        self.socket
-            .send((Instant::now(), Bytes::from(data)))
+        self.stream
+            .write_all(&data)
             .await
-            .map_err(|e| vortex_err!("SRT send failed: {e:?}"))?;
+            .map_err(|e| vortex_err!("TCP send failed: {e}"))?;
         Ok(())
     }
 
-    /// Closes the SRT connection gracefully.
-    pub async fn close(self) -> VortexResult<()> {
-        let mut socket = self.socket;
-        socket
-            .close()
+    /// Closes the TCP connection gracefully.
+    pub async fn close(mut self) -> VortexResult<()> {
+        self.stream
+            .shutdown()
             .await
-            .map_err(|e| vortex_err!("SRT close failed: {e:?}"))?;
+            .map_err(|e| vortex_err!("TCP close failed: {e}"))?;
         Ok(())
     }
 }

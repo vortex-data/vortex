@@ -2,20 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! GPU Video Demo: scans a Vortex file containing RGB video frames, converts to
-//! NV12 on GPU, encodes to H.264 via NVENC, and streams over SRT.
+//! NV12 on GPU, encodes to H.264 via NVENC, and streams over TCP.
 //!
 //! Usage:
 //!   cargo run -p gpu-video-demo -- s3://bucket/video.vortex --width 1920 --height 1080
 //!
-//! Then connect with VLC:
-//!   vlc srt://<host>:9000
+//! Then connect with ffplay:
+//!   ffplay tcp://localhost:9000
 
 #![allow(unused_imports)]
 
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
 
 use clap::Parser;
 use cudarc::driver::CudaSlice;
@@ -39,7 +38,6 @@ use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 use vortex::VortexSessionDefault;
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
@@ -85,9 +83,9 @@ struct Cli {
     #[arg(long, default_value_t = 20)]
     bitrate_mbps: u32,
 
-    /// SRT listener port.
+    /// TCP listener port for MPEG-TS streaming.
     #[arg(long, default_value_t = 9000)]
-    srt_port: u16,
+    port: u16,
 
     /// Path to write Perfetto trace output.
     #[arg(long)]
@@ -180,11 +178,7 @@ async fn main() -> VortexResult<()> {
     // Load RGB→NV12 kernel
     let nv12_kernel = nv12::load_rgb_to_nv12_kernel(&session)?;
 
-    // Bind CUDA context before any allocations or NVENC init
     let cuda_context = cuda_ctx.stream().context().clone();
-    cuda_context
-        .bind_to_thread()
-        .map_err(|e| vortex_err!("Failed to bind CUDA context: {e}"))?;
 
     // Allocate NV12 buffer on GPU (width * height * 3/2 for Y + UV planes)
     let nv12_size = (width as usize) * (height as usize) * 3 / 2;
@@ -226,8 +220,8 @@ async fn main() -> VortexResult<()> {
     // Create MPEG-TS muxer
     let mut mux = mux::TsMuxer::new(fps);
 
-    // Wait for SRT connection
-    let mut srt_sender = transport::SrtSender::listen(cli.srt_port).await?;
+    // Wait for TCP connection
+    let mut sender = transport::TcpSender::listen(cli.port).await?;
 
     tracing::info!(
         "Streaming {}x{} @ {}fps, bitrate={}Mbps",
@@ -322,8 +316,8 @@ async fn main() -> VortexResult<()> {
                 // Mux to MPEG-TS
                 let ts_packets = mux.write_access_unit(&h264_nals, frame_idx);
 
-                // Send over SRT
-                srt_sender.send(ts_packets).await?;
+                // Send over TCP
+                sender.send(ts_packets).await?;
 
                 VortexResult::Ok(())
             }
@@ -347,7 +341,7 @@ async fn main() -> VortexResult<()> {
         .end_of_stream()
         .map_err(|e| vortex_err!("NVENC flush failed: {e}"))?;
 
-    srt_sender.close().await?;
+    sender.close().await?;
 
     tracing::info!("Streamed {frame_idx} frames");
     Ok(())

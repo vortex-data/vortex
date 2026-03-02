@@ -1,7 +1,7 @@
 [package]
 name = "gpu-video-demo"
 authors = { workspace = true }
-description = "GPU video streaming demo: Vortex scan → NVENC H.264 → SRT"
+description = "GPU video streaming demo: Vortex scan → NVENC H.264 → TCP"
 edition = { workspace = true }
 homepage = { workspace = true }
 include = { workspace = true }
@@ -16,12 +16,10 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-bytes = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 cudarc = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 object_store = { workspace = true, features = ["aws", "fs"] }
-srt-tokio = { workspace = true }
 tokio = { workspace = true, features = ["macros", "full"] }
 tracing = { workspace = true, features = ["std", "attributes"] }
 tracing-perfetto = { workspace = true }

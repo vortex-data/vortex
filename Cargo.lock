@@ -217,18 +217,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28f6098a1e8ab66ff91324cce8fea6643101882cf7d09c85acdb1485ecf61e29"
 
 [[package]]
-name = "array-init"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d62b7694a562cdf5a74227903507c56ab2cc8bdd1f781ed5cb4cf9c9f810bfc"
-
-[[package]]
-name = "arraydeque"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d902e3d592a523def97af8f317b08ce16b7ab854c1985a0c671e6f15cebc236"
-
-[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1498,12 +1486,6 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "convert_case"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
-
-[[package]]
-name = "convert_case"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "633458d4ef8c78b72454de2d54fd6ab2e60f9e02be22f3c6104cdc8a4e0fceb9"
@@ -1631,7 +1613,7 @@ checksum = "d8b9f2e4c67f833b660cdb0a3523065869fb35570177239812ed4c905aeff87b"
 dependencies = [
  "bitflags 2.11.0",
  "crossterm_winapi",
- "derive_more 2.1.1",
+ "derive_more",
  "document-features",
  "mio",
  "parking_lot",
@@ -1695,15 +1677,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "704a3c26996a80471189265814dbc2c257598b96b8a7feae2d31ace646bb9782"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "ctr"
-version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0369ee1ad671834580515889b80f2ea915f23b8be8d0daa4bbaf2ac5c7590835"
-dependencies = [
- "cipher",
 ]
 
 [[package]]
@@ -3264,19 +3237,6 @@ dependencies = [
 
 [[package]]
 name = "derive_more"
-version = "0.99.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6edb4b64a43d977b8e99788fe3a04d483834fba1215a7e02caa415b626497f7f"
-dependencies = [
- "convert_case 0.4.0",
- "proc-macro2",
- "quote",
- "rustc_version",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "derive_more"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d751e9e49156b02b44f9c1815bcb94b984cdcc4396ecc32521c739452808b134"
@@ -3290,7 +3250,7 @@ version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "799a97264921d8623a957f6c3b9011f3b5492f557bbb7a5a19b7fa6d06ba8dcb"
 dependencies = [
- "convert_case 0.10.0",
+ "convert_case",
  "proc-macro2",
  "quote",
  "rustc_version",
@@ -4174,13 +4134,11 @@ dependencies = [
 name = "gpu-video-demo"
 version = "0.1.0"
 dependencies = [
- "bytes",
  "clap",
  "cudarc",
  "futures",
  "nvidia-video-codec-sdk",
  "object_store",
- "srt-tokio",
  "tokio",
  "tracing",
  "tracing-perfetto",
@@ -4981,15 +4939,6 @@ dependencies = [
  "hashbrown 0.16.1",
  "portable-atomic",
  "thiserror 2.0.18",
-]
-
-[[package]]
-name = "keyed_priority_queue"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ee7893dab2e44ae5f9d0173f26ff4aa327c10b01b06a72b52dd9405b628640d"
-dependencies = [
- "indexmap",
 ]
 
 [[package]]
@@ -8428,17 +8377,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha-1"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5058ada175748e33390e40e872bd0fe59a19f265d0158daa551c5a88a76009c"
-dependencies = [
- "cfg-if",
- "cpufeatures",
- "digest",
-]
-
-[[package]]
 name = "sha1"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8649,16 +8587,6 @@ dependencies = [
 
 [[package]]
 name = "socket2"
-version = "0.5.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
-dependencies = [
- "libc",
- "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "socket2"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "86f4aa3ad99f2088c990dfa82d367e19cb29268ed67c574d10d0a4bfe71f07e0"
@@ -8727,50 +8655,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "srt-protocol"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22790a85cd5d34355e9fc246ded6a1f037add6fd0e0efe4d4914c2d51c20f246"
-dependencies = [
- "aes",
- "array-init",
- "arraydeque",
- "bitflags 2.11.0",
- "bytes",
- "cipher",
- "ctr",
- "derive_more 0.99.20",
- "hex",
- "hmac",
- "keyed_priority_queue",
- "log",
- "pbkdf2",
- "rand 0.8.5",
- "regex",
- "sha-1",
- "streaming-stats",
- "take-until",
- "thiserror 1.0.69",
- "url",
-]
-
-[[package]]
-name = "srt-tokio"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a55cb90afac5672b00954e3291846dd262cfef3b52d1b507f580180433373d3"
-dependencies = [
- "bytes",
- "futures",
- "log",
- "rand 0.8.5",
- "socket2 0.5.10",
- "srt-protocol",
- "tokio",
- "tokio-stream",
-]
-
-[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8816,15 +8700,6 @@ name = "stfu8"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e51f1e89f093f99e7432c491c382b88a6860a5adbe6bf02574bf0a08efff1978"
-
-[[package]]
-name = "streaming-stats"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0d670ce4e348a2081843569e0f79b21c99c91bb9028b3b3ecb0f050306de547"
-dependencies = [
- "num-traits",
-]
 
 [[package]]
 name = "strsim"
@@ -9034,12 +8909,6 @@ name = "tagptr"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
-
-[[package]]
-name = "take-until"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bdb6fa0dfa67b38c1e66b7041ba9dcf23b99d8121907cd31c807a332f7a0bbb"
 
 [[package]]
 name = "take_mut"
@@ -9575,7 +9444,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
- "tokio-util",
 ]
 
 [[package]]
