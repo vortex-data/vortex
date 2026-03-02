@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
+use vortex_utils::iter::ReduceBalanced;
 
 use crate::dtype::DType;
 use crate::dtype::FieldName;
@@ -286,8 +287,7 @@ pub fn or_collect<I>(iter: I) -> Option<Expression>
 where
     I: IntoIterator<Item = Expression>,
 {
-    let exprs: Vec<_> = iter.into_iter().collect();
-    balanced_reduce(exprs, or)
+    iter.into_iter().reduce_balanced(or)
 }
 
 /// Create a new [`Binary`] using the [`And`](Operator::And) operator.
@@ -322,42 +322,7 @@ pub fn and_collect<I>(iter: I) -> Option<Expression>
 where
     I: IntoIterator<Item = Expression>,
 {
-    let exprs: Vec<_> = iter.into_iter().collect();
-    balanced_reduce(exprs, and)
-}
-
-/// Helper function to reduce a list of expressions into a balanced binary tree.
-fn balanced_reduce<F>(mut exprs: Vec<Expression>, combine: F) -> Option<Expression>
-where
-    F: Fn(Expression, Expression) -> Expression + Copy,
-{
-    if exprs.is_empty() {
-        return None;
-    }
-    if exprs.len() == 1 {
-        return exprs.pop();
-    }
-
-    while exprs.len() > 1 {
-        let exprs_len = exprs.len();
-
-        for target_idx in 0..(exprs.len() / 2) {
-            let item_idx = target_idx * 2;
-            let new = combine(exprs[item_idx].clone(), exprs[item_idx + 1].clone());
-            exprs[target_idx] = new;
-        }
-
-        if !exprs.len().is_multiple_of(2) {
-            // We want the odd nodes to be inside the tree and not at root
-            let lhs = exprs[(exprs.len() / 2) - 1].clone();
-            let rhs = exprs[exprs.len() - 1].clone();
-            exprs[exprs_len / 2 - 1] = combine(lhs, rhs);
-        }
-
-        exprs.truncate(exprs_len / 2);
-    }
-
-    exprs.pop()
+    iter.into_iter().reduce_balanced(and)
 }
 
 /// Create a new [`Binary`] using the [`Add`](Operator::Add) operator.

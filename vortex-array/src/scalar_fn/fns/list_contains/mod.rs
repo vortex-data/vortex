@@ -15,6 +15,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_utils::iter::ReduceBalanced;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -243,26 +244,26 @@ fn constant_list_scalar_contains(
     let elements = list_scalar.elements().vortex_expect("non null");
 
     let len = values.len();
-    let mut result: Option<ArrayRef> = None;
     let false_scalar = Scalar::bool(false, nullability);
 
-    for element in elements {
-        let res = Binary
-            .try_new_array(
-                len,
-                Operator::Eq,
-                [
-                    ConstantArray::new(element, len).into_array(),
-                    values.to_array(),
-                ],
-            )?
-            .fill_null(false_scalar.clone())?;
-        if let Some(acc) = result {
-            result = Some(acc.binary(res, Operator::Or)?)
-        } else {
-            result = Some(res);
-        }
-    }
+    let result = elements
+        .iter()
+        .map(|element| {
+            Binary
+                .try_new_array(
+                    len,
+                    Operator::Eq,
+                    [
+                        ConstantArray::new(element.clone(), len).into_array(),
+                        values.to_array(),
+                    ],
+                )?
+                .fill_null(false_scalar.clone())
+        })
+        .collect::<VortexResult<Vec<_>>>()?
+        .into_iter()
+        .try_reduce_balanced(|acc, res| acc.binary(res, Operator::Or))?;
+
     Ok(result.unwrap_or_else(|| ConstantArray::new(false_scalar, len).to_array()))
 }
 
