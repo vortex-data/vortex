@@ -500,6 +500,34 @@ jobs:
             --target x86_64-unknown-linux-gnu \
             -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
 
+  cuda-lint:
+    name: "CUDA lint"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=g5+g4dn+g6
+      - cpu=8
+      - image=ubuntu24-gpu-x64
+      - extras=s3-cache
+      - tag=cuda-lint
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Clippy CUDA crates
+        run: |
+          cargo clippy --locked --all-features --all-targets \
+            -p vortex-cuda \
+            -p vortex-cub \
+            -p vortex-nvcomp \
+            -p gpu-scan-cli \
+            -p vortex-test-e2e-cuda \
+            -- -D warnings
+
   cuda-test:
     name: "CUDA tests"
     timeout-minutes: 120
@@ -535,15 +563,6 @@ jobs:
             -p vortex-nvcomp \
             -p gpu-scan-cli \
             -p vortex-test-e2e-cuda
-      - name: Clippy CUDA crates
-        run: |
-          cargo clippy --locked --all-features --all-targets \
-            -p vortex-cuda \
-            -p vortex-cub \
-            -p vortex-nvcomp \
-            -p gpu-scan-cli \
-            -p vortex-test-e2e-cuda \
-            -- -D warnings
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
