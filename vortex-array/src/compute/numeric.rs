@@ -1,17 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
-
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::arrays::ConstantArray;
-use crate::arrow::Datum;
-use crate::arrow::from_arrow_array_with_len;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::Options;
 use crate::scalar::NumericOperator;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
@@ -75,35 +69,7 @@ pub fn div_scalar(lhs: &ArrayRef, rhs: Scalar) -> VortexResult<ArrayRef> {
 /// Point-wise numeric operation between two arrays of the same type and length.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
 pub fn numeric(lhs: &ArrayRef, rhs: &ArrayRef, op: NumericOperator) -> VortexResult<ArrayRef> {
-    arrow_numeric(lhs, rhs, op)
-}
-
-impl Options for NumericOperator {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-/// Implementation of numeric operations using the Arrow crate.
-pub(crate) fn arrow_numeric(
-    lhs: &ArrayRef,
-    rhs: &ArrayRef,
-    operator: NumericOperator,
-) -> VortexResult<ArrayRef> {
-    let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
-    let len = lhs.len();
-
-    let left = Datum::try_new(lhs)?;
-    let right = Datum::try_new_with_target_datatype(rhs, left.data_type())?;
-
-    let array = match operator {
-        NumericOperator::Add => arrow_arith::numeric::add(&left, &right)?,
-        NumericOperator::Sub => arrow_arith::numeric::sub(&left, &right)?,
-        NumericOperator::Mul => arrow_arith::numeric::mul(&left, &right)?,
-        NumericOperator::Div => arrow_arith::numeric::div(&left, &right)?,
-    };
-
-    from_arrow_array_with_len(array.as_ref(), len, nullable)
+    lhs.to_array().binary(rhs.to_array(), op.into())
 }
 
 #[cfg(test)]

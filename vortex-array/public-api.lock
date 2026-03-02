@@ -6276,10 +6276,6 @@ impl vortex_array::compute::Options for vortex_array::compute::IsConstantOpts
 
 pub fn vortex_array::compute::IsConstantOpts::as_any(&self) -> &dyn core::any::Any
 
-impl vortex_array::compute::Options for vortex_array::scalar::NumericOperator
-
-pub fn vortex_array::scalar::NumericOperator::as_any(&self) -> &dyn core::any::Any
-
 impl vortex_array::compute::Options for vortex_array::scalar_fn::fns::between::BetweenOptions
 
 pub fn vortex_array::scalar_fn::fns::between::BetweenOptions::as_any(&self) -> &dyn core::any::Any
@@ -6321,8 +6317,6 @@ pub fn vortex_array::compute::and_kleene(lhs: &vortex_array::ArrayRef, rhs: &vor
 pub fn vortex_array::compute::arrow_filter_fn(array: &vortex_array::ArrayRef, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::compute::cast(array: &dyn vortex_array::Array, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::compare_lengths_to_empty<P, I>(lengths: I, op: vortex_array::scalar_fn::fns::operators::CompareOperator) -> vortex_buffer::bit::buf::BitBuffer where P: vortex_array::dtype::IntegerPType, I: core::iter::traits::iterator::Iterator<Item = P>
 
 pub fn vortex_array::compute::div(lhs: &vortex_array::ArrayRef, rhs: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -11302,10 +11296,6 @@ impl core::marker::Copy for vortex_array::scalar::NumericOperator
 
 impl core::marker::StructuralPartialEq for vortex_array::scalar::NumericOperator
 
-impl vortex_array::compute::Options for vortex_array::scalar::NumericOperator
-
-pub fn vortex_array::scalar::NumericOperator::as_any(&self) -> &dyn core::any::Any
-
 pub enum vortex_array::scalar::PValue
 
 pub vortex_array::scalar::PValue::F16(half::binary16::f16)
@@ -13243,6 +13233,8 @@ impl vortex_array::scalar_fn::fns::binary::CompareKernel for vortex_array::array
 pub fn vortex_array::arrays::VarBinVTable::compare(lhs: &vortex_array::arrays::VarBinArray, rhs: &vortex_array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::scalar_fn::fns::binary::and_kleene(lhs: &vortex_array::ArrayRef, rhs: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::binary::compare_nested_arrow_arrays(lhs: &dyn arrow_array::array::Array, rhs: &dyn arrow_array::array::Array, operator: vortex_array::scalar_fn::fns::operators::CompareOperator) -> vortex_error::VortexResult<arrow_array::array::boolean_array::BooleanArray>
 
 pub fn vortex_array::scalar_fn::fns::binary::or_kleene(lhs: &vortex_array::ArrayRef, rhs: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -18611,6 +18603,10 @@ pub fn vortex_array::arrays::StructArray::execute(array: vortex_array::ArrayRef,
 impl vortex_array::Executable for vortex_array::arrays::VarBinViewArray
 
 pub fn vortex_array::arrays::VarBinViewArray::execute(array: vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
+
+impl vortex_array::Executable for vortex_buffer::bit::buf::BitBuffer
+
+pub fn vortex_buffer::bit::buf::BitBuffer::execute(array: vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::Executable for vortex_mask::Mask
 

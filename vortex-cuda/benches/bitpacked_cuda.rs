@@ -27,6 +27,7 @@ use vortex::encodings::fastlanes::BitPackedArray;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked;
 use vortex::error::VortexExpect;
 use vortex::session::VortexSession;
+use vortex_array::IntoArray;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
@@ -94,7 +95,7 @@ where
         })
         .collect();
 
-    let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable).to_array();
+    let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
     BitPackedArray::encode(&primitive_array, bit_width)
         .vortex_expect("failed to create BitPacked array with patches")
 }

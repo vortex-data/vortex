@@ -6,7 +6,7 @@
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// Binary element-wise operations on two arrays or two scalars.
+/// Binary element-wise operations.
 pub enum NumericOperator {
     /// Binary element-wise addition of two arrays or of two scalars.
     ///
