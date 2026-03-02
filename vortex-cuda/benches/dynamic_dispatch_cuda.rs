@@ -176,7 +176,7 @@ fn bench_for_bitpacked(c: &mut Criterion) {
             .map(|i| (i as u64 % (max_val + 1)) as u32)
             .collect();
         let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
-        let bp = BitPackedArray::encode(prim.as_ref(), bit_width).vortex_expect("bitpack");
+        let bp = BitPackedArray::encode(&prim.to_array(), bit_width).vortex_expect("bitpack");
         let for_arr =
             FoRArray::try_new(bp.into_array(), Scalar::from(reference)).vortex_expect("for");
         let array = for_arr.to_array();
@@ -220,7 +220,7 @@ fn bench_dict_bp_codes(c: &mut Criterion) {
 
         let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(codes_prim.as_ref(), dict_bit_width)
+        let codes_bp = BitPackedArray::encode(&codes_prim.to_array(), dict_bit_width)
             .vortex_expect("bitpack codes");
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values.clone()), NonNullable);
         let dict = DictArray::new(codes_bp.into_array(), values_prim.into_array());
@@ -309,7 +309,7 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
     let dict_residuals: Vec<u32> = (0..dict_size as u32).collect();
     let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
     let dict_bp =
-        BitPackedArray::encode(dict_prim.as_ref(), dict_bit_width).vortex_expect("bitpack dict");
+        BitPackedArray::encode(&dict_prim.to_array(), dict_bit_width).vortex_expect("bitpack dict");
     let dict_for = FoRArray::try_new(dict_bp.into_array(), Scalar::from(dict_reference))
         .vortex_expect("for dict");
 
@@ -318,7 +318,7 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
 
         let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(codes_prim.as_ref(), codes_bit_width)
+        let codes_bp = BitPackedArray::encode(&codes_prim.to_array(), codes_bit_width)
             .vortex_expect("bitpack codes");
 
         let dict = DictArray::new(codes_bp.into_array(), dict_for.to_array());

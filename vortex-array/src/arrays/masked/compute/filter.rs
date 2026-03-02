@@ -57,6 +57,6 @@ mod tests {
         ).unwrap()
     )]
     fn test_filter_masked_conformance(#[case] array: MaskedArray) {
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
     }
 }

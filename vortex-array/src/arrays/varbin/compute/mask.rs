@@ -41,12 +41,12 @@ mod test {
             vec!["hello", "world", "filter", "good", "bye"],
             DType::Utf8(Nullability::NonNullable),
         );
-        test_mask_conformance(array.as_ref());
+        test_mask_conformance(&array.to_array());
 
         let array = VarBinArray::from_iter(
             vec![Some("hello"), None, Some("filter"), Some("good"), None],
             DType::Utf8(Nullability::Nullable),
         );
-        test_mask_conformance(array.as_ref());
+        test_mask_conformance(&array.to_array());
     }
 }

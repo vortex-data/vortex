@@ -56,21 +56,21 @@ mod test {
 
     #[test]
     fn test_filter_null_array() {
-        test_filter_conformance(NullArray::new(5).as_ref());
-        test_filter_conformance(NullArray::new(1).as_ref());
-        test_filter_conformance(NullArray::new(10).as_ref());
+        test_filter_conformance(&NullArray::new(5).to_array());
+        test_filter_conformance(&NullArray::new(1).to_array());
+        test_filter_conformance(&NullArray::new(10).to_array());
     }
 
     #[test]
     fn test_mask_null_array() {
-        test_mask_conformance(NullArray::new(5).as_ref());
+        test_mask_conformance(&NullArray::new(5).to_array());
     }
 
     #[test]
     fn test_take_null_array_conformance() {
-        test_take_conformance(NullArray::new(5).as_ref());
-        test_take_conformance(NullArray::new(1).as_ref());
-        test_take_conformance(NullArray::new(10).as_ref());
+        test_take_conformance(&NullArray::new(5).to_array());
+        test_take_conformance(&NullArray::new(1).to_array());
+        test_take_conformance(&NullArray::new(10).to_array());
     }
 
     #[rstest]
@@ -82,6 +82,6 @@ mod test {
     #[case::null_array_large(NullArray::new(1000))]
     #[case::null_array_empty(NullArray::new(0))]
     fn test_null_consistency(#[case] array: NullArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 }

@@ -35,14 +35,14 @@ mod test {
         // Create storage array
         let storage = buffer![1i32, 2, 3, 4, 5].into_array();
         let array = ExtensionArray::new(ext_dtype.clone(), storage);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
 
         // Test with nullable extension type
         let ext_dtype_nullable = ext_dtype.with_nullability(Nullability::Nullable);
         let storage = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None])
             .into_array();
         let array = ExtensionArray::new(ext_dtype_nullable, storage);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
     }
 
     #[rstest]
@@ -81,7 +81,7 @@ mod test {
         ExtensionArray::new(ext_dtype_large, storage)
     })]
     fn test_take_extension_array_conformance(#[case] array: ExtensionArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.to_array());
     }
 }
 
@@ -118,6 +118,6 @@ mod tests {
         ExtensionArray::new(ext_dtype, storage)
     })]
     fn test_extension_consistency(#[case] array: ExtensionArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 }

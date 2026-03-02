@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
@@ -16,8 +15,8 @@ use crate::scalar::NumericOperator;
 /// This is the entry point for numeric operations from the binary expression.
 /// Handles constant-constant directly, otherwise falls back to Arrow.
 pub(crate) fn execute_numeric(
-    lhs: &dyn Array,
-    rhs: &dyn Array,
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
     op: NumericOperator,
 ) -> VortexResult<ArrayRef> {
     if let Some(result) = constant_numeric(lhs, rhs, op)? {
@@ -27,8 +26,8 @@ pub(crate) fn execute_numeric(
 }
 
 fn constant_numeric(
-    lhs: &dyn Array,
-    rhs: &dyn Array,
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
     op: NumericOperator,
 ) -> VortexResult<Option<ArrayRef>> {
     let (Some(lhs), Some(rhs)) = (

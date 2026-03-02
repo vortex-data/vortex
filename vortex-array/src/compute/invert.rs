@@ -9,6 +9,6 @@ use crate::builtins::ArrayBuiltins;
 
 /// Logically invert a boolean array, preserving its validity.
 #[deprecated(note = "use array.not() via ArrayBuiltins instead")]
-pub fn invert(array: &dyn Array) -> VortexResult<ArrayRef> {
+pub fn invert(array: &ArrayRef) -> VortexResult<ArrayRef> {
     array.to_array().not()
 }

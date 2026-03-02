@@ -278,6 +278,6 @@ mod test {
         DType::Primitive(PType::I64, Nullability::NonNullable),
     ).unwrap())]
     fn test_filter_chunked_conformance(#[case] chunked: ChunkedArray) {
-        test_filter_conformance(chunked.as_ref());
+        test_filter_conformance(&chunked.to_array());
     }
 }

@@ -76,7 +76,7 @@ fn take_inner<T: IntegerPType, S: NativePType>(
 impl TakeExecute for SequenceVTable {
     fn take(
         array: &SequenceArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let mask = indices.validity_mask()?;
@@ -162,7 +162,7 @@ mod test {
     ).unwrap())]
     fn test_take_conformance(#[case] sequence: SequenceArray) {
         use vortex_array::compute::conformance::take::test_take_conformance;
-        test_take_conformance(sequence.as_ref());
+        test_take_conformance(&sequence.to_array());
     }
 
     #[test]

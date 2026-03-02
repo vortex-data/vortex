@@ -21,7 +21,7 @@ use crate::scalar::Scalar;
 /// expression that defers the actual masking operation until execution time. The mask is inverted
 /// (true=mask-out becomes true=keep) and passed as a boolean child to the expression.
 #[deprecated(note = "use array.mask(mask_array) via ArrayBuiltins instead")]
-pub fn mask(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
+pub fn mask(array: &ArrayRef, mask: &Mask) -> VortexResult<ArrayRef> {
     let mask = mask.not();
     match mask {
         Mask::AllTrue(_) => array.to_array().cast(array.dtype().as_nullable()),

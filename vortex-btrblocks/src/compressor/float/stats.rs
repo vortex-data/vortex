@@ -92,7 +92,7 @@ impl CompressorStats for FloatStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(self.src.as_ref(), sample_size, sample_count).to_primitive();
+        let sampled = sample(&self.src.to_array(), sample_size, sample_count).to_primitive();
 
         Self::generate_opts(&sampled, opts)
     }

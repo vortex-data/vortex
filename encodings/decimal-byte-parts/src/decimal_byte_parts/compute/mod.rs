@@ -68,6 +68,6 @@ mod tests {
     ).unwrap())]
 
     fn test_decimal_byte_parts_consistency(#[case] array: DecimalBytePartsArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 }

@@ -127,6 +127,6 @@ mod tests {
     #[case(zigzag_encode(PrimitiveArray::from_option_iter([Some(-5i16), None, Some(0), Some(5), None])).unwrap())]
     #[case(zigzag_encode(PrimitiveArray::from_iter([i32::MIN, -1, 0, 1, i32::MAX])).unwrap())]
     fn test_cast_zigzag_conformance(#[case] array: ZigZagArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 }

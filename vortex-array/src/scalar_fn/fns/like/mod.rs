@@ -204,8 +204,8 @@ impl ScalarFnVTable for Like {
 
 /// Implementation of LIKE using the Arrow crate.
 pub(crate) fn arrow_like(
-    array: &dyn Array,
-    pattern: &dyn Array,
+    array: &ArrayRef,
+    pattern: &ArrayRef,
     options: LikeOptions,
 ) -> VortexResult<ArrayRef> {
     let nullable = array.dtype().is_nullable() | pattern.dtype().is_nullable();

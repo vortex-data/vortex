@@ -111,7 +111,7 @@ impl BtrBlocksCompressor {
     /// Compresses an array using BtrBlocks-inspired compression.
     ///
     /// First canonicalizes and compacts the array, then applies optimal compression schemes.
-    pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
+    pub fn compress(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
         // Canonicalize the array
         let canonical = array.to_canonical()?;
 
@@ -275,7 +275,7 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                     && let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata()
                 {
                     if is_constant_opts(
-                        temporal_array.as_ref(),
+                        &ext_array.to_array(),
                         &IsConstantOpts {
                             cost: Cost::Canonicalize,
                         },
@@ -355,7 +355,8 @@ mod tests {
         #[case] input: ListViewArray,
         #[case] expect_list: bool,
     ) -> VortexResult<()> {
-        let result = BtrBlocksCompressor::default().compress(input.as_ref())?;
+        let array_ref = input.clone().into_array();
+        let result = BtrBlocksCompressor::default().compress(&array_ref)?;
         if expect_list {
             assert!(result.as_opt::<ListVTable>().is_some());
         } else {

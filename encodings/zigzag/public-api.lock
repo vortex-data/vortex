@@ -50,7 +50,7 @@ pub fn vortex_zigzag::ZigZagVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>)
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_zigzag::ZigZagVTable
 
-pub fn vortex_zigzag::ZigZagVTable::take(array: &vortex_zigzag::ZigZagArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_zigzag::ZigZagVTable::take(array: &vortex_zigzag::ZigZagArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterReduce for vortex_zigzag::ZigZagVTable
 

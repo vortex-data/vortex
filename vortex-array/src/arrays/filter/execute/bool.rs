@@ -52,6 +52,6 @@ mod test {
     #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
     #[case(BoolArray::from_iter((0..1024).map(|i| i % 3 != 0)))]
     fn test_filter_bool_conformance(#[case] array: BoolArray) {
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
     }
 }

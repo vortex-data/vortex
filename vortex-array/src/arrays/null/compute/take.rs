@@ -4,7 +4,6 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
@@ -17,7 +16,7 @@ use crate::optimizer::rules::ParentRuleSet;
 
 impl TakeReduce for NullVTable {
     #[allow(clippy::cast_possible_truncation)]
-    fn take(array: &NullArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+    fn take(array: &NullArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.to_primitive();
 
         // Enforce all indices are valid

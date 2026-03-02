@@ -42,7 +42,7 @@ mod tests {
     #[case::i16_negative(PrimitiveArray::from_iter([-100i16, -50, 0, 50, 100]))]
     #[case::f64_special(PrimitiveArray::from_iter([0.0f64, 1.0, -1.0, f64::INFINITY, f64::NEG_INFINITY]))]
     fn test_primitive_consistency(#[case] array: PrimitiveArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 
     #[rstest]

@@ -72,7 +72,7 @@ mod test {
     #[test]
     pub fn slice_block() {
         let arr = BitPackedArray::encode(
-            PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).as_ref(),
+            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).to_array(),
             6,
         )
         .unwrap();
@@ -86,7 +86,7 @@ mod test {
     #[test]
     pub fn slice_within_block() {
         let arr = BitPackedArray::encode(
-            PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).as_ref(),
+            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).to_array(),
             6,
         )
         .unwrap();
@@ -100,7 +100,7 @@ mod test {
     #[test]
     fn slice_within_block_u8s() {
         let packed = BitPackedArray::encode(
-            PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).as_ref(),
+            &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).to_array(),
             7,
         )
         .unwrap();
@@ -113,7 +113,7 @@ mod test {
     #[test]
     fn slice_block_boundary_u8s() {
         let packed = BitPackedArray::encode(
-            PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).as_ref(),
+            &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).to_array(),
             7,
         )
         .unwrap();
@@ -126,7 +126,7 @@ mod test {
     #[test]
     fn double_slice_within_block() {
         let arr = BitPackedArray::encode(
-            PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).as_ref(),
+            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).to_array(),
             6,
         )
         .unwrap();
@@ -161,9 +161,11 @@ mod test {
     fn take_after_slice() {
         // Check that our take implementation respects the offsets applied after slicing.
 
-        let array =
-            BitPackedArray::encode(PrimitiveArray::from_iter((63u32..).take(3072)).as_ref(), 6)
-                .unwrap();
+        let array = BitPackedArray::encode(
+            &PrimitiveArray::from_iter((63u32..).take(3072)).to_array(),
+            6,
+        )
+        .unwrap();
 
         // Slice the array.
         // The resulting array will still have 3 1024-element chunks.

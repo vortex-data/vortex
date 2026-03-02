@@ -101,6 +101,6 @@ mod tests {
         Scalar::from(-100i32)
     ).unwrap())]
     fn test_cast_for_conformance(#[case] array: FoRArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 }

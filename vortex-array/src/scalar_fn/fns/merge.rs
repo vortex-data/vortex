@@ -289,6 +289,7 @@ mod tests {
     use vortex_error::vortex_bail;
 
     use crate::Array;
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
@@ -308,7 +309,7 @@ mod tests {
     use crate::scalar_fn::fns::merge::DuplicateHandling;
     use crate::scalar_fn::fns::pack::Pack;
 
-    fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
+    fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {

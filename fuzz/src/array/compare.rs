@@ -21,7 +21,7 @@ use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 pub fn compare_canonical_array(
-    array: &dyn Array,
+    array: &ArrayRef,
     value: &Scalar,
     operator: CompareOperator,
 ) -> ArrayRef {

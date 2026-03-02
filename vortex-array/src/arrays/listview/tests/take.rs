@@ -27,7 +27,7 @@ use crate::validity::Validity;
 #[case::overlapping(create_overlapping_listview())]
 #[case::large(create_large_listview())]
 fn test_take_listview_conformance(#[case] listview: ListViewArray) {
-    test_take_conformance(listview.as_ref());
+    test_take_conformance(&listview.to_array());
 }
 
 // ListView-specific tests that aren't covered by conformance.

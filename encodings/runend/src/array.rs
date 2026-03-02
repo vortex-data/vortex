@@ -228,8 +228,8 @@ impl RunEndVTable {
 
 impl RunEndArray {
     fn validate(
-        ends: &dyn Array,
-        values: &dyn Array,
+        ends: &ArrayRef,
+        values: &ArrayRef,
         offset: usize,
         length: usize,
     ) -> VortexResult<()> {

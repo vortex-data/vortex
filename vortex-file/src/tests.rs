@@ -1198,7 +1198,7 @@ async fn write_nullable_top_level_struct() {
 }
 
 async fn round_trip(
-    array: &dyn Array,
+    array: &ArrayRef,
     f: impl Fn(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
 ) -> VortexResult<ArrayRef> {
     let mut writer = vec![];
@@ -1257,7 +1257,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
 async fn scan_empty_fields() -> VortexResult<()> {
     let array = (0..10000).collect::<PrimitiveArray>();
 
-    let result = round_trip(array.as_ref(), |scan| {
+    let result = round_trip(&array.to_array(), |scan| {
         Ok(scan.with_projection(Pack.new_expr(
             PackOptions {
                 names: Default::default(),

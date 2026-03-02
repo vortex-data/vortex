@@ -61,6 +61,6 @@ mod tests {
     #[case(BoolArray::from_iter(vec![true]))]
     #[case(BoolArray::from_iter(vec![false, false]))]
     fn test_cast_bool_conformance(#[case] array: BoolArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 }

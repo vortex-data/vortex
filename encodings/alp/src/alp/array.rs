@@ -285,7 +285,7 @@ pub struct ALPMetadata {
 
 impl ALPArray {
     fn validate(
-        encoded: &dyn Array,
+        encoded: &ArrayRef,
         exponents: Exponents,
         patches: Option<&Patches>,
     ) -> VortexResult<()> {
@@ -336,7 +336,7 @@ impl ALPArray {
     }
 
     /// Validate that any patches provided are valid for the ALPArray.
-    fn validate_patches<T: ALPFloat>(patches: &Patches, encoded: &dyn Array) -> VortexResult<()> {
+    fn validate_patches<T: ALPFloat>(patches: &Patches, encoded: &ArrayRef) -> VortexResult<()> {
         vortex_ensure!(
             patches.array_len() == encoded.len(),
             "patches array_len != encoded len: {} != {}",

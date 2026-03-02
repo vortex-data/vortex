@@ -296,6 +296,12 @@ impl<'a> From<&'a dyn Array> for Input<'a> {
     }
 }
 
+impl<'a> From<&'a ArrayRef> for Input<'a> {
+    fn from(value: &'a ArrayRef) -> Self {
+        Input::Array(value.as_ref())
+    }
+}
+
 impl<'a> From<&'a Scalar> for Input<'a> {
     fn from(value: &'a Scalar) -> Self {
         Input::Scalar(value)

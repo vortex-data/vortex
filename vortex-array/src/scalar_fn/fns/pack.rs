@@ -188,7 +188,7 @@ mod tests {
         .into_array()
     }
 
-    fn primitive_field(array: &dyn Array, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
+    fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {
         let mut field_path = field_path.iter();
 
         let Some(field) = field_path.next() else {
@@ -234,15 +234,15 @@ mod tests {
         assert_eq!(actual_array.validity(), &Validity::NonNullable);
 
         assert_arrays_eq!(
-            primitive_field(actual_array.as_ref(), &["one"]).unwrap(),
+            primitive_field(&actual_array.to_array(), &["one"]).unwrap(),
             PrimitiveArray::from_iter([0i32, 1, 2])
         );
         assert_arrays_eq!(
-            primitive_field(actual_array.as_ref(), &["two"]).unwrap(),
+            primitive_field(&actual_array.to_array(), &["two"]).unwrap(),
             PrimitiveArray::from_iter([4i32, 5, 6])
         );
         assert_arrays_eq!(
-            primitive_field(actual_array.as_ref(), &["three"]).unwrap(),
+            primitive_field(&actual_array.to_array(), &["three"]).unwrap(),
             PrimitiveArray::from_iter([0i32, 1, 2])
         );
     }
@@ -272,19 +272,19 @@ mod tests {
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
 
         assert_arrays_eq!(
-            primitive_field(actual_array.as_ref(), &["one"]).unwrap(),
+            primitive_field(&actual_array.to_array(), &["one"]).unwrap(),
             PrimitiveArray::from_iter([0i32, 1, 2])
         );
         assert_arrays_eq!(
-            primitive_field(actual_array.as_ref(), &["two", "two_one"]).unwrap(),
+            primitive_field(&actual_array.to_array(), &["two", "two_one"]).unwrap(),
             PrimitiveArray::from_iter([4i32, 5, 6])
         );
         assert_arrays_eq!(
-            primitive_field(actual_array.as_ref(), &["two", "two_two"]).unwrap(),
+            primitive_field(&actual_array.to_array(), &["two", "two_two"]).unwrap(),
             PrimitiveArray::from_iter([4i32, 5, 6])
         );
         assert_arrays_eq!(
-            primitive_field(actual_array.as_ref(), &["three"]).unwrap(),
+            primitive_field(&actual_array.to_array(), &["three"]).unwrap(),
             PrimitiveArray::from_iter([0i32, 1, 2])
         );
     }

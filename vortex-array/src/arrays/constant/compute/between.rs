@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
@@ -15,8 +14,8 @@ use crate::scalar_fn::fns::between::BetweenReduce;
 impl BetweenReduce for ConstantVTable {
     fn between(
         array: &ConstantArray,
-        lower: &dyn Array,
-        upper: &dyn Array,
+        lower: &ArrayRef,
+        upper: &ArrayRef,
         options: &BetweenOptions,
     ) -> VortexResult<Option<ArrayRef>> {
         // Can reduce if everything is constant

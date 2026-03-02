@@ -157,7 +157,8 @@ fn fill_null_canonical(
     fill_value: &Scalar,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    if let Some(result) = precondition(canonical.as_ref(), fill_value)? {
+    let arr = canonical.as_ref().to_array();
+    if let Some(result) = precondition(&arr, fill_value)? {
         // The result of precondition may return another ScalarFn, in which case we should
         // apply it immediately.
         // TODO(aduffy): Remove this once we have better driver check. We're also implicitly

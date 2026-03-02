@@ -237,6 +237,6 @@ mod test {
     #[case(PrimitiveArray::from_option_iter([Some(1i32), None, Some(-100), Some(0), None]).into_array())]
     #[case(buffer![42u32].into_array())]
     fn test_cast_primitive_conformance(#[case] array: crate::ArrayRef) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array);
     }
 }

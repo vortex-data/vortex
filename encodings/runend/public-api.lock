@@ -116,7 +116,7 @@ pub fn vortex_runend::RunEndVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>)
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_runend::RunEndVTable
 
-pub fn vortex_runend::RunEndVTable::take(array: &vortex_runend::RunEndArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEndVTable::take(array: &vortex_runend::RunEndArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_runend::RunEndVTable
 
@@ -138,7 +138,7 @@ pub fn vortex_runend::RunEndVTable::min_max(&self, array: &vortex_runend::RunEnd
 
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_runend::RunEndVTable
 
-pub fn vortex_runend::RunEndVTable::compare(lhs: &vortex_runend::RunEndArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEndVTable::compare(lhs: &vortex_runend::RunEndArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_runend::RunEndVTable
 

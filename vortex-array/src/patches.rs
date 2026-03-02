@@ -185,9 +185,7 @@ impl Patches {
             );
 
             debug_assert!(
-                is_sorted(indices.as_ref())
-                    .unwrap_or(Some(false))
-                    .unwrap_or(false),
+                is_sorted(&indices).unwrap_or(Some(false)).unwrap_or(false),
                 "Patch indices must be sorted"
             );
         }
@@ -398,10 +396,7 @@ impl Patches {
     /// # Returns
     /// [`SearchResult::Found`] with the position if needle exists, or [`SearchResult::NotFound`]
     /// with the insertion point if not found.
-    fn search_index_binary_search(
-        indices: &dyn Array,
-        needle: usize,
-    ) -> VortexResult<SearchResult> {
+    fn search_index_binary_search(indices: &ArrayRef, needle: usize) -> VortexResult<SearchResult> {
         if indices.is_canonical() {
             let primitive = indices.to_primitive();
             match_each_integer_ptype!(primitive.ptype(), |T| {
@@ -698,7 +693,7 @@ impl Patches {
     /// Take the indices from the patches
     ///
     /// Any nulls in take_indices are added to the resulting patches.
-    pub fn take_with_nulls(&self, take_indices: &dyn Array) -> VortexResult<Option<Self>> {
+    pub fn take_with_nulls(&self, take_indices: &ArrayRef) -> VortexResult<Option<Self>> {
         if take_indices.is_empty() {
             return Ok(None);
         }
@@ -714,7 +709,7 @@ impl Patches {
     /// Take the indices from the patches.
     ///
     /// Any nulls in take_indices are ignored.
-    pub fn take(&self, take_indices: &dyn Array) -> VortexResult<Option<Self>> {
+    pub fn take(&self, take_indices: &ArrayRef) -> VortexResult<Option<Self>> {
         if take_indices.is_empty() {
             return Ok(None);
         }
@@ -1051,7 +1046,7 @@ where
 fn filter_patches_with_mask<T: IntegerPType>(
     patch_indices: &[T],
     offset: usize,
-    patch_values: &dyn Array,
+    patch_values: &ArrayRef,
     mask_indices: &[usize],
 ) -> VortexResult<Option<Patches>> {
     let true_count = mask_indices.len();

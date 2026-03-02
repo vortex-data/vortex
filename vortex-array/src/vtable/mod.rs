@@ -131,8 +131,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let canonical = array.to_array().execute::<Canonical>(ctx)?;
-        builder.extend_from_array(canonical.as_ref());
+        let canonical = array.to_array().execute::<Canonical>(ctx)?.into_array();
+        builder.extend_from_array(&canonical);
         Ok(())
     }
 

@@ -66,7 +66,7 @@ impl PrimitiveArray {
             return Ok(self.clone());
         }
 
-        let Some(min_max) = min_max(self.as_ref())? else {
+        let Some(min_max) = min_max(&self.to_array())? else {
             return Ok(PrimitiveArray::new(
                 Buffer::<u8>::zeroed(self.len()),
                 self.validity.clone(),

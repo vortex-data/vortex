@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::dtype::DType;
@@ -56,7 +57,7 @@ impl<T: NativePType> IndexOrd<Option<T>> for SearchPrimitiveSlice<T> {
 }
 
 pub fn search_sorted_canonical_array(
-    array: &dyn Array,
+    array: &ArrayRef,
     scalar: &Scalar,
     side: SearchSortedSide,
 ) -> VortexResult<SearchResult> {

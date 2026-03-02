@@ -36,7 +36,7 @@ mod tests {
     #[case::repeating_pattern(alp_encode(&PrimitiveArray::from_iter([1.1f32, 2.2, 3.3, 1.1, 2.2, 3.3, 1.1, 2.2, 3.3]), None).unwrap())]
     #[case::close_values(alp_encode(&PrimitiveArray::from_iter([100.001f64, 100.002, 100.003, 100.004, 100.005]), None).unwrap())]
     fn test_alp_consistency(#[case] array: ALPArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 
     #[rstest]

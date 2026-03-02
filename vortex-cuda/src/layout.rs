@@ -506,7 +506,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
         };
 
         // Scan for constant array buffers before serialization (while data is still on host).
-        let host_buffers = extract_constant_buffers(&*chunk);
+        let host_buffers = extract_constant_buffers(&chunk);
 
         let buffers = chunk.serialize(
             &ctx,
@@ -546,7 +546,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
 /// Walk the array tree depth-first and extract buffer data for all `ConstantArray` nodes.
 ///
 /// The buffer ordering matches `Array::serialize()` because both use depth-first traversal.
-fn extract_constant_buffers(chunk: &dyn Array) -> Vec<InlinedBuffer> {
+fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
     let mut result = Vec::new();
     let mut buffer_idx = 0u32;
     for array in chunk.depth_first_traversal() {

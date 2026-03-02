@@ -68,7 +68,7 @@ pub fn vortex_sequence::SequenceVTable::fmt(&self, f: &mut core::fmt::Formatter<
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_sequence::SequenceVTable
 
-pub fn vortex_sequence::SequenceVTable::take(array: &vortex_sequence::SequenceArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_sequence::SequenceVTable::take(array: &vortex_sequence::SequenceArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_sequence::SequenceVTable
 
@@ -90,7 +90,7 @@ pub fn vortex_sequence::SequenceVTable::min_max(&self, array: &vortex_sequence::
 
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_sequence::SequenceVTable
 
-pub fn vortex_sequence::SequenceVTable::compare(lhs: &vortex_sequence::SequenceArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_sequence::SequenceVTable::compare(lhs: &vortex_sequence::SequenceArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_sequence::SequenceVTable
 
@@ -98,7 +98,7 @@ pub fn vortex_sequence::SequenceVTable::cast(array: &vortex_sequence::SequenceAr
 
 impl vortex_array::scalar_fn::fns::list_contains::kernel::ListContainsElementReduce for vortex_sequence::SequenceVTable
 
-pub fn vortex_sequence::SequenceVTable::list_contains(list: &dyn vortex_array::array::Array, element: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_sequence::SequenceVTable::list_contains(list: &vortex_array::array::ArrayRef, element: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_sequence::SequenceVTable
 

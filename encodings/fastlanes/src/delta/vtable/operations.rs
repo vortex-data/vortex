@@ -228,7 +228,7 @@ mod tests {
     // Single element
     #[case::delta_single(DeltaArray::try_from_vec(vec![42u32]).unwrap())]
     fn test_delta_consistency(#[case] array: DeltaArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 
     #[rstest]

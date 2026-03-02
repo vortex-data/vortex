@@ -28,7 +28,7 @@ use crate::FoRVTable;
 impl CompareKernel for FoRVTable {
     fn compare(
         lhs: &FoRArray,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

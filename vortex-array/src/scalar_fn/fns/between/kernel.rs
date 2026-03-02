@@ -7,7 +7,6 @@ use vortex_error::VortexResult;
 use super::Between;
 use super::BetweenOptions;
 use super::precondition;
-use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::ExactScalarFn;
@@ -23,8 +22,8 @@ use crate::vtable::VTable;
 pub trait BetweenReduce: VTable {
     fn between(
         array: &Self::Array,
-        lower: &dyn Array,
-        upper: &dyn Array,
+        lower: &ArrayRef,
+        upper: &ArrayRef,
         options: &BetweenOptions,
     ) -> VortexResult<Option<ArrayRef>>;
 }
@@ -35,8 +34,8 @@ pub trait BetweenReduce: VTable {
 pub trait BetweenKernel: VTable {
     fn between(
         array: &Self::Array,
-        lower: &dyn Array,
-        upper: &dyn Array,
+        lower: &ArrayRef,
+        upper: &ArrayRef,
         options: &BetweenOptions,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
@@ -66,9 +65,10 @@ where
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let children = scalar_fn_array.children();
-        let lower = children[1].as_ref();
-        let upper = children[2].as_ref();
-        if let Some(result) = precondition(&**array, lower, upper)? {
+        let lower = &children[1];
+        let upper = &children[2];
+        let arr = array.to_array();
+        if let Some(result) = precondition(&arr, lower, upper)? {
             return Ok(Some(result));
         }
         <V as BetweenReduce>::between(array, lower, upper, parent.options)
@@ -100,9 +100,10 @@ where
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let children = scalar_fn_array.children();
-        let lower = children[1].as_ref();
-        let upper = children[2].as_ref();
-        if let Some(result) = precondition(&**array, lower, upper)? {
+        let lower = &children[1];
+        let upper = &children[2];
+        let arr = array.to_array();
+        if let Some(result) = precondition(&arr, lower, upper)? {
             return Ok(Some(result));
         }
         <V as BetweenKernel>::between(array, lower, upper, parent.options, ctx)

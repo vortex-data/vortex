@@ -66,7 +66,7 @@ mod test {
     ].into_array())]
     fn test_mask_alp_conformance(#[case] array: vortex_array::ArrayRef) {
         let alp = alp_encode(&array.to_primitive(), None).unwrap();
-        test_mask_conformance(alp.as_ref());
+        test_mask_conformance(&alp.to_array());
     }
 
     #[test]
@@ -79,6 +79,6 @@ mod test {
         let array = PrimitiveArray::from_iter(values);
         let alp = alp_encode(&array, None).unwrap();
         assert!(alp.patches().is_some(), "expected patches");
-        test_mask_conformance(alp.as_ref());
+        test_mask_conformance(&alp.to_array());
     }
 }

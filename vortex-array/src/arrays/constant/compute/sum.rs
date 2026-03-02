@@ -292,7 +292,7 @@ mod tests {
     fn test_sum_float_non_multiply() {
         let acc = -2048669276050936500000000000f64;
         let array = ConstantArray::new(6.1811675e16f64, 25);
-        let sum = sum_with_accumulator(array.as_ref(), &Scalar::primitive(acc, Nullable))
+        let sum = sum_with_accumulator(&array.to_array(), &Scalar::primitive(acc, Nullable))
             .vortex_expect("operation should succeed in test");
         assert_eq!(
             f64::try_from(&sum).vortex_expect("operation should succeed in test"),

@@ -9,7 +9,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
@@ -26,7 +25,7 @@ use crate::validity::Validity;
 impl TakeExecute for VarBinVTable {
     fn take(
         array: &VarBinArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // TODO(joe): Be lazy with execute
@@ -297,7 +296,7 @@ mod tests {
     ))]
     #[case(VarBinArray::from_iter(["single"].map(Some), DType::Utf8(Nullability::NonNullable)))]
     fn test_take_varbin_conformance(#[case] array: VarBinArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.to_array());
     }
 
     #[test]

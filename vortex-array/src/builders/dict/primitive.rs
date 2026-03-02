@@ -124,7 +124,7 @@ where
     NativeValue<T>: Hash + Eq,
     Code: UnsignedPType,
 {
-    fn encode(&mut self, array: &dyn Array) -> ArrayRef {
+    fn encode(&mut self, array: &ArrayRef) -> ArrayRef {
         let mut codes = BufferMut::<Code>::with_capacity(array.len());
 
         array.to_primitive().with_iterator(|it| {
@@ -167,7 +167,7 @@ mod test {
     #[test]
     fn encode_primitive() {
         let arr = buffer![1, 1, 3, 3, 3].into_array();
-        let dict = dict_encode(arr.as_ref()).unwrap();
+        let dict = dict_encode(&arr).unwrap();
 
         let expected_codes = buffer![0u8, 0, 1, 1, 1].into_array();
         assert_arrays_eq!(dict.codes(), expected_codes);
@@ -188,7 +188,7 @@ mod test {
             Some(3),
             None,
         ]);
-        let dict = dict_encode(arr.as_ref()).unwrap();
+        let dict = dict_encode(&arr.to_array()).unwrap();
 
         let expected_codes = buffer![0u8, 0, 1, 2, 2, 1, 2, 1].into_array();
         assert_arrays_eq!(dict.codes(), expected_codes);
