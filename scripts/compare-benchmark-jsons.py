@@ -219,9 +219,9 @@ table_dict = {
 }
 
 if has_z_pr:
-    table_dict["|z| PR"] = df3["abs_z_score_pr"]
+    table_dict["abs(z-score) PR"] = df3["abs_z_score_pr"]
 if has_z_base:
-    table_dict["|z| base"] = df3["abs_z_score_base"]
+    table_dict["abs(z-score) base"] = df3["abs_z_score_base"]
 
 table_dict["remark"] = df3["remark"]
 table_df = pd.DataFrame(table_dict)
