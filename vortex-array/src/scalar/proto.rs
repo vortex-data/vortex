@@ -387,9 +387,11 @@ fn bytes_from_proto(bytes: &[u8], dtype: &DType) -> VortexResult<ScalarValue> {
 /// Deserialize a [`ScalarValue::Decimal`] from a protobuf bytes.
 fn decimal_from_proto(bytes: &[u8], decimal_dtype: &DecimalDType) -> VortexResult<ScalarValue> {
     let nbytes = bytes.len();
+    let max_width = decimal_dtype.required_bit_width();
     vortex_ensure!(
-        decimal_dtype.required_bit_width() <= nbytes * 8,
-        Serde: "invalid decimal byte length {nbytes} for decimal dtype {decimal_dtype}"
+        max_width <= nbytes * 8,
+        Serde: "invalid decimal byte length {nbytes} for decimal dtype {decimal_dtype} \
+                which requires a width of {max_width}"
     );
 
     let value = match nbytes {
@@ -867,6 +869,28 @@ mod tests {
             )
             .unwrap(),
             Scalar::primitive(0i64, Nullability::Nullable)
+        );
+    }
+
+    // Regression test: deserializing decimal bytes that are too small for the declared
+    // `DecimalDType` must fail. Previously, the byte length was not validated against the
+    // dtype's required bit width, so e.g. 1 byte would silently decode as `DecimalValue::I8`
+    // even for a precision-38 decimal that requires 128 bits.
+    #[test]
+    fn test_decimal_byte_length_validated_against_dtype() {
+        // Precision 38 requires i128 (128 bits / 16 bytes).
+        let decimal_dtype = DecimalDType::new(38, 6);
+        let dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
+
+        // Craft a protobuf `BytesValue` with only 1 byte, which is far too small for precision 38.
+        let pb_value = pb::ScalarValue {
+            kind: Some(Kind::BytesValue(vec![42u8])),
+        };
+
+        let result = ScalarValue::from_proto(&pb_value, &dtype);
+        assert!(
+            result.is_err(),
+            "expected an error when deserializing 1 byte as a precision-38 decimal"
         );
     }
 }
