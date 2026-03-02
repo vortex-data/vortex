@@ -224,23 +224,23 @@ async fn main() -> VortexResult<()> {
                 let canonical = batch.execute_cuda(&mut cuda_ctx).await?;
                 let struct_arr = canonical.into_struct();
 
-                // Extract R, G, B device pointers from List<u8> columns
-                let r_field = struct_arr.unmasked_field_by_name("R")?;
-                let r_canonical = r_field.to_canonical()?;
-                let r_elements = r_canonical.as_listview().elements();
-                let r_prim = r_elements.to_canonical()?.into_primitive();
+                // Extract R, G, B device pointers — flat u8 columns, no list wrapping.
+                let r_prim = struct_arr
+                    .unmasked_field_by_name("R")?
+                    .to_canonical()?
+                    .into_primitive();
                 let r_ptr = r_prim.buffer_handle().cuda_device_ptr()?;
 
-                let g_field = struct_arr.unmasked_field_by_name("G")?;
-                let g_canonical = g_field.to_canonical()?;
-                let g_elements = g_canonical.as_listview().elements();
-                let g_prim = g_elements.to_canonical()?.into_primitive();
+                let g_prim = struct_arr
+                    .unmasked_field_by_name("G")?
+                    .to_canonical()?
+                    .into_primitive();
                 let g_ptr = g_prim.buffer_handle().cuda_device_ptr()?;
 
-                let b_field = struct_arr.unmasked_field_by_name("B")?;
-                let b_canonical = b_field.to_canonical()?;
-                let b_elements = b_canonical.as_listview().elements();
-                let b_prim = b_elements.to_canonical()?.into_primitive();
+                let b_prim = struct_arr
+                    .unmasked_field_by_name("B")?
+                    .to_canonical()?
+                    .into_primitive();
                 let b_ptr = b_prim.buffer_handle().cuda_device_ptr()?;
 
                 // Launch RGB→NV12 kernel

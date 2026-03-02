@@ -1,20 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Converts a video file to a Vortex file with RGB frame data.
+//! Converts a video file to a Vortex file with flat RGB frame data.
 //!
 //! Uses ffmpeg to decode the video into raw RGB24 pixels, then deinterleaves
 //! into separate R, G, B planes and writes a Vortex file with schema:
 //!
 //! ```text
 //! Struct {
-//!   R: List<u8>,
-//!   G: List<u8>,
-//!   B: List<u8>,
+//!   R: u8,
+//!   G: u8,
+//!   B: u8,
 //! }
 //! ```
 //!
-//! Each row is one frame, each list has width*height elements.
+//! Each chunk corresponds to one frame, with width*height rows (one per pixel).
+//! This flat layout avoids nested List arrays and maps directly to GPU buffers
+//! after a CUDA scan.
 //!
 //! Usage:
 //!   cargo run -p video-prep -- input.mp4 --output video.vortex --width 1920 --height 1080
@@ -30,7 +32,6 @@ use futures::stream;
 use tracing_subscriber::EnvFilter;
 use vortex::VortexSessionDefault;
 use vortex::array::IntoArray;
-use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::stream::ArrayStreamAdapter;
@@ -86,15 +87,12 @@ async fn main() -> VortexResult<()> {
     let pixels_per_frame = cli.width as usize * cli.height as usize;
     let rgb_frame_bytes = pixels_per_frame * 3; // RGB24
 
-    // Build the DType for our schema
-    let list_u8_dtype = DType::List(
-        Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
-        Nullability::NonNullable,
-    );
+    // Flat schema: each row is one pixel, each chunk is one frame.
+    let u8_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
     let struct_dtype = DType::Struct(
         StructFields::new(
             FieldNames::from(["R", "G", "B"]),
-            vec![list_u8_dtype.clone(), list_u8_dtype.clone(), list_u8_dtype],
+            vec![u8_dtype.clone(), u8_dtype.clone(), u8_dtype],
         ),
         Nullability::NonNullable,
     );
@@ -133,7 +131,7 @@ async fn main() -> VortexResult<()> {
 
     let write_strategy = WriteStrategyBuilder::default()
         .with_cuda_compatible_encodings()
-        .with_row_block_size(1)
+        .with_row_block_size(pixels_per_frame)
         .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
         .build();
 
@@ -163,43 +161,15 @@ async fn main() -> VortexResult<()> {
             b_plane[i] = chunk[2];
         }
 
-        // Build arrays directly for each plane
-        let offsets =
-            PrimitiveArray::new(vec![0u64, pixels_per_frame as u64], Validity::NonNullable);
-
-        let r_elements = PrimitiveArray::new(r_plane.clone(), Validity::NonNullable);
-        let r_list = ListArray::try_new(
-            r_elements.into_array(),
-            offsets.into_array(),
-            Validity::NonNullable,
-        )?;
-
-        let offsets =
-            PrimitiveArray::new(vec![0u64, pixels_per_frame as u64], Validity::NonNullable);
-        let g_elements = PrimitiveArray::new(g_plane.clone(), Validity::NonNullable);
-        let g_list = ListArray::try_new(
-            g_elements.into_array(),
-            offsets.into_array(),
-            Validity::NonNullable,
-        )?;
-
-        let offsets =
-            PrimitiveArray::new(vec![0u64, pixels_per_frame as u64], Validity::NonNullable);
-        let b_elements = PrimitiveArray::new(b_plane.clone(), Validity::NonNullable);
-        let b_list = ListArray::try_new(
-            b_elements.into_array(),
-            offsets.into_array(),
-            Validity::NonNullable,
-        )?;
+        // Build flat PrimitiveArray<u8> per channel — one row per pixel.
+        let r_arr = PrimitiveArray::new(r_plane.clone(), Validity::NonNullable);
+        let g_arr = PrimitiveArray::new(g_plane.clone(), Validity::NonNullable);
+        let b_arr = PrimitiveArray::new(b_plane.clone(), Validity::NonNullable);
 
         let struct_arr = StructArray::try_new(
             FieldNames::from(["R", "G", "B"]),
-            vec![
-                r_list.into_array(),
-                g_list.into_array(),
-                b_list.into_array(),
-            ],
-            1,
+            vec![r_arr.into_array(), g_arr.into_array(), b_arr.into_array()],
+            pixels_per_frame,
             Validity::NonNullable,
         )?;
 
