@@ -30,7 +30,7 @@ pub trait ReduceBalancedIterExt: Iterator {
         Self::Item: Clone,
         F: Fn(Self::Item, Self::Item) -> Self::Item;
 
-    /// Fallible version of [`reduce_balanced`](ReduceBalanced::reduce_balanced).
+    /// Fallible version of [`reduce_balanced`](ReduceBalancedIterExt::reduce_balanced).
     ///
     /// Short-circuits on the first error.
     fn try_reduce_balanced<F, E>(self, combine: F) -> Result<Option<Self::Item>, E>
