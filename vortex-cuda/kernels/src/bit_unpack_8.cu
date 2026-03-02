@@ -5,7 +5,7 @@
 #include "fastlanes_common.cuh"
 #include "patches.cuh"
 
-__device__ void _bit_unpack_8_0bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
+__device__ void _bit_unpack_8_0bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 128;
     
     out[INDEX(0, lane)] = reference;
@@ -18,7 +18,7 @@ __device__ void _bit_unpack_8_0bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = reference;
 }
 
-__device__ void _bit_unpack_8_1bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
+__device__ void _bit_unpack_8_1bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 128;
     uint8_t src;
     uint8_t tmp;
@@ -42,7 +42,7 @@ __device__ void _bit_unpack_8_1bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_8_2bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
+__device__ void _bit_unpack_8_2bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 128;
     uint8_t src;
     uint8_t tmp;
@@ -68,7 +68,7 @@ __device__ void _bit_unpack_8_2bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_8_3bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
+__device__ void _bit_unpack_8_3bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 128;
     uint8_t src;
     uint8_t tmp;
@@ -96,7 +96,7 @@ __device__ void _bit_unpack_8_3bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_8_4bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
+__device__ void _bit_unpack_8_4bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 128;
     uint8_t src;
     uint8_t tmp;
@@ -126,7 +126,7 @@ __device__ void _bit_unpack_8_4bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_8_5bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
+__device__ void _bit_unpack_8_5bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 128;
     uint8_t src;
     uint8_t tmp;
@@ -158,7 +158,7 @@ __device__ void _bit_unpack_8_5bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_8_6bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
+__device__ void _bit_unpack_8_6bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 128;
     uint8_t src;
     uint8_t tmp;
@@ -192,7 +192,7 @@ __device__ void _bit_unpack_8_6bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_8_7bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
+__device__ void _bit_unpack_8_7bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 128;
     uint8_t src;
     uint8_t tmp;
@@ -228,7 +228,7 @@ __device__ void _bit_unpack_8_7bw_lane(const uint8_t *__restrict in, uint8_t *__
     out[INDEX(7, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_8_8bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane, GPUPatches patches) {
+__device__ void _bit_unpack_8_8bw_lane(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 128;
     
     out[INDEX(0, lane)] = in[LANE_COUNT * 0 + lane] + reference;
@@ -247,28 +247,29 @@ __device__ inline void bit_unpack_8_lane(
     uint8_t *__restrict out,
     uint8_t reference,
     unsigned int lane,
-    uint32_t bit_width,
-    GPUPatches patches
+    uint32_t bit_width
 ) {
     switch (bit_width) {
-        case 0: _bit_unpack_8_0bw_lane(in, out, reference, lane, patches); break;
-        case 1: _bit_unpack_8_1bw_lane(in, out, reference, lane, patches); break;
-        case 2: _bit_unpack_8_2bw_lane(in, out, reference, lane, patches); break;
-        case 3: _bit_unpack_8_3bw_lane(in, out, reference, lane, patches); break;
-        case 4: _bit_unpack_8_4bw_lane(in, out, reference, lane, patches); break;
-        case 5: _bit_unpack_8_5bw_lane(in, out, reference, lane, patches); break;
-        case 6: _bit_unpack_8_6bw_lane(in, out, reference, lane, patches); break;
-        case 7: _bit_unpack_8_7bw_lane(in, out, reference, lane, patches); break;
-        case 8: _bit_unpack_8_8bw_lane(in, out, reference, lane, patches); break;
+        case 0: _bit_unpack_8_0bw_lane(in, out, reference, lane); break;
+        case 1: _bit_unpack_8_1bw_lane(in, out, reference, lane); break;
+        case 2: _bit_unpack_8_2bw_lane(in, out, reference, lane); break;
+        case 3: _bit_unpack_8_3bw_lane(in, out, reference, lane); break;
+        case 4: _bit_unpack_8_4bw_lane(in, out, reference, lane); break;
+        case 5: _bit_unpack_8_5bw_lane(in, out, reference, lane); break;
+        case 6: _bit_unpack_8_6bw_lane(in, out, reference, lane); break;
+        case 7: _bit_unpack_8_7bw_lane(in, out, reference, lane); break;
+        case 8: _bit_unpack_8_8bw_lane(in, out, reference, lane); break;
     }
 }
 
 __device__ void _bit_unpack_8_0bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint8_t shared_out[1024];
-    _bit_unpack_8_0bw_lane(in, shared_out, reference, thread_idx * 4 + 0, patches);
-    _bit_unpack_8_0bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
-    _bit_unpack_8_0bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
-    _bit_unpack_8_0bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    _bit_unpack_8_0bw_lane(in, shared_out, reference, thread_idx * 4 + 0);
+    _bit_unpack_8_0bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
+    _bit_unpack_8_0bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
+    _bit_unpack_8_0bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
+        // Make sure all threads in the block/warp have completed writing
+        __syncwarp();
         // Setup the patches cursor so we can seek patches
         PatchesCursor cursor(patches);
         // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
@@ -305,10 +306,12 @@ extern "C" __global__ void bit_unpack_8_0bw_32t(const uint8_t *__restrict full_i
 
 __device__ void _bit_unpack_8_1bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint8_t shared_out[1024];
-    _bit_unpack_8_1bw_lane(in, shared_out, reference, thread_idx * 4 + 0, patches);
-    _bit_unpack_8_1bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
-    _bit_unpack_8_1bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
-    _bit_unpack_8_1bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    _bit_unpack_8_1bw_lane(in, shared_out, reference, thread_idx * 4 + 0);
+    _bit_unpack_8_1bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
+    _bit_unpack_8_1bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
+    _bit_unpack_8_1bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
+        // Make sure all threads in the block/warp have completed writing
+        __syncwarp();
         // Setup the patches cursor so we can seek patches
         PatchesCursor cursor(patches);
         // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
@@ -345,10 +348,12 @@ extern "C" __global__ void bit_unpack_8_1bw_32t(const uint8_t *__restrict full_i
 
 __device__ void _bit_unpack_8_2bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint8_t shared_out[1024];
-    _bit_unpack_8_2bw_lane(in, shared_out, reference, thread_idx * 4 + 0, patches);
-    _bit_unpack_8_2bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
-    _bit_unpack_8_2bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
-    _bit_unpack_8_2bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    _bit_unpack_8_2bw_lane(in, shared_out, reference, thread_idx * 4 + 0);
+    _bit_unpack_8_2bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
+    _bit_unpack_8_2bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
+    _bit_unpack_8_2bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
+        // Make sure all threads in the block/warp have completed writing
+        __syncwarp();
         // Setup the patches cursor so we can seek patches
         PatchesCursor cursor(patches);
         // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
@@ -385,10 +390,12 @@ extern "C" __global__ void bit_unpack_8_2bw_32t(const uint8_t *__restrict full_i
 
 __device__ void _bit_unpack_8_3bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint8_t shared_out[1024];
-    _bit_unpack_8_3bw_lane(in, shared_out, reference, thread_idx * 4 + 0, patches);
-    _bit_unpack_8_3bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
-    _bit_unpack_8_3bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
-    _bit_unpack_8_3bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    _bit_unpack_8_3bw_lane(in, shared_out, reference, thread_idx * 4 + 0);
+    _bit_unpack_8_3bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
+    _bit_unpack_8_3bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
+    _bit_unpack_8_3bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
+        // Make sure all threads in the block/warp have completed writing
+        __syncwarp();
         // Setup the patches cursor so we can seek patches
         PatchesCursor cursor(patches);
         // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
@@ -425,10 +432,12 @@ extern "C" __global__ void bit_unpack_8_3bw_32t(const uint8_t *__restrict full_i
 
 __device__ void _bit_unpack_8_4bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint8_t shared_out[1024];
-    _bit_unpack_8_4bw_lane(in, shared_out, reference, thread_idx * 4 + 0, patches);
-    _bit_unpack_8_4bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
-    _bit_unpack_8_4bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
-    _bit_unpack_8_4bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    _bit_unpack_8_4bw_lane(in, shared_out, reference, thread_idx * 4 + 0);
+    _bit_unpack_8_4bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
+    _bit_unpack_8_4bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
+    _bit_unpack_8_4bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
+        // Make sure all threads in the block/warp have completed writing
+        __syncwarp();
         // Setup the patches cursor so we can seek patches
         PatchesCursor cursor(patches);
         // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
@@ -465,10 +474,12 @@ extern "C" __global__ void bit_unpack_8_4bw_32t(const uint8_t *__restrict full_i
 
 __device__ void _bit_unpack_8_5bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint8_t shared_out[1024];
-    _bit_unpack_8_5bw_lane(in, shared_out, reference, thread_idx * 4 + 0, patches);
-    _bit_unpack_8_5bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
-    _bit_unpack_8_5bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
-    _bit_unpack_8_5bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    _bit_unpack_8_5bw_lane(in, shared_out, reference, thread_idx * 4 + 0);
+    _bit_unpack_8_5bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
+    _bit_unpack_8_5bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
+    _bit_unpack_8_5bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
+        // Make sure all threads in the block/warp have completed writing
+        __syncwarp();
         // Setup the patches cursor so we can seek patches
         PatchesCursor cursor(patches);
         // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
@@ -505,10 +516,12 @@ extern "C" __global__ void bit_unpack_8_5bw_32t(const uint8_t *__restrict full_i
 
 __device__ void _bit_unpack_8_6bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint8_t shared_out[1024];
-    _bit_unpack_8_6bw_lane(in, shared_out, reference, thread_idx * 4 + 0, patches);
-    _bit_unpack_8_6bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
-    _bit_unpack_8_6bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
-    _bit_unpack_8_6bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    _bit_unpack_8_6bw_lane(in, shared_out, reference, thread_idx * 4 + 0);
+    _bit_unpack_8_6bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
+    _bit_unpack_8_6bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
+    _bit_unpack_8_6bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
+        // Make sure all threads in the block/warp have completed writing
+        __syncwarp();
         // Setup the patches cursor so we can seek patches
         PatchesCursor cursor(patches);
         // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
@@ -545,10 +558,12 @@ extern "C" __global__ void bit_unpack_8_6bw_32t(const uint8_t *__restrict full_i
 
 __device__ void _bit_unpack_8_7bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint8_t shared_out[1024];
-    _bit_unpack_8_7bw_lane(in, shared_out, reference, thread_idx * 4 + 0, patches);
-    _bit_unpack_8_7bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
-    _bit_unpack_8_7bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
-    _bit_unpack_8_7bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    _bit_unpack_8_7bw_lane(in, shared_out, reference, thread_idx * 4 + 0);
+    _bit_unpack_8_7bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
+    _bit_unpack_8_7bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
+    _bit_unpack_8_7bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
+        // Make sure all threads in the block/warp have completed writing
+        __syncwarp();
         // Setup the patches cursor so we can seek patches
         PatchesCursor cursor(patches);
         // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
@@ -585,10 +600,12 @@ extern "C" __global__ void bit_unpack_8_7bw_32t(const uint8_t *__restrict full_i
 
 __device__ void _bit_unpack_8_8bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, uint8_t reference, int thread_idx, GPUPatches patches) {
     __shared__ uint8_t shared_out[1024];
-    _bit_unpack_8_8bw_lane(in, shared_out, reference, thread_idx * 4 + 0, patches);
-    _bit_unpack_8_8bw_lane(in, shared_out, reference, thread_idx * 4 + 1, patches);
-    _bit_unpack_8_8bw_lane(in, shared_out, reference, thread_idx * 4 + 2, patches);
-    _bit_unpack_8_8bw_lane(in, shared_out, reference, thread_idx * 4 + 3, patches);
+    _bit_unpack_8_8bw_lane(in, shared_out, reference, thread_idx * 4 + 0);
+    _bit_unpack_8_8bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
+    _bit_unpack_8_8bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
+    _bit_unpack_8_8bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
+        // Make sure all threads in the block/warp have completed writing
+        __syncwarp();
         // Setup the patches cursor so we can seek patches
         PatchesCursor cursor(patches);
         // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values

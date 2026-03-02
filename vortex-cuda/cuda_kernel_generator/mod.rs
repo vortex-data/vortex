@@ -20,7 +20,7 @@ fn generate_lane_decoder<T: FastLanes, W: Write>(
 
     writeln!(
         output,
-        "__device__ void _{func_name}(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, unsigned int lane, GPUPatches patches) {{"
+        "__device__ void _{func_name}(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, unsigned int lane) {{"
     )?;
 
     output.indent(|output| {
@@ -96,8 +96,7 @@ fn generate_lane_dispatch<T: FastLanes, W: Write>(
     writeln!(output, "    uint{bits}_t *__restrict out,")?;
     writeln!(output, "    uint{bits}_t reference,")?;
     writeln!(output, "    unsigned int lane,")?;
-    writeln!(output, "    uint32_t bit_width,")?;
-    writeln!(output, "    GPUPatches patches")?;
+    writeln!(output, "    uint32_t bit_width")?;
     writeln!(output, ") {{")?;
 
     output.indent(|output| {
@@ -106,7 +105,7 @@ fn generate_lane_dispatch<T: FastLanes, W: Write>(
             for bw in 0..=bits {
                 writeln!(
                     output,
-                    "case {bw}: _bit_unpack_{bits}_{bw}bw_lane(in, out, reference, lane, patches); break;"
+                    "case {bw}: _bit_unpack_{bits}_{bw}bw_lane(in, out, reference, lane); break;"
                 )?;
             }
             Ok(())
@@ -139,10 +138,12 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
         writeln!(output, "__shared__ uint{bits}_t shared_out[1024];")?;
 
         for thread_lane in 0..per_thread_loop_count {
-            writeln!(output, "_bit_unpack_{bits}_{bit_width}bw_lane(in, shared_out, reference, thread_idx * {per_thread_loop_count} + {thread_lane}, patches);")?;
+            writeln!(output, "_bit_unpack_{bits}_{bit_width}bw_lane(in, shared_out, reference, thread_idx * {per_thread_loop_count} + {thread_lane});")?;
         }
 
         output.indent(|output| {
+            writeln!(output, "// Make sure all threads in the block/warp have completed writing")?;
+            writeln!(output, "__syncwarp();")?;
             writeln!(output, "// Setup the patches cursor so we can seek patches")?;
             writeln!(output, "PatchesCursor cursor(patches);")?;
             writeln!(output, "// Each thread block in the unpack kernel unpacks 1 chunk of 1024 values")?;
