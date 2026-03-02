@@ -11,6 +11,7 @@ use crate::arrays::FilterVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
 use crate::arrays::SliceReduceAdaptor;
+use crate::arrays::TakeReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
@@ -22,6 +23,7 @@ pub(crate) const PARENT_RULES: ParentRuleSet<ListViewVTable> = ParentRuleSet::ne
     ParentRuleSet::lift(&CastReduceAdaptor(ListViewVTable)),
     ParentRuleSet::lift(&MaskReduceAdaptor(ListViewVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(ListViewVTable)),
+    ParentRuleSet::lift(&TakeReduceAdaptor(ListViewVTable)),
 ]);
 
 #[derive(Debug)]

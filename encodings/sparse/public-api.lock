@@ -74,11 +74,11 @@ pub fn vortex_sparse::SparseVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>)
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_sparse::SparseVTable
 
-pub fn vortex_sparse::SparseVTable::take(array: &vortex_sparse::SparseArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_sparse::SparseVTable::take(array: &vortex_sparse::SparseArray, indices: &vortex_array::array::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_sparse::SparseVTable
 
-pub fn vortex_sparse::SparseVTable::filter(array: &vortex_sparse::SparseArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_sparse::SparseVTable::filter(array: &vortex_sparse::SparseArray, mask: &vortex_mask::Mask, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::slice::SliceKernel for vortex_sparse::SparseVTable
 
@@ -120,7 +120,7 @@ pub fn vortex_sparse::SparseVTable::deserialize(bytes: &[u8], _dtype: &vortex_ar
 
 pub fn vortex_sparse::SparseVTable::dtype(array: &vortex_sparse::SparseArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_sparse::SparseVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_sparse::SparseVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 pub fn vortex_sparse::SparseVTable::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 

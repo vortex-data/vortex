@@ -46,7 +46,7 @@ impl FilterKernel for BitPackedVTable {
     fn filter(
         array: &BitPackedArray,
         mask: &Mask,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let values = match mask {
             Mask::AllTrue(_) | Mask::AllFalse(_) => {
@@ -70,12 +70,12 @@ impl FilterKernel for BitPackedVTable {
 
         let patches = array
             .patches()
-            .map(|patches| patches.filter(&Mask::Values(values.clone())))
+            .map(|patches| patches.filter(&Mask::Values(values.clone()), ctx))
             .transpose()?
             .flatten();
 
         if let Some(patches) = patches {
-            primitive = primitive.patch(&patches)?;
+            primitive = primitive.patch(&patches, ctx)?;
         }
 
         Ok(Some(primitive.into_array()))

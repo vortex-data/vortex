@@ -39,7 +39,7 @@ impl TakeExecute for BitPackedVTable {
     fn take(
         array: &BitPackedArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
@@ -55,7 +55,7 @@ impl TakeExecute for BitPackedVTable {
         let indices = indices.to_primitive();
         let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| {
             match_each_integer_ptype!(indices.ptype(), |I| {
-                take_primitive::<T, I>(array, &indices, taken_validity)?
+                take_primitive::<T, I>(array, &indices, taken_validity, ctx)?
             })
         });
         Ok(Some(taken.reinterpret_cast(ptype).into_array()))
@@ -66,6 +66,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     array: &BitPackedArray,
     indices: &PrimitiveArray,
     taken_validity: Validity,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     if indices.is_empty() {
         return Ok(PrimitiveArray::new(Buffer::<T>::empty(), taken_validity));
@@ -134,10 +135,10 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
         unpatched_taken = unpatched_taken.reinterpret_cast(array.ptype());
     }
     if let Some(patches) = array.patches()
-        && let Some(patches) = patches.take(&indices.to_array())?
+        && let Some(patches) = patches.take(&indices.to_array(), ctx)?
     {
         let cast_patches = patches.cast_values(unpatched_taken.dtype())?;
-        return unpatched_taken.patch(&cast_patches);
+        return unpatched_taken.patch(&cast_patches, ctx);
     }
 
     Ok(unpatched_taken)
@@ -152,7 +153,9 @@ mod test {
     use rstest::rstest;
     use vortex_array::Array;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
@@ -243,6 +246,7 @@ mod test {
             &start,
             &PrimitiveArray::from_iter([0u64, 1, 2, 3]),
             Validity::NonNullable,
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap();
         assert_arrays_eq!(taken_primitive, PrimitiveArray::from_iter([1i32, 2, 3, 4]));

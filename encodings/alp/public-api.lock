@@ -150,11 +150,11 @@ pub fn vortex_alp::ALPRDVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> 
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_alp::ALPRDVTable
 
-pub fn vortex_alp::ALPRDVTable::take(array: &vortex_alp::ALPRDArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_alp::ALPRDVTable::take(array: &vortex_alp::ALPRDArray, indices: &vortex_array::array::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_alp::ALPRDVTable
 
-pub fn vortex_alp::ALPRDVTable::filter(array: &vortex_alp::ALPRDArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_alp::ALPRDVTable::filter(array: &vortex_alp::ALPRDArray, mask: &vortex_mask::Mask, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::slice::SliceKernel for vortex_alp::ALPRDVTable
 
@@ -238,11 +238,11 @@ pub fn vortex_alp::ALPVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> co
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_alp::ALPVTable
 
-pub fn vortex_alp::ALPVTable::take(array: &vortex_alp::ALPArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_alp::ALPVTable::take(array: &vortex_alp::ALPArray, indices: &vortex_array::array::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_alp::ALPVTable
 
-pub fn vortex_alp::ALPVTable::filter(array: &vortex_alp::ALPArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_alp::ALPVTable::filter(array: &vortex_alp::ALPArray, mask: &vortex_mask::Mask, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::slice::SliceKernel for vortex_alp::ALPVTable
 
@@ -266,7 +266,7 @@ pub fn vortex_alp::ALPVTable::cast(array: &vortex_alp::ALPArray, dtype: &vortex_
 
 impl vortex_array::scalar_fn::fns::mask::kernel::MaskKernel for vortex_alp::ALPVTable
 
-pub fn vortex_alp::ALPVTable::mask(array: &vortex_alp::ALPArray, mask: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_alp::ALPVTable::mask(array: &vortex_alp::ALPArray, mask: &vortex_array::array::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::mask::kernel::MaskReduce for vortex_alp::ALPVTable
 
@@ -550,4 +550,4 @@ pub fn vortex_alp::alp_encode(parray: &vortex_array::arrays::primitive::array::P
 
 pub fn vortex_alp::alp_rd_decode<T: vortex_alp::ALPRDFloat>(left_parts: vortex_buffer::buffer::Buffer<u16>, left_parts_dict: &[u16], right_bit_width: u8, right_parts: vortex_buffer::buffer_mut::BufferMut<<T as vortex_alp::ALPRDFloat>::UINT>, left_parts_patches: core::option::Option<&vortex_array::patches::Patches>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_buffer::buffer::Buffer<T>>
 
-pub fn vortex_alp::decompress_into_array(array: vortex_alp::ALPArray) -> vortex_error::VortexResult<vortex_array::arrays::primitive::array::PrimitiveArray>
+pub fn vortex_alp::decompress_into_array(array: vortex_alp::ALPArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::primitive::array::PrimitiveArray>

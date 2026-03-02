@@ -5,7 +5,7 @@ use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_integer_ptype;
@@ -60,9 +60,9 @@ impl TakeExecute for ByteBoolVTable {
     fn take(
         array: &ByteBoolArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let indices = indices.to_primitive();
+        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let bools = array.as_slice();
 
         // This handles combining validity from both source array and nullable indices

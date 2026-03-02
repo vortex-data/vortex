@@ -309,6 +309,8 @@ mod tests {
 
     use crate::Array;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -379,7 +381,9 @@ mod tests {
             None,
         )
         .unwrap();
-        let arr = arr.patch(&patches).unwrap();
+        let arr = arr
+            .patch(&patches, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         // After patching index 4 to false: indices 1-3 and 5-11 are true, index 0 and 4 are false
         let expected_patched: Vec<bool> = (0..12).map(|i| (1..12).contains(&i) && i != 4).collect();
         assert_arrays_eq!(arr, BoolArray::from_iter(expected_patched));
@@ -408,7 +412,9 @@ mod tests {
             None,
         )
         .unwrap();
-        let arr = arr.patch(&patches).unwrap();
+        let arr = arr
+            .patch(&patches, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         // Verify buffer was reused in place
         assert_eq!(arr.to_bit_buffer().inner().as_ptr(), buf_ptr);
 

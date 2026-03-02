@@ -29,13 +29,13 @@ impl MaskKernel for ALPVTable {
     fn mask(
         array: &ALPArray,
         mask: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let vortex_mask = Validity::Array(mask.not()?).to_mask(array.len());
         let masked_encoded = array.encoded().clone().mask(mask.clone())?;
         let masked_patches = array
             .patches()
-            .map(|p| p.mask(&vortex_mask))
+            .map(|p| p.mask(&vortex_mask, ctx))
             .transpose()?
             .flatten();
         Ok(Some(

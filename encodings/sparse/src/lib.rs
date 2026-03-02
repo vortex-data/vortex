@@ -229,8 +229,8 @@ impl VTable for SparseVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        execute_sparse(array)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        execute_sparse(array, ctx)
     }
 }
 

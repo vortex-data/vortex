@@ -15,11 +15,11 @@ impl FilterKernel for ALPRDVTable {
     fn filter(
         array: &ALPRDArray,
         mask: &Mask,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let left_parts_exceptions = array
             .left_parts_patches()
-            .map(|patches| patches.filter(mask))
+            .map(|patches| patches.filter(mask, ctx))
             .transpose()?
             .flatten();
 
