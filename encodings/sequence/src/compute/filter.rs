@@ -68,6 +68,6 @@ mod tests {
     #[case(SequenceArray::typed_new(0u32, 5, Nullability::NonNullable, MEDIUM_SIZE).unwrap())]
     #[case(SequenceArray::typed_new(0u64, 1, Nullability::NonNullable, LARGE_SIZE).unwrap())]
     fn test_filter_sequence_conformance(#[case] array: SequenceArray) {
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
     }
 }

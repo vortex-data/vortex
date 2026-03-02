@@ -78,9 +78,9 @@ impl<'a> DecimalScalar<'a> {
                     );
                 }
 
+                // TODO(connor): Implement proper decimal scaling logic - whatever that means???
                 // Different precision/scale - need to implement scaling logic
                 // For now, we'll do a simple value preservation without scaling
-                // TODO: Implement proper decimal scaling logic
                 if let Some(value) = &self.decimal_value {
                     Ok(Scalar::decimal(*value, *target_dtype, *target_nullability))
                 } else {

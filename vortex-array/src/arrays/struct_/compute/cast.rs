@@ -115,7 +115,7 @@ mod tests {
     #[case(create_nested_struct())]
     #[case(create_simple_struct())]
     fn test_cast_struct_conformance(#[case] array: StructArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 
     fn create_test_struct(nullable: bool) -> StructArray {

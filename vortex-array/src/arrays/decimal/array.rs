@@ -377,7 +377,7 @@ impl DecimalArray {
         let patched_validity = self.validity().clone().patch(
             self.len(),
             offset,
-            patch_indices.as_ref(),
+            &patch_indices.to_array(),
             patch_values.validity(),
         )?;
         assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());

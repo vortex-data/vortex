@@ -62,7 +62,8 @@ use crate::buffer::BufferHandle;
 /// assert_eq!(value, 2i32.into());
 ///
 /// // Convert into a type-erased array that can be passed to compute functions.
-/// let summed = sum(sliced.as_ref()).unwrap().as_primitive().typed_value::<i64>().unwrap();
+/// use vortex_array::IntoArray;
+/// let summed = sum(&sliced.into_array()).unwrap().as_primitive().typed_value::<i64>().unwrap();
 /// assert_eq!(summed, 5i64);
 /// # Ok(())
 /// # }

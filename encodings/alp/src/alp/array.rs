@@ -5,8 +5,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use vortex_array::Array;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -26,16 +24,18 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
-use vortex_array::vtable::VisitorVTable;
+use vortex_array::vtable::patches_child;
+use vortex_array::vtable::patches_child_name;
+use vortex_array::vtable::patches_nchildren;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ALPFloat;
@@ -50,14 +50,77 @@ impl VTable for ALPVTable {
     type Array = ALPArray;
 
     type Metadata = ProstMetadata<ALPMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ALPArray) -> usize {
+        array.encoded.len()
+    }
+
+    fn dtype(array: &ALPArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ALPArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &ALPArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.encoded.array_hash(state, precision);
+        array.exponents.hash(state);
+        array.patches.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ALPArray, other: &ALPArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.encoded.array_eq(&other.encoded, precision)
+            && array.exponents == other.exponents
+            && array.patches.array_eq(&other.patches, precision)
+    }
+
+    fn nbuffers(_array: &ALPArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &ALPArray, idx: usize) -> BufferHandle {
+        vortex_panic!("ALPArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &ALPArray, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(array: &ALPArray) -> usize {
+        1 + array.patches().map_or(0, patches_nchildren)
+    }
+
+    fn child(array: &ALPArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.encoded().clone(),
+            _ => {
+                let patches = array
+                    .patches()
+                    .unwrap_or_else(|| vortex_panic!("ALPArray child index {idx} out of bounds"));
+                patches_child(patches, idx - 1)
+            }
+        }
+    }
+
+    fn child_name(array: &ALPArray, idx: usize) -> String {
+        match idx {
+            0 => "encoded".to_string(),
+            _ => {
+                if array.patches().is_none() {
+                    vortex_panic!("ALPArray child_name index {idx} out of bounds");
+                }
+                patches_child_name(idx - 1).to_string()
+            }
+        }
     }
 
     fn metadata(array: &ALPArray) -> VortexResult<Self::Metadata> {
@@ -222,7 +285,7 @@ pub struct ALPMetadata {
 
 impl ALPArray {
     fn validate(
-        encoded: &dyn Array,
+        encoded: &ArrayRef,
         exponents: Exponents,
         patches: Option<&Patches>,
     ) -> VortexResult<()> {
@@ -273,7 +336,7 @@ impl ALPArray {
     }
 
     /// Validate that any patches provided are valid for the ALPArray.
-    fn validate_patches<T: ALPFloat>(patches: &Patches, encoded: &dyn Array) -> VortexResult<()> {
+    fn validate_patches<T: ALPFloat>(patches: &Patches, encoded: &ArrayRef) -> VortexResult<()> {
         vortex_ensure!(
             patches.array_len() == encoded.len(),
             "patches array_len != encoded len: {} != {}",
@@ -420,56 +483,6 @@ impl ALPArray {
 impl ValidityChild<ALPVTable> for ALPVTable {
     fn validity_child(array: &ALPArray) -> &ArrayRef {
         array.encoded()
-    }
-}
-
-impl BaseArrayVTable<ALPVTable> for ALPVTable {
-    fn len(array: &ALPArray) -> usize {
-        array.encoded.len()
-    }
-
-    fn dtype(array: &ALPArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ALPArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &ALPArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
-        array.encoded.array_hash(state, precision);
-        array.exponents.hash(state);
-        array.patches.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &ALPArray, other: &ALPArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.encoded.array_eq(&other.encoded, precision)
-            && array.exponents == other.exponents
-            && array.patches.array_eq(&other.patches, precision)
-    }
-}
-
-impl VisitorVTable<ALPVTable> for ALPVTable {
-    fn visit_buffers(_array: &ALPArray, _visitor: &mut dyn ArrayBufferVisitor) {}
-
-    fn nbuffers(_array: &ALPArray) -> usize {
-        0
-    }
-
-    fn visit_children(array: &ALPArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("encoded", array.encoded());
-        if let Some(patches) = array.patches() {
-            visitor.visit_patches(patches);
-        }
-    }
-
-    fn nchildren(array: &ALPArray) -> usize {
-        // encoded + optional patches (indices + values + optional chunk_offsets)
-        1 + array
-            .patches()
-            .map_or(0, |p| 2 + p.chunk_offsets().is_some() as usize)
     }
 }
 

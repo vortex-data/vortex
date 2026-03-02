@@ -8,7 +8,6 @@ use std::ops::Not;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -22,7 +21,7 @@ use crate::vtable::ValidityHelper;
 impl ZipKernel for StructVTable {
     fn zip(
         if_true: &StructArray,
-        if_false: &dyn Array,
+        if_false: &ArrayRef,
         mask: &Mask,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

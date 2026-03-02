@@ -601,7 +601,7 @@ impl Scheme for SparseScheme {
         }
 
         let sparse_encoded = SparseArray::encode(
-            stats.src.as_ref(),
+            &stats.src.to_array(),
             Some(Scalar::primitive_value(
                 top_pvalue,
                 top_pvalue.ptype(),
@@ -1063,7 +1063,7 @@ mod tests {
             .into_array();
 
         let btr = BtrBlocksCompressor::default();
-        drop(btr.compress(prim.as_ref())?);
+        drop(btr.compress(&prim)?);
 
         Ok(())
     }

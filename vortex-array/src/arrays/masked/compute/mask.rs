@@ -60,6 +60,6 @@ mod tests {
         ).unwrap()
     )]
     fn test_mask_masked_conformance(#[case] array: MaskedArray) {
-        test_mask_conformance(array.as_ref());
+        test_mask_conformance(&array.to_array());
     }
 }

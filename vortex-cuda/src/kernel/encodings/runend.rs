@@ -128,9 +128,7 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
     let output_view = output_device.as_view::<V>();
 
     // Load kernel function
-    let kernel_ptypes = [value_ptype.to_string(), E::PTYPE.to_string()];
-    let kernel_ptype_strs: Vec<&str> = kernel_ptypes.iter().map(|s| s.as_str()).collect();
-    let cuda_function = ctx.load_function("runend", &kernel_ptype_strs)?;
+    let cuda_function = ctx.load_function("runend", &[value_ptype, E::PTYPE])?;
 
     ctx.launch_kernel(&cuda_function, output_len, |args| {
         args.arg(&ends_view)

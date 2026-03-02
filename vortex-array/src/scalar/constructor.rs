@@ -171,11 +171,11 @@ impl Scalar {
     }
 
     /// Creates a new extension scalar wrapping the given storage value.
-    pub fn extension<V: ExtVTable + Default>(options: V::Metadata, value: Scalar) -> Self {
-        let ext_dtype = ExtDType::<V>::try_new(options, value.dtype().clone())
+    pub fn extension<V: ExtVTable + Default>(options: V::Metadata, storage_scalar: Scalar) -> Self {
+        let ext_dtype = ExtDType::<V>::try_new(options, storage_scalar.dtype().clone())
             .vortex_expect("Failed to create extension dtype");
-        Self::try_new(DType::Extension(ext_dtype.erased()), value.into_value())
-            .vortex_expect("unable to construct an extension `Scalar`")
+
+        Self::extension_ref(ext_dtype.erased(), storage_scalar)
     }
 
     /// Creates a new extension scalar wrapping the given storage value.
@@ -183,9 +183,10 @@ impl Scalar {
     /// # Panics
     ///
     /// Panics if the storage dtype of `ext_dtype` does not match `value`'s dtype.
-    pub fn extension_ref(ext_dtype: ExtDTypeRef, value: Scalar) -> Self {
-        assert_eq!(ext_dtype.storage_dtype(), value.dtype());
-        Self::try_new(DType::Extension(ext_dtype), value.into_value())
+    pub fn extension_ref(ext_dtype: ExtDTypeRef, storage_scalar: Scalar) -> Self {
+        assert_eq!(ext_dtype.storage_dtype(), storage_scalar.dtype());
+
+        Self::try_new(DType::Extension(ext_dtype), storage_scalar.into_value())
             .vortex_expect("unable to construct an extension `Scalar`")
     }
 }

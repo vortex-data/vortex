@@ -144,3 +144,47 @@ impl ExtVTable for Time {
         Ok(value)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+
+    use crate::dtype::DType;
+    use crate::dtype::Nullability::Nullable;
+    use crate::extension::datetime::Time;
+    use crate::extension::datetime::TimeUnit;
+    use crate::scalar::PValue;
+    use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
+
+    #[test]
+    fn validate_time_scalar() -> VortexResult<()> {
+        // 3661 seconds = 1 hour, 1 minute, 1 second.
+        let dtype = DType::Extension(Time::new(TimeUnit::Seconds, Nullable).erased());
+        Scalar::try_new(dtype, Some(ScalarValue::Primitive(PValue::I32(3661))))?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn reject_time_out_of_range() {
+        // 86400 seconds = exactly 24 hours, which exceeds the valid `jiff::civil::Time` range.
+        let dtype = DType::Extension(Time::new(TimeUnit::Seconds, Nullable).erased());
+        let result = Scalar::try_new(dtype, Some(ScalarValue::Primitive(PValue::I32(86400))));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn display_time_scalar() {
+        let dtype = DType::Extension(Time::new(TimeUnit::Seconds, Nullable).erased());
+
+        let scalar = Scalar::new(
+            dtype.clone(),
+            Some(ScalarValue::Primitive(PValue::I32(3661))),
+        );
+        assert_eq!(format!("{}", scalar.as_extension()), "01:01:01");
+
+        let scalar = Scalar::new(dtype, Some(ScalarValue::Primitive(PValue::I32(0))));
+        assert_eq!(format!("{}", scalar.as_extension()), "00:00:00");
+    }
+}

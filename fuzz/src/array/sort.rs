@@ -21,7 +21,7 @@ use vortex_error::VortexResult;
 
 use crate::array::take_canonical_array_non_nullable_indices;
 
-pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
+pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.to_bool();

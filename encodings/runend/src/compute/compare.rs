@@ -20,7 +20,7 @@ use crate::compress::runend_decode_bools;
 impl CompareKernel for RunEndVTable {
     fn compare(
         lhs: &RunEndArray,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

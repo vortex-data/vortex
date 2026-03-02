@@ -4,8 +4,6 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -23,13 +21,12 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
-use vortex_array::vtable::VisitorVTable;
 use vortex_array::vtable::validity_nchildren;
+use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect as _;
@@ -47,14 +44,76 @@ impl VTable for ByteBoolVTable {
     type Array = ByteBoolArray;
 
     type Metadata = EmptyMetadata;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ByteBoolArray) -> usize {
+        array.buffer.len()
+    }
+
+    fn dtype(array: &ByteBoolArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ByteBoolArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &ByteBoolArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
+        array.dtype.hash(state);
+        array.buffer.array_hash(state, precision);
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ByteBoolArray, other: &ByteBoolArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.buffer.array_eq(&other.buffer, precision)
+            && array.validity.array_eq(&other.validity, precision)
+    }
+
+    fn nbuffers(_array: &ByteBoolArray) -> usize {
+        1
+    }
+
+    fn buffer(array: &ByteBoolArray, idx: usize) -> BufferHandle {
+        match idx {
+            0 => array.buffer().clone(),
+            _ => vortex_panic!("ByteBoolArray buffer index {idx} out of bounds"),
+        }
+    }
+
+    fn buffer_name(_array: &ByteBoolArray, idx: usize) -> Option<String> {
+        match idx {
+            0 => Some("values".to_string()),
+            _ => vortex_panic!("ByteBoolArray buffer_name index {idx} out of bounds"),
+        }
+    }
+
+    fn nchildren(array: &ByteBoolArray) -> usize {
+        validity_nchildren(array.validity())
+    }
+
+    fn child(array: &ByteBoolArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => validity_to_child(array.validity(), array.len())
+                .vortex_expect("ByteBoolArray validity child out of bounds"),
+            _ => vortex_panic!("ByteBoolArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &ByteBoolArray, idx: usize) -> String {
+        match idx {
+            0 => "validity".to_string(),
+            _ => vortex_panic!("ByteBoolArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(_array: &ByteBoolArray) -> VortexResult<Self::Metadata> {
@@ -198,60 +257,12 @@ impl ValidityHelper for ByteBoolArray {
     }
 }
 
-impl BaseArrayVTable<ByteBoolVTable> for ByteBoolVTable {
-    fn len(array: &ByteBoolArray) -> usize {
-        array.buffer.len()
-    }
-
-    fn dtype(array: &ByteBoolArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ByteBoolArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        array: &ByteBoolArray,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.dtype.hash(state);
-        array.buffer.array_hash(state, precision);
-        array.validity.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &ByteBoolArray, other: &ByteBoolArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.buffer.array_eq(&other.buffer, precision)
-            && array.validity.array_eq(&other.validity, precision)
-    }
-}
-
 impl OperationsVTable<ByteBoolVTable> for ByteBoolVTable {
     fn scalar_at(array: &ByteBoolArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::bool(
             array.buffer.as_host()[index] == 1,
             array.dtype().nullability(),
         ))
-    }
-}
-
-impl VisitorVTable<ByteBoolVTable> for ByteBoolVTable {
-    fn visit_buffers(array: &ByteBoolArray, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer_handle("values", array.buffer());
-    }
-
-    fn nbuffers(_array: &ByteBoolArray) -> usize {
-        1
-    }
-
-    fn visit_children(array: &ByteBoolArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(array.validity(), array.len());
-    }
-
-    fn nchildren(array: &ByteBoolArray) -> usize {
-        validity_nchildren(array.validity())
     }
 }
 

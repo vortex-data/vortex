@@ -25,7 +25,7 @@ use crate::array::SequenceVTable;
 impl CompareKernel for SequenceVTable {
     fn compare(
         lhs: &SequenceArray,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

@@ -34,7 +34,7 @@ pub const UNCONSTRAINED: DictConstraints = DictConstraints {
 
 pub trait DictEncoder: Send {
     /// Assign dictionary codes to the given input array.
-    fn encode(&mut self, array: &dyn Array) -> ArrayRef;
+    fn encode(&mut self, array: &ArrayRef) -> ArrayRef;
 
     /// Clear the encoder state to make it ready for a new round of decoding.
     fn reset(&mut self) -> ArrayRef;
@@ -43,7 +43,7 @@ pub trait DictEncoder: Send {
     fn codes_ptype(&self) -> PType;
 }
 
-pub fn dict_encoder(array: &dyn Array, constraints: &DictConstraints) -> Box<dyn DictEncoder> {
+pub fn dict_encoder(array: &ArrayRef, constraints: &DictConstraints) -> Box<dyn DictEncoder> {
     let dict_builder: Box<dyn DictEncoder> = if let Some(pa) = array.as_opt::<PrimitiveVTable>() {
         match_each_native_ptype!(pa.ptype(), |P| {
             primitive_dict_builder::<P>(pa.dtype().nullability(), constraints)
@@ -62,7 +62,7 @@ pub fn dict_encoder(array: &dyn Array, constraints: &DictConstraints) -> Box<dyn
 ///
 /// Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for external compatibility.
 pub fn dict_encode_with_constraints(
-    array: &dyn Array,
+    array: &ArrayRef,
     constraints: &DictConstraints,
 ) -> VortexResult<DictArray> {
     let mut encoder = dict_encoder(array, constraints);
@@ -78,7 +78,7 @@ pub fn dict_encode_with_constraints(
     }
 }
 
-pub fn dict_encode(array: &dyn Array) -> VortexResult<DictArray> {
+pub fn dict_encode(array: &ArrayRef) -> VortexResult<DictArray> {
     let dict_array = dict_encode_with_constraints(array, &UNCONSTRAINED)?;
     if dict_array.len() != array.len() {
         vortex_bail!(

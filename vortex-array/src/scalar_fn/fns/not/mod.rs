@@ -6,13 +6,13 @@ mod kernel;
 use std::fmt::Formatter;
 
 pub use kernel::*;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
@@ -84,8 +84,13 @@ impl ScalarFnVTable for Not {
         Ok(child_dtype.clone())
     }
 
-    fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let child = args.inputs.pop().vortex_expect("Missing input child");
+    fn execute(
+        &self,
+        _data: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let child = args.get(0)?;
 
         // For constant boolean
         if let Some(scalar) = child.as_constant() {
@@ -93,7 +98,7 @@ impl ScalarFnVTable for Not {
                 Some(b) => Scalar::bool(!b, child.dtype().nullability()),
                 None => Scalar::null(child.dtype().clone()),
             };
-            return Ok(ConstantArray::new(value, args.row_count).into_array());
+            return Ok(ConstantArray::new(value, args.row_count()).into_array());
         }
 
         // For boolean array
@@ -102,7 +107,7 @@ impl ScalarFnVTable for Not {
         }
 
         // Otherwise, execute and try again
-        child.execute::<ArrayRef>(args.ctx)?.not()
+        child.execute::<ArrayRef>(ctx)?.not()
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

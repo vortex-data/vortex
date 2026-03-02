@@ -181,7 +181,7 @@ mod benchmarks {
             .with_inputs(|| &array)
             .input_counter(|_| ItemsCount::new(NUM_ROWS))
             .input_counter(move |_| BytesCount::new(nbytes as usize))
-            .bench_refs(|array| compressor.compress(array.as_ref()).unwrap());
+            .bench_refs(|array| compressor.compress(array).unwrap());
     }
 }
 

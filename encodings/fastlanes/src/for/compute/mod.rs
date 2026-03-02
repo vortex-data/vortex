@@ -21,7 +21,7 @@ use crate::FoRVTable;
 impl TakeExecute for FoRVTable {
     fn take(
         array: &FoRArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
@@ -61,20 +61,20 @@ mod test {
         let values = buffer![100i32, 101, 102, 103, 104].into_array();
         let reference = Scalar::from(100i32);
         let for_array = FoRArray::try_new(values, reference).unwrap();
-        test_filter_conformance(for_array.as_ref());
+        test_filter_conformance(&for_array.to_array());
 
         // Test with u64 values
         let values = buffer![1000u64, 1001, 1002, 1003, 1004].into_array();
         let reference = Scalar::from(1000u64);
         let for_array = FoRArray::try_new(values, reference).unwrap();
-        test_filter_conformance(for_array.as_ref());
+        test_filter_conformance(&for_array.to_array());
 
         // Test with nullable values
         let values =
             PrimitiveArray::from_option_iter([Some(50i16), None, Some(52), Some(53), None]);
         let reference = Scalar::from(50i16);
         let for_array = FoRArray::try_new(values.into_array(), reference).unwrap();
-        test_filter_conformance(for_array.as_ref());
+        test_filter_conformance(&for_array.to_array());
     }
 
     #[rstest]
@@ -88,7 +88,7 @@ mod test {
     #[case(FoRArray::try_new(buffer![42i64].into_array(), Scalar::from(40i64)).unwrap())]
     fn test_take_for_conformance(#[case] for_array: FoRArray) {
         use vortex_array::compute::conformance::take::test_take_conformance;
-        test_take_conformance(for_array.as_ref());
+        test_take_conformance(&for_array.to_array());
     }
 }
 
@@ -157,7 +157,7 @@ mod tests {
     ).unwrap())]
 
     fn test_for_consistency(#[case] array: FoRArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 
     #[rstest]

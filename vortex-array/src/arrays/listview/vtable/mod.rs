@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
+
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
+use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ListViewArray;
@@ -19,19 +23,20 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
+use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-
-mod array;
+use crate::vtable::validity_nchildren;
+use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
-mod visitor;
-
 vtable!(ListView);
 
 #[derive(Debug)]
@@ -55,14 +60,80 @@ impl VTable for ListViewVTable {
     type Array = ListViewArray;
 
     type Metadata = ProstMetadata<ListViewMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    type VisitorVTable = Self;
-
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ListViewArray) -> usize {
+        debug_assert_eq!(array.offsets().len(), array.sizes().len());
+        array.offsets().len()
+    }
+
+    fn dtype(array: &ListViewArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ListViewArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &ListViewArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
+        array.dtype.hash(state);
+        array.elements().array_hash(state, precision);
+        array.offsets().array_hash(state, precision);
+        array.sizes().array_hash(state, precision);
+        array.validity.array_hash(state, precision);
+    }
+
+    fn array_eq(array: &ListViewArray, other: &ListViewArray, precision: Precision) -> bool {
+        array.dtype == other.dtype
+            && array.elements().array_eq(other.elements(), precision)
+            && array.offsets().array_eq(other.offsets(), precision)
+            && array.sizes().array_eq(other.sizes(), precision)
+            && array.validity.array_eq(&other.validity, precision)
+    }
+
+    fn nbuffers(_array: &ListViewArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &ListViewArray, idx: usize) -> BufferHandle {
+        vortex_panic!("ListViewArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &ListViewArray, idx: usize) -> Option<String> {
+        vortex_panic!("ListViewArray buffer_name index {idx} out of bounds")
+    }
+
+    fn nchildren(array: &ListViewArray) -> usize {
+        3 + validity_nchildren(&array.validity)
+    }
+
+    fn child(array: &ListViewArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.elements().clone(),
+            1 => array.offsets().clone(),
+            2 => array.sizes().clone(),
+            3 => validity_to_child(&array.validity, array.len())
+                .vortex_expect("ListViewArray validity child out of bounds"),
+            _ => vortex_panic!("ListViewArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &ListViewArray, idx: usize) -> String {
+        match idx {
+            0 => "elements".to_string(),
+            1 => "offsets".to_string(),
+            2 => "sizes".to_string(),
+            3 => "validity".to_string(),
+            _ => vortex_panic!("ListViewArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(array: &ListViewArray) -> VortexResult<Self::Metadata> {

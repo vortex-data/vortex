@@ -404,10 +404,14 @@ pub fn vortex_file::OpenOptionsSessionExt::open_options(&self) -> vortex_file::V
 
 impl<S: vortex_array::session::ArraySessionExt + vortex_layout::session::LayoutSessionExt + vortex_io::session::RuntimeSessionExt> vortex_file::OpenOptionsSessionExt for S
 
+pub fn S::open_options(&self) -> vortex_file::VortexOpenOptions
+
 pub trait vortex_file::WriteOptionsSessionExt: vortex_session::SessionExt
 
 pub fn vortex_file::WriteOptionsSessionExt::write_options(&self) -> vortex_file::VortexWriteOptions
 
 impl<S: vortex_session::SessionExt> vortex_file::WriteOptionsSessionExt for S
+
+pub fn S::write_options(&self) -> vortex_file::VortexWriteOptions
 
 pub fn vortex_file::register_default_encodings(session: &mut vortex_session::VortexSession)

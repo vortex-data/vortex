@@ -17,7 +17,7 @@ use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 impl TakeReduce for ConstantVTable {
-    fn take(array: &ConstantArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+    fn take(array: &ConstantArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let result = match indices.validity_mask()?.bit_buffer() {
             AllOr::All => {
                 let scalar = Scalar::try_new(
@@ -128,6 +128,6 @@ mod tests {
     #[case(ConstantArray::new(Scalar::null_native::<i64>(), 5))]
     #[case(ConstantArray::new(true, 1))]
     fn test_take_constant_conformance(#[case] array: ConstantArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.to_array());
     }
 }

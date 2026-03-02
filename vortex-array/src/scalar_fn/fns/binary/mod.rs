@@ -14,6 +14,7 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::StatsCatalog;
 use crate::expr::and;
@@ -121,24 +122,28 @@ impl ScalarFnVTable for Binary {
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 
-    fn execute(&self, op: &Operator, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let [lhs, rhs] = &args.inputs[..] else {
-            vortex_bail!("Wrong arg count")
-        };
+    fn execute(
+        &self,
+        op: &Operator,
+        args: &dyn ExecutionArgs,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let lhs = args.get(0)?;
+        let rhs = args.get(1)?;
 
         match op {
-            Operator::Eq => execute_compare(lhs, rhs, CompareOperator::Eq),
-            Operator::NotEq => execute_compare(lhs, rhs, CompareOperator::NotEq),
-            Operator::Lt => execute_compare(lhs, rhs, CompareOperator::Lt),
-            Operator::Lte => execute_compare(lhs, rhs, CompareOperator::Lte),
-            Operator::Gt => execute_compare(lhs, rhs, CompareOperator::Gt),
-            Operator::Gte => execute_compare(lhs, rhs, CompareOperator::Gte),
-            Operator::And => execute_boolean(lhs, rhs, Operator::And),
-            Operator::Or => execute_boolean(lhs, rhs, Operator::Or),
-            Operator::Add => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Add),
-            Operator::Sub => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Sub),
-            Operator::Mul => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Mul),
-            Operator::Div => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Div),
+            Operator::Eq => execute_compare(&lhs, &rhs, CompareOperator::Eq),
+            Operator::NotEq => execute_compare(&lhs, &rhs, CompareOperator::NotEq),
+            Operator::Lt => execute_compare(&lhs, &rhs, CompareOperator::Lt),
+            Operator::Lte => execute_compare(&lhs, &rhs, CompareOperator::Lte),
+            Operator::Gt => execute_compare(&lhs, &rhs, CompareOperator::Gt),
+            Operator::Gte => execute_compare(&lhs, &rhs, CompareOperator::Gte),
+            Operator::And => execute_boolean(&lhs, &rhs, Operator::And),
+            Operator::Or => execute_boolean(&lhs, &rhs, Operator::Or),
+            Operator::Add => execute_numeric(&lhs, &rhs, crate::scalar::NumericOperator::Add),
+            Operator::Sub => execute_numeric(&lhs, &rhs, crate::scalar::NumericOperator::Sub),
+            Operator::Mul => execute_numeric(&lhs, &rhs, crate::scalar::NumericOperator::Mul),
+            Operator::Div => execute_numeric(&lhs, &rhs, crate::scalar::NumericOperator::Div),
         }
     }
 

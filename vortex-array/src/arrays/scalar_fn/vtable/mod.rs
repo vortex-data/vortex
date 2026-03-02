@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-
-mod array;
 mod operations;
 mod validity;
-mod visitor;
-
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
@@ -18,11 +14,15 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::Array;
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::Precision;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
@@ -38,7 +38,9 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
+use crate::stats::StatsSetRef;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
@@ -51,13 +53,78 @@ pub struct ScalarFnVTable;
 impl VTable for ScalarFnVTable {
     type Array = ScalarFnArray;
     type Metadata = ScalarFnMetadata;
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
-
     fn id(array: &Self::Array) -> ArrayId {
         array.scalar_fn.id()
+    }
+
+    fn len(array: &ScalarFnArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &ScalarFnArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ScalarFnArray) -> StatsSetRef<'_> {
+        array.stats.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: Hasher>(array: &ScalarFnArray, state: &mut H, precision: Precision) {
+        array.len.hash(state);
+        array.dtype.hash(state);
+        array.scalar_fn.hash(state);
+        for child in &array.children {
+            child.array_hash(state, precision);
+        }
+    }
+
+    fn array_eq(array: &ScalarFnArray, other: &ScalarFnArray, precision: Precision) -> bool {
+        if array.len != other.len {
+            return false;
+        }
+        if array.dtype != other.dtype {
+            return false;
+        }
+        if array.scalar_fn != other.scalar_fn {
+            return false;
+        }
+        for (child, other_child) in array.children.iter().zip(other.children.iter()) {
+            if !child.array_eq(other_child, precision) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn nbuffers(_array: &ScalarFnArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &ScalarFnArray, idx: usize) -> BufferHandle {
+        vortex_panic!("ScalarFnArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &ScalarFnArray, idx: usize) -> Option<String> {
+        vortex_panic!("ScalarFnArray buffer_name index {idx} out of bounds")
+    }
+
+    fn nchildren(array: &ScalarFnArray) -> usize {
+        array.children.len()
+    }
+
+    fn child(array: &ScalarFnArray, idx: usize) -> ArrayRef {
+        array.children[idx].clone()
+    }
+
+    fn child_name(array: &ScalarFnArray, idx: usize) -> String {
+        array
+            .scalar_fn
+            .signature()
+            .child_name(idx)
+            .as_ref()
+            .to_string()
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -129,12 +196,8 @@ impl VTable for ScalarFnVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
-        let args = ExecutionArgs {
-            inputs: array.children.clone(),
-            row_count: array.len,
-            ctx,
-        };
-        array.scalar_fn.execute(args)
+        let args = VecExecutionArgs::new(array.children.clone(), array.len);
+        array.scalar_fn.execute(&args, ctx)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
@@ -292,8 +355,13 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
         Ok(options.0.dtype().clone())
     }
 
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        crate::Executable::execute(options.0.clone(), args.ctx)
+    fn execute(
+        &self,
+        options: &Self::Options,
+        _args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        crate::Executable::execute(options.0.clone(), ctx)
     }
 
     fn validity(

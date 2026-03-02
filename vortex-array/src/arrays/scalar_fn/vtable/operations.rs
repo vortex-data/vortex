@@ -12,7 +12,7 @@ use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::columnar::Columnar;
 use crate::scalar::Scalar;
-use crate::scalar_fn::ExecutionArgs;
+use crate::scalar_fn::VecExecutionArgs;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
@@ -24,12 +24,8 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             .collect::<VortexResult<_>>()?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let args = ExecutionArgs {
-            inputs,
-            row_count: 1,
-            ctx: &mut ctx,
-        };
-        let result = array.scalar_fn.execute(args)?;
+        let args = VecExecutionArgs::new(inputs, 1);
+        let result = array.scalar_fn.execute(&args, &mut ctx)?;
 
         let scalar = match result.execute::<Columnar>(&mut ctx)? {
             Columnar::Canonical(arr) => {

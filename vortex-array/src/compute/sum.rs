@@ -14,6 +14,8 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray as _;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
@@ -45,10 +47,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// If the sum is not supported for the array's dtype, an error will be raised.
 /// If the array is all-invalid, the sum will be the accumulator.
 /// The accumulator must have a dtype compatible with the sum result dtype.
-pub(crate) fn sum_with_accumulator(
-    array: &dyn Array,
-    accumulator: &Scalar,
-) -> VortexResult<Scalar> {
+pub(crate) fn sum_with_accumulator(array: &ArrayRef, accumulator: &Scalar) -> VortexResult<Scalar> {
     SUM_FN
         .invoke(&InvocationArgs {
             inputs: &[array.into(), accumulator.into()],
@@ -62,7 +61,7 @@ pub(crate) fn sum_with_accumulator(
 /// If the sum overflows, a null scalar will be returned.
 /// If the sum is not supported for the array's dtype, an error will be raised.
 /// If the array is all-invalid, the sum will be zero.
-pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
+pub fn sum(array: &ArrayRef) -> VortexResult<Scalar> {
     let sum_dtype = Stat::Sum
         .dtype(array.dtype())
         .ok_or_else(|| vortex_err!("Sum not supported for dtype: {}", array.dtype()))?;
@@ -102,6 +101,7 @@ impl ComputeFnVTable for Sum {
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let SumArgs { array, accumulator } = args.try_into()?;
+        let array = array.to_array();
 
         // Compute the expected dtype of the sum.
         let sum_dtype = self.return_dtype(args)?;
@@ -143,7 +143,7 @@ impl ComputeFnVTable for Sum {
             }
         }
 
-        let sum_scalar = sum_impl(array, accumulator, kernels)?;
+        let sum_scalar = sum_impl(&array, accumulator, kernels)?;
 
         // Update the statistics with the computed sum. Stored statistic shouldn't include the accumulator.
         match sum_dtype {
@@ -233,7 +233,7 @@ impl<V: VTable + SumKernel> Kernel for SumKernelAdapter<V> {
 /// If the sum is not supported for the array's dtype, an error will be raised.
 /// If the array is all-invalid, the sum will be the accumulator.
 pub fn sum_impl(
-    array: &dyn Array,
+    array: &ArrayRef,
     accumulator: &Scalar,
     kernels: &[ArcRef<dyn Kernel>],
 ) -> VortexResult<Scalar> {
@@ -261,7 +261,8 @@ pub fn sum_impl(
             array.encoding_id()
         );
     }
-    sum_with_accumulator(array.to_canonical()?.as_ref(), accumulator)
+    let canonical = array.to_canonical()?.into_array();
+    sum_with_accumulator(&canonical, accumulator)
 }
 
 #[cfg(test)]
@@ -282,36 +283,36 @@ mod test {
 
     #[test]
     fn sum_all_invalid() {
-        let array = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]);
-        let result = sum(array.as_ref()).unwrap();
+        let array = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]).into_array();
+        let result = sum(&array).unwrap();
         assert_eq!(result, Scalar::primitive(0i64, Nullability::Nullable));
     }
 
     #[test]
     fn sum_all_invalid_float() {
-        let array = PrimitiveArray::from_option_iter::<f32, _>([None, None, None]);
-        let result = sum(array.as_ref()).unwrap();
+        let array = PrimitiveArray::from_option_iter::<f32, _>([None, None, None]).into_array();
+        let result = sum(&array).unwrap();
         assert_eq!(result, Scalar::primitive(0f64, Nullability::Nullable));
     }
 
     #[test]
     fn sum_constant() {
         let array = buffer![1, 1, 1, 1].into_array();
-        let result = sum(array.as_ref()).unwrap();
+        let result = sum(&array).unwrap();
         assert_eq!(result.as_primitive().as_::<i32>(), Some(4));
     }
 
     #[test]
     fn sum_constant_float() {
         let array = buffer![1., 1., 1., 1.].into_array();
-        let result = sum(array.as_ref()).unwrap();
+        let result = sum(&array).unwrap();
         assert_eq!(result.as_primitive().as_::<f32>(), Some(4.));
     }
 
     #[test]
     fn sum_boolean() {
-        let array = BoolArray::from_iter([true, false, false, true]);
-        let result = sum(array.as_ref()).unwrap();
+        let array = BoolArray::from_iter([true, false, false, true]).into_array();
+        let result = sum(&array).unwrap();
         assert_eq!(result.as_primitive().as_::<i32>(), Some(2));
     }
 
@@ -325,14 +326,11 @@ mod test {
             DType::Primitive(PType::I32, Nullability::NonNullable),
         )
         .vortex_expect("operation should succeed in test");
+        let array = array.into_array();
         // compute sum with accumulator to populate stats
-        sum_with_accumulator(
-            array.as_ref(),
-            &Scalar::primitive(2i64, Nullability::Nullable),
-        )
-        .unwrap();
+        sum_with_accumulator(&array, &Scalar::primitive(2i64, Nullability::Nullable)).unwrap();
 
-        let sum_without_acc = sum(array.as_ref()).unwrap();
+        let sum_without_acc = sum(&array).unwrap();
         assert_eq!(
             sum_without_acc,
             Scalar::primitive(9i64, Nullability::Nullable)

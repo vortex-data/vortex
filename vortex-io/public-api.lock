@@ -154,8 +154,6 @@ pub fn vortex_io::object_store::ObjectStoreReadAt::with_coalesce_config(self, co
 
 pub fn vortex_io::object_store::ObjectStoreReadAt::with_concurrency(self, concurrency: usize) -> Self
 
-pub fn vortex_io::object_store::ObjectStoreReadAt::with_some_coalesce_config(self, config: core::option::Option<vortex_io::CoalesceConfig>) -> Self
-
 impl vortex_io::VortexReadAt for vortex_io::object_store::ObjectStoreReadAt
 
 pub fn vortex_io::object_store::ObjectStoreReadAt::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
@@ -454,6 +452,12 @@ pub fn vortex_io::session::RuntimeSessionExt::with_tokio(self) -> Self
 
 impl<S: vortex_session::SessionExt> vortex_io::session::RuntimeSessionExt for S
 
+pub fn S::handle(&self) -> vortex_io::runtime::Handle
+
+pub fn S::with_handle(self, handle: vortex_io::runtime::Handle) -> Self
+
+pub fn S::with_tokio(self) -> Self
+
 pub mod vortex_io::std_file
 
 pub struct vortex_io::std_file::FileReadAt
@@ -475,6 +479,8 @@ pub fn vortex_io::std_file::FileReadAt::size(&self) -> futures_core::future::Box
 pub fn vortex_io::std_file::FileReadAt::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
 
 pub const vortex_io::std_file::DEFAULT_CONCURRENCY: usize
+
+pub fn vortex_io::std_file::read_exact_at(file: &std::fs::File, buffer: &mut [u8], offset: u64) -> std::io::error::Result<()>
 
 pub struct vortex_io::AsyncWriteAdapter<W: futures_io::if_std::AsyncWrite>(pub W)
 
@@ -550,6 +556,8 @@ pub fn vortex_io::OwnedSlice<T>::bytes_init(&self) -> usize
 
 pub fn vortex_io::OwnedSlice<T>::read_ptr(&self) -> *const u8
 
+pub fn vortex_io::OwnedSlice<T>::slice_owned(self, range: core::ops::range::Range<usize>) -> vortex_io::OwnedSlice<Self> where Self: core::marker::Sized
+
 pub struct vortex_io::SizeLimitedStream<Fut>
 
 impl<Fut> vortex_io::SizeLimitedStream<Fut> where Fut: core::future::future::Future
@@ -590,6 +598,8 @@ pub fn &'static [u8]::bytes_init(&self) -> usize
 
 pub fn &'static [u8]::read_ptr(&self) -> *const u8
 
+pub fn &'static [u8]::slice_owned(self, range: core::ops::range::Range<usize>) -> vortex_io::OwnedSlice<Self> where Self: core::marker::Sized
+
 impl vortex_io::IoBuf for alloc::vec::Vec<u8>
 
 pub fn alloc::vec::Vec<u8>::as_slice(&self) -> &[u8]
@@ -597,6 +607,8 @@ pub fn alloc::vec::Vec<u8>::as_slice(&self) -> &[u8]
 pub fn alloc::vec::Vec<u8>::bytes_init(&self) -> usize
 
 pub fn alloc::vec::Vec<u8>::read_ptr(&self) -> *const u8
+
+pub fn alloc::vec::Vec<u8>::slice_owned(self, range: core::ops::range::Range<usize>) -> vortex_io::OwnedSlice<Self> where Self: core::marker::Sized
 
 impl vortex_io::IoBuf for bytes::bytes::Bytes
 
@@ -606,6 +618,8 @@ pub fn bytes::bytes::Bytes::bytes_init(&self) -> usize
 
 pub fn bytes::bytes::Bytes::read_ptr(&self) -> *const u8
 
+pub fn bytes::bytes::Bytes::slice_owned(self, range: core::ops::range::Range<usize>) -> vortex_io::OwnedSlice<Self> where Self: core::marker::Sized
+
 impl<T: core::marker::Unpin + core::marker::Send + 'static> vortex_io::IoBuf for vortex_buffer::buffer::Buffer<T>
 
 pub fn vortex_buffer::buffer::Buffer<T>::as_slice(&self) -> &[u8]
@@ -613,6 +627,8 @@ pub fn vortex_buffer::buffer::Buffer<T>::as_slice(&self) -> &[u8]
 pub fn vortex_buffer::buffer::Buffer<T>::bytes_init(&self) -> usize
 
 pub fn vortex_buffer::buffer::Buffer<T>::read_ptr(&self) -> *const u8
+
+pub fn vortex_buffer::buffer::Buffer<T>::slice_owned(self, range: core::ops::range::Range<usize>) -> vortex_io::OwnedSlice<Self> where Self: core::marker::Sized
 
 impl<T: vortex_io::IoBuf> vortex_io::IoBuf for vortex_io::OwnedSlice<T>
 
@@ -622,6 +638,8 @@ pub fn vortex_io::OwnedSlice<T>::bytes_init(&self) -> usize
 
 pub fn vortex_io::OwnedSlice<T>::read_ptr(&self) -> *const u8
 
+pub fn vortex_io::OwnedSlice<T>::slice_owned(self, range: core::ops::range::Range<usize>) -> vortex_io::OwnedSlice<Self> where Self: core::marker::Sized
+
 impl<const A: usize> vortex_io::IoBuf for vortex_buffer::ConstByteBuffer<A>
 
 pub fn vortex_buffer::ConstByteBuffer<A>::as_slice(&self) -> &[u8]
@@ -630,6 +648,8 @@ pub fn vortex_buffer::ConstByteBuffer<A>::bytes_init(&self) -> usize
 
 pub fn vortex_buffer::ConstByteBuffer<A>::read_ptr(&self) -> *const u8
 
+pub fn vortex_buffer::ConstByteBuffer<A>::slice_owned(self, range: core::ops::range::Range<usize>) -> vortex_io::OwnedSlice<Self> where Self: core::marker::Sized
+
 impl<const N: usize> vortex_io::IoBuf for [u8; N]
 
 pub fn [u8; N]::as_slice(&self) -> &[u8]
@@ -637,6 +657,8 @@ pub fn [u8; N]::as_slice(&self) -> &[u8]
 pub fn [u8; N]::bytes_init(&self) -> usize
 
 pub fn [u8; N]::read_ptr(&self) -> *const u8
+
+pub fn [u8; N]::slice_owned(self, range: core::ops::range::Range<usize>) -> vortex_io::OwnedSlice<Self> where Self: core::marker::Sized
 
 pub trait vortex_io::VortexReadAt: core::marker::Send + core::marker::Sync + 'static
 
@@ -664,11 +686,15 @@ pub fn alloc::sync::Arc<dyn vortex_io::VortexReadAt>::uri(&self) -> core::option
 
 impl vortex_io::VortexReadAt for vortex_buffer::ByteBuffer
 
+pub fn vortex_buffer::ByteBuffer::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+
 pub fn vortex_buffer::ByteBuffer::concurrency(&self) -> usize
 
 pub fn vortex_buffer::ByteBuffer::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
 
 pub fn vortex_buffer::ByteBuffer::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
+pub fn vortex_buffer::ByteBuffer::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
 
 impl vortex_io::VortexReadAt for vortex_io::object_store::ObjectStoreReadAt
 

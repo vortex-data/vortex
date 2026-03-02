@@ -70,7 +70,7 @@ impl ArrayBuilder for NullBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         self.append_nulls(array.len());
     }
 

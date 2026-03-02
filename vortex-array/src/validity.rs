@@ -167,7 +167,7 @@ impl Validity {
         }
     }
 
-    pub fn take(&self, indices: &dyn Array) -> VortexResult<Self> {
+    pub fn take(&self, indices: &ArrayRef) -> VortexResult<Self> {
         match self {
             Self::NonNullable => match indices.validity_mask()?.bit_buffer() {
                 AllOr::All => {
@@ -280,7 +280,7 @@ impl Validity {
         self,
         len: usize,
         indices_offset: usize,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         patches: &Validity,
     ) -> VortexResult<Self> {
         match (&self, patches) {
@@ -374,7 +374,7 @@ impl Validity {
 
     /// Create Validity by copying the given array's validity.
     #[inline]
-    pub fn copy_from_array(array: &dyn Array) -> VortexResult<Self> {
+    pub fn copy_from_array(array: &ArrayRef) -> VortexResult<Self> {
         Ok(Validity::from_mask(
             array.validity_mask()?,
             array.dtype().nullability(),

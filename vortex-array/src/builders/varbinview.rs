@@ -18,7 +18,6 @@ use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BinaryView;
@@ -267,7 +266,7 @@ impl ArrayBuilder for VarBinViewBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let array = array.to_varbinview();
         self.flush_in_progress();
 

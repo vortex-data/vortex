@@ -6,8 +6,6 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use prost::Message as _;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -23,11 +21,9 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
-use vortex_array::vtable::VisitorVTable;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -330,14 +326,87 @@ impl VTable for ZstdBuffersVTable {
     type Array = ZstdBuffersArray;
 
     type Metadata = ProstMetadata<ZstdBuffersMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &ZstdBuffersArray) -> usize {
+        array.len
+    }
+
+    fn dtype(array: &ZstdBuffersArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &ZstdBuffersArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(
+        array: &ZstdBuffersArray,
+        state: &mut H,
+        precision: Precision,
+    ) {
+        array.inner_encoding_id.hash(state);
+        array.inner_metadata.hash(state);
+        for buf in &array.compressed_buffers {
+            buf.array_hash(state, precision);
+        }
+        array.uncompressed_sizes.hash(state);
+        array.buffer_alignments.hash(state);
+        array.dtype.hash(state);
+        array.len.hash(state);
+        for child in &array.children {
+            child.array_hash(state, precision);
+        }
+    }
+
+    fn array_eq(array: &ZstdBuffersArray, other: &ZstdBuffersArray, precision: Precision) -> bool {
+        array.inner_encoding_id == other.inner_encoding_id
+            && array.inner_metadata == other.inner_metadata
+            && array.compressed_buffers.len() == other.compressed_buffers.len()
+            && array
+                .compressed_buffers
+                .iter()
+                .zip(&other.compressed_buffers)
+                .all(|(a, b)| a.array_eq(b, precision))
+            && array.uncompressed_sizes == other.uncompressed_sizes
+            && array.buffer_alignments == other.buffer_alignments
+            && array.dtype == other.dtype
+            && array.len == other.len
+            && array.children.len() == other.children.len()
+            && array
+                .children
+                .iter()
+                .zip(&other.children)
+                .all(|(a, b)| a.array_eq(b, precision))
+    }
+
+    fn nbuffers(array: &ZstdBuffersArray) -> usize {
+        array.compressed_buffers.len()
+    }
+
+    fn buffer(array: &ZstdBuffersArray, idx: usize) -> BufferHandle {
+        array.compressed_buffers[idx].clone()
+    }
+
+    fn buffer_name(_array: &ZstdBuffersArray, idx: usize) -> Option<String> {
+        Some(format!("compressed_{idx}"))
+    }
+
+    fn nchildren(array: &ZstdBuffersArray) -> usize {
+        array.children.len()
+    }
+
+    fn child(array: &ZstdBuffersArray, idx: usize) -> ArrayRef {
+        array.children[idx].clone()
+    }
+
+    fn child_name(_array: &ZstdBuffersArray, idx: usize) -> String {
+        format!("child_{idx}")
     }
 
     fn metadata(array: &ZstdBuffersArray) -> VortexResult<Self::Metadata> {
@@ -404,60 +473,6 @@ impl VTable for ZstdBuffersVTable {
     }
 }
 
-impl BaseArrayVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
-    fn len(array: &ZstdBuffersArray) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &ZstdBuffersArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ZstdBuffersArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        array: &ZstdBuffersArray,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.inner_encoding_id.hash(state);
-        array.inner_metadata.hash(state);
-        for buf in &array.compressed_buffers {
-            buf.array_hash(state, precision);
-        }
-        array.uncompressed_sizes.hash(state);
-        array.buffer_alignments.hash(state);
-        array.dtype.hash(state);
-        array.len.hash(state);
-        for child in &array.children {
-            child.array_hash(state, precision);
-        }
-    }
-
-    fn array_eq(array: &ZstdBuffersArray, other: &ZstdBuffersArray, precision: Precision) -> bool {
-        array.inner_encoding_id == other.inner_encoding_id
-            && array.inner_metadata == other.inner_metadata
-            && array.compressed_buffers.len() == other.compressed_buffers.len()
-            && array
-                .compressed_buffers
-                .iter()
-                .zip(&other.compressed_buffers)
-                .all(|(a, b)| a.array_eq(b, precision))
-            && array.uncompressed_sizes == other.uncompressed_sizes
-            && array.buffer_alignments == other.buffer_alignments
-            && array.dtype == other.dtype
-            && array.len == other.len
-            && array.children.len() == other.children.len()
-            && array
-                .children
-                .iter()
-                .zip(&other.children)
-                .all(|(a, b)| a.array_eq(b, precision))
-    }
-}
-
 impl OperationsVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
     fn scalar_at(array: &ZstdBuffersArray, index: usize) -> VortexResult<Scalar> {
         // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
@@ -476,20 +491,6 @@ impl ValidityVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
 
         let inner_array = array.decompress_and_build_inner(&vortex_array::LEGACY_SESSION)?;
         inner_array.validity()
-    }
-}
-
-impl VisitorVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
-    fn visit_buffers(array: &ZstdBuffersArray, visitor: &mut dyn ArrayBufferVisitor) {
-        for (i, buffer) in array.compressed_buffers.iter().enumerate() {
-            visitor.visit_buffer_handle(&format!("compressed_{i}"), buffer);
-        }
-    }
-
-    fn visit_children(array: &ZstdBuffersArray, visitor: &mut dyn ArrayChildVisitor) {
-        for (i, child) in array.children.iter().enumerate() {
-            visitor.visit_child(&format!("child_{i}"), child);
-        }
     }
 }
 

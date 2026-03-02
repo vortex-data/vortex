@@ -9,11 +9,10 @@ use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::BinaryView;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::TakeExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
@@ -26,11 +25,11 @@ impl TakeExecute for VarBinViewVTable {
     /// Take involves creating a new array that references the old array, just with the given set of views.
     fn take(
         array: &VarBinViewArray,
-        indices: &dyn Array,
-        _ctx: &mut ExecutionCtx,
+        indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity().take(indices)?;
-        let indices = indices.to_primitive();
+        let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
 
         let indices_mask = indices.validity_mask()?;
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {
@@ -160,6 +159,6 @@ mod tests {
     ))]
     #[case(VarBinViewArray::from_iter(["single"].map(Some), DType::Utf8(NonNullable)))]
     fn test_take_varbinview_conformance(#[case] array: VarBinViewArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.to_array());
     }
 }

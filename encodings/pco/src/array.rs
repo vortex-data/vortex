@@ -15,8 +15,6 @@ use pco::wrapped::ChunkDecompressor;
 use pco::wrapped::FileCompressor;
 use pco::wrapped::FileDecompressor;
 use prost::Message;
-use vortex_array::ArrayBufferVisitor;
-use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -39,14 +37,13 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
-use vortex_array::vtable::VisitorVTable;
 use vortex_array::vtable::validity_nchildren;
+use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -56,6 +53,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::PcoChunkInfo;
@@ -88,14 +86,101 @@ impl VTable for PcoVTable {
     type Array = PcoArray;
 
     type Metadata = ProstMetadata<PcoMetadata>;
-
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &PcoArray) -> usize {
+        array.slice_stop - array.slice_start
+    }
+
+    fn dtype(array: &PcoArray) -> &DType {
+        &array.dtype
+    }
+
+    fn stats(array: &PcoArray) -> StatsSetRef<'_> {
+        array.stats_set.to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &PcoArray, state: &mut H, precision: Precision) {
+        array.dtype.hash(state);
+        array.unsliced_validity.array_hash(state, precision);
+        array.unsliced_n_rows.hash(state);
+        array.slice_start.hash(state);
+        array.slice_stop.hash(state);
+        // Hash chunk_metas and pages using pointer-based hashing
+        for chunk_meta in &array.chunk_metas {
+            chunk_meta.array_hash(state, precision);
+        }
+        for page in &array.pages {
+            page.array_hash(state, precision);
+        }
+    }
+
+    fn array_eq(array: &PcoArray, other: &PcoArray, precision: Precision) -> bool {
+        if array.dtype != other.dtype
+            || !array
+                .unsliced_validity
+                .array_eq(&other.unsliced_validity, precision)
+            || array.unsliced_n_rows != other.unsliced_n_rows
+            || array.slice_start != other.slice_start
+            || array.slice_stop != other.slice_stop
+            || array.chunk_metas.len() != other.chunk_metas.len()
+            || array.pages.len() != other.pages.len()
+        {
+            return false;
+        }
+        for (a, b) in array.chunk_metas.iter().zip(&other.chunk_metas) {
+            if !a.array_eq(b, precision) {
+                return false;
+            }
+        }
+        for (a, b) in array.pages.iter().zip(&other.pages) {
+            if !a.array_eq(b, precision) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn nbuffers(array: &PcoArray) -> usize {
+        array.chunk_metas.len() + array.pages.len()
+    }
+
+    fn buffer(array: &PcoArray, idx: usize) -> BufferHandle {
+        if idx < array.chunk_metas.len() {
+            BufferHandle::new_host(array.chunk_metas[idx].clone())
+        } else {
+            let page_idx = idx - array.chunk_metas.len();
+            BufferHandle::new_host(array.pages[page_idx].clone())
+        }
+    }
+
+    fn buffer_name(array: &PcoArray, idx: usize) -> Option<String> {
+        if idx < array.chunk_metas.len() {
+            Some(format!("chunk_meta_{idx}"))
+        } else {
+            Some(format!("page_{}", idx - array.chunk_metas.len()))
+        }
+    }
+
+    fn nchildren(array: &PcoArray) -> usize {
+        validity_nchildren(&array.unsliced_validity)
+    }
+
+    fn child(array: &PcoArray, idx: usize) -> ArrayRef {
+        validity_to_child(&array.unsliced_validity, array.unsliced_n_rows)
+            .unwrap_or_else(|| vortex_panic!("PcoArray child index {idx} out of bounds"))
+    }
+
+    fn child_name(_array: &PcoArray, idx: usize) -> String {
+        match idx {
+            0 => "validity".to_string(),
+            _ => vortex_panic!("PcoArray child_name index {idx} out of bounds"),
+        }
     }
 
     fn metadata(array: &PcoArray) -> VortexResult<Self::Metadata> {
@@ -476,93 +561,9 @@ impl ValiditySliceHelper for PcoArray {
     }
 }
 
-impl BaseArrayVTable<PcoVTable> for PcoVTable {
-    fn len(array: &PcoArray) -> usize {
-        array.slice_stop - array.slice_start
-    }
-
-    fn dtype(array: &PcoArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &PcoArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &PcoArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
-        array.unsliced_validity.array_hash(state, precision);
-        array.unsliced_n_rows.hash(state);
-        array.slice_start.hash(state);
-        array.slice_stop.hash(state);
-        // Hash chunk_metas and pages using pointer-based hashing
-        for chunk_meta in &array.chunk_metas {
-            chunk_meta.array_hash(state, precision);
-        }
-        for page in &array.pages {
-            page.array_hash(state, precision);
-        }
-    }
-
-    fn array_eq(array: &PcoArray, other: &PcoArray, precision: Precision) -> bool {
-        if array.dtype != other.dtype
-            || !array
-                .unsliced_validity
-                .array_eq(&other.unsliced_validity, precision)
-            || array.unsliced_n_rows != other.unsliced_n_rows
-            || array.slice_start != other.slice_start
-            || array.slice_stop != other.slice_stop
-            || array.chunk_metas.len() != other.chunk_metas.len()
-            || array.pages.len() != other.pages.len()
-        {
-            return false;
-        }
-        for (a, b) in array.chunk_metas.iter().zip(&other.chunk_metas) {
-            if !a.array_eq(b, precision) {
-                return false;
-            }
-        }
-        for (a, b) in array.pages.iter().zip(&other.pages) {
-            if !a.array_eq(b, precision) {
-                return false;
-            }
-        }
-        true
-    }
-}
-
 impl OperationsVTable<PcoVTable> for PcoVTable {
     fn scalar_at(array: &PcoArray, index: usize) -> VortexResult<Scalar> {
         array._slice(index, index + 1).decompress()?.scalar_at(0)
-    }
-}
-
-impl VisitorVTable<PcoVTable> for PcoVTable {
-    fn visit_buffers(array: &PcoArray, visitor: &mut dyn ArrayBufferVisitor) {
-        for (i, buffer) in array.chunk_metas.iter().enumerate() {
-            visitor.visit_buffer_handle(
-                &format!("chunk_meta_{i}"),
-                &BufferHandle::new_host(buffer.clone()),
-            );
-        }
-        for (i, buffer) in array.pages.iter().enumerate() {
-            visitor.visit_buffer_handle(
-                &format!("page_{i}"),
-                &BufferHandle::new_host(buffer.clone()),
-            );
-        }
-    }
-
-    fn nbuffers(array: &PcoArray) -> usize {
-        array.chunk_metas.len() + array.pages.len()
-    }
-
-    fn visit_children(array: &PcoArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_validity(&array.unsliced_validity, array.unsliced_n_rows());
-    }
-
-    fn nchildren(array: &PcoArray) -> usize {
-        validity_nchildren(&array.unsliced_validity)
     }
 }
 

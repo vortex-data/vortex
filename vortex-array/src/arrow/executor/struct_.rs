@@ -16,7 +16,6 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::StructArray;
@@ -43,7 +42,7 @@ pub(super) fn to_arrow_struct(
         Ok(array) => {
             // NOTE(ngates): this currently uses the old into_canonical code path, but we should
             //  just call directly into the swizzle-chunks function.
-            array.to_struct().into_array()
+            array.to_array().execute::<StructArray>(ctx)?.into_array()
         }
         Err(array) => array,
     };

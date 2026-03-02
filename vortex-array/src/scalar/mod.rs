@@ -19,6 +19,15 @@ mod convert;
 mod display;
 mod downcast;
 mod proto;
+mod scalar_impl;
+mod scalar_value;
+mod truncation;
+mod typed_view;
+mod validate;
+
+pub use scalar_value::*;
+pub use truncation::*;
+pub use typed_view::*;
 
 use crate::dtype::DType;
 
@@ -37,17 +46,5 @@ pub struct Scalar {
     value: Option<ScalarValue>,
 }
 
-mod scalar_impl;
-mod scalar_value;
-mod typed_view;
-
-pub use scalar_value::*;
-pub use typed_view::*;
-
-pub mod extension;
-
 #[cfg(test)]
 mod tests;
-mod truncation;
-
-pub use truncation::*;

@@ -138,6 +138,6 @@ mod tests {
         encoder.encode(&arr)
     })]
     fn test_cast_alprd_conformance(#[case] alprd: crate::alp_rd::ALPRDArray) {
-        test_cast_conformance(alprd.as_ref());
+        test_cast_conformance(&alprd.to_array());
     }
 }

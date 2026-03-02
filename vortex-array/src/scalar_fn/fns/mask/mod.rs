@@ -8,11 +8,11 @@ pub use kernel::*;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
@@ -94,17 +94,20 @@ impl ScalarFnVTable for Mask {
         Ok(arg_dtypes[0].as_nullable())
     }
 
-    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let [input, mask_array]: [ArrayRef; _] = args
-            .inputs
-            .try_into()
-            .map_err(|_| vortex_err!("Wrong arg count"))?;
+    fn execute(
+        &self,
+        _options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let input = args.get(0)?;
+        let mask_array = args.get(1)?;
 
         if let Some(result) = execute_constant(&input, &mask_array)? {
             return Ok(result);
         }
 
-        execute_canonical(input, mask_array, args.ctx)
+        execute_canonical(input, mask_array, ctx)
     }
 
     fn simplify(
@@ -176,7 +179,7 @@ fn execute_constant(input: &ArrayRef, mask_array: &ArrayRef) -> VortexResult<Opt
 fn execute_canonical(
     input: ArrayRef,
     mask_array: ArrayRef,
-    ctx: &mut crate::executor::ExecutionCtx,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let mask_bool = mask_array.execute::<BoolArray>(ctx)?;
     let validity_mask = vortex_mask::Mask::from(mask_bool.to_bit_buffer());

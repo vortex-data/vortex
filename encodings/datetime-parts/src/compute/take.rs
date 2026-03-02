@@ -18,7 +18,7 @@ use vortex_error::vortex_panic;
 use crate::DateTimePartsArray;
 use crate::DateTimePartsVTable;
 
-fn take_datetime_parts(array: &DateTimePartsArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
     // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
     let indices = indices.to_primitive();
 
@@ -88,7 +88,7 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &dyn Array) -> Vorte
 impl TakeExecute for DateTimePartsVTable {
     fn take(
         array: &DateTimePartsArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         take_datetime_parts(array, indices).map(Some)
@@ -136,6 +136,6 @@ mod tests {
         Some("UTC".into())
     )).unwrap())]
     fn test_take_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.to_array());
     }
 }

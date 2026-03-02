@@ -33,7 +33,7 @@ mod test {
 
         let decimal_dtype = DecimalDType::new(8, 2);
         let array = DecimalBytePartsArray::try_new(msp, decimal_dtype).unwrap();
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
 
         // Test with nullable values
         let msp = PrimitiveArray::from_option_iter([Some(10i64), None, Some(30), Some(40), None])
@@ -41,6 +41,6 @@ mod test {
 
         let decimal_dtype = DecimalDType::new(18, 4);
         let array = DecimalBytePartsArray::try_new(msp, decimal_dtype).unwrap();
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
     }
 }

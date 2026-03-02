@@ -2,15 +2,20 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::hash::Hash;
 
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::Precision;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
@@ -18,6 +23,7 @@ use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::FoRArray;
@@ -25,13 +31,11 @@ use crate::r#for::array::for_decompress::decompress;
 use crate::r#for::vtable::kernels::PARENT_KERNELS;
 use crate::r#for::vtable::rules::PARENT_RULES;
 
-mod array;
 mod kernels;
 mod operations;
 mod rules;
 mod slice;
 mod validity;
-mod visitor;
 
 vtable!(FoR);
 
@@ -40,13 +44,63 @@ impl VTable for FoRVTable {
 
     type Metadata = Scalar;
 
-    type ArrayVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
-    type VisitorVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn len(array: &FoRArray) -> usize {
+        array.encoded().len()
+    }
+
+    fn dtype(array: &FoRArray) -> &DType {
+        array.reference_scalar().dtype()
+    }
+
+    fn stats(array: &FoRArray) -> StatsSetRef<'_> {
+        array.stats_set().to_ref(array.as_ref())
+    }
+
+    fn array_hash<H: std::hash::Hasher>(array: &FoRArray, state: &mut H, precision: Precision) {
+        array.encoded().array_hash(state, precision);
+        array.reference_scalar().hash(state);
+    }
+
+    fn array_eq(array: &FoRArray, other: &FoRArray, precision: Precision) -> bool {
+        array.encoded().array_eq(other.encoded(), precision)
+            && array.reference_scalar() == other.reference_scalar()
+    }
+
+    fn nbuffers(_array: &FoRArray) -> usize {
+        0
+    }
+
+    fn buffer(_array: &FoRArray, idx: usize) -> BufferHandle {
+        vortex_panic!("FoRArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: &FoRArray, _idx: usize) -> Option<String> {
+        None
+    }
+
+    fn nchildren(_array: &FoRArray) -> usize {
+        1
+    }
+
+    fn child(array: &FoRArray, idx: usize) -> ArrayRef {
+        match idx {
+            0 => array.encoded().clone(),
+            _ => vortex_panic!("FoRArray child index {idx} out of bounds"),
+        }
+    }
+
+    fn child_name(_array: &FoRArray, idx: usize) -> String {
+        match idx {
+            0 => "encoded".to_string(),
+            _ => vortex_panic!("FoRArray child name index {idx} out of bounds"),
+        }
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

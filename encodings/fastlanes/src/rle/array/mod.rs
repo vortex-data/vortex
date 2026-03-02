@@ -40,9 +40,9 @@ pub struct RLEArray {
 
 impl RLEArray {
     fn validate(
-        values: &dyn Array,
-        indices: &dyn Array,
-        value_idx_offsets: &dyn Array,
+        values: &ArrayRef,
+        indices: &ArrayRef,
+        value_idx_offsets: &ArrayRef,
         offset: usize,
     ) -> VortexResult<()> {
         vortex_ensure!(

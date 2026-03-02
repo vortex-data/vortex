@@ -85,6 +85,6 @@ mod tests {
     fn test_cast_fsst_conformance(#[case] array: VarBinArray) {
         let compressor = fsst_train_compressor(&array);
         let fsst = fsst_compress(&array, &compressor);
-        test_cast_conformance(fsst.as_ref());
+        test_cast_conformance(&fsst.to_array());
     }
 }

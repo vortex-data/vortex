@@ -135,7 +135,7 @@ mod setup {
         let codes_prim = PrimitiveArray::from_iter(codes);
 
         // Compress codes with BitPacked (6 bits should be enough for ~50 unique values)
-        let codes_bp = BitPackedArray::encode(codes_prim.as_ref(), 6)
+        let codes_bp = BitPackedArray::encode(&codes_prim.to_array(), 6)
             .unwrap()
             .into_array();
 
@@ -180,7 +180,7 @@ mod setup {
 
         // Compress the values with BitPacked
         let values_prim = runend.values().to_primitive();
-        let compressed_values = BitPackedArray::encode(values_prim.as_ref(), 8)
+        let compressed_values = BitPackedArray::encode(&values_prim.to_array(), 8)
             .unwrap()
             .into_array();
 
@@ -244,7 +244,7 @@ mod setup {
         // Compress the VarBin offsets with BitPacked
         let codes = fsst.codes();
         let offsets_prim = codes.offsets().to_primitive();
-        let offsets_bp = BitPackedArray::encode(offsets_prim.as_ref(), 20).unwrap();
+        let offsets_bp = BitPackedArray::encode(&offsets_prim.to_array(), 20).unwrap();
 
         // Rebuild VarBin with compressed offsets
         let compressed_codes = VarBinArray::try_new(

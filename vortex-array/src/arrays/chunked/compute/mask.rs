@@ -79,6 +79,6 @@ mod test {
         DType::Primitive(PType::F32, Nullability::NonNullable),
     ).unwrap())]
     fn test_mask_chunked_conformance(#[case] chunked: ChunkedArray) {
-        test_mask_conformance(chunked.as_ref());
+        test_mask_conformance(&chunked.to_array());
     }
 }

@@ -127,27 +127,13 @@ impl FileSystem for DuckDbFileSystem {
             directory_url.set_path(prefix);
         }
 
-        // DuckDB's ListFiles expects bare paths for local files, but full URLs
-        // for remote schemes (s3://, etc.).
-        let directory = if directory_url.scheme() == "file" {
-            directory_url.path().to_string()
-        } else {
-            directory_url.to_string()
-        };
-
-        tracing::debug!(
-            "Listing files from {} with prefix {}",
-            self.base_url,
-            directory
-        );
-
         let ctx = self.ctx;
-        let base_path = self.base_url.path().to_string();
 
+        let base_url = self.base_url.clone();
         stream::once(async move {
             RUNTIME
                 .handle()
-                .spawn_blocking(move || list_recursive(ctx, &directory, &base_path))
+                .spawn_blocking(move || list_recursive(ctx, &directory_url, &base_url))
                 .await
         })
         .flat_map(|result| match result {
@@ -169,20 +155,46 @@ impl FileSystem for DuckDbFileSystem {
 /// returned URL to produce relative paths.
 fn list_recursive(
     ctx: &ClientContextRef,
-    directory: &str,
-    base_path: &str,
+    directory_url: &Url,
+    base_url: &Url,
 ) -> VortexResult<Vec<FileListing>> {
+    // DuckDB's ListFiles expects bare paths for local files, but full URLs
+    // for remote schemes (s3://, etc.).
+    let directory = if directory_url.scheme() == "file" {
+        directory_url.path().to_string()
+    } else {
+        directory_url.to_string()
+    };
+
+    let (base_path, is_remote_path) = if base_url.scheme() == "file" {
+        (base_url.path().to_string(), false)
+    } else {
+        // This is really ugly. As we operate on Strings and not on urls, we
+        // must produce a base path with / so as relative url would not have
+        // the / and thus match the glob
+        (format!("{base_url}/"), true)
+    };
+
     let mut results = Vec::new();
-    let mut stack = vec![directory.to_string()];
+    let mut stack = vec![directory];
 
     while let Some(dir) = stack.pop() {
+        // TODO(myrrc) this doesn't work with curl backend in v1.4, producing
+        // "URL using bad/illegal format or missing URL error", see
+        // https://github.com/duckdb/duckdb-httpfs/pull/265
         for entry in duckdb_fs_list_dir(ctx, &dir)? {
-            let full_path = format!("{}/{}", dir.trim_end_matches('/'), entry.name);
+            // duckdb_fs_list_dir returns relative paths for local files but full
+            // paths for s3 files.
+            let full_path = if is_remote_path {
+                entry.name
+            } else {
+                format!("{}/{}", dir.trim_end_matches('/'), entry.name)
+            };
             if entry.is_dir {
                 stack.push(full_path);
             } else {
                 let relative_path = full_path
-                    .strip_prefix(base_path)
+                    .strip_prefix(&base_path)
                     .unwrap_or_else(|| &full_path)
                     .to_string();
                 results.push(FileListing {

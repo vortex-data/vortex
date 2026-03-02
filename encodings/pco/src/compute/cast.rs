@@ -99,9 +99,9 @@ mod tests {
             .to_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap();
-        assert_eq!(
-            casted.dtype(),
-            &DType::Primitive(PType::U32, Nullability::Nullable)
+        assert_arrays_eq!(
+            casted,
+            PrimitiveArray::new(Buffer::from_iter([10u32, 20, 30, 40]), Validity::AllValid,)
         );
     }
 
@@ -169,6 +169,6 @@ mod tests {
     ))]
     fn test_cast_pco_conformance(#[case] values: PrimitiveArray) {
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
-        test_cast_conformance(pco.as_ref());
+        test_cast_conformance(&pco.to_array());
     }
 }

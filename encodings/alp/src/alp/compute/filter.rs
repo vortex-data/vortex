@@ -60,6 +60,6 @@ mod test {
     ].into_array())]
     fn test_filter_alp_conformance(#[case] array: ArrayRef) {
         let alp = alp_encode(&array.to_primitive(), None).unwrap();
-        test_filter_conformance(alp.as_ref());
+        test_filter_conformance(&alp.to_array());
     }
 }

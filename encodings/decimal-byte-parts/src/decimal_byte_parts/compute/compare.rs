@@ -29,7 +29,7 @@ use crate::decimal_byte_parts::compute::compare::Sign::Positive;
 impl CompareKernel for DecimalBytePartsVTable {
     fn compare(
         lhs: &Self::Array,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

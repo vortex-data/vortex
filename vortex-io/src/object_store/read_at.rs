@@ -63,12 +63,6 @@ impl ObjectStoreReadAt {
         self.coalesce_config = Some(config);
         self
     }
-
-    /// Set an optional coalesce config for this source.
-    pub fn with_some_coalesce_config(mut self, config: Option<CoalesceConfig>) -> Self {
-        self.coalesce_config = config;
-        self
-    }
 }
 
 impl VortexReadAt for ObjectStoreReadAt {

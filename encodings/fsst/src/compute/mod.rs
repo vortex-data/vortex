@@ -23,7 +23,7 @@ use crate::FSSTVTable;
 impl TakeExecute for FSSTVTable {
     fn take(
         array: &FSSTArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
@@ -102,7 +102,7 @@ mod tests {
     fn test_take_fsst_conformance(#[case] varbin: VarBinArray) {
         let compressor = fsst_train_compressor(&varbin);
         let array = fsst_compress(&varbin, &compressor);
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.to_array());
     }
 
     #[rstest]
@@ -172,6 +172,6 @@ mod tests {
     })]
 
     fn test_fsst_consistency(#[case] array: FSSTArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.to_array());
     }
 }

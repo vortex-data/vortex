@@ -87,7 +87,7 @@ mod tests {
     #[test]
     fn test_min_max_nulls() {
         assert_eq!(
-            min_max(BoolArray::from_iter(vec![Some(true), Some(true), None, None]).as_ref())
+            min_max(&BoolArray::from_iter(vec![Some(true), Some(true), None, None]).to_array())
                 .unwrap(),
             Some(MinMaxResult {
                 min: Scalar::bool(true, NonNullable),
@@ -96,7 +96,7 @@ mod tests {
         );
 
         assert_eq!(
-            min_max(BoolArray::from_iter(vec![None, Some(true), Some(true)]).as_ref()).unwrap(),
+            min_max(&BoolArray::from_iter(vec![None, Some(true), Some(true)]).to_array()).unwrap(),
             Some(MinMaxResult {
                 min: Scalar::bool(true, NonNullable),
                 max: Scalar::bool(true, NonNullable),
@@ -104,7 +104,7 @@ mod tests {
         );
 
         assert_eq!(
-            min_max(BoolArray::from_iter(vec![None, Some(true), Some(true), None]).as_ref())
+            min_max(&BoolArray::from_iter(vec![None, Some(true), Some(true), None]).to_array())
                 .unwrap(),
             Some(MinMaxResult {
                 min: Scalar::bool(true, NonNullable),
@@ -113,7 +113,7 @@ mod tests {
         );
 
         assert_eq!(
-            min_max(BoolArray::from_iter(vec![Some(false), Some(false), None, None]).as_ref())
+            min_max(&BoolArray::from_iter(vec![Some(false), Some(false), None, None]).to_array())
                 .unwrap(),
             Some(MinMaxResult {
                 min: Scalar::bool(false, NonNullable),

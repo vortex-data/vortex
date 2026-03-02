@@ -492,7 +492,7 @@ fn test_constant_repeated_same_lists() {
 #[case::nullable(create_nullable_listview())]
 #[case::large(create_large_listview())]
 fn test_mask_listview_conformance(#[case] listview: ListViewArray) {
-    test_mask_conformance(listview.as_ref());
+    test_mask_conformance(&listview.to_array());
 }
 
 #[test]

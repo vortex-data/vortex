@@ -20,10 +20,7 @@ impl Display for Scalar {
             DType::Binary(_) => write!(f, "{}", self.as_binary()),
             DType::Struct(..) => write!(f, "{}", self.as_struct()),
             DType::List(..) | DType::FixedSizeList(..) => write!(f, "{}", self.as_list()),
-            DType::Extension(_) => {
-                // TODO(connor): This might need to change soon...
-                write!(f, "{}", self.as_extension())
-            }
+            DType::Extension(_) => write!(f, "{}", self.as_extension()),
         }
     }
 }
@@ -261,7 +258,7 @@ mod tests {
                     )))
                 )
             ),
-            "1970-01-04T02:05:10"
+            "1970-01-04T02:05:10Z"
         );
     }
 

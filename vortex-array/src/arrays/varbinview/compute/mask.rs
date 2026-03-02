@@ -39,18 +39,18 @@ mod tests {
     #[test]
     fn take_mask_var_bin_view_array() {
         test_mask_conformance(
-            VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).as_ref(),
+            &VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).to_array(),
         );
 
         test_mask_conformance(
-            VarBinViewArray::from_iter_nullable_str([
+            &VarBinViewArray::from_iter_nullable_str([
                 Some("one"),
                 None,
                 Some("three"),
                 Some("four"),
                 Some("five"),
             ])
-            .as_ref(),
+            .to_array(),
         );
     }
 }

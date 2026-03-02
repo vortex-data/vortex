@@ -26,7 +26,7 @@ pub struct Datum {
 
 impl Datum {
     /// Create a new [`Datum`] from an [`ArrayRef`], which can then be passed to Arrow compute.
-    pub fn try_new(array: &dyn Array) -> VortexResult<Self> {
+    pub fn try_new(array: &ArrayRef) -> VortexResult<Self> {
         if array.is::<ConstantVTable>() {
             Ok(Self {
                 array: array.slice(0..1)?.into_arrow_preferred()?,
@@ -42,7 +42,7 @@ impl Datum {
 
     /// Create a new [`Datum`] from an [`Array`], which can then be passed to Arrow compute.
     /// This not try and convert the array to a scalar if it is constant.
-    pub fn try_new_array(array: &dyn Array) -> VortexResult<Self> {
+    pub fn try_new_array(array: &ArrayRef) -> VortexResult<Self> {
         Ok(Self {
             array: array.to_array().into_arrow_preferred()?,
             is_scalar: false,
@@ -50,7 +50,7 @@ impl Datum {
     }
 
     pub fn try_new_with_target_datatype(
-        array: &dyn Array,
+        array: &ArrayRef,
         target_datatype: &DataType,
     ) -> VortexResult<Self> {
         if array.is::<ConstantVTable>() {
