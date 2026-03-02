@@ -133,6 +133,7 @@ async fn main() -> VortexResult<()> {
 
     let write_strategy = WriteStrategyBuilder::default()
         .with_cuda_compatible_encodings()
+        .with_row_block_size(1)
         .with_flat_strategy(Arc::new(CudaFlatLayoutStrategy::default()))
         .build();
 
