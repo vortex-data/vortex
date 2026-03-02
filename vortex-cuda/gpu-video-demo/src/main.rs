@@ -19,6 +19,7 @@ use std::time::Instant;
 
 use clap::Parser;
 use cudarc::driver::CudaSlice;
+use cudarc::driver::DevicePtr;
 use cudarc::driver::sys::CUdeviceptr;
 use futures::StreamExt;
 use object_store::aws::AmazonS3Builder;
@@ -141,7 +142,8 @@ async fn main() -> VortexResult<()> {
 
     // Parse source and create reader
     let reader: Arc<dyn vortex::io::VortexReadAt> = if cli.source.starts_with("s3://") {
-        let url = Url::parse(&cli.source)?;
+        let url =
+            Url::parse(&cli.source).map_err(|e| vortex_err!("Invalid S3 URL: {e}"))?;
         let bucket = url
             .host_str()
             .ok_or_else(|| vortex_err!("S3 URL missing bucket name"))?;
@@ -179,7 +181,7 @@ async fn main() -> VortexResult<()> {
     // Allocate NV12 buffer on GPU (width * height * 3/2 for Y + UV planes)
     let nv12_size = (width as usize) * (height as usize) * 3 / 2;
     let nv12_device: CudaSlice<u8> = cuda_ctx.device_alloc(nv12_size)?;
-    let nv12_ptr: CUdeviceptr = *nv12_device.device_ptr();
+    let (nv12_ptr, _nv12_sync) = nv12_device.device_ptr(cuda_ctx.stream());
 
     // Create NVENC encoder
     let cu_context = cuda_ctx.stream().context().cu_ctx();
@@ -189,10 +191,13 @@ async fn main() -> VortexResult<()> {
         height,
         fps,
         bitrate,
-    )?;
+    )
+    .map_err(|e| vortex_err!("NVENC init failed: {e}"))?;
 
     // Register NV12 buffer with NVENC
-    let registered_resource = encoder.register_input(nv12_ptr, width)?;
+    let registered_resource = encoder
+        .register_input(nv12_ptr, width)
+        .map_err(|e| vortex_err!("NVENC register_input failed: {e}"))?;
 
     // Create MPEG-TS muxer
     let mut mux = mux::TsMuxer::new(fps);
@@ -262,7 +267,9 @@ async fn main() -> VortexResult<()> {
                     .map_err(|e| vortex_err!("CUDA stream sync failed: {e}"))?;
 
                 // Encode frame to H.264
-                let h264_nals = encoder.encode_frame(&registered_resource)?;
+                let h264_nals = encoder
+                    .encode_frame(&registered_resource)
+                    .map_err(|e| vortex_err!("NVENC encode failed: {e}"))?;
 
                 // Mux to MPEG-TS
                 let ts_packets = mux.write_access_unit(&h264_nals, frame_idx);
@@ -288,7 +295,7 @@ async fn main() -> VortexResult<()> {
     }
 
     // Flush encoder
-    if let Some(flush_data) = encoder.flush()? {
+    if let Some(flush_data) = encoder.flush().map_err(|e| vortex_err!("NVENC flush failed: {e}"))? {
         let ts_packets = mux.write_access_unit(&flush_data, frame_idx);
         srt_sender.send(ts_packets).await?;
     }
