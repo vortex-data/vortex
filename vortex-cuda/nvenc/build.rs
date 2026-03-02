@@ -31,9 +31,14 @@ fn main() {
         .allowlist_type("GUID")
         .allowlist_type("NV_ENC_.*")
         .allowlist_type("NV_ENCODE_API_FUNCTION_LIST")
-        // Include constants
-        .allowlist_var("NV_ENC_.*")
+        // Include #define constants (version numbers, flags).
+        // Do NOT allowlist NV_ENC_.* vars — the official header declares GUIDs as
+        // `static const GUID`, which dynamic_library_name would try to load from
+        // the shared library at runtime. We define GUIDs manually in lib.rs.
         .allowlist_var("NVENCAPI_.*")
+        .allowlist_var("NV_ENC_PIC_FLAG_.*")
+        .allowlist_var("NV_MAX_SEQ_HDR_LEN")
+        .allowlist_var("NVENC_INFINITE_GOPLENGTH")
         .dynamic_library_name("NvencLibrary")
         .dynamic_link_require_all(true)
         .wrap_unsafe_ops(true)

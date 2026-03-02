@@ -59,19 +59,19 @@ const fn nvencapi_struct_version(ver: u32) -> u32 {
 /// Version tag for [`sys::NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS`].
 pub const NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER: u32 = nvencapi_struct_version(1);
 /// Version tag for [`sys::NV_ENC_CONFIG`].
-pub const NV_ENC_CONFIG_VER: u32 = nvencapi_struct_version(8);
+pub const NV_ENC_CONFIG_VER: u32 = nvencapi_struct_version(9) | (1 << 31);
 /// Version tag for [`sys::NV_ENC_INITIALIZE_PARAMS`].
-pub const NV_ENC_INITIALIZE_PARAMS_VER: u32 = nvencapi_struct_version(6);
+pub const NV_ENC_INITIALIZE_PARAMS_VER: u32 = nvencapi_struct_version(7) | (1 << 31);
 /// Version tag for [`sys::NV_ENC_REGISTER_RESOURCE`].
-pub const NV_ENC_REGISTER_RESOURCE_VER: u32 = nvencapi_struct_version(4);
+pub const NV_ENC_REGISTER_RESOURCE_VER: u32 = nvencapi_struct_version(5);
 /// Version tag for [`sys::NV_ENC_MAP_INPUT_RESOURCE`].
 pub const NV_ENC_MAP_INPUT_RESOURCE_VER: u32 = nvencapi_struct_version(4);
 /// Version tag for [`sys::NV_ENC_CREATE_BITSTREAM_BUFFER`].
 pub const NV_ENC_CREATE_BITSTREAM_BUFFER_VER: u32 = nvencapi_struct_version(1);
 /// Version tag for [`sys::NV_ENC_PIC_PARAMS`].
-pub const NV_ENC_PIC_PARAMS_VER: u32 = nvencapi_struct_version(6);
+pub const NV_ENC_PIC_PARAMS_VER: u32 = nvencapi_struct_version(7) | (1 << 31);
 /// Version tag for [`sys::NV_ENC_LOCK_BITSTREAM`].
-pub const NV_ENC_LOCK_BITSTREAM_VER: u32 = nvencapi_struct_version(2);
+pub const NV_ENC_LOCK_BITSTREAM_VER: u32 = nvencapi_struct_version(2) | (1 << 31);
 /// Version tag for [`sys::NV_ENCODE_API_FUNCTION_LIST`].
 pub const NV_ENCODE_API_FUNCTION_LIST_VER: u32 = nvencapi_struct_version(2);
 
