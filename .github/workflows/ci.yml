@@ -527,6 +527,23 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build CUDA crates
+        run: |
+          cargo build --locked --all-features --all-targets \
+            -p vortex-cuda \
+            -p vortex-cub \
+            -p vortex-nvcomp \
+            -p gpu-scan-cli \
+            -p vortex-test-e2e-cuda
+      - name: Clippy CUDA crates
+        run: |
+          cargo clippy --locked --all-features --all-targets \
+            -p vortex-cuda \
+            -p vortex-cub \
+            -p vortex-nvcomp \
+            -p gpu-scan-cli \
+            -p vortex-test-e2e-cuda \
+            -- -D warnings
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
@@ -540,6 +557,8 @@ jobs:
             --locked \
             -p vortex-file \
             -p vortex-cuda \
+            -p vortex-cub \
+            -p vortex-nvcomp \
             -p vortex-test-e2e-cuda \
             --all-features \
             --no-fail-fast \
