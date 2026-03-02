@@ -12,6 +12,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
 use crate::Precision;
 use crate::arrays::shared::SharedArray;
 use crate::buffer::BufferHandle;
@@ -144,8 +145,10 @@ impl VTable for SharedVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        array.get_or_compute(|source| source.clone().execute::<Canonical>(ctx))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        array
+            .get_or_compute(|source| source.clone().execute::<Canonical>(ctx))
+            .map(ExecutionStep::Done)
     }
 }
 impl OperationsVTable<SharedVTable> for SharedVTable {

@@ -13,6 +13,7 @@ use vortex_session::VortexSession;
 use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
@@ -210,8 +211,10 @@ impl VTable for ListVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(list_view_from_list(array.clone(), ctx)?.into_array())
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        Ok(ExecutionStep::Done(
+            list_view_from_list(array.clone(), ctx)?.into_array(),
+        ))
     }
 
     fn execute_parent(

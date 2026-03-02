@@ -7,6 +7,7 @@ use num_traits::cast::FromPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -363,7 +364,7 @@ impl VTable for SequenceVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
         let prim = match_each_native_ptype!(array.ptype(), |P| {
             let base = array.base().cast::<P>()?;
             let multiplier = array.multiplier().cast::<P>()?;
@@ -374,7 +375,7 @@ impl VTable for SequenceVTable {
             PrimitiveArray::new(values, array.dtype.nullability().into())
         });
 
-        Ok(prim.into_array())
+        Ok(ExecutionStep::Done(prim.into_array()))
     }
 
     fn execute_parent(

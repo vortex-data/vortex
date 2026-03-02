@@ -122,10 +122,10 @@ impl Drop for ExecutionCtx {
 ///
 /// The execution steps are as follows:
 /// 0. Check for canonical.
-/// 1. Attempt to call `reduce_parent` on each child.
-/// 2. Attempt to `reduce` the array with metadata-only optimizations.
+/// 1. Attempt to `reduce` the array with metadata-only optimizations.
+/// 2. Attempt to call `reduce_parent` on each child.
 /// 3. Attempt to call `execute_parent` on each child.
-/// 4. Call `execute` on the array itself.
+/// 4. Call `execute` on the array itself (which returns an [`ExecutionStep`]).
 ///
 /// Most users will not call this method directly, instead preferring to specify an executable
 /// target such as [`crate::Columnar`], [`Canonical`], or any of the canonical array types (such as
@@ -182,16 +182,21 @@ impl Executable for ArrayRef {
             }
         }
 
-        // 4. execute (optimized execution)
+        // 4. execute (returns an ExecutionStep)
         ctx.log(format_args!("executing {}", array));
-        let array = array
-            .vtable()
-            .execute(&array, ctx)
-            .map(|c| c.into_array())?;
-        array.statistics().inherit_from(array.statistics());
-        ctx.log(format_args!("-> {}", array.as_ref()));
-
-        Ok(array)
+        match array.vtable().execute(&array, ctx)? {
+            ExecutionStep::Done(result) => {
+                ctx.log(format_args!("-> {}", result.as_ref()));
+                Ok(result)
+            }
+            ExecutionStep::ExecuteChild(i) | ExecutionStep::ColumnarizeChild(i) => {
+                // For single-step execution, handle ExecuteChild by executing the child,
+                // replacing it, and returning the updated array.
+                let child = array.nth_child(i).vortex_expect("valid child index");
+                let executed_child = child.execute::<ArrayRef>(ctx)?;
+                array.with_child(i, executed_child)
+            }
+        }
     }
 }
 
