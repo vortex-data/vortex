@@ -12,6 +12,9 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::ConstantVTable;
+use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
@@ -149,10 +152,39 @@ impl VTable for ZigZagVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            zigzag_decode(array.encoded().clone().execute(ctx)?).into_array(),
-        ))
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        // If child is already a PrimitiveArray, decode it directly.
+        if array.encoded().is::<PrimitiveVTable>() {
+            let encoded = array.encoded().as_::<PrimitiveVTable>().clone();
+            return Ok(ExecutionStep::Done(zigzag_decode(encoded).into_array()));
+        }
+
+        // If child is a constant, decode the scalar value.
+        if let Some(constant) = array.encoded().as_opt::<ConstantVTable>() {
+            let scalar = constant.scalar();
+            if scalar.is_null() {
+                return Ok(ExecutionStep::Done(
+                    ConstantArray::new(Scalar::null(array.dtype().clone()), array.len())
+                        .into_array(),
+                ));
+            }
+            let result = match_each_unsigned_integer_ptype!(scalar.as_primitive().ptype(), |P| {
+                let val = scalar
+                    .as_primitive()
+                    .typed_value::<P>()
+                    .vortex_expect("constant must be non-null after check");
+                Scalar::primitive(
+                    <<P as ZigZagEncoded>::Int>::decode(val),
+                    array.dtype().nullability(),
+                )
+            });
+            return Ok(ExecutionStep::Done(
+                ConstantArray::new(result, array.len()).into_array(),
+            ));
+        }
+
+        // Otherwise, ask the scheduler to execute the child first.
+        Ok(ExecutionStep::ExecuteChild(0))
     }
 
     fn reduce_parent(

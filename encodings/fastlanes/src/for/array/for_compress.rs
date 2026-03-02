@@ -68,8 +68,9 @@ mod test {
 
     use super::*;
     use crate::BitPackedArray;
-    use crate::r#for::array::for_decompress::decompress;
+    use crate::r#for::array::for_decompress::apply_reference;
     use crate::r#for::array::for_decompress::fused_decompress;
+    use crate::r#for::array::for_decompress::try_fused_decompress;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
@@ -169,7 +170,13 @@ mod test {
         let expected_unsigned = PrimitiveArray::from_iter(unsigned);
         assert_arrays_eq!(encoded, expected_unsigned);
 
-        let decompressed = decompress(&compressed, &mut SESSION.create_execution_ctx())?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let decompressed = if let Some(result) = try_fused_decompress(&compressed, &mut ctx)? {
+            result
+        } else {
+            let encoded = compressed.encoded().to_primitive();
+            apply_reference(&compressed, encoded)
+        };
         array
             .as_slice::<i8>()
             .iter()

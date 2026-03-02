@@ -20,7 +20,10 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::IntoArray;
 use crate::Precision;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::arrays::slice::array::SliceArray;
 use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -155,23 +158,25 @@ impl VTable for SliceVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        // Execute the child to get canonical form, then slice it
-        let Some(canonical) = array.child.as_opt::<AnyCanonical>() else {
-            // If the child is not canonical, recurse.
-            return array
-                .child
-                .clone()
-                .execute::<ArrayRef>(ctx)?
-                .slice(array.slice_range().clone())
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+        // If child is already canonical, slice it directly.
+        if let Some(canonical) = array.child.as_opt::<AnyCanonical>() {
+            // TODO(ngates): we should inline canonical slice logic here.
+            return Canonical::from(canonical)
+                .as_ref()
+                .slice(array.range.clone())
                 .map(ExecutionStep::Done);
-        };
+        }
 
-        // TODO(ngates): we should inline canonical slice logic here.
-        Canonical::from(canonical)
-            .as_ref()
-            .slice(array.range.clone())
-            .map(ExecutionStep::Done)
+        // If child is a constant, slicing just changes the length.
+        if let Some(constant) = array.child.as_opt::<ConstantVTable>() {
+            return Ok(ExecutionStep::Done(
+                ConstantArray::new(constant.scalar().clone(), array.range.len()).into_array(),
+            ));
+        }
+
+        // Otherwise, ask the scheduler to execute the child first.
+        Ok(ExecutionStep::ExecuteChild(0))
     }
 
     fn reduce_parent(

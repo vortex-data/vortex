@@ -13,12 +13,15 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::arrays::constant::constant_canonicalize;
 use crate::arrays::masked::MaskedArray;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
@@ -178,10 +181,24 @@ impl VTable for MaskedVTable {
         // While we could manually convert the dtype, `mask_validity_canonical` is already O(1) for
         // `AllTrue` masks (no data copying), so there's no benefit.
 
-        let child = array.child().clone().execute::<Canonical>(ctx)?;
-        Ok(ExecutionStep::Done(
-            mask_validity_canonical(child, &validity_mask, ctx)?.into_array(),
-        ))
+        // If child is already canonical, apply the validity mask directly.
+        if let Some(canonical) = array.child().as_opt::<AnyCanonical>() {
+            return Ok(ExecutionStep::Done(
+                mask_validity_canonical(Canonical::from(canonical), &validity_mask, ctx)?
+                    .into_array(),
+            ));
+        }
+
+        // If child is a constant, expand to canonical then apply the validity mask.
+        if let Some(constant) = array.child().as_opt::<ConstantVTable>() {
+            let canonical = constant_canonicalize(constant)?;
+            return Ok(ExecutionStep::Done(
+                mask_validity_canonical(canonical, &validity_mask, ctx)?.into_array(),
+            ));
+        }
+
+        // Otherwise, ask the scheduler to execute the child first.
+        Ok(ExecutionStep::ColumnarizeChild(0))
     }
 
     fn reduce_parent(
