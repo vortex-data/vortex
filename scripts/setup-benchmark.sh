@@ -11,20 +11,20 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Really discourage swapping to disk
-sudo sysctl vm.swappiness=0
+sysctl vm.swappiness=0
 
 # Disable ASLR - https://docs.kernel.org/admin-guide/sysctl/kernel.html#randomize-va-space
-sudo sysctl kernel.randomize_va_space=0
+sysctl kernel.randomize_va_space=0
 
 # Reduce kernel logging to minimum
 dmesg -n 1
 
 # Disable some unused services and features
-sudo systemctl stop apparmor ModemManager
-sudo systemctl disable apparmor ModemManager
+systemctl stop apparmor ModemManager
+systemctl disable apparmor ModemManager
 
 # mask prevents them from being started by other services
-sudo systemctl mask ModemManager
+systemctl mask ModemManager
 
 # For apparmor specifically, also teardown loaded profiles
-sudo aa-teardown
+aa-teardown
