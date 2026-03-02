@@ -17896,7 +17896,7 @@ pub fn vortex_array::Columnar::len(&self) -> usize
 
 impl vortex_array::Executable for vortex_array::Columnar
 
-pub fn vortex_array::Columnar::execute(root: vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::Columnar::execute(array: vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::IntoArray for vortex_array::Columnar
 
@@ -17916,7 +17916,13 @@ pub enum vortex_array::ExecutionStep
 
 pub vortex_array::ExecutionStep::Done(vortex_array::ArrayRef)
 
-pub vortex_array::ExecutionStep::ExecuteChild(usize)
+pub vortex_array::ExecutionStep::ExecuteChild(usize, vortex_array::DonePredicate)
+
+impl vortex_array::ExecutionStep
+
+pub fn vortex_array::ExecutionStep::done(result: vortex_array::ArrayRef) -> Self
+
+pub fn vortex_array::ExecutionStep::execute_child<M: vortex_array::matcher::Matcher>(child_idx: usize) -> Self
 
 impl core::fmt::Debug for vortex_array::ExecutionStep
 
@@ -18572,7 +18578,7 @@ pub fn vortex_array::CanonicalValidity::execute(array: vortex_array::ArrayRef, c
 
 impl vortex_array::Executable for vortex_array::Columnar
 
-pub fn vortex_array::Columnar::execute(root: vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::Columnar::execute(array: vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::Executable for vortex_array::RecursiveCanonical
 
@@ -18829,3 +18835,5 @@ pub fn vortex_session::VortexSession::create_execution_ctx(&self) -> vortex_arra
 pub type vortex_array::ArrayContext = vortex_session::registry::Context<&'static dyn vortex_array::vtable::DynVTable>
 
 pub type vortex_array::ArrayRef = alloc::sync::Arc<dyn vortex_array::Array>
+
+pub type vortex_array::DonePredicate = fn(&dyn vortex_array::Array) -> bool
