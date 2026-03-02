@@ -7,8 +7,8 @@ use std::sync::Arc;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::buffer::BufferHandle;
 
 pub trait ArrayVisitor {
@@ -57,7 +57,7 @@ pub trait ArrayVisitor {
     fn is_host(&self) -> bool;
 }
 
-impl ArrayVisitor for Arc<dyn Array> {
+impl ArrayVisitor for Arc<dyn DynArray> {
     fn children(&self) -> Vec<ArrayRef> {
         self.as_ref().children()
     }
@@ -111,7 +111,7 @@ impl ArrayVisitor for Arc<dyn Array> {
     }
 }
 
-pub trait ArrayVisitorExt: Array {
+pub trait ArrayVisitorExt: DynArray {
     /// Count the number of buffers encoded by self and all child arrays.
     fn nbuffers_recursive(&self) -> usize {
         self.children()
@@ -146,4 +146,4 @@ pub trait ArrayVisitorExt: Array {
     }
 }
 
-impl<A: Array + ?Sized> ArrayVisitorExt for A {}
+impl<A: DynArray + ?Sized> ArrayVisitorExt for A {}

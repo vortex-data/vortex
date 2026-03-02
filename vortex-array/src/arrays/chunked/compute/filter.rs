@@ -7,8 +7,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskIter;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
@@ -205,7 +205,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::array::Array;
+    use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;

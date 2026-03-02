@@ -54,7 +54,7 @@ mod test {
     use std::sync::LazyLock;
 
     use itertools::Itertools;
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;

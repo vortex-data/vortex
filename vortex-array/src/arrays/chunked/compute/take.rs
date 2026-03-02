@@ -5,9 +5,9 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::PrimitiveArray;
@@ -118,7 +118,7 @@ mod test {
 
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::array::Array;
+    use crate::array::DynArray;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;

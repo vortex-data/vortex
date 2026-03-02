@@ -8,8 +8,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray as _;
 use crate::arrays::ConstantVTable;
 use crate::compute::ComputeFn;

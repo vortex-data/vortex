@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 
 use crate::IntoArray;
 use crate::ToCanonical;
-use crate::array::Array;
+use crate::array::DynArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::TemporalArray;
 use crate::assert_arrays_eq;

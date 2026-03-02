@@ -4,8 +4,8 @@
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
@@ -63,7 +63,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_mask::AllOr;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::ConstantArray;

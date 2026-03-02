@@ -10,7 +10,7 @@ use super::common::create_empty_lists_listview;
 use super::common::create_large_listview;
 use super::common::create_nullable_listview;
 use super::common::create_overlapping_listview;
-use crate::Array;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ConstantArray;

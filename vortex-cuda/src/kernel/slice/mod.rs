@@ -3,9 +3,9 @@
 
 use async_trait::async_trait;
 use tracing::instrument;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::DynArray;
 use vortex::array::arrays::SliceArrayParts;
 use vortex::array::arrays::SliceVTable;
 use vortex::error::VortexResult;

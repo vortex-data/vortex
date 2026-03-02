@@ -171,7 +171,7 @@ register_kernel!(SumKernelAdapter(ConstantVTable).lift());
 mod tests {
     use vortex_error::VortexExpect;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::compute::sum;

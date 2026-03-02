@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::stats::ArrayStats;
@@ -215,8 +215,8 @@ impl RLEArray {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::Array;
     use vortex_array::ArrayContext;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;

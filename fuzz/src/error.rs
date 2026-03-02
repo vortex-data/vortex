@@ -10,8 +10,8 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::compute::MinMaxResult;
 use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchResult;

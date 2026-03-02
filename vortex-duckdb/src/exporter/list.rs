@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use vortex::array::Array;
+use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::ListArrayParts;

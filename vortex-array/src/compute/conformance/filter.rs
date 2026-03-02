@@ -4,8 +4,8 @@
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;

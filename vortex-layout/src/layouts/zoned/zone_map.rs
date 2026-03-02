@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
 use vortex_array::compute::sum;

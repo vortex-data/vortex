@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::scalar_fn::fns::list_contains::ListContainsElementReduce;
 use vortex_error::VortexExpect;
@@ -49,7 +49,7 @@ impl ListContainsElementReduce for SequenceVTable {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;

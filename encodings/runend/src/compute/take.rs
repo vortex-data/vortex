@@ -3,8 +3,8 @@
 
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
@@ -90,9 +90,9 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::Array;
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;

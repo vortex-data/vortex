@@ -161,7 +161,7 @@ fn filter_with_indices<T: NativePType + BitPacking>(
 
 #[cfg(test)]
 mod test {
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray as _;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;

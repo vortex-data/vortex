@@ -4,7 +4,7 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::Array;
+use crate::DynArray;
 use crate::array::ArrayRef;
 
 pub mod rules;

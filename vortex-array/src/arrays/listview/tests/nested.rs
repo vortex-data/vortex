@@ -3,7 +3,7 @@
 
 use vortex_buffer::buffer;
 
-use crate::Array;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;

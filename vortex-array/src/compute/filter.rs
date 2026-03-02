@@ -8,8 +8,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrow::FromArrowArray;
@@ -23,7 +23,7 @@ use crate::scalar::Scalar;
 /// # Examples
 ///
 /// ```
-/// use vortex_array::{Array, IntoArray};
+/// use vortex_array::{DynArray, IntoArray};
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray};
 /// use vortex_array::compute::{ filter, mask};
 /// use vortex_error::VortexResult;
@@ -53,7 +53,7 @@ pub fn filter(array: &ArrayRef, mask: &Mask) -> VortexResult<ArrayRef> {
     Ok(array.filter(mask.clone())?.to_canonical()?.into_array())
 }
 
-impl dyn Array + '_ {
+impl dyn DynArray + '_ {
     /// Converts from a possible nullable boolean array. Null values are treated as false.
     pub fn try_to_mask_fill_null_false(&self) -> VortexResult<Mask> {
         if !matches!(self.dtype(), DType::Bool(_)) {

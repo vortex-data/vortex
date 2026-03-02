@@ -10,8 +10,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray as _;
 use crate::arrays::ConstantVTable;
 use crate::arrays::NullVTable;
@@ -139,7 +139,7 @@ impl ComputeFnVTable for IsSorted {
 }
 
 struct IsSortedArgs<'a> {
-    array: &'a dyn Array,
+    array: &'a dyn DynArray,
     strict: bool,
 }
 

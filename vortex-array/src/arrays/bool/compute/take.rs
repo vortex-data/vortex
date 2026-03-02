@@ -8,8 +8,8 @@ use vortex_buffer::get_bit;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
@@ -83,7 +83,7 @@ mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray as _;
     use crate::ToCanonical;
     use crate::arrays::BoolArray;

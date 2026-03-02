@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use vortex_buffer::buffer;
 
-use crate::Array;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::FixedSizeListArray;

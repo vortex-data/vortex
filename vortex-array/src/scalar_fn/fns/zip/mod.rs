@@ -12,8 +12,8 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::builders::ArrayBuilder;
@@ -225,7 +225,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;

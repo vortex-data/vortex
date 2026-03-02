@@ -10,8 +10,8 @@ use vortex_error::VortexError;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
@@ -147,8 +147,8 @@ impl TemporalArray {
     }
 }
 
-impl AsRef<dyn Array> for TemporalArray {
-    fn as_ref(&self) -> &dyn Array {
+impl AsRef<dyn DynArray> for TemporalArray {
+    fn as_ref(&self) -> &dyn DynArray {
         self.ext.as_ref()
     }
 }

@@ -20,8 +20,8 @@ use vortex_mask::Mask;
 
 use crate::Canonical;
 use crate::ToCanonical;
-use crate::array::Array;
 use crate::array::ArrayRef;
+use crate::array::DynArray;
 use crate::array::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;
@@ -431,7 +431,7 @@ mod tests {
 
     use super::ListViewBuilder;
     use crate::IntoArray;
-    use crate::array::Array;
+    use crate::array::DynArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;

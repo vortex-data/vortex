@@ -6,8 +6,8 @@ use std::ops::Not;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;

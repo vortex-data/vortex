@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 
 use super::DictArray;
 use super::DictVTable;
-use crate::Array as _;
+use crate::DynArray as _;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::builtins::ArrayBuiltins;

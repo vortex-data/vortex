@@ -5,7 +5,7 @@
 use std::ptr;
 use std::sync::Arc;
 
-use vortex::array::Array;
+use vortex::array::DynArray;
 use vortex::array::ToCanonical;
 use vortex::dtype::half::f16;
 use vortex::error::VortexExpect;
@@ -28,7 +28,7 @@ arc_dyn_wrapper!(
     /// auto primitive_array = vx_array_primitive_new(...);
     /// vx_array_len((*vx_array) primitive_array));
     /// ```
-    dyn Array,
+    dyn DynArray,
     vx_array
 );
 

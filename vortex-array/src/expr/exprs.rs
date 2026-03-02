@@ -117,7 +117,7 @@ pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray};
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{eq, root, lit};
@@ -141,7 +141,7 @@ pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray};
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{root, lit, not_eq};
@@ -165,7 +165,7 @@ pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{gt_eq, root, lit};
@@ -189,7 +189,7 @@ pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{gt, root, lit};
@@ -213,7 +213,7 @@ pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{root, lit, lt_eq};
@@ -237,7 +237,7 @@ pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{root, lit, lt};
@@ -261,7 +261,7 @@ pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::BoolArray;
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::expr::{root, lit, or};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
 /// let result = xs.to_array().apply(&or(root(), lit(false))).unwrap();
@@ -296,7 +296,7 @@ where
 ///
 /// ```
 /// # use vortex_array::arrays::BoolArray;
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::expr::{and, root, lit};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
 /// let result = xs.to_array().apply(&and(root(), lit(true))).unwrap();
@@ -330,7 +330,7 @@ where
 /// ## Example usage
 ///
 /// ```
-/// # use vortex_array::{Array, IntoArray};
+/// # use vortex_array::{DynArray, IntoArray};
 /// # use vortex_array::arrow::IntoArrowArray as _;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{checked_add, lit, root};

@@ -27,8 +27,8 @@ use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::RecursiveCanonical;

@@ -13,9 +13,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
-use crate::Array;
 use crate::ArrayAdapter;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
@@ -32,7 +32,7 @@ pub type ArrayId = ArcRef<str>;
 /// this object-safe form.
 ///
 /// This trait contains the implementation API for Vortex arrays, allowing us to keep the public
-/// [`Array`] trait API to a minimum.
+/// [`DynArray`] trait API to a minimum.
 pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
     #[allow(clippy::too_many_arguments)]
     fn build(

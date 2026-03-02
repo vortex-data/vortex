@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use super::DictArray;
 use super::DictVTable;
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArrayExt;

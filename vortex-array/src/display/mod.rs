@@ -8,7 +8,7 @@ use std::fmt::Display;
 use itertools::Itertools as _;
 use tree::TreeDisplayWrapper;
 
-use crate::Array;
+use crate::DynArray;
 
 /// Describe how to convert an array to a string.
 ///
@@ -304,7 +304,7 @@ impl Default for DisplayOptions {
 /// See also:
 /// [Array::display_as](../trait.Array.html#method.display_as)
 /// and [DisplayOptions].
-pub struct DisplayArrayAs<'a>(pub &'a dyn Array, pub DisplayOptions);
+pub struct DisplayArrayAs<'a>(pub &'a dyn DynArray, pub DisplayOptions);
 
 impl Display for DisplayArrayAs<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -324,13 +324,13 @@ impl Display for DisplayArrayAs<'_> {
 ///     "vortex.primitive(i16, len=5)",
 /// );
 /// ```
-impl Display for dyn Array + '_ {
+impl Display for dyn DynArray + '_ {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.fmt_as(f, &DisplayOptions::MetadataOnly)
     }
 }
 
-impl dyn Array + '_ {
+impl dyn DynArray + '_ {
     /// Display logical values of the array
     ///
     /// For example, an `i16` typed array containing the first five non-negative integers is displayed

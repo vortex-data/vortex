@@ -14,7 +14,7 @@ use super::MutTypedStatsSetRef;
 use super::StatsSet;
 use super::StatsSetIntoIter;
 use super::TypedStatsSetRef;
-use crate::Array;
+use crate::DynArray;
 use crate::builders::builder_with_capacity;
 use crate::compute::MinMaxResult;
 use crate::compute::is_constant;
@@ -41,12 +41,12 @@ pub struct ArrayStats {
 /// Constructed by calling [`ArrayStats::to_ref`].
 pub struct StatsSetRef<'a> {
     // We need to reference back to the array
-    dyn_array_ref: &'a dyn Array,
+    dyn_array_ref: &'a dyn DynArray,
     array_stats: &'a ArrayStats,
 }
 
 impl ArrayStats {
-    pub fn to_ref<'a>(&'a self, array: &'a dyn Array) -> StatsSetRef<'a> {
+    pub fn to_ref<'a>(&'a self, array: &'a dyn DynArray) -> StatsSetRef<'a> {
         StatsSetRef {
             dyn_array_ref: array,
             array_stats: self,

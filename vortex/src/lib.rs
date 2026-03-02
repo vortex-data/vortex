@@ -211,7 +211,7 @@ mod test {
 
         use arrow_array::RecordBatchReader;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-        use vortex::array::Array;
+        use vortex::array::DynArray;
         use vortex::array::arrays::ChunkedArray;
         use vortex::dtype::DType;
         use vortex::dtype::arrow::FromArrowType;

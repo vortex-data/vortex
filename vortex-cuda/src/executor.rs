@@ -15,9 +15,9 @@ use cudarc::driver::LaunchConfig;
 use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::StructArray;
@@ -310,7 +310,7 @@ pub trait CudaExecute: 'static + Send + Sync + Debug {
 
 /// Extension trait for executing arrays on CUDA.
 #[async_trait]
-pub trait CudaArrayExt: Array {
+pub trait CudaArrayExt: DynArray {
     /// Recursively walks the encoding tree, dispatching each layer to its
     /// registered [`CudaExecute`] implementation and returning a canonical array
     /// on the device.
