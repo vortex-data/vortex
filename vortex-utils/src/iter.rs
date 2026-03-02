@@ -185,10 +185,9 @@ mod tests {
 
     #[test]
     fn test_try_reduce_balanced_err() {
-        let result: Result<Option<i32>, &str> =
-            [1, 2, 3, 4]
-                .into_iter()
-                .try_reduce_balanced(|a, b| if a + b > 4 { Err("too big") } else { Ok(a + b) });
+        let result: Result<Option<i32>, &str> = [1, 2, 3, 4]
+            .into_iter()
+            .try_reduce_balanced(|a, b| if a + b > 4 { Err("too big") } else { Ok(a + b) });
         assert_eq!(result, Err("too big"));
     }
 
