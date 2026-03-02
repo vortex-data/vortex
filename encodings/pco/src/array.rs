@@ -573,7 +573,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
-    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
 
     use crate::PcoArray;
 
@@ -581,7 +581,7 @@ mod tests {
     fn test_slice_nullable() {
         // Create a nullable array with some nulls
         let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![10u32, 20, 30, 40, 50, 60]),
+            buffer![10u32, 20, 30, 40, 50, 60],
             Validity::from_iter([false, true, true, true, true, false]),
         );
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
