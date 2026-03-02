@@ -99,15 +99,10 @@ mod tests {
             .to_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap();
-        assert_eq!(
-            casted.dtype(),
-            &DType::Primitive(PType::U32, Nullability::Nullable)
-        );
-
         assert_arrays_eq!(
             casted,
             PrimitiveArray::new(
-                Buffer::copy_from(vec![10u32, 20, 30, 40]),
+                Buffer::from_iter([10u32, 20, 30, 40]),
                 Validity::AllValid,
             )
         );

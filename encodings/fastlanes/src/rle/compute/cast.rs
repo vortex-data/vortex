@@ -69,10 +69,6 @@ mod tests {
             .to_array()
             .cast(DType::Primitive(PType::U16, Nullability::NonNullable))
             .unwrap();
-        assert_eq!(
-            casted.dtype(),
-            &DType::Primitive(PType::U16, Nullability::NonNullable)
-        );
         assert_arrays_eq!(casted, PrimitiveArray::from_iter([10u16, 20, 30, 40, 50]));
     }
 
