@@ -638,6 +638,30 @@ jobs:
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool initcheck --error-exitcode 1
         run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+
+  cuda-test-cudf:
+    name: "CUDA tests (cudf)"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=g5+g4dn+g6
+      - cpu=8
+      - image=ubuntu24-gpu-x64
+      - extras=s3-cache
+      - tag=cuda-test-cudf
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - name: Display NVIDIA SMI details
+        run: |
+          nvidia-smi
+          nvidia-smi -L
+          nvidia-smi -q -d Memory
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build cudf test library
         run: cargo build --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
       - name: Download and run cudf-test-harness
