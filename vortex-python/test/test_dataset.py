@@ -109,7 +109,6 @@ def test_to_record_batch_reader_with_polars(ds: pd.Dataset):
 
 
 def test_filter(ds: vx.dataset.VortexDataset):
-
     tbl = ds.to_table(filter=(pc.field("string") >= "950000") & (pc.field("float") < 975.0))
     assert len(tbl) == 6176
 
