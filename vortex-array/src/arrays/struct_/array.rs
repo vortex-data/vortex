@@ -17,6 +17,7 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::StructFields;
+use crate::scalar::Scalar;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -175,6 +176,17 @@ impl StructArray {
     pub fn unmasked_field_by_name_opt(&self, name: impl AsRef<str>) -> Option<&ArrayRef> {
         let name = name.as_ref();
         self.struct_fields().find(name).map(|idx| &self.fields[idx])
+    }
+
+    /// Return an iterator over the scalar value of each field at the given row index
+    pub fn scalar_at_fields(
+        &self,
+        index: usize,
+    ) -> VortexResult<impl Iterator<Item = VortexResult<Scalar>> + '_> {
+        Ok(self
+            .unmasked_fields()
+            .iter()
+            .map(move |f| f.scalar_at(index)))
     }
 
     pub fn names(&self) -> &FieldNames {
