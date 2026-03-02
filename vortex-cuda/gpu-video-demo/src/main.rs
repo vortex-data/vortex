@@ -210,12 +210,12 @@ async fn main() -> VortexResult<()> {
         .framerate(fps, 1)
         .enable_picture_type_decision();
 
-    let session = encoder
+    let nvenc_session = encoder
         .start_session(NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_NV12, init_params)
         .map_err(|e| vortex_err!("NVENC session start failed: {e}"))?;
 
     // Register NV12 buffer with NVENC as an external CUDA resource
-    let mut registered_resource = session
+    let mut registered_resource = nvenc_session
         .register_generic_resource(
             (),
             NV_ENC_INPUT_RESOURCE_TYPE::NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR,
@@ -224,7 +224,7 @@ async fn main() -> VortexResult<()> {
         )
         .map_err(|e| vortex_err!("NVENC register failed: {e}"))?;
 
-    let mut output_bitstream = session
+    let mut output_bitstream = nvenc_session
         .create_output_bitstream()
         .map_err(|e| vortex_err!("NVENC create bitstream failed: {e}"))?;
 
@@ -296,7 +296,7 @@ async fn main() -> VortexResult<()> {
                     .map_err(|e| vortex_err!("CUDA stream sync failed: {e}"))?;
 
                 // Encode frame to H.264
-                session
+                nvenc_session
                     .encode_picture(
                         &mut registered_resource,
                         &mut output_bitstream,
@@ -336,7 +336,7 @@ async fn main() -> VortexResult<()> {
     }
 
     // Flush encoder
-    session
+    nvenc_session
         .end_of_stream()
         .map_err(|e| vortex_err!("NVENC flush failed: {e}"))?;
 
