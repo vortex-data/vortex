@@ -101,10 +101,7 @@ mod tests {
             .unwrap();
         assert_arrays_eq!(
             casted,
-            PrimitiveArray::new(
-                Buffer::from_iter([10u32, 20, 30, 40]),
-                Validity::AllValid,
-            )
+            PrimitiveArray::new(Buffer::from_iter([10u32, 20, 30, 40]), Validity::AllValid,)
         );
     }
 
