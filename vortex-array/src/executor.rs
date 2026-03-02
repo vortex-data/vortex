@@ -195,6 +195,33 @@ impl Executable for ArrayRef {
     }
 }
 
+/// The result of a single execution step on an array encoding.
+///
+/// Instead of recursively executing children, encodings return an `ExecutionStep` that tells the
+/// scheduler what to do next. This enables the scheduler to manage execution iteratively using
+/// an explicit work stack, run cross-step optimizations, and cache shared sub-expressions.
+#[derive(Debug)]
+pub enum ExecutionStep {
+    /// Request that the scheduler execute child at index `i` to columnar form, replace it in
+    /// this array, then re-enter execution on the updated array.
+    ///
+    /// Between steps, the scheduler runs reduce/reduce_parent rules to fixpoint, enabling
+    /// cross-step optimization (e.g., pushing scalar functions through newly-decoded children).
+    ExecuteChild(usize),
+
+    /// Request that the scheduler execute child at index `i` to columnar form, replace it in
+    /// this array, then re-enter execution on the updated array.
+    ///
+    /// Unlike [`ExecuteChild`](Self::ExecuteChild), the scheduler does **not** run cross-step
+    /// optimizations when popping back up. Use this when the parent knows it will consume the
+    /// child directly (e.g., Dict taking from its values).
+    ColumnarizeChild(usize),
+
+    /// Execution is complete. The result may be in any encoding — not necessarily canonical.
+    /// The scheduler will continue executing the result if it is not yet columnar.
+    Done(ArrayRef),
+}
+
 /// Extension trait for creating an execution context from a session.
 pub trait VortexSessionExecute {
     /// Create a new execution context from this session.
