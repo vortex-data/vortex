@@ -65,7 +65,9 @@ impl NvEncoder {
     ) -> Result<Self, NvencError> {
         let library = nvenc_library()?;
 
-        // Check max supported API version
+        // Check max supported API version.
+        // NvEncodeAPIGetMaxSupportedVersion returns version as (major << 4) | minor,
+        // which differs from the NVENCAPI_VERSION macro format.
         let mut max_version: u32 = 0;
         let status =
             unsafe { library.NvEncodeAPIGetMaxSupportedVersion(&raw mut max_version) };
@@ -74,14 +76,12 @@ impl NvEncoder {
                 "NvEncodeAPIGetMaxSupportedVersion failed: {e}"
             ))
         })?;
-        let max_major = max_version & 0xFF;
-        let max_minor = (max_version >> 24) & 0xFF;
+        let max_major = max_version >> 4;
+        let max_minor = max_version & 0xF;
         let our_major = sys::NVENCAPI_MAJOR_VERSION;
         let our_minor = sys::NVENCAPI_MINOR_VERSION;
-        eprintln!(
-            "NVENC: driver supports API {max_major}.{max_minor}, we request {our_major}.{our_minor}"
-        );
-        if max_version < crate::NVENCAPI_VERSION {
+        let our_packed = (our_major << 4) | our_minor;
+        if max_version < our_packed {
             return Err(NvencError::DetailedError(format!(
                 "Driver NVENC API {max_major}.{max_minor} is older than required {our_major}.{our_minor}"
             )));
@@ -105,12 +105,6 @@ impl NvEncoder {
         session_params.deviceType = sys::NV_ENC_DEVICE_TYPE_NV_ENC_DEVICE_TYPE_CUDA;
         session_params.device = cu_context;
         session_params.apiVersion = crate::NVENCAPI_VERSION;
-
-        eprintln!(
-            "NVENC: opening session with cu_context={cu_context:?}, version=0x{:08X}, apiVersion=0x{:08X}",
-            session_params.version,
-            session_params.apiVersion
-        );
 
         let mut encoder: *mut std::ffi::c_void = ptr::null_mut();
         let open_fn = fn_table
