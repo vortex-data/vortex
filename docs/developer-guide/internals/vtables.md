@@ -9,34 +9,51 @@ post-conditions at the boundary between the two.
 ## The Pattern
 
 Every vtable-backed type in Vortex follows the same structural pattern. For a concept `Foo`,
-there are six components:
+there are five components:
 
-| Component     | Name                | Visibility | Role                                                 |
-|---------------|---------------------|------------|------------------------------------------------------|
-| VTable trait  | `FooVTable`         | Public     | Non-object-safe trait that plugin authors implement  |
-| Typed wrapper | `Foo<V: FooVTable>` | Public     | Cheaply cloneable typed handle, passed to VTable fns |
-| Erased ref    | `FooRef`            | Public     | Type-erased handle for heterogeneous storage         |
-| Inner struct  | `FooInner<V>`       | Private    | Holds vtable + data, sole implementor of `DynFoo`    |
-| Sealed trait  | `DynFoo`            | Private    | Object-safe trait implemented only by `FooInner`     |
-| Plugin        | `FooPlugin`         | Public     | Registry trait for ID-based deserialization          |
+| Component    | Name                | Visibility | Role                                                |
+|--------------|---------------------|------------|-----------------------------------------------------|
+| VTable trait | `FooVTable`         | Public     | Non-object-safe trait that plugin authors implement |
+| Data struct  | `Foo<V: FooVTable>` | Public     | Generic data struct, lives behind Arc               |
+| Erased ref   | `FooRef`            | Public     | Type-erased handle, public API surface              |
+| Sealed trait | `DynFoo`            | Private    | Object-safe, blanket impl for `Foo<V>`              |
+| Plugin       | `FooPlugin`         | Public     | Registry trait for ID-based deserialization         |
 
-**Typed form** `Foo<V>` is generic over the vtable type `V`. This is what plugin authors
-construct and what callers use when they know the concrete type. It provides compile-time
-type safety and direct access to the vtable's associated types (e.g. `V::Metadata`).
+Three layers of dispatch:
 
-**Erased form** `FooRef` is a concrete, non-generic struct that hides the vtable type behind
-a trait object. This is what the rest of the system passes around. It can be stored in
-collections, serialized, and threaded through APIs without propagating generic parameters.
+```
+FooRef          thin Arc wrapper, delegates to DynFoo
+  → DynFoo      sealed, thin blanket forwarder to Foo<V> inherent methods
+    → Foo<V>    public API with pre/post-conditions, delegates to FooVTable
+      → FooVTable  plugin authors implement
+```
 
-Both forms are internally `Arc`-wrapped, making cloning cheap. Upcasting from `Foo<V>` to
-`FooRef` is free (just moving the `Arc`). Downcasting from `FooRef` to `Foo<V>` is a checked
-pointer cast -- also free after the type check.
+**Data struct** `Foo<V>` is generic over the vtable type `V`. It holds the vtable instance
+(which may be zero-sized for native implementations or non-zero-sized for language bindings),
+common fields, and a VTable-specific associated type for concept-specific data (e.g.
+`V::Metadata` for ExtDType, `V::Array` for Array). `Foo<V>` is not Arc-wrapped — it lives
+behind `Arc` inside `FooRef`. `Foo<V>` has inherent methods for all operations, with
+pre/post-condition enforcement. These delegate to `FooVTable` methods.
 
-**VTable methods** receive `&Foo<V>` -- the typed wrapper. Since `Foo<V>` provides access to
-the underlying data (metadata, children, buffers, etc.), there is no need to expose the
-inner struct. `FooInner<V>` is a private implementation detail that holds the data and
-implements the sealed `DynFoo` trait. Both `Foo<V>` and `FooRef` are thin `Arc` wrappers
-around `FooInner<V>` and `dyn DynFoo` respectively.
+`Foo<V>` implements `Deref` to the VTable's associated data type. This means encoding-specific
+methods defined on the associated type are callable directly on `&Foo<V>` (and therefore on
+the result of downcasting from `&FooRef`), while common methods on `Foo<V>` remain accessible
+via normal method resolution.
+
+**Sealed trait** `DynFoo` is object-safe and has a blanket `impl<V: FooVTable> DynFoo for Foo<V>`.
+This blanket impl is a thin forwarder to `Foo<V>` inherent methods — no logic of its own.
+Its purpose is to enable dynamic dispatch from `FooRef` through to the typed `Foo<V>`.
+
+**Erased form** `FooRef` wraps `Arc<dyn DynFoo>`. It delegates to `DynFoo` methods, which
+forward to `Foo<V>`. It can be stored in collections, serialized, and threaded through APIs
+without propagating generic parameters. Cloning is cheap (Arc clone).
+
+**Downcasting** from `FooRef` to `Foo<V>` is borrowed:
+
+```
+FooRef::as_::<V>(&self) -> &Foo<V>           borrow, free after type check
+FooRef::downcast::<V>(self) -> Arc<Foo<V>>   owned, free after type check
+```
 
 **Plugin** `FooPlugin` is a separate trait for registry-based deserialization. It knows how to
 reconstruct a `FooRef` from serialized bytes without knowing `V` at compile time. Plugins are
@@ -44,8 +61,7 @@ registered in the session by their ID.
 
 ## Example: ExtDType
 
-Extension dtypes follow this pattern. The vtable defines the extension's ID, metadata type,
-serialization, and validation:
+Extension dtypes follow this pattern:
 
 ```rust
 trait ExtDTypeVTable: Sized + Send + Sync + Clone + Debug {
@@ -56,25 +72,22 @@ trait ExtDTypeVTable: Sized + Send + Sync + Clone + Debug {
     fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Metadata>;
     fn validate(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()>;
 }
+
+struct ExtDType<V: ExtDTypeVTable> {
+    vtable: V,
+    metadata: V::Metadata,
+    storage_dtype: DType,
+}
+
+struct ExtDTypeRef(Arc<dyn DynExtDType>);
 ```
 
-The typed form `ExtDType<V>` wraps an `Arc` containing the vtable instance, the metadata, and
-the storage dtype. Users who know the concrete type get full access to the typed metadata:
-
-```rust
-let ts: ExtDType<Timestamp> =...;
-let unit: & TimeUnit = & ts.metadata().unit;    // V::Metadata is concrete
-```
-
-The erased form `ExtDTypeRef` wraps the same `Arc` behind the private `DynExtDType` trait.
-Code that does not need to know the concrete type works with `ExtDTypeRef` and can
-pattern-match to recover the typed form when needed:
+Downcasting from the erased form recovers the typed data struct:
 
 ```rust
 let ext: & ExtDTypeRef = dtype.ext();
-if let Some(meta) = ext.metadata_opt::<Timestamp>() {
-// meta is &TimestampMetadata -- type-safe from here
-}
+let ts: & ExtDType<Timestamp> = ext.as_::<Timestamp>();
+let unit: & TimeUnit = & ts.metadata;     // V::Metadata is concrete
 ```
 
 ## Why Not `dyn Trait`
@@ -111,39 +124,99 @@ consistent across all vtable-backed types in Vortex.
 
 All four vtable-backed types are converging on the pattern described above.
 
-### ExtDType -- Done
+### ExtDType -- Partially done
 
-The reference implementation. `ExtVTable`, `ExtDType<V>`, `ExtDTypeRef`, `ExtDTypeAdapter`,
-`DynExtDType`, and `ExtDTypePlugin` are all in place. Naming needs to be updated to match the
-conventions above (e.g. `ExtDTypeImpl` → `DynExtDType`, `ExtDTypeAdapter` → `ExtDTypeInner`,
-`DynExtVTable` → `ExtDTypePlugin`).
-`ExtDTypeMetadata` (the erased metadata wrapper) should be removed -- its methods
-(`serialize`, `Display`, `Debug`, `PartialEq`, `Hash`) should move to direct methods
-on `ExtDTypeRef`.
+`ExtVTable`, `ExtDType<V>`, `ExtDTypeRef`, and `ExtDTypePlugin` are in place. Remaining:
+
+- **Drop internal Arc from `ExtDType<V>`.** Currently `ExtDType<V>` wraps
+  `Arc<ExtDTypeAdapter<V>>`. It should become the data struct itself, with
+  `ExtDTypeRef(Arc<dyn DynExtDType>)` holding the Arc. Remove `ExtDTypeAdapter`.
+- **Rename** `ExtDTypeImpl` → `DynExtDType`, `DynExtVTable` → `ExtDTypePlugin`.
+- **Remove `ExtDTypeMetadata`** erased wrapper. Its methods (`serialize`, `Display`,
+  `Debug`, `PartialEq`, `Hash`) should move to `ExtDTypeRef`.
 
 ### Expr -- Not started
 
 Currently uses `VTable` (unqualified), `VTableAdapter`, `DynExprVTable` (sealed trait),
-and `ExprVTable` (confusingly, the erased ref). Needs renaming to `ExprVTable`, `ExprInner`,
-`DynExpr`, `ExprRef`. Typed wrapper `Expr<V>` does not exist yet.
+and `ExprVTable` (confusingly, the erased ref). Needs renaming to `ExprVTable`, `DynExpr`,
+`ExprRef`. Introduce `Expr<V>` data struct, remove `VTableAdapter`.
 
 ### Layout -- Not started
 
 Currently uses `VTable` (unqualified), `LayoutAdapter`, and `Layout` (sealed trait doubling
-as public API). Needs renaming to `LayoutVTable`, `LayoutInner`, `DynLayout`, `LayoutRef`.
-Typed wrapper `Layout<V>` does not exist yet.
+as public API). Needs renaming to `LayoutVTable`, `DynLayout`, `LayoutRef`. Introduce
+`Layout<V>` data struct, remove `LayoutAdapter`.
 
 ### Array -- Not started
 
 The largest migration. Currently uses `VTable` (unqualified), `ArrayAdapter`, `Array` (sealed
-trait doubling as public API), `ArrayRef`, and `DynVTable`. In addition to renaming
-(`ArrayVTable`, `ArrayInner`, `DynArray`, `ArrayPlugin`), this requires:
+trait doubling as public API), `ArrayRef`, and `DynVTable`.
 
-1. **Standardize data storage.** Replace per-encoding array structs with a common inner
-   struct holding `(dtype, len, V::Metadata, buffers, children, stats)`. Per-encoding typed
-   accessors (e.g. `DictArray::codes()`) become methods on `Array<DictVTable>`.
-2. **Collapse sub-vtables.** Fold `BaseArrayVTable`, `OperationsVTable`, `ValidityVTable`, and
-   `VisitorVTable` into `ArrayVTable`. Many methods become trivial or generic once data
-   storage is standardized.
-3. **Introduce typed wrapper.** Add `Array<V>` analogous to `ExtDType<V>`, replacing the
-   current `type Array` associated type on the vtable.
+#### Target Types
+
+```rust
+pub trait ArrayVTable: 'static + Sized + Send + Sync {
+    type Array: 'static + Send + Sync + Clone + Debug;
+    // Methods encoding authors implement.
+    // Receive &Array<Self> for typed access.
+}
+
+pub struct Array<V: ArrayVTable> {
+    vtable: V,          // ZST for native encodings, non-ZST for language bindings
+    dtype: DType,
+    len: usize,
+    array: V::Array,    // encoding-specific data (buffers, children, etc.)
+    stats: ArrayStats,
+}
+
+impl<V: ArrayVTable> Deref for Array<V> {
+    type Target = V::Array;
+}
+
+pub struct ArrayRef(Arc<dyn DynArray>);
+
+trait DynArray: sealed { ... }  // object-safe, thin forwarder
+```
+
+`Array<V>` has inherent methods for all operations (slice, filter, take, etc.)
+with pre/post-condition enforcement. These delegate to `ArrayVTable` methods.
+`DynArray` is a thin blanket forwarder so `ArrayRef` can reach them.
+
+`Array<V>` derefs to `V::Array`, so encoding-specific methods defined on
+the associated type are callable directly on `&Array<V>`. Common methods
+(`dtype()`, `len()`) are inherent on `Array<V>` and resolve first.
+
+Children live in `V::Array` — each encoding owns its child representation.
+The VTable provides `nchildren()` / `child(i)` for generic traversal.
+
+Constructors live on the vtable ZST: `Primitive::new(...) -> ArrayRef`.
+
+When a VTable method needs to signal "return me unchanged" (e.g. `execute`
+for canonical types), it returns `None`. The `ArrayRef` public method handles
+this by cloning its own Arc.
+
+#### Phases
+
+**Phase 0: Rename `Array` trait → `DynArray`.**
+Mechanical rename. Frees the `Array` name for the generic struct.
+
+**Phase 1: Introduce `Array<V>`, migrate encodings.**
+Per encoding:
+
+1. Rename vtable ZST (`PrimitiveVTable` → `Primitive`).
+2. Current bespoke array struct becomes `V::Array` (the associated type).
+3. Wrap it in the generic `Array<V>` struct with common fields hoisted out.
+4. Move constructors to vtable ZST.
+5. Update all call sites (clean break, no type aliases).
+
+**Phase 2: Update sub-vtable signatures.**
+`ValidityVTable`, `OperationsVTable` methods change from `&V::Array` to
+`&Array<V>`.
+
+**Phase 3: Migrate erased layer.**
+
+1. Blanket `impl<V: ArrayVTable> DynArray for Array<V>` forwarding to `Array<V>` inherent methods.
+2. `ArrayRef` becomes concrete struct wrapping `Arc<dyn DynArray>`.
+3. Move `impl dyn DynArray` methods to `impl ArrayRef`.
+4. Remove old `DynArray` trait, `ArrayAdapter`, `vtable!` macro.
+   Introduce `ArrayPlugin` for ID-based deserialization.
