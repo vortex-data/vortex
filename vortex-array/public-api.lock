@@ -4124,22 +4124,6 @@ pub fn vortex_array::arrow::byte_view::canonical_varbinview_to_arrow<T: arrow_ar
 
 pub fn vortex_array::arrow::byte_view::execute_varbinview_to_arrow<T: arrow_array::types::ByteViewType>(array: &vortex_array::arrays::VarBinViewArray, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
 
-pub mod vortex_array::arrow::compute
-
-pub struct vortex_array::arrow::compute::ToArrowOptions
-
-pub vortex_array::arrow::compute::ToArrowOptions::arrow_type: core::option::Option<arrow_schema::datatype::DataType>
-
-impl vortex_array::compute::Options for vortex_array::arrow::compute::ToArrowOptions
-
-pub fn vortex_array::arrow::compute::ToArrowOptions::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::arrow::compute::to_arrow(array: &vortex_array::ArrayRef, arrow_type: &arrow_schema::datatype::DataType) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
-
-pub fn vortex_array::arrow::compute::to_arrow_opts(array: &vortex_array::ArrayRef, options: &vortex_array::arrow::compute::ToArrowOptions) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
-
-pub fn vortex_array::arrow::compute::to_arrow_preferred(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
-
 pub mod vortex_array::arrow::null
 
 pub fn vortex_array::arrow::null::canonical_null_to_arrow(array: &vortex_array::arrays::NullArray) -> arrow_array::array::ArrayRef
@@ -4147,40 +4131,6 @@ pub fn vortex_array::arrow::null::canonical_null_to_arrow(array: &vortex_array::
 pub mod vortex_array::arrow::primitive
 
 pub fn vortex_array::arrow::primitive::canonical_primitive_to_arrow<T: arrow_array::types::ArrowPrimitiveType>(array: vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<arrow_array::array::ArrayRef> where <T as arrow_array::types::ArrowPrimitiveType>::Native: vortex_array::dtype::NativePType
-
-pub struct vortex_array::arrow::ArrowArray
-
-impl vortex_array::arrow::ArrowArray
-
-pub fn vortex_array::arrow::ArrowArray::inner(&self) -> &arrow_array::array::ArrayRef
-
-pub fn vortex_array::arrow::ArrowArray::new(arrow_array: arrow_array::array::ArrayRef, nullability: vortex_array::dtype::Nullability) -> Self
-
-impl core::clone::Clone for vortex_array::arrow::ArrowArray
-
-pub fn vortex_array::arrow::ArrowArray::clone(&self) -> vortex_array::arrow::ArrowArray
-
-impl core::convert::AsRef<dyn vortex_array::Array> for vortex_array::arrow::ArrowArray
-
-pub fn vortex_array::arrow::ArrowArray::as_ref(&self) -> &dyn vortex_array::Array
-
-impl core::convert::From<vortex_array::arrow::ArrowArray> for vortex_array::ArrayRef
-
-pub fn vortex_array::ArrayRef::from(value: vortex_array::arrow::ArrowArray) -> vortex_array::ArrayRef
-
-impl core::fmt::Debug for vortex_array::arrow::ArrowArray
-
-pub fn vortex_array::arrow::ArrowArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::ops::deref::Deref for vortex_array::arrow::ArrowArray
-
-pub type vortex_array::arrow::ArrowArray::Target = dyn vortex_array::Array
-
-pub fn vortex_array::arrow::ArrowArray::deref(&self) -> &Self::Target
-
-impl vortex_array::IntoArray for vortex_array::arrow::ArrowArray
-
-pub fn vortex_array::arrow::ArrowArray::into_array(self) -> vortex_array::ArrayRef
 
 pub struct vortex_array::arrow::ArrowArrayStreamAdapter
 
@@ -4197,78 +4147,6 @@ pub fn vortex_array::arrow::ArrowArrayStreamAdapter::next(&mut self) -> core::op
 impl vortex_array::iter::ArrayIterator for vortex_array::arrow::ArrowArrayStreamAdapter
 
 pub fn vortex_array::arrow::ArrowArrayStreamAdapter::dtype(&self) -> &vortex_array::dtype::DType
-
-pub struct vortex_array::arrow::ArrowVTable
-
-impl vortex_array::arrow::ArrowVTable
-
-pub const vortex_array::arrow::ArrowVTable::ID: vortex_array::vtable::ArrayId
-
-impl core::fmt::Debug for vortex_array::arrow::ArrowVTable
-
-pub fn vortex_array::arrow::ArrowVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_array::vtable::OperationsVTable<vortex_array::arrow::ArrowVTable> for vortex_array::arrow::ArrowVTable
-
-pub fn vortex_array::arrow::ArrowVTable::scalar_at(_array: &vortex_array::arrow::ArrowArray, _index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-impl vortex_array::vtable::VTable for vortex_array::arrow::ArrowVTable
-
-pub type vortex_array::arrow::ArrowVTable::Array = vortex_array::arrow::ArrowArray
-
-pub type vortex_array::arrow::ArrowVTable::Metadata = vortex_array::EmptyMetadata
-
-pub type vortex_array::arrow::ArrowVTable::OperationsVTable = vortex_array::arrow::ArrowVTable
-
-pub type vortex_array::arrow::ArrowVTable::ValidityVTable = vortex_array::arrow::ArrowVTable
-
-pub fn vortex_array::arrow::ArrowVTable::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrow::ArrowVTable::array_eq(array: &vortex_array::arrow::ArrowArray, other: &vortex_array::arrow::ArrowArray, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrow::ArrowVTable::array_hash<H: core::hash::Hasher>(array: &vortex_array::arrow::ArrowArray, state: &mut H, _precision: vortex_array::Precision)
-
-pub fn vortex_array::arrow::ArrowVTable::buffer(_array: &Self::Array, _idx: usize) -> vortex_array::buffer::BufferHandle
-
-pub fn vortex_array::arrow::ArrowVTable::buffer_name(_array: &Self::Array, _idx: usize) -> core::option::Option<alloc::string::String>
-
-pub fn vortex_array::arrow::ArrowVTable::build(_dtype: &vortex_array::dtype::DType, _len: usize, _metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<Self::Array>
-
-pub fn vortex_array::arrow::ArrowVTable::child(_array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
-
-pub fn vortex_array::arrow::ArrowVTable::child_name(_array: &Self::Array, idx: usize) -> alloc::string::String
-
-pub fn vortex_array::arrow::ArrowVTable::deserialize(_bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_array::arrow::ArrowVTable::dtype(array: &vortex_array::arrow::ArrowArray) -> &vortex_array::dtype::DType
-
-pub fn vortex_array::arrow::ArrowVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::arrow::ArrowVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-pub fn vortex_array::arrow::ArrowVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
-
-pub fn vortex_array::arrow::ArrowVTable::len(array: &vortex_array::arrow::ArrowArray) -> usize
-
-pub fn vortex_array::arrow::ArrowVTable::metadata(_array: &Self::Array) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_array::arrow::ArrowVTable::nbuffers(_array: &Self::Array) -> usize
-
-pub fn vortex_array::arrow::ArrowVTable::nchildren(_array: &Self::Array) -> usize
-
-pub fn vortex_array::arrow::ArrowVTable::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-pub fn vortex_array::arrow::ArrowVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-pub fn vortex_array::arrow::ArrowVTable::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
-
-pub fn vortex_array::arrow::ArrowVTable::stats(array: &vortex_array::arrow::ArrowArray) -> vortex_array::stats::StatsSetRef<'_>
-
-pub fn vortex_array::arrow::ArrowVTable::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
-
-impl vortex_array::vtable::ValidityVTable<vortex_array::arrow::ArrowVTable> for vortex_array::arrow::ArrowVTable
-
-pub fn vortex_array::arrow::ArrowVTable::validity(array: &vortex_array::arrow::ArrowArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 pub struct vortex_array::arrow::Datum
 
@@ -6393,10 +6271,6 @@ pub fn vortex_array::compute::Options::as_any(&self) -> &dyn core::any::Any
 impl vortex_array::compute::Options for ()
 
 pub fn ()::as_any(&self) -> &dyn core::any::Any
-
-impl vortex_array::compute::Options for vortex_array::arrow::compute::ToArrowOptions
-
-pub fn vortex_array::arrow::compute::ToArrowOptions::as_any(&self) -> &dyn core::any::Any
 
 impl vortex_array::compute::Options for vortex_array::compute::IsConstantOpts
 
@@ -16638,10 +16512,6 @@ impl vortex_array::vtable::OperationsVTable<vortex_array::arrays::VarBinViewVTab
 
 pub fn vortex_array::arrays::VarBinViewVTable::scalar_at(array: &vortex_array::arrays::VarBinViewArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-impl vortex_array::vtable::OperationsVTable<vortex_array::arrow::ArrowVTable> for vortex_array::arrow::ArrowVTable
-
-pub fn vortex_array::arrow::ArrowVTable::scalar_at(_array: &vortex_array::arrow::ArrowArray, _index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
 impl<V: vortex_array::vtable::VTable> vortex_array::vtable::OperationsVTable<V> for vortex_array::vtable::NotSupported
 
 pub fn vortex_array::vtable::NotSupported::scalar_at(array: &<V as vortex_array::vtable::VTable>::Array, _index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
@@ -17726,60 +17596,6 @@ pub fn vortex_array::arrays::VarBinViewVTable::stats(array: &vortex_array::array
 
 pub fn vortex_array::arrays::VarBinViewVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 
-impl vortex_array::vtable::VTable for vortex_array::arrow::ArrowVTable
-
-pub type vortex_array::arrow::ArrowVTable::Array = vortex_array::arrow::ArrowArray
-
-pub type vortex_array::arrow::ArrowVTable::Metadata = vortex_array::EmptyMetadata
-
-pub type vortex_array::arrow::ArrowVTable::OperationsVTable = vortex_array::arrow::ArrowVTable
-
-pub type vortex_array::arrow::ArrowVTable::ValidityVTable = vortex_array::arrow::ArrowVTable
-
-pub fn vortex_array::arrow::ArrowVTable::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrow::ArrowVTable::array_eq(array: &vortex_array::arrow::ArrowArray, other: &vortex_array::arrow::ArrowArray, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrow::ArrowVTable::array_hash<H: core::hash::Hasher>(array: &vortex_array::arrow::ArrowArray, state: &mut H, _precision: vortex_array::Precision)
-
-pub fn vortex_array::arrow::ArrowVTable::buffer(_array: &Self::Array, _idx: usize) -> vortex_array::buffer::BufferHandle
-
-pub fn vortex_array::arrow::ArrowVTable::buffer_name(_array: &Self::Array, _idx: usize) -> core::option::Option<alloc::string::String>
-
-pub fn vortex_array::arrow::ArrowVTable::build(_dtype: &vortex_array::dtype::DType, _len: usize, _metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<Self::Array>
-
-pub fn vortex_array::arrow::ArrowVTable::child(_array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
-
-pub fn vortex_array::arrow::ArrowVTable::child_name(_array: &Self::Array, idx: usize) -> alloc::string::String
-
-pub fn vortex_array::arrow::ArrowVTable::deserialize(_bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_array::arrow::ArrowVTable::dtype(array: &vortex_array::arrow::ArrowArray) -> &vortex_array::dtype::DType
-
-pub fn vortex_array::arrow::ArrowVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::arrow::ArrowVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-pub fn vortex_array::arrow::ArrowVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
-
-pub fn vortex_array::arrow::ArrowVTable::len(array: &vortex_array::arrow::ArrowArray) -> usize
-
-pub fn vortex_array::arrow::ArrowVTable::metadata(_array: &Self::Array) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_array::arrow::ArrowVTable::nbuffers(_array: &Self::Array) -> usize
-
-pub fn vortex_array::arrow::ArrowVTable::nchildren(_array: &Self::Array) -> usize
-
-pub fn vortex_array::arrow::ArrowVTable::reduce(array: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-pub fn vortex_array::arrow::ArrowVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-pub fn vortex_array::arrow::ArrowVTable::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
-
-pub fn vortex_array::arrow::ArrowVTable::stats(array: &vortex_array::arrow::ArrowArray) -> vortex_array::stats::StatsSetRef<'_>
-
-pub fn vortex_array::arrow::ArrowVTable::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
-
 pub trait vortex_array::vtable::ValidityChild<V: vortex_array::vtable::VTable>
 
 pub fn vortex_array::vtable::ValidityChild::validity_child(array: &<V as vortex_array::vtable::VTable>::Array) -> &vortex_array::ArrayRef
@@ -17879,10 +17695,6 @@ pub fn vortex_array::arrays::SharedVTable::validity(array: &vortex_array::arrays
 impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::SliceVTable> for vortex_array::arrays::SliceVTable
 
 pub fn vortex_array::arrays::SliceVTable::validity(array: &vortex_array::arrays::SliceArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
-
-impl vortex_array::vtable::ValidityVTable<vortex_array::arrow::ArrowVTable> for vortex_array::arrow::ArrowVTable
-
-pub fn vortex_array::arrow::ArrowVTable::validity(array: &vortex_array::arrow::ArrowArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 impl<V: vortex_array::vtable::VTable> vortex_array::vtable::ValidityVTable<V> for vortex_array::vtable::ValidityVTableFromChildSliceHelper where <V as vortex_array::vtable::VTable>::Array: vortex_array::vtable::ValidityChildSliceHelper
 
@@ -18915,10 +18727,6 @@ pub fn vortex_array::arrays::VarBinArray::into_array(self) -> vortex_array::Arra
 impl vortex_array::IntoArray for vortex_array::arrays::VarBinViewArray
 
 pub fn vortex_array::arrays::VarBinViewArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::IntoArray for vortex_array::arrow::ArrowArray
-
-pub fn vortex_array::arrow::ArrowArray::into_array(self) -> vortex_array::ArrayRef
 
 impl vortex_array::IntoArray for vortex_buffer::bit::buf::BitBuffer
 
