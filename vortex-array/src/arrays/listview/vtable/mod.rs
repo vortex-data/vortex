@@ -14,6 +14,7 @@ use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionStep;
+use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -239,7 +240,7 @@ impl VTable for ListViewVTable {
     }
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.to_array()))
+        Ok(ExecutionStep::Done(array.clone().into_array()))
     }
 
     fn reduce_parent(

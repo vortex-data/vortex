@@ -5,7 +5,6 @@ use std::hash::Hash;
 
 use num_traits::cast::FromPrimitive;
 use vortex_array::ArrayRef;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionStep;
@@ -13,6 +12,7 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;

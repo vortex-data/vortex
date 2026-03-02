@@ -12,6 +12,7 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionStep;
+use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::null::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -132,7 +133,7 @@ impl VTable for NullVTable {
     }
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.to_array()))
+        Ok(ExecutionStep::Done(array.clone().into_array()))
     }
 }
 
