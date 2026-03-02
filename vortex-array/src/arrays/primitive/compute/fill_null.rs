@@ -9,7 +9,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ToCanonical;
+use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::match_each_native_ptype;
@@ -22,13 +22,17 @@ impl FillNullKernel for PrimitiveVTable {
     fn fill_null(
         array: &PrimitiveArray,
         fill_value: &Scalar,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let result_validity = Validity::from(fill_value.dtype().nullability());
 
         Ok(Some(match array.validity() {
             Validity::Array(is_valid) => {
-                let is_invalid = is_valid.to_bool().to_bit_buffer().not();
+                let is_invalid = is_valid
+                    .clone()
+                    .execute::<BoolArray>(ctx)?
+                    .to_bit_buffer()
+                    .not();
                 match_each_native_ptype!(array.ptype(), |T| {
                     let mut buffer = array.to_buffer::<T>().into_mut();
                     let fill_value = fill_value

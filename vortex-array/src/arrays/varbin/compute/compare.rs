@@ -15,11 +15,11 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
+use crate::arrays::VarBinViewArray;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
 use crate::builtins::ArrayBuiltins;
@@ -38,7 +38,7 @@ impl CompareKernel for VarBinVTable {
         lhs: &VarBinArray,
         rhs: &dyn Array,
         operator: CompareOperator,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(rhs_const) = rhs.as_constant() {
             let nullable = lhs.dtype().is_nullable() || rhs_const.dtype().is_nullable();
@@ -64,7 +64,8 @@ impl CompareKernel for VarBinVTable {
                     | CompareOperator::NotEq
                     | CompareOperator::Gt
                     | CompareOperator::Lte => {
-                        let lhs_offsets = lhs.offsets().to_primitive();
+                        let lhs_offsets =
+                            lhs.offsets().to_array().execute::<PrimitiveArray>(ctx)?;
                         match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
                             compare_offsets_to_empty::<P>(lhs_offsets, operator)
                         })
@@ -119,7 +120,8 @@ impl CompareKernel for VarBinVTable {
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
             return Ok(Some(
-                lhs.to_varbinview()
+                lhs.to_array()
+                    .execute::<VarBinViewArray>(ctx)?
                     .to_array()
                     .binary(rhs.to_array(), Operator::from(operator))?,
             ));
