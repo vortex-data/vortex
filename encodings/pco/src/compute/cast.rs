@@ -65,8 +65,7 @@ mod tests {
 
     #[test]
     fn test_cast_pco_f32_to_f64() {
-        let values =
-            PrimitiveArray::new(buffer![1.0f32, 2.0, 3.0, 4.0, 5.0], Validity::NonNullable);
+        let values = PrimitiveArray::from_iter([1.0f32, 2.0, 3.0, 4.0, 5.0]);
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
 
         let casted = pco
@@ -87,7 +86,7 @@ mod tests {
     #[test]
     fn test_cast_pco_nullability_change() {
         // Test casting from NonNullable to Nullable
-        let values = PrimitiveArray::new(buffer![10u32, 20, 30, 40], Validity::NonNullable);
+        let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]);
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
 
         let casted = pco

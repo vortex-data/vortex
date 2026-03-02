@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn test_cast_zstd_i32_to_i64() {
-        let values = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::NonNullable);
+        let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
 
         let casted = zstd
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn test_cast_zstd_nullability_change() {
-        let values = PrimitiveArray::new(buffer![10u32, 20, 30, 40], Validity::NonNullable);
+        let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]);
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
 
         let casted = zstd
