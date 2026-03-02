@@ -14,9 +14,6 @@ import sys
 
 import pandas as pd
 
-## Only display two decimal places when formatting floating point data
-pd.options.display.float_format = "{:.2f}".format
-
 # Check if benchmark name argument is provided (will be added from workflow)
 benchmark_name = sys.argv[3] if len(sys.argv) > 3 else ""
 
@@ -203,5 +200,5 @@ print("")
 print("<details>")
 print("<summary>Detailed Results Table</summary>")
 print("")
-print(table_df.to_markdown(index=False))
+print(table_df.to_markdown(index=False, tablefmt="github", floatfmt=".2f"))
 print("</details>")
