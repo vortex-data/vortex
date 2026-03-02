@@ -72,13 +72,13 @@ pub fn T::dyn_hash(&self, state: &mut dyn core::hash::Hasher)
 
 pub mod vortex_utils::iter
 
-pub trait vortex_utils::iter::ReduceBalanced: core::iter::traits::iterator::Iterator + core::marker::Sized
+pub trait vortex_utils::iter::ReduceBalancedIterExt: core::iter::traits::iterator::Iterator
 
-pub fn vortex_utils::iter::ReduceBalanced::reduce_balanced<F>(self, combine: F) -> core::option::Option<Self::Item> where Self::Item: core::clone::Clone, F: core::ops::function::Fn(Self::Item, Self::Item) -> Self::Item
+pub fn vortex_utils::iter::ReduceBalancedIterExt::reduce_balanced<F>(self, combine: F) -> core::option::Option<Self::Item> where Self::Item: core::clone::Clone, F: core::ops::function::Fn(Self::Item, Self::Item) -> Self::Item
 
-pub fn vortex_utils::iter::ReduceBalanced::try_reduce_balanced<F, E>(self, combine: F) -> core::result::Result<core::option::Option<Self::Item>, E> where Self::Item: core::clone::Clone, F: core::ops::function::Fn(Self::Item, Self::Item) -> core::result::Result<Self::Item, E>
+pub fn vortex_utils::iter::ReduceBalancedIterExt::try_reduce_balanced<F, E>(self, combine: F) -> core::result::Result<core::option::Option<Self::Item>, E> where Self::Item: core::clone::Clone, F: core::ops::function::Fn(Self::Item, Self::Item) -> core::result::Result<Self::Item, E>
 
-impl<I: core::iter::traits::iterator::Iterator + core::marker::Sized> vortex_utils::iter::ReduceBalanced for I
+impl<I: core::iter::traits::iterator::Iterator + core::marker::Sized> vortex_utils::iter::ReduceBalancedIterExt for I
 
 pub fn I::reduce_balanced<F>(self, combine: F) -> core::option::Option<Self::Item> where Self::Item: core::clone::Clone, F: core::ops::function::Fn(Self::Item, Self::Item) -> Self::Item
 
