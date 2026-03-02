@@ -19,7 +19,7 @@
 /// |\
 /// a b
 /// ```
-pub trait ReduceBalanced: Iterator + Sized {
+pub trait ReduceBalancedIterExt: Iterator + Sized {
     /// Like [`Iterator::reduce`], but builds a balanced binary tree instead of a linear chain.
     ///
     /// `[a, b, c, d]` becomes `combine(combine(a, b), combine(c, d))`.
@@ -39,7 +39,7 @@ pub trait ReduceBalanced: Iterator + Sized {
         F: Fn(Self::Item, Self::Item) -> Result<Self::Item, E>;
 }
 
-impl<I: Iterator + Sized> ReduceBalanced for I {
+impl<I: Iterator + Sized> ReduceBalancedIterExt for I {
     fn reduce_balanced<F>(self, combine: F) -> Option<Self::Item>
     where
         Self::Item: Clone,
@@ -72,6 +72,7 @@ impl<I: Iterator + Sized> ReduceBalanced for I {
             items.truncate(len / 2);
         }
 
+        assert_eq!(items.len(), 1);
         items.pop()
     }
 
@@ -106,6 +107,7 @@ impl<I: Iterator + Sized> ReduceBalanced for I {
             items.truncate(len / 2);
         }
 
+        assert_eq!(items.len(), 1);
         Ok(items.pop())
     }
 }

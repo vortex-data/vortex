@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
-use vortex_utils::iter::ReduceBalanced;
+use vortex_utils::iter::ReduceBalancedIterExt;
 
 use crate::dtype::DType;
 use crate::dtype::FieldName;

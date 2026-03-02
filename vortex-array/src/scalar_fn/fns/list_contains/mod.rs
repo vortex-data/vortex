@@ -15,7 +15,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
-use vortex_utils::iter::ReduceBalanced;
+use vortex_utils::iter::ReduceBalancedIterExt;
 
 use crate::Array;
 use crate::ArrayRef;
