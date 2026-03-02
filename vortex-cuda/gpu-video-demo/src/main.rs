@@ -181,7 +181,12 @@ async fn main() -> VortexResult<()> {
     // Allocate NV12 buffer on GPU (width * height * 3/2 for Y + UV planes)
     let nv12_size = (width as usize) * (height as usize) * 3 / 2;
     let nv12_device: CudaSlice<u8> = cuda_ctx.device_alloc(nv12_size)?;
-    let (nv12_ptr, _nv12_sync) = nv12_device.device_ptr(cuda_ctx.stream());
+    // Extract the raw device pointer and immediately drop the SyncOnDrop guard
+    // so it doesn't hold an immutable borrow on cuda_ctx.
+    let nv12_ptr = {
+        let (ptr, _sync) = nv12_device.device_ptr(cuda_ctx.stream());
+        ptr
+    };
 
     // Create NVENC encoder
     let cu_context = cuda_ctx.stream().context().cu_ctx();
