@@ -9,7 +9,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use clap::Parser;
-use futures::StreamExt;
+use futures::TryStreamExt;
+use futures::stream::StreamExt;
 use object_store::aws::AmazonS3Builder;
 use object_store::path::Path as ObjectPath;
 use tracing::Instrument;
@@ -22,15 +23,14 @@ use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 use vortex::VortexSessionDefault;
 use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
+use vortex_cuda::CudaSessionExt;
 use vortex_cuda::PinnedByteBufferPool;
 use vortex_cuda::PooledFileReadAt;
 use vortex_cuda::PooledObjectStoreReadAt;
-use vortex_cuda::TracingLaunchStrategy;
 use vortex_cuda::VortexCudaStreamPool;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda::layout::register_cuda_layout;
@@ -53,6 +53,10 @@ struct Cli {
     /// Path to write Perfetto trace output. If omitted, no trace file is written.
     #[arg(long)]
     perfetto: Option<PathBuf>,
+
+    /// Number of batches to process concurrently (each on its own CUDA stream).
+    #[arg(long, default_value_t = 1)]
+    concurrency: usize,
 
     /// Output logs as JSON.
     #[arg(long)]
@@ -109,16 +113,10 @@ async fn main() -> VortexResult<()> {
     let session = VortexSession::default().with_tokio();
     register_cuda_layout(&session);
 
-    let mut cuda_ctx = CudaSession::create_execution_ctx(&session)?;
-    if cli.perfetto.is_some() {
-        cuda_ctx = cuda_ctx.with_launch_strategy(Arc::new(TracingLaunchStrategy));
-    }
+    let cuda_context = session.cuda_session().context().clone();
 
-    let pool = Arc::new(PinnedByteBufferPool::new(Arc::clone(
-        cuda_ctx.stream().context(),
-    )));
-    let cuda_stream =
-        VortexCudaStreamPool::new(Arc::clone(cuda_ctx.stream().context()), 1).get_stream()?;
+    let pool = Arc::new(PinnedByteBufferPool::new(Arc::clone(&cuda_context)));
+    let cuda_stream = VortexCudaStreamPool::new(Arc::clone(&cuda_context), 1).get_stream()?;
     let handle = session.handle();
 
     // Parse source and create reader
@@ -153,33 +151,41 @@ async fn main() -> VortexResult<()> {
 
     // Run benchmark iterations
     let mut iteration_times = Vec::with_capacity(cli.iterations);
+    let concurrency = cli.concurrency;
 
     for iteration in 0..cli.iterations {
         let start = Instant::now();
 
         let gpu_file = session.open_options().open(Arc::clone(&reader)).await?;
 
-        let mut batches = gpu_file.scan()?.into_array_stream()?;
+        let batches = gpu_file.scan()?.into_array_stream()?;
 
-        let mut chunk = 0;
-        while let Some(next) = batches.next().await.transpose()? {
-            let len = next.len();
-            let span = tracing::info_span!(
-                "batch execution",
-                iteration = iteration,
-                chunk = chunk,
-                len = len,
-            );
+        batches
+            .enumerate()
+            .map(|(chunk, batch)| {
+                let session = &session;
+                async move {
+                    let batch = batch?;
+                    let len = batch.len();
+                    let span = tracing::info_span!(
+                        "batch execution",
+                        iteration = iteration,
+                        chunk = chunk,
+                        len = len,
+                    );
 
-            async {
-                next.execute_cuda(&mut cuda_ctx).await?;
-                VortexResult::Ok(())
-            }
-            .instrument(span)
+                    async {
+                        let mut cuda_ctx = CudaSession::create_execution_ctx(session)?;
+                        batch.execute_cuda(&mut cuda_ctx).await?;
+                        VortexResult::Ok(())
+                    }
+                    .instrument(span)
+                    .await
+                }
+            })
+            .buffered(concurrency)
+            .try_collect::<Vec<_>>()
             .await?;
-
-            chunk += 1;
-        }
 
         let elapsed = start.elapsed();
         iteration_times.push(elapsed);
