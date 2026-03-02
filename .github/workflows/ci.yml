@@ -500,8 +500,35 @@ jobs:
             --target x86_64-unknown-linux-gnu \
             -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
 
+  cuda-build:
+    name: "CUDA build"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=g5+g4dn+g6
+      - cpu=8
+      - image=ubuntu24-gpu-x64
+      - extras=s3-cache
+      - tag=cuda-build
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build CUDA crates
+        run: |
+          cargo build --locked --all-features --all-targets \
+            -p vortex-cuda \
+            -p vortex-cub \
+            -p vortex-nvcomp \
+            -p gpu-scan-cli \
+            -p vortex-test-e2e-cuda
+
   cuda-lint:
-    name: "CUDA lint"
+    name: "CUDA (lint)"
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -539,7 +566,6 @@ jobs:
       - extras=s3-cache
       - tag=cuda-tests
     env:
-      # Keep frame pointers for better stack traces
       CARGO_PROFILE_DEV_DEBUG: "true"
       CARGO_PROFILE_TEST_DEBUG: "true"
     steps:
@@ -555,21 +581,12 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build CUDA crates
-        run: |
-          cargo build --locked --all-features --all-targets \
-            -p vortex-cuda \
-            -p vortex-cub \
-            -p vortex-nvcomp \
-            -p gpu-scan-cli \
-            -p vortex-test-e2e-cuda
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
           tool: nextest
       - name: Rust Tests
         env:
-          # Outline flat layouts for cuda scan.
           FLAT_LAYOUT_INLINE_ARRAY_NODE: true
         run: |
           cargo nextest run \
@@ -583,6 +600,33 @@ jobs:
             --no-fail-fast \
             --target x86_64-unknown-linux-gnu \
             --verbose
+
+  cuda-test-sanitizer:
+    name: "CUDA tests (sanitizer)"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=g5+g4dn+g6
+      - cpu=8
+      - image=ubuntu24-gpu-x64
+      - extras=s3-cache
+      - tag=cuda-test-sanitizer
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "true"
+      CARGO_PROFILE_TEST_DEBUG: "true"
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - name: Display NVIDIA SMI details
+        run: |
+          nvidia-smi
+          nvidia-smi -L
+          nvidia-smi -q -d Memory
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: CUDA - memcheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool memcheck --leak-check=full --error-exitcode 1
