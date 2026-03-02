@@ -51,7 +51,7 @@ mod test {
             TemporalArray::new_timestamp(timestamps, TimeUnit::Milliseconds, Some("UTC".into()));
 
         let array = DateTimePartsArray::try_from(temporal).unwrap();
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
 
         // Test with nullable values
         let timestamps = PrimitiveArray::from_option_iter([
@@ -67,6 +67,6 @@ mod test {
             TemporalArray::new_timestamp(timestamps, TimeUnit::Milliseconds, Some("UTC".into()));
 
         let array = DateTimePartsArray::try_from(temporal).unwrap();
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
     }
 }

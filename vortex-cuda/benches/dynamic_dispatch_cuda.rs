@@ -23,6 +23,7 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
+use vortex::dtype::PType;
 use vortex::encodings::alp::ALPArray;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::Exponents;
@@ -56,7 +57,7 @@ fn run_timed(
     device_plan: &Arc<cudarc::driver::CudaSlice<DynamicDispatchPlan>>,
     shared_mem_bytes: u32,
 ) -> VortexResult<Duration> {
-    let cuda_function = cuda_ctx.load_function("dynamic_dispatch", &["u32"])?;
+    let cuda_function = cuda_ctx.load_function("dynamic_dispatch", &[PType::U32])?;
     let array_len_u64 = array_len as u64;
     let output_view = output_buf.as_view::<u32>();
     let (output_ptr, record_output) = output_view.device_ptr(cuda_ctx.stream());
@@ -175,7 +176,7 @@ fn bench_for_bitpacked(c: &mut Criterion) {
             .map(|i| (i as u64 % (max_val + 1)) as u32)
             .collect();
         let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
-        let bp = BitPackedArray::encode(prim.as_ref(), bit_width).vortex_expect("bitpack");
+        let bp = BitPackedArray::encode(&prim.to_array(), bit_width).vortex_expect("bitpack");
         let for_arr =
             FoRArray::try_new(bp.into_array(), Scalar::from(reference)).vortex_expect("for");
         let array = for_arr.to_array();
@@ -219,7 +220,7 @@ fn bench_dict_bp_codes(c: &mut Criterion) {
 
         let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(codes_prim.as_ref(), dict_bit_width)
+        let codes_bp = BitPackedArray::encode(&codes_prim.to_array(), dict_bit_width)
             .vortex_expect("bitpack codes");
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values.clone()), NonNullable);
         let dict = DictArray::new(codes_bp.into_array(), values_prim.into_array());
@@ -308,7 +309,7 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
     let dict_residuals: Vec<u32> = (0..dict_size as u32).collect();
     let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
     let dict_bp =
-        BitPackedArray::encode(dict_prim.as_ref(), dict_bit_width).vortex_expect("bitpack dict");
+        BitPackedArray::encode(&dict_prim.to_array(), dict_bit_width).vortex_expect("bitpack dict");
     let dict_for = FoRArray::try_new(dict_bp.into_array(), Scalar::from(dict_reference))
         .vortex_expect("for dict");
 
@@ -317,7 +318,7 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
 
         let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(codes_prim.as_ref(), codes_bit_width)
+        let codes_bp = BitPackedArray::encode(&codes_prim.to_array(), codes_bit_width)
             .vortex_expect("bitpack codes");
 
         let dict = DictArray::new(codes_bp.into_array(), dict_for.to_array());

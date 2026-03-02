@@ -17,7 +17,7 @@ use crate::vtable::ValidityHelper;
 impl TakeExecute for MaskedVTable {
     fn take(
         array: &MaskedArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let taken_child = if !indices.all_valid()? {
@@ -69,6 +69,6 @@ mod tests {
         ).unwrap()
     )]
     fn test_take_masked_conformance(#[case] array: MaskedArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.to_array());
     }
 }

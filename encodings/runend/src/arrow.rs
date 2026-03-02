@@ -38,7 +38,7 @@ where
                 .as_primitive_typed()
                 .search_sorted(&PValue::from(offset), SearchSortedSide::Right)?
                 .to_ends_index(ends.len());
-            let slice_end = find_slice_end_index(ends.as_ref(), offset + len)?;
+            let slice_end = find_slice_end_index(&ends.to_array(), offset + len)?;
 
             (
                 ends.slice(slice_begin..slice_end)?,

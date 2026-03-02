@@ -125,6 +125,6 @@ mod tests {
     )]
     fn test_cast_delta_conformance(#[case] primitive: PrimitiveArray) {
         let delta_array = DeltaArray::try_from_primitive_array(&primitive).unwrap();
-        test_cast_conformance(delta_array.as_ref());
+        test_cast_conformance(&delta_array.to_array());
     }
 }

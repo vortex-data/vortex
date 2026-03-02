@@ -178,6 +178,6 @@ mod tests {
     #[test]
     fn is_constant_with_patches() {
         let array = BitPackedArray::encode(&buffer![4; 1025].into_array(), 2).unwrap();
-        assert!(is_constant(array.as_ref()).unwrap().unwrap());
+        assert!(is_constant(&array.to_array()).unwrap().unwrap());
     }
 }

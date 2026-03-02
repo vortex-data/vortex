@@ -18,7 +18,7 @@ use crate::vtable::ValidityHelper;
 impl TakeExecute for StructVTable {
     fn take(
         array: &StructArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // If the struct array is empty then the indices must be all null, otherwise it will access

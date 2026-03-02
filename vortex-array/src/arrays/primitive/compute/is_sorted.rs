@@ -106,7 +106,7 @@ mod tests {
     #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), false)]
     fn test_primitive_is_sorted(#[case] array: PrimitiveArray, #[case] expected: bool) {
         assert_eq!(
-            is_sorted(array.as_ref()).vortex_expect("operation should succeed in test"),
+            is_sorted(&array.to_array()).vortex_expect("operation should succeed in test"),
             Some(expected)
         );
     }
@@ -119,7 +119,7 @@ mod tests {
     #[case(PrimitiveArray::from_option_iter([None, Some(5_u8), None]), false)]
     fn test_primitive_is_strict_sorted(#[case] array: PrimitiveArray, #[case] expected: bool) {
         assert_eq!(
-            is_strict_sorted(array.as_ref()).vortex_expect("operation should succeed in test"),
+            is_strict_sorted(&array.to_array()).vortex_expect("operation should succeed in test"),
             Some(expected)
         );
     }

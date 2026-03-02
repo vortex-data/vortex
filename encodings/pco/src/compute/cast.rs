@@ -169,6 +169,6 @@ mod tests {
     ))]
     fn test_cast_pco_conformance(#[case] values: PrimitiveArray) {
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
-        test_cast_conformance(pco.as_ref());
+        test_cast_conformance(&pco.to_array());
     }
 }

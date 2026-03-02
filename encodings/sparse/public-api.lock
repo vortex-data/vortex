@@ -4,7 +4,7 @@ pub struct vortex_sparse::SparseArray
 
 impl vortex_sparse::SparseArray
 
-pub fn vortex_sparse::SparseArray::encode(array: &dyn vortex_array::array::Array, fill_value: core::option::Option<vortex_array::scalar::Scalar>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_sparse::SparseArray::encode(array: &vortex_array::array::ArrayRef, fill_value: core::option::Option<vortex_array::scalar::Scalar>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 pub fn vortex_sparse::SparseArray::fill_scalar(&self) -> &vortex_array::scalar::Scalar
 
@@ -74,7 +74,7 @@ pub fn vortex_sparse::SparseVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>)
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_sparse::SparseVTable
 
-pub fn vortex_sparse::SparseVTable::take(array: &vortex_sparse::SparseArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_sparse::SparseVTable::take(array: &vortex_sparse::SparseArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_sparse::SparseVTable
 

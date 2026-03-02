@@ -4,13 +4,13 @@
 use std::fmt::Formatter;
 
 use prost::Message;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::arrays::StructArray;
 use crate::builtins::ArrayBuiltins;
 use crate::builtins::ExprBuiltins;
@@ -105,12 +105,13 @@ impl ScalarFnVTable for GetItem {
         Ok(field_dtype)
     }
 
-    fn execute(&self, field_name: &FieldName, mut args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let input = args
-            .inputs
-            .pop()
-            .vortex_expect("missing input for GetItem expression")
-            .execute::<StructArray>(args.ctx)?;
+    fn execute(
+        &self,
+        field_name: &FieldName,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let input = args.get(0)?.execute::<StructArray>(ctx)?;
         let field = input.unmasked_field_by_name(field_name).cloned()?;
 
         match input.dtype().nullability() {

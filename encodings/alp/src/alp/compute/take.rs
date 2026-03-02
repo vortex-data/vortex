@@ -14,7 +14,7 @@ use crate::ALPVTable;
 impl TakeExecute for ALPVTable {
     fn take(
         array: &ALPArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let taken_encoded = array.encoded().take(indices.to_array())?;
@@ -55,6 +55,6 @@ mod test {
     #[case(buffer![42.42f64].into_array())]
     fn test_take_alp_conformance(#[case] array: vortex_array::ArrayRef) {
         let alp = alp_encode(&array.to_primitive(), None).unwrap();
-        test_take_conformance(alp.as_ref());
+        test_take_conformance(&alp.to_array());
     }
 }

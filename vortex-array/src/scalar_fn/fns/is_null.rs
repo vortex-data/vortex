@@ -3,11 +3,11 @@
 
 use std::fmt::Formatter;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
@@ -75,17 +75,22 @@ impl ScalarFnVTable for IsNull {
         Ok(DType::Bool(Nullability::NonNullable))
     }
 
-    fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let child = args.inputs.pop().vortex_expect("Missing input child");
+    fn execute(
+        &self,
+        _data: &Self::Options,
+        args: &dyn ExecutionArgs,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let child = args.get(0)?;
         if let Some(scalar) = child.as_constant() {
-            return Ok(ConstantArray::new(scalar.is_null(), args.row_count).into_array());
+            return Ok(ConstantArray::new(scalar.is_null(), args.row_count()).into_array());
         }
 
         match child.validity()? {
             Validity::NonNullable | Validity::AllValid => {
-                Ok(ConstantArray::new(false, args.row_count).into_array())
+                Ok(ConstantArray::new(false, args.row_count()).into_array())
             }
-            Validity::AllInvalid => Ok(ConstantArray::new(true, args.row_count).into_array()),
+            Validity::AllInvalid => Ok(ConstantArray::new(true, args.row_count()).into_array()),
             Validity::Array(a) => a.not(),
         }
     }

@@ -8,9 +8,7 @@
 //! - [`DynExtDType`]: The private sealed trait for type-erased dispatch.
 
 use std::any::Any;
-use std::fmt::Debug;
-use std::fmt::Display;
-use std::fmt::Formatter;
+use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
@@ -23,6 +21,7 @@ use crate::dtype::Nullability;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
+use crate::scalar::ScalarValue;
 
 /// A typed extension data type, parameterized by a concrete [`ExtVTable`].
 ///
@@ -118,9 +117,9 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     /// Returns the metadata as a trait object for downcasting.
     fn metadata_any(&self) -> &dyn Any;
     /// Formats the metadata using [`Debug`].
-    fn metadata_debug(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
+    fn metadata_debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
     /// Formats the metadata using [`Display`].
-    fn metadata_display(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
+    fn metadata_display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
     /// Checks equality of the metadata against a type-erased value.
     fn metadata_eq(&self, other: &dyn Any) -> bool;
     /// Hashes the metadata into the given [`Hasher`].
@@ -129,6 +128,11 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     fn metadata_serialize(&self) -> VortexResult<Vec<u8>>;
     /// Returns a new [`ExtDTypeRef`] with the given nullability.
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef;
+    /// Validates that the given storage scalar value is valid for this dtype.
+    fn value_validate(&self, storage_value: &ScalarValue) -> VortexResult<()>;
+    /// Formats an extension scalar value using the current dtype for metadata context.
+    fn value_display(&self, f: &mut fmt::Formatter<'_>, storage_value: &ScalarValue)
+    -> fmt::Result;
 }
 
 impl<V: ExtVTable> DynExtDType for ExtDTypeInner<V> {
@@ -148,12 +152,12 @@ impl<V: ExtVTable> DynExtDType for ExtDTypeInner<V> {
         &self.metadata
     }
 
-    fn metadata_debug(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        <V::Metadata as Debug>::fmt(&self.metadata, f)
+    fn metadata_debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        <V::Metadata as fmt::Debug>::fmt(&self.metadata, f)
     }
 
-    fn metadata_display(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        <V::Metadata as Display>::fmt(&self.metadata, f)
+    fn metadata_display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        <V::Metadata as fmt::Display>::fmt(&self.metadata, f)
     }
 
     fn metadata_eq(&self, other: &dyn Any) -> bool {
@@ -179,5 +183,29 @@ impl<V: ExtVTable> DynExtDType for ExtDTypeInner<V> {
                  but different nullability",
             )
             .erased()
+    }
+
+    fn value_validate(&self, storage_value: &ScalarValue) -> VortexResult<()> {
+        self.vtable
+            .validate_scalar_value(&self.metadata, &self.storage_dtype, storage_value)
+    }
+
+    fn value_display(
+        &self,
+        f: &mut fmt::Formatter<'_>,
+        storage_value: &ScalarValue,
+    ) -> fmt::Result {
+        match self
+            .vtable
+            .unpack_native(&self.metadata, &self.storage_dtype, storage_value)
+        {
+            Ok(native) => fmt::Display::fmt(&native, f),
+            Err(_) => write!(
+                f,
+                "<error unpacking native storage value {} for extension type {}>",
+                storage_value,
+                self.id()
+            ),
+        }
     }
 }

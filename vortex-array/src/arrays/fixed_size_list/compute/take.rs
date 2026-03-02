@@ -28,7 +28,7 @@ use crate::vtable::ValidityHelper;
 impl TakeExecute for FixedSizeListVTable {
     fn take(
         array: &FixedSizeListArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         match_each_integer_ptype!(indices.dtype().as_ptype(), |I| {
@@ -41,7 +41,7 @@ impl TakeExecute for FixedSizeListVTable {
 /// Dispatches to the appropriate take implementation based on list size and nullability.
 fn take_with_indices<I: IntegerPType>(
     array: &FixedSizeListArray,
-    indices: &dyn Array,
+    indices: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;

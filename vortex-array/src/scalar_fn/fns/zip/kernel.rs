@@ -5,7 +5,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::ExactScalarFn;
@@ -25,11 +24,8 @@ use crate::vtable::VTable;
 /// Dispatch is on child 0 (if_true). The `if_false` and `mask` are extracted from
 /// the parent `ScalarFnArray`.
 pub trait ZipReduce: VTable {
-    fn zip(
-        array: &Self::Array,
-        if_false: &dyn Array,
-        mask: &Mask,
-    ) -> VortexResult<Option<ArrayRef>>;
+    fn zip(array: &Self::Array, if_false: &ArrayRef, mask: &Mask)
+    -> VortexResult<Option<ArrayRef>>;
 }
 
 /// Zip two arrays using a mask, potentially reading buffers.
@@ -42,7 +38,7 @@ pub trait ZipReduce: VTable {
 pub trait ZipKernel: VTable {
     fn zip(
         array: &Self::Array,
-        if_false: &dyn Array,
+        if_false: &ArrayRef,
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
@@ -71,8 +67,8 @@ where
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let children = scalar_fn_array.children();
-        let if_false = &*children[1];
-        let mask_array = &*children[2];
+        let if_false = &children[1];
+        let mask_array = &children[2];
         let mask = mask_array.try_to_mask_fill_null_false()?;
         <V as ZipReduce>::zip(array, if_false, &mask)
     }
@@ -102,8 +98,8 @@ where
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let children = scalar_fn_array.children();
-        let if_false = &*children[1];
-        let mask_array = &*children[2];
+        let if_false = &children[1];
+        let mask_array = &children[2];
         let mask = mask_array.try_to_mask_fill_null_false()?;
         <V as ZipKernel>::zip(array, if_false, &mask, ctx)
     }

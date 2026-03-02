@@ -28,7 +28,7 @@ use crate::match_each_alp_float_ptype;
 impl CompareKernel for ALPVTable {
     fn compare(
         lhs: &ALPArray,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

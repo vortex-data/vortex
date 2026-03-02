@@ -113,7 +113,7 @@ where
 
     // Load kernel function
     let kernel_ptypes = [P::PTYPE];
-    let cuda_function = ctx.load_function_ptype("constant_numeric", &kernel_ptypes)?;
+    let cuda_function = ctx.load_function("constant_numeric", &kernel_ptypes)?;
 
     ctx.launch_kernel(&cuda_function, array_len, |args| {
         args.arg(&output_view);
@@ -169,7 +169,8 @@ where
     let array_len_u64 = array_len as u64;
 
     // Load kernel function
-    let cuda_function = ctx.load_function("constant_numeric", &[&D::DECIMAL_TYPE.to_string()])?;
+    let cuda_function =
+        ctx.load_function_with_suffixes("constant_numeric", &[&D::DECIMAL_TYPE.to_string()])?;
 
     ctx.launch_kernel(&cuda_function, array_len, |args| {
         args.arg(&output_view);

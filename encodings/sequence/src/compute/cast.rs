@@ -195,6 +195,6 @@ mod tests {
         5,
     ).unwrap())]
     fn test_cast_sequence_conformance(#[case] sequence: SequenceArray) {
-        test_cast_conformance(sequence.as_ref());
+        test_cast_conformance(&sequence.to_array());
     }
 }

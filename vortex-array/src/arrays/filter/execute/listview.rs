@@ -96,7 +96,7 @@ mod test {
         let sizes = buffer![2u32, 2, 2].into_array();
         let array =
             ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
     }
 
     #[test]
@@ -107,7 +107,7 @@ mod test {
         let sizes = buffer![2u32, 2, 2].into_array();
         let validity = Validity::from_iter([true, false, true]);
         let array = ListViewArray::new(elements.into_array(), offsets, sizes, validity);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
     }
 
     #[test]
@@ -120,7 +120,7 @@ mod test {
             ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
                 .with_zero_copy_to_list(true)
         };
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
     }
 
     #[test]
@@ -131,7 +131,7 @@ mod test {
         let offsets = buffer![5u32, 2, 8, 0, 1].into_array();
         let sizes = buffer![3u32, 2, 2, 2, 4].into_array();
         let array = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
     }
 
     #[test]
@@ -141,7 +141,7 @@ mod test {
         let offsets = buffer![0u32, 100, 200, 300, 400, 500, 600, 700, 800, 900].into_array();
         let sizes = buffer![50u32, 50, 50, 50, 50, 50, 50, 50, 50, 50].into_array();
         let array = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.to_array());
     }
 
     #[test]

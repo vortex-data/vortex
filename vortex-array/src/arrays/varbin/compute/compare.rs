@@ -36,7 +36,7 @@ use crate::vtable::ValidityHelper;
 impl CompareKernel for VarBinVTable {
     fn compare(
         lhs: &VarBinArray,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -83,7 +83,7 @@ impl CompareKernel for VarBinVTable {
                 ));
             }
 
-            let lhs = Datum::try_new(lhs.as_ref())?;
+            let lhs = Datum::try_new(&lhs.to_array())?;
 
             // Use StringViewArray/BinaryViewArray to match the Utf8View/BinaryView types
             // produced by Datum::try_new (which uses into_arrow_preferred())

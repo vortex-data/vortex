@@ -120,7 +120,7 @@ mod tests {
     fn test_filter_sparse_array() {
         let null_fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
         test_filter_conformance(
-            SparseArray::try_new(
+            &SparseArray::try_new(
                 buffer![1u64, 2, 4].into_array(),
                 buffer![100i32, 200, 300]
                     .into_array()
@@ -130,19 +130,19 @@ mod tests {
                 null_fill_value,
             )
             .unwrap()
-            .as_ref(),
+            .to_array(),
         );
 
         let ten_fill_value = Scalar::from(10i32);
         test_filter_conformance(
-            SparseArray::try_new(
+            &SparseArray::try_new(
                 buffer![1u64, 2, 4].into_array(),
                 buffer![100i32, 200, 300].into_array(),
                 5,
                 ten_fill_value,
             )
             .unwrap()
-            .as_ref(),
+            .to_array(),
         )
     }
 }

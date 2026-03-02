@@ -202,6 +202,7 @@ mod tests {
     use vortex::array::scalar::Scalar;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
+    use vortex::dtype::PType;
     use vortex::encodings::alp::ALPArray;
     use vortex::encodings::alp::ALPFloat;
     use vortex::encodings::alp::Exponents;
@@ -231,7 +232,7 @@ mod tests {
             .map(|i| ((i as u64) % (max_val + 1)) as u32)
             .collect();
         let primitive = PrimitiveArray::new(Buffer::from(values), NonNullable);
-        BitPackedArray::encode(primitive.as_ref(), bit_width)
+        BitPackedArray::encode(&primitive.to_array(), bit_width)
             .vortex_expect("failed to create BitPacked array")
     }
 
@@ -387,7 +388,7 @@ mod tests {
         cuda_ctx.stream().synchronize().expect("sync");
 
         let cuda_function = cuda_ctx
-            .load_function("dynamic_dispatch", &["u32"])
+            .load_function("dynamic_dispatch", &[PType::U32])
             .vortex_expect("load kernel");
         let mut launch_builder = cuda_ctx.launch_builder(&cuda_function);
         launch_builder.arg(&output_ptr);
@@ -503,12 +504,12 @@ mod tests {
 
         // BitPack+FoR the dict values
         let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
-        let dict_bp = BitPackedArray::encode(dict_prim.as_ref(), 6)?;
+        let dict_bp = BitPackedArray::encode(&dict_prim.to_array(), 6)?;
         let dict_for = FoRArray::try_new(dict_bp.into_array(), Scalar::from(dict_reference))?;
 
         // BitPack the codes
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(codes_prim.as_ref(), 6)?;
+        let codes_bp = BitPackedArray::encode(&codes_prim.to_array(), 6)?;
 
         let dict = DictArray::try_new(codes_bp.into_array(), dict_for.into_array())?;
 
@@ -568,7 +569,7 @@ mod tests {
             .collect();
 
         let prim = PrimitiveArray::new(Buffer::from(raw), NonNullable);
-        let bp = BitPackedArray::encode(prim.as_ref(), bit_width)?;
+        let bp = BitPackedArray::encode(&prim.to_array(), bit_width)?;
         let zz = ZigZagArray::try_new(bp.into_array())?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
@@ -648,7 +649,7 @@ mod tests {
         // BitPack codes, then wrap in FoR (reference=0 so values unchanged)
         let bit_width: u8 = 3;
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(codes_prim.as_ref(), bit_width)?;
+        let codes_bp = BitPackedArray::encode(&codes_prim.to_array(), bit_width)?;
         let codes_for = FoRArray::try_new(codes_bp.into_array(), Scalar::from(0u32))?;
 
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
@@ -673,7 +674,7 @@ mod tests {
 
         let bit_width: u8 = 2;
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(codes_prim.as_ref(), bit_width)?;
+        let codes_bp = BitPackedArray::encode(&codes_prim.to_array(), bit_width)?;
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
 
         let dict = DictArray::try_new(codes_bp.into_array(), values_prim.into_array())?;

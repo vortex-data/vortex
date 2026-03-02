@@ -158,8 +158,8 @@ impl ListArray {
     ///
     /// This function checks all the invariants required by [`ListArray::new_unchecked`].
     pub fn validate(
-        elements: &dyn Array,
-        offsets: &dyn Array,
+        elements: &ArrayRef,
+        offsets: &ArrayRef,
         validity: &Validity,
     ) -> VortexResult<()> {
         // Offsets must have at least one element

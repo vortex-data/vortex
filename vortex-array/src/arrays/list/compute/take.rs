@@ -31,7 +31,7 @@ impl TakeExecute for ListVTable {
     #[expect(clippy::cognitive_complexity)]
     fn take(
         array: &ListArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
@@ -105,7 +105,7 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     Ok(ListArray::try_new(
         new_elements,
         new_offsets,
-        array.validity().clone().take(indices_array.as_ref())?,
+        array.validity().clone().take(&indices_array.to_array())?,
     )?
     .to_array())
 }
@@ -174,7 +174,7 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
     Ok(ListArray::try_new(
         new_elements,
         new_offsets,
-        array.validity().clone().take(indices_array.as_ref())?,
+        array.validity().clone().take(&indices_array.to_array())?,
     )?
     .to_array())
 }
@@ -397,7 +397,7 @@ mod test {
         Validity::NonNullable,
     ).unwrap())]
     fn test_take_list_conformance(#[case] list: ListArray) {
-        test_take_conformance(list.as_ref());
+        test_take_conformance(&list.to_array());
     }
 
     #[test]

@@ -5,7 +5,6 @@ use std::ops::Range;
 
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
@@ -25,7 +24,7 @@ impl PrimitiveArray {
         let patched_validity = self.validity().clone().patch(
             self.len(),
             patches.offset(),
-            patch_indices.as_ref(),
+            &patch_indices.to_array(),
             patch_values.validity(),
         )?;
         Ok(match_each_integer_ptype!(patch_indices.ptype(), |I| {

@@ -501,7 +501,7 @@ impl Scheme for NullDominated {
         assert!(ctx.allowed_cascading > 0);
 
         // We pass None as we only run this pathway for NULL-dominated float arrays
-        let sparse_encoded = SparseArray::encode(stats.src.as_ref(), None)?;
+        let sparse_encoded = SparseArray::encode(&stats.src.to_array(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
             // Compress the values

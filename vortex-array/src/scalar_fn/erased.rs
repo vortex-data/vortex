@@ -15,6 +15,7 @@ use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -109,8 +110,12 @@ impl ScalarFnRef {
     }
 
     /// Execute the expression given the input arguments.
-    pub fn execute(&self, ctx: ExecutionArgs) -> VortexResult<ArrayRef> {
-        self.0.execute(ctx)
+    pub fn execute(
+        &self,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        self.0.execute(args, ctx)
     }
 
     /// Perform abstract reduction on this scalar function node.

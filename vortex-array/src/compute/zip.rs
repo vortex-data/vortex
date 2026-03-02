@@ -18,7 +18,7 @@ use crate::builtins::ArrayBuiltins;
 /// SQL semantics (DuckDB, Trino) where a null condition falls through to the ELSE branch,
 /// rather than Arrow's `if_else` which propagates null conditions to the output.
 #[deprecated(note = "use if_true.zip(if_false, mask) via ArrayBuiltins instead")]
-pub fn zip(if_true: &dyn Array, if_false: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
+pub fn zip(if_true: &ArrayRef, if_false: &ArrayRef, mask: &Mask) -> VortexResult<ArrayRef> {
     if_true
         .to_array()
         .zip(if_false.to_array(), mask.clone().into_array())

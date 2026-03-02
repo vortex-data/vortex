@@ -15,7 +15,7 @@ use crate::SparseVTable;
 impl TakeExecute for SparseVTable {
     fn take(
         array: &SparseArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let patches_take = if array.fill_scalar().is_null() {
@@ -199,6 +199,6 @@ mod test {
     ).unwrap())]
     fn test_take_sparse_conformance(#[case] sparse: SparseArray) {
         use vortex_array::compute::conformance::take::test_take_conformance;
-        test_take_conformance(sparse.as_ref());
+        test_take_conformance(&sparse.to_array());
     }
 }

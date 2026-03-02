@@ -68,8 +68,7 @@ mod tests {
     #[test]
     fn test_cast_bitpacked_u8_to_u32() {
         let packed =
-            BitPackedArray::encode(buffer![10u8, 20, 30, 40, 50, 60].into_array().as_ref(), 6)
-                .unwrap();
+            BitPackedArray::encode(&buffer![10u8, 20, 30, 40, 50, 60].into_array(), 6).unwrap();
 
         let casted = packed
             .to_array()
@@ -89,7 +88,7 @@ mod tests {
     #[test]
     fn test_cast_bitpacked_nullable() {
         let values = PrimitiveArray::from_option_iter([Some(5u16), None, Some(10), Some(15), None]);
-        let packed = BitPackedArray::encode(values.as_ref(), 4).unwrap();
+        let packed = BitPackedArray::encode(&values.to_array(), 4).unwrap();
 
         let casted = packed
             .to_array()
@@ -102,11 +101,11 @@ mod tests {
     }
 
     #[rstest]
-    #[case(BitPackedArray::encode(buffer![0u8, 10, 20, 30, 40, 50, 60, 63].into_array().as_ref(), 6).unwrap())]
-    #[case(BitPackedArray::encode(buffer![0u16, 100, 200, 300, 400, 500].into_array().as_ref(), 9).unwrap())]
-    #[case(BitPackedArray::encode(buffer![0u32, 1000, 2000, 3000, 4000].into_array().as_ref(), 12).unwrap())]
-    #[case(BitPackedArray::encode(PrimitiveArray::from_option_iter([Some(1u32), None, Some(7), Some(15), None]).as_ref(), 4).unwrap())]
+    #[case(BitPackedArray::encode(&buffer![0u8, 10, 20, 30, 40, 50, 60, 63].into_array(), 6).unwrap())]
+    #[case(BitPackedArray::encode(&buffer![0u16, 100, 200, 300, 400, 500].into_array(), 9).unwrap())]
+    #[case(BitPackedArray::encode(&buffer![0u32, 1000, 2000, 3000, 4000].into_array(), 12).unwrap())]
+    #[case(BitPackedArray::encode(&PrimitiveArray::from_option_iter([Some(1u32), None, Some(7), Some(15), None]).to_array(), 4).unwrap())]
     fn test_cast_bitpacked_conformance(#[case] array: BitPackedArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.to_array());
     }
 }

@@ -116,7 +116,7 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
     ///
     /// Note that the list entry will be non-null but the elements themselves are allowed to be null
     /// (only if the elements [`DType`] is nullable, of course).
-    pub fn append_array_as_list(&mut self, array: &dyn Array) -> VortexResult<()> {
+    pub fn append_array_as_list(&mut self, array: &ArrayRef) -> VortexResult<()> {
         vortex_ensure!(
             array.dtype() == self.element_dtype(),
             "Array dtype {:?} does not match list element dtype {:?}",
@@ -290,7 +290,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         self.append_value(list_scalar)
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let listview = array.to_listview();
         if listview.is_empty() {
             return;
@@ -344,7 +344,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
             .vortex_expect(
                 "was somehow unable to cast the new sizes to the type of the builder sizes",
             );
-        self.sizes_builder.extend_from_array(cast_sizes.as_ref());
+        self.sizes_builder.extend_from_array(&cast_sizes);
 
         // Now we need to adjust all of the offsets by adding the current number of elements in the
         // builder.

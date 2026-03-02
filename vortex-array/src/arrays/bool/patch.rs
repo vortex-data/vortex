@@ -20,7 +20,7 @@ impl BoolArray {
         let patched_validity =
             self.validity()
                 .clone()
-                .patch(len, offset, indices.as_ref(), values.validity())?;
+                .patch(len, offset, &indices.to_array(), values.validity())?;
 
         let mut own_values = self.into_bit_buffer().into_mut();
         match_each_unsigned_integer_ptype!(indices.ptype(), |I| {

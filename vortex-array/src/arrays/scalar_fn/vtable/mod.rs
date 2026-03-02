@@ -38,6 +38,7 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vtable;
@@ -195,12 +196,8 @@ impl VTable for ScalarFnVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
-        let args = ExecutionArgs {
-            inputs: array.children.clone(),
-            row_count: array.len,
-            ctx,
-        };
-        array.scalar_fn.execute(args)
+        let args = VecExecutionArgs::new(array.children.clone(), array.len);
+        array.scalar_fn.execute(&args, ctx)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
@@ -358,8 +355,13 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
         Ok(options.0.dtype().clone())
     }
 
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        crate::Executable::execute(options.0.clone(), args.ctx)
+    fn execute(
+        &self,
+        options: &Self::Options,
+        _args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        crate::Executable::execute(options.0.clone(), ctx)
     }
 
     fn validity(

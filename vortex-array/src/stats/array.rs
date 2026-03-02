@@ -147,16 +147,17 @@ impl StatsSetRef<'_> {
             return Ok(Some(s));
         }
 
+        let array_ref = self.dyn_array_ref.to_array();
         Ok(match stat {
-            Stat::Min => min_max(self.dyn_array_ref)?.map(|MinMaxResult { min, max: _ }| min),
-            Stat::Max => min_max(self.dyn_array_ref)?.map(|MinMaxResult { min: _, max }| max),
+            Stat::Min => min_max(&array_ref)?.map(|MinMaxResult { min, max: _ }| min),
+            Stat::Max => min_max(&array_ref)?.map(|MinMaxResult { min: _, max }| max),
             Stat::Sum => {
                 Stat::Sum
                     .dtype(self.dyn_array_ref.dtype())
                     .is_some()
                     .then(|| {
                         // Sum is supported for this dtype.
-                        sum(self.dyn_array_ref)
+                        sum(&array_ref)
                     })
                     .transpose()?
             }
@@ -165,16 +166,16 @@ impl StatsSetRef<'_> {
                 if self.dyn_array_ref.is_empty() {
                     None
                 } else {
-                    is_constant(self.dyn_array_ref)?.map(|v| v.into())
+                    is_constant(&array_ref)?.map(|v| v.into())
                 }
             }
-            Stat::IsSorted => is_sorted(self.dyn_array_ref)?.map(|v| v.into()),
-            Stat::IsStrictSorted => is_strict_sorted(self.dyn_array_ref)?.map(|v| v.into()),
+            Stat::IsSorted => is_sorted(&array_ref)?.map(|v| v.into()),
+            Stat::IsStrictSorted => is_strict_sorted(&array_ref)?.map(|v| v.into()),
             Stat::UncompressedSizeInBytes => {
                 let mut builder =
                     builder_with_capacity(self.dyn_array_ref.dtype(), self.dyn_array_ref.len());
                 unsafe {
-                    builder.extend_from_array_unchecked(self.dyn_array_ref);
+                    builder.extend_from_array_unchecked(&array_ref);
                 }
                 let nbytes = builder.finish().nbytes();
                 self.set(stat, Precision::exact(nbytes));
@@ -186,7 +187,7 @@ impl StatsSetRef<'_> {
                     .is_some()
                     .then(|| {
                         // NaNCount is supported for this dtype.
-                        nan_count(self.dyn_array_ref)
+                        nan_count(&array_ref)
                     })
                     .transpose()?
                     .map(|s| s.into())

@@ -83,7 +83,7 @@ impl TakeImpl for TakeKernelScalar {
 impl TakeExecute for PrimitiveVTable {
     fn take(
         array: &PrimitiveArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let DType::Primitive(ptype, null) = indices.dtype() else {
@@ -100,7 +100,7 @@ impl TakeExecute for PrimitiveVTable {
                 .execute::<PrimitiveArray>(ctx)?
         };
 
-        let validity = array.validity().take(unsigned_indices.as_ref())?;
+        let validity = array.validity().take(&unsigned_indices.to_array())?;
         // Delegate to the best kernel based on the target CPU
         PRIMITIVE_TAKE_KERNEL
             .take(array, &unsigned_indices, validity)
@@ -195,6 +195,6 @@ mod test {
     ))]
     #[case(PrimitiveArray::from_option_iter([Some(1), None, Some(3), Some(4), None]))]
     fn test_take_primitive_conformance(#[case] array: PrimitiveArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.to_array());
     }
 }

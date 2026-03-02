@@ -223,9 +223,9 @@ impl ListViewArray {
 
     /// Validates the components that would be used to create a [`ListViewArray`].
     pub fn validate(
-        elements: &dyn Array,
-        offsets: &dyn Array,
-        sizes: &dyn Array,
+        elements: &ArrayRef,
+        offsets: &ArrayRef,
+        sizes: &ArrayRef,
         validity: &Validity,
     ) -> VortexResult<()> {
         // Check that offsets and sizes are integer arrays and non-nullable.
@@ -494,7 +494,7 @@ where
 /// Helper function to validate if the [`ListViewArray`] components are actually zero-copyable to
 /// [`ListArray`](crate::arrays::ListArray).
 fn validate_zctl(
-    elements: &dyn Array,
+    elements: &ArrayRef,
     offsets_primitive: PrimitiveArray,
     sizes_primitive: PrimitiveArray,
 ) -> VortexResult<()> {

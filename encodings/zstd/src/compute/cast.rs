@@ -188,6 +188,6 @@ mod tests {
     ))]
     fn test_cast_zstd_conformance(#[case] values: PrimitiveArray) {
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
-        test_cast_conformance(zstd.as_ref());
+        test_cast_conformance(&zstd.to_array());
     }
 }

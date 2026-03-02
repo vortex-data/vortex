@@ -11,6 +11,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray as _;
 use crate::arrays::ConstantVTable;
 use crate::arrays::NullVTable;
 use crate::compute::ComputeFn;
@@ -39,15 +41,15 @@ pub(crate) fn warm_up_vtable() -> usize {
     IS_SORTED_FN.kernels().len()
 }
 
-pub fn is_sorted(array: &dyn Array) -> VortexResult<Option<bool>> {
+pub fn is_sorted(array: &ArrayRef) -> VortexResult<Option<bool>> {
     is_sorted_opts(array, false)
 }
 
-pub fn is_strict_sorted(array: &dyn Array) -> VortexResult<Option<bool>> {
+pub fn is_strict_sorted(array: &ArrayRef) -> VortexResult<Option<bool>> {
     is_sorted_opts(array, true)
 }
 
-pub fn is_sorted_opts(array: &dyn Array, strict: bool) -> VortexResult<Option<bool>> {
+pub fn is_sorted_opts(array: &ArrayRef, strict: bool) -> VortexResult<Option<bool>> {
     Ok(IS_SORTED_FN
         .invoke(&InvocationArgs {
             inputs: &[array.into()],
@@ -66,6 +68,7 @@ impl ComputeFnVTable for IsSorted {
         kernels: &[ArcRef<dyn Kernel>],
     ) -> VortexResult<Output> {
         let IsSortedArgs { array, strict } = IsSortedArgs::try_from(args)?;
+        let array = array.to_array();
 
         // We currently don't support sorting struct arrays.
         if array.dtype().is_struct() {
@@ -81,7 +84,7 @@ impl ComputeFnVTable for IsSorted {
                 return Ok(scalar.into());
             }
 
-            let is_strict_sorted = is_sorted_impl(array, kernels, true)?;
+            let is_strict_sorted = is_sorted_impl(&array, kernels, true)?;
             let array_stats = array.statistics();
 
             if is_strict_sorted.is_some() {
@@ -101,7 +104,7 @@ impl ComputeFnVTable for IsSorted {
                 return Ok(scalar.into());
             }
 
-            let is_sorted = is_sorted_impl(array, kernels, false)?;
+            let is_sorted = is_sorted_impl(&array, kernels, false)?;
             let array_stats = array.statistics();
 
             if is_sorted.is_some() {
@@ -244,7 +247,7 @@ where
 }
 
 fn is_sorted_impl(
-    array: &dyn Array,
+    array: &ArrayRef,
     kernels: &[ArcRef<dyn Kernel>],
     strict: bool,
 ) -> VortexResult<Option<bool>> {
@@ -292,12 +295,12 @@ fn is_sorted_impl(
         );
 
         // Recurse to canonical implementation
-        let array = array.to_canonical()?;
+        let array = array.to_canonical()?.into_array();
 
         return if strict {
-            is_strict_sorted(array.as_ref())
+            is_strict_sorted(&array)
         } else {
-            is_sorted(array.as_ref())
+            is_sorted(&array)
         };
     }
 
@@ -319,92 +322,58 @@ mod tests {
     use crate::validity::Validity;
     #[test]
     fn test_is_sorted() {
-        assert!(
-            is_sorted(PrimitiveArray::new(buffer!(0, 1, 2, 3), Validity::AllValid).as_ref())
-                .unwrap()
-                .unwrap()
-        );
-        assert!(
-            is_sorted(
-                PrimitiveArray::new(
-                    buffer!(0, 1, 2, 3),
-                    Validity::Array(BoolArray::from_iter([false, true, true, true]).into_array())
-                )
-                .as_ref()
-            )
-            .unwrap()
-            .unwrap()
-        );
-        assert!(
-            !is_sorted(
-                PrimitiveArray::new(
-                    buffer!(0, 1, 2, 3),
-                    Validity::Array(BoolArray::from_iter([true, false, true, true]).into_array())
-                )
-                .as_ref()
-            )
-            .unwrap()
-            .unwrap()
-        );
+        let arr = PrimitiveArray::new(buffer!(0, 1, 2, 3), Validity::AllValid).into_array();
+        assert!(is_sorted(&arr).unwrap().unwrap());
 
-        assert!(
-            !is_sorted(PrimitiveArray::new(buffer!(0, 1, 3, 2), Validity::AllValid).as_ref())
-                .unwrap()
-                .unwrap()
-        );
-        assert!(
-            !is_sorted(
-                PrimitiveArray::new(
-                    buffer!(0, 1, 3, 2),
-                    Validity::Array(BoolArray::from_iter([false, true, true, true]).into_array()),
-                )
-                .as_ref()
-            )
-            .unwrap()
-            .unwrap()
-        );
+        let arr = PrimitiveArray::new(
+            buffer!(0, 1, 2, 3),
+            Validity::Array(BoolArray::from_iter([false, true, true, true]).into_array()),
+        )
+        .into_array();
+        assert!(is_sorted(&arr).unwrap().unwrap());
+
+        let arr = PrimitiveArray::new(
+            buffer!(0, 1, 2, 3),
+            Validity::Array(BoolArray::from_iter([true, false, true, true]).into_array()),
+        )
+        .into_array();
+        assert!(!is_sorted(&arr).unwrap().unwrap());
+
+        let arr = PrimitiveArray::new(buffer!(0, 1, 3, 2), Validity::AllValid).into_array();
+        assert!(!is_sorted(&arr).unwrap().unwrap());
+
+        let arr = PrimitiveArray::new(
+            buffer!(0, 1, 3, 2),
+            Validity::Array(BoolArray::from_iter([false, true, true, true]).into_array()),
+        )
+        .into_array();
+        assert!(!is_sorted(&arr).unwrap().unwrap());
     }
 
     #[test]
     fn test_is_strict_sorted() {
-        assert!(
-            is_strict_sorted(PrimitiveArray::new(buffer!(0, 1, 2, 3), Validity::AllValid).as_ref())
-                .unwrap()
-                .unwrap()
-        );
-        assert!(
-            is_strict_sorted(
-                PrimitiveArray::new(
-                    buffer!(0, 1, 2, 3),
-                    Validity::Array(BoolArray::from_iter([false, true, true, true]).into_array())
-                )
-                .as_ref()
-            )
-            .unwrap()
-            .unwrap()
-        );
-        assert!(
-            !is_strict_sorted(
-                PrimitiveArray::new(
-                    buffer!(0, 1, 2, 3),
-                    Validity::Array(BoolArray::from_iter([true, false, true, true]).into_array()),
-                )
-                .as_ref()
-            )
-            .unwrap()
-            .unwrap()
-        );
+        let arr = PrimitiveArray::new(buffer!(0, 1, 2, 3), Validity::AllValid).into_array();
+        assert!(is_strict_sorted(&arr).unwrap().unwrap());
 
-        assert!(
-            !is_strict_sorted(
-                PrimitiveArray::new(
-                    buffer!(0, 1, 3, 2),
-                    Validity::Array(BoolArray::from_iter([false, true, true, true]).into_array()),
-                )
-                .as_ref()
-            )
-            .unwrap()
-            .unwrap()
-        );
+        let arr = PrimitiveArray::new(
+            buffer!(0, 1, 2, 3),
+            Validity::Array(BoolArray::from_iter([false, true, true, true]).into_array()),
+        )
+        .into_array();
+        assert!(is_strict_sorted(&arr).unwrap().unwrap());
+
+        let arr = PrimitiveArray::new(
+            buffer!(0, 1, 2, 3),
+            Validity::Array(BoolArray::from_iter([true, false, true, true]).into_array()),
+        )
+        .into_array();
+        assert!(!is_strict_sorted(&arr).unwrap().unwrap());
+
+        let arr = PrimitiveArray::new(
+            buffer!(0, 1, 3, 2),
+            Validity::Array(BoolArray::from_iter([false, true, true, true]).into_array()),
+        )
+        .into_array();
+        assert!(!is_strict_sorted(&arr).unwrap().unwrap());
     }
 }

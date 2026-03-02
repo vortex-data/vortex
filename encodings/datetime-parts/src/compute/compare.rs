@@ -23,7 +23,7 @@ use crate::timestamp;
 impl CompareKernel for DateTimePartsVTable {
     fn compare(
         lhs: &DateTimePartsArray,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -170,7 +170,7 @@ fn compare_gt(
 }
 
 fn compare_dtp(
-    lhs: &dyn Array,
+    lhs: &ArrayRef,
     rhs: i64,
     operator: CompareOperator,
     nullability: Nullability,

@@ -78,7 +78,7 @@ pub(crate) async fn execute_patches<
     let d_patch_indices_view = d_patch_indices.cuda_view::<IndicesT>()?;
     let d_patch_values_view = d_patch_values.cuda_view::<ValuesT>()?;
 
-    let kernel_func = ctx.load_function_ptype("patches", &[ValuesT::PTYPE, IndicesT::PTYPE])?;
+    let kernel_func = ctx.load_function("patches", &[ValuesT::PTYPE, IndicesT::PTYPE])?;
 
     ctx.launch_kernel(&kernel_func, patches_len, |args| {
         args.arg(&d_target_view)

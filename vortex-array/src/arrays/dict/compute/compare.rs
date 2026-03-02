@@ -19,7 +19,7 @@ use crate::scalar_fn::fns::operators::Operator;
 impl CompareKernel for DictVTable {
     fn compare(
         lhs: &DictArray,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
