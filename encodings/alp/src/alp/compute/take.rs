@@ -15,12 +15,12 @@ impl TakeExecute for ALPVTable {
     fn take(
         array: &ALPArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let taken_encoded = array.encoded().take(indices.to_array())?;
         let taken_patches = array
             .patches()
-            .map(|p| p.take(indices))
+            .map(|p| p.take(indices, ctx))
             .transpose()?
             .flatten()
             .map(|patches| {

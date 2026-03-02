@@ -4,23 +4,27 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
-use crate::ToCanonical;
+use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
+use crate::arrays::PrimitiveArray;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 use crate::vtable::ValidityHelper;
 
 impl BoolArray {
-    pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
+    pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let len = self.len();
         let offset = patches.offset();
-        let indices = patches.indices().to_primitive();
-        let values = patches.values().to_bool();
+        let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let values = patches.values().clone().execute::<BoolArray>(ctx)?;
 
-        let patched_validity =
-            self.validity()
-                .clone()
-                .patch(len, offset, &indices.to_array(), values.validity())?;
+        let patched_validity = self.validity().clone().patch(
+            len,
+            offset,
+            &indices.to_array(),
+            values.validity(),
+            ctx,
+        )?;
 
         let mut own_values = self.into_bit_buffer().into_mut();
         match_each_unsigned_integer_ptype!(indices.ptype(), |I| {

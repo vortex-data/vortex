@@ -7,6 +7,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
+use crate::arrays::FilterReduceAdaptor;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::SliceReduceAdaptor;
@@ -21,6 +22,7 @@ pub(crate) const RULES: ParentRuleSet<BoolVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&CastReduceAdaptor(BoolVTable)),
     ParentRuleSet::lift(&MaskReduceAdaptor(BoolVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(BoolVTable)),
+    ParentRuleSet::lift(&FilterReduceAdaptor(BoolVTable)),
 ]);
 
 /// Rule to push down validity masking from MaskedArray parent into BoolArray child.

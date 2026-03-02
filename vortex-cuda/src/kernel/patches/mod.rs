@@ -97,6 +97,7 @@ mod tests {
     use cudarc::driver::DeviceRepr;
     use vortex::array::IntoArray;
     use vortex::array::ToCanonical;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::PrimitiveArrayParts;
     use vortex::array::assert_arrays_eq;
@@ -154,7 +155,13 @@ mod tests {
         let patches =
             Patches::new(128, 0, patch_idx.into_array(), patch_val.into_array(), None).unwrap();
 
-        let cpu_result = values.clone().patch(&patches).unwrap();
+        let cpu_result = values
+            .clone()
+            .patch(
+                &patches,
+                &mut vortex::array::LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
 
         let PrimitiveArrayParts {
             buffer: cuda_buffer,

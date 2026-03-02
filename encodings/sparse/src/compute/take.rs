@@ -16,12 +16,12 @@ impl TakeExecute for SparseVTable {
     fn take(
         array: &SparseArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let patches_take = if array.fill_scalar().is_null() {
-            array.patches().take(indices)?
+            array.patches().take(indices, ctx)?
         } else {
-            array.patches().take_with_nulls(indices)?
+            array.patches().take_with_nulls(indices, ctx)?
         };
 
         let Some(new_patches) = patches_take else {

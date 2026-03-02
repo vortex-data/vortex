@@ -4,7 +4,8 @@ mod canonical;
 mod operations;
 mod validity;
 
-use kernel::PARENT_KERNELS;
+use std::hash::Hash;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -16,6 +17,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
+use crate::Precision;
 use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedArray;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
@@ -23,8 +25,11 @@ use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
+use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -32,15 +37,6 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::validity_nchildren;
 use crate::vtable::validity_to_child;
-
-mod kernel;
-
-use std::hash::Hash;
-
-use crate::Precision;
-use crate::hash::ArrayEq;
-use crate::hash::ArrayHash;
-use crate::stats::StatsSetRef;
 vtable!(Masked);
 
 #[derive(Debug)]
@@ -191,15 +187,6 @@ impl VTable for MaskedVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: &Self::Array,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

@@ -11,7 +11,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
-use crate::ToCanonical;
+use crate::ExecutionCtx;
+use crate::arrays::PrimitiveArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::BigCast;
 use crate::dtype::DType;
@@ -369,16 +370,17 @@ impl DecimalArray {
         clippy::cognitive_complexity,
         reason = "complexity from nested match_each_* macros"
     )]
-    pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
+    pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let offset = patches.offset();
-        let patch_indices = patches.indices().to_primitive();
-        let patch_values = patches.values().to_decimal();
+        let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let patch_values = patches.values().clone().execute::<DecimalArray>(ctx)?;
 
         let patched_validity = self.validity().clone().patch(
             self.len(),
             offset,
             &patch_indices.to_array(),
             patch_values.validity(),
+            ctx,
         )?;
         assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());
 

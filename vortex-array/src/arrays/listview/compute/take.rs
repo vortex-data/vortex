@@ -10,10 +10,9 @@ use crate::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;
 use crate::arrays::ListViewVTable;
-use crate::arrays::TakeExecute;
+use crate::arrays::TakeReduce;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::Nullability;
-use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
@@ -42,12 +41,8 @@ const REBUILD_DENSITY_THRESHOLD: f64 = 0.1;
 ///
 /// The trade-off is that we may keep unreferenced elements in memory, but this is acceptable since
 /// we're optimizing for read performance and the data isn't being copied.
-impl TakeExecute for ListViewVTable {
-    fn take(
-        array: &ListViewArray,
-        indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
+impl TakeReduce for ListViewVTable {
+    fn take(array: &ListViewArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let elements = array.elements();
         let offsets = array.offsets();
         let sizes = array.sizes();
