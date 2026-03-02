@@ -128,7 +128,7 @@ pub fn vortex_sequence::SequenceVTable::deserialize(bytes: &[u8], _dtype: &vorte
 
 pub fn vortex_sequence::SequenceVTable::dtype(array: &vortex_sequence::SequenceArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_sequence::SequenceVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_sequence::SequenceVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
 
 pub fn vortex_sequence::SequenceVTable::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
