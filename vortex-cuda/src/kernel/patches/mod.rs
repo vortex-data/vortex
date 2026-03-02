@@ -115,30 +115,26 @@ mod tests {
     use crate::CudaSession;
     use crate::kernel::patches::execute_patches;
 
-    macro_rules! test_patches {
-        ($name:ident, $vtype:ty) => {
-            #[tokio::test]
-            async fn $name() {
-                tokio::join!(
-                    full_test_case::<$vtype, u8>(),
-                    full_test_case::<$vtype, u16>(),
-                    full_test_case::<$vtype, u32>(),
-                    full_test_case::<$vtype, u64>(),
-                );
-            }
-        };
+    #[rstest::rstest]
+    #[case::u8(0_u8)]
+    #[case::u16(0_u16)]
+    #[case::u32(0_u32)]
+    #[case::u64(0_u64)]
+    #[case::i8(0_i8)]
+    #[case::i16(0_i16)]
+    #[case::i32(0_i32)]
+    #[case::i64(0_i64)]
+    #[case::f32(0_f32)]
+    #[case::f64(0_f64)]
+    #[tokio::test]
+    async fn test_patches<Values: NativePType + DeviceRepr>(#[case] _v: Values) {
+        tokio::join!(
+            full_test_case::<Values, u8>(),
+            full_test_case::<Values, u16>(),
+            full_test_case::<Values, u32>(),
+            full_test_case::<Values, u64>(),
+        );
     }
-
-    test_patches!(test_patches_u8, u8);
-    test_patches!(test_patches_u16, u16);
-    test_patches!(test_patches_u32, u32);
-    test_patches!(test_patches_u64, u64);
-    test_patches!(test_patches_i8, i8);
-    test_patches!(test_patches_i16, i16);
-    test_patches!(test_patches_i32, i32);
-    test_patches!(test_patches_i64, i64);
-    test_patches!(test_patches_f32, f32);
-    test_patches!(test_patches_f64, f64);
 
     async fn full_test_case<Values: NativePType + DeviceRepr, Indices: NativePType + DeviceRepr>() {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
