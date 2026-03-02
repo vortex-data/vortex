@@ -565,9 +565,6 @@ jobs:
       - image=ubuntu24-gpu-x64
       - extras=s3-cache
       - tag=cuda-tests
-    env:
-      CARGO_PROFILE_DEV_DEBUG: "true"
-      CARGO_PROFILE_TEST_DEBUG: "true"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -611,9 +608,6 @@ jobs:
       - image=ubuntu24-gpu-x64
       - extras=s3-cache
       - tag=cuda-test-sanitizer
-    env:
-      CARGO_PROFILE_DEV_DEBUG: "true"
-      CARGO_PROFILE_TEST_DEBUG: "true"
     steps:
       - uses: runs-on/action@v2
         with:
