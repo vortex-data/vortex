@@ -1,5 +1,25 @@
 pub mod vortex_sparse
 
+#[repr(C)] pub struct vortex_sparse::ProstPatchesMetadata
+
+impl core::clone::Clone for vortex_sparse::ProstPatchesMetadata
+
+pub fn vortex_sparse::ProstPatchesMetadata::clone(&self) -> vortex_sparse::ProstPatchesMetadata
+
+impl core::default::Default for vortex_sparse::ProstPatchesMetadata
+
+pub fn vortex_sparse::ProstPatchesMetadata::default() -> Self
+
+impl core::fmt::Debug for vortex_sparse::ProstPatchesMetadata
+
+pub fn vortex_sparse::ProstPatchesMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl prost::message::Message for vortex_sparse::ProstPatchesMetadata
+
+pub fn vortex_sparse::ProstPatchesMetadata::clear(&mut self)
+
+pub fn vortex_sparse::ProstPatchesMetadata::encoded_len(&self) -> usize
+
 pub struct vortex_sparse::SparseArray
 
 impl vortex_sparse::SparseArray
@@ -42,25 +62,11 @@ impl vortex_array::array::IntoArray for vortex_sparse::SparseArray
 
 pub fn vortex_sparse::SparseArray::into_array(self) -> vortex_array::array::ArrayRef
 
-#[repr(C)] pub struct vortex_sparse::SparseMetadata
-
-impl core::clone::Clone for vortex_sparse::SparseMetadata
-
-pub fn vortex_sparse::SparseMetadata::clone(&self) -> vortex_sparse::SparseMetadata
-
-impl core::default::Default for vortex_sparse::SparseMetadata
-
-pub fn vortex_sparse::SparseMetadata::default() -> Self
+pub struct vortex_sparse::SparseMetadata
 
 impl core::fmt::Debug for vortex_sparse::SparseMetadata
 
 pub fn vortex_sparse::SparseMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl prost::message::Message for vortex_sparse::SparseMetadata
-
-pub fn vortex_sparse::SparseMetadata::clear(&mut self)
-
-pub fn vortex_sparse::SparseMetadata::encoded_len(&self) -> usize
 
 pub struct vortex_sparse::SparseVTable
 
@@ -96,7 +102,7 @@ impl vortex_array::vtable::VTable for vortex_sparse::SparseVTable
 
 pub type vortex_sparse::SparseVTable::Array = vortex_sparse::SparseArray
 
-pub type vortex_sparse::SparseVTable::Metadata = vortex_array::metadata::ProstMetadata<vortex_sparse::SparseMetadata>
+pub type vortex_sparse::SparseVTable::Metadata = vortex_sparse::SparseMetadata
 
 pub type vortex_sparse::SparseVTable::OperationsVTable = vortex_sparse::SparseVTable
 
@@ -110,13 +116,13 @@ pub fn vortex_sparse::SparseVTable::buffer(array: &vortex_sparse::SparseArray, i
 
 pub fn vortex_sparse::SparseVTable::buffer_name(_array: &vortex_sparse::SparseArray, idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_sparse::SparseVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_sparse::SparseArray>
+pub fn vortex_sparse::SparseVTable::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_sparse::SparseArray>
 
 pub fn vortex_sparse::SparseVTable::child(array: &vortex_sparse::SparseArray, idx: usize) -> vortex_array::array::ArrayRef
 
 pub fn vortex_sparse::SparseVTable::child_name(_array: &vortex_sparse::SparseArray, idx: usize) -> alloc::string::String
 
-pub fn vortex_sparse::SparseVTable::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_sparse::SparseVTable::deserialize(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_sparse::SparseVTable::dtype(array: &vortex_sparse::SparseArray) -> &vortex_array::dtype::DType
 

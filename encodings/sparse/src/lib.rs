@@ -10,6 +10,7 @@ use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
+use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
@@ -43,6 +44,7 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
@@ -60,9 +62,15 @@ mod slice;
 
 vtable!(Sparse);
 
+#[derive(Debug)]
+pub struct SparseMetadata {
+    patches: PatchesMetadata,
+    fill_value: Scalar,
+}
+
 #[derive(Clone, prost::Message)]
 #[repr(C)]
-pub struct SparseMetadata {
+pub struct ProstPatchesMetadata {
     #[prost(message, required, tag = "1")]
     patches: PatchesMetadata,
 }
@@ -70,7 +78,7 @@ pub struct SparseMetadata {
 impl VTable for SparseVTable {
     type Array = SparseArray;
 
-    type Metadata = ProstMetadata<SparseMetadata>;
+    type Metadata = SparseMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
@@ -134,65 +142,87 @@ impl VTable for SparseVTable {
     }
 
     fn metadata(array: &SparseArray) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(SparseMetadata {
-            patches: array.patches().to_metadata(array.len(), array.dtype())?,
-        }))
+        let patches = array.patches().to_metadata(array.len(), array.dtype())?;
+
+        Ok(SparseMetadata {
+            patches,
+            fill_value: array.fill_value.clone(),
+        })
     }
 
     fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.0.encode_to_vec()))
+        let prost_patches = ProstPatchesMetadata {
+            patches: metadata.patches,
+        };
+
+        // Note that we DO NOT serialize the fill value since that is stored in the buffers.
+        Ok(Some(prost_patches.encode_to_vec()))
     }
 
     fn deserialize(
         bytes: &[u8],
-        _dtype: &DType,
+        dtype: &DType,
         _len: usize,
-        _buffers: &[BufferHandle],
+        buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(SparseMetadata::decode(bytes)?))
+        let prost_patches =
+            <ProstMetadata<ProstPatchesMetadata> as DeserializeMetadata>::deserialize(bytes)?;
+
+        // Once we have the patches metadata, we need to get the fill value from the buffers.
+
+        if buffers.len() != 1 {
+            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
+        }
+        let scalar_bytes: &[u8] = &buffers[0].clone().try_to_host_sync()?;
+
+        let scalar_value = ScalarValue::from_proto_bytes(scalar_bytes, dtype)?;
+        let fill_value = Scalar::try_new(dtype.clone(), scalar_value)?;
+
+        Ok(SparseMetadata {
+            patches: prost_patches.patches,
+            fill_value,
+        })
     }
 
     fn build(
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        buffers: &[BufferHandle],
+        _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<SparseArray> {
-        if children.len() != 2 {
-            vortex_bail!(
-                "Expected 2 children for sparse encoding, found {}",
-                children.len()
-            )
-        }
-        vortex_ensure!(
-            metadata.0.patches.offset()? == 0,
+        vortex_ensure_eq!(
+            children.len(),
+            2,
+            "SparseArray expects 2 children for sparse encoding, found {}",
+            children.len()
+        );
+        vortex_ensure_eq!(
+            metadata.patches.offset()?,
+            0,
             "Patches must start at offset 0"
         );
 
         let patch_indices = children.get(
             0,
-            &metadata.0.patches.indices_dtype()?,
-            metadata.0.patches.len()?,
+            &metadata.patches.indices_dtype()?,
+            metadata.patches.len()?,
         )?;
-        let patch_values = children.get(1, dtype, metadata.0.patches.len()?)?;
+        let patch_values = children.get(1, dtype, metadata.patches.len()?)?;
 
-        if buffers.len() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
-        }
-
-        let bytes: &[u8] = &buffers[0].clone().try_to_host_sync()?;
-        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype)?;
-
-        let fill_value = Scalar::try_new(dtype.clone(), scalar_value)?;
-
-        SparseArray::try_new(patch_indices, patch_values, len, fill_value)
+        SparseArray::try_new(
+            patch_indices,
+            patch_values,
+            len,
+            metadata.fill_value.clone(),
+        )
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() == 2,
+        vortex_ensure_eq!(
+            children.len(),
+            2,
             "SparseArray expects 2 children, got {}",
             children.len()
         );
