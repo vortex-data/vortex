@@ -109,7 +109,7 @@ pub fn format_to_df_format(format: Format) -> Arc<dyn FileFormat> {
         Format::Csv => Arc::new(CsvFormat::default()) as _,
         Format::Arrow => Arc::new(ArrowFormat),
         Format::Parquet => Arc::new(ParquetFormat::new()),
-        Format::OnDiskVortex | Format::VortexCompact => {
+        Format::OnDiskVortex | Format::VortexCompact | Format::VortexCuda => {
             Arc::new(VortexFormat::new(SESSION.clone()))
         }
         Format::OnDiskDuckDB | Format::Lance => {

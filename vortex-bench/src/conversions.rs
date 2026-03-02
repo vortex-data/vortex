@@ -149,6 +149,7 @@ pub async fn convert_parquet_directory_to_vortex(
 ) -> anyhow::Result<()> {
     let (format, dir_name) = match compaction {
         CompactionStrategy::Compact => (Format::VortexCompact, Format::VortexCompact.name()),
+        CompactionStrategy::CudaCompatible => (Format::VortexCuda, Format::VortexCuda.name()),
         CompactionStrategy::Default => (Format::OnDiskVortex, Format::OnDiskVortex.name()),
     };
 

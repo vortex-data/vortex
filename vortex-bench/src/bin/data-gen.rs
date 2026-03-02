@@ -82,6 +82,15 @@ async fn main() -> anyhow::Result<()> {
         if args
             .formats
             .iter()
+            .any(|f| matches!(f, Format::VortexCuda))
+        {
+            convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::CudaCompatible)
+                .await?;
+        }
+
+        if args
+            .formats
+            .iter()
             .any(|f| matches!(f, Format::OnDiskDuckDB))
         {
             generate_duckdb(&base_path, &*benchmark)?;

@@ -140,6 +140,13 @@ async fn main() -> anyhow::Result<()> {
                     convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Compact)
                         .await?;
                 }
+                Format::VortexCuda => {
+                    convert_parquet_directory_to_vortex(
+                        &base_path,
+                        CompactionStrategy::CudaCompatible,
+                    )
+                    .await?;
+                }
                 _ => {}
             }
         }
@@ -233,7 +240,12 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
 ) -> anyhow::Result<()> {
     match format {
         Format::Arrow => register_arrow_tables(session, benchmark).await,
-        _ if use_scan_api() && matches!(format, Format::OnDiskVortex | Format::VortexCompact) => {
+        _ if use_scan_api()
+            && matches!(
+                format,
+                Format::OnDiskVortex | Format::VortexCompact | Format::VortexCuda
+            ) =>
+        {
             register_v2_tables(session, benchmark, format).await
         }
         _ => {
