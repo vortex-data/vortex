@@ -20,14 +20,11 @@ sudo sysctl kernel.randomize_va_space
 dmesg -n 1
 
 # Disable some unused services and features
-sudo systemctl stop apparmor snapd unattended-upgrades multipathd ModemManager
-sudo systemctl disable apparmor snapd unattended-upgrades multipathd ModemManager
+sudo systemctl stop apparmor ModemManager
+sudo systemctl disable apparmor ModemManager
 
 # mask prevents them from being started by other services
-sudo systemctl mask snapd unattended-upgrades multipathd ModemManager
+sudo systemctl mask ModemManager
 
 # For apparmor specifically, also teardown loaded profiles
 sudo aa-teardown
-
-# For auditd, also disable kernel audit
-sudo auditctl -e 0
