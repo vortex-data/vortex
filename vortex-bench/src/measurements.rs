@@ -272,6 +272,27 @@ impl QueryMeasurement {
             )
         }
     }
+
+    /// Compute |z-score| = |median - mean| / stddev for the runs.
+    /// Returns `None` if fewer than 2 runs (stddev is undefined).
+    pub fn abs_z_score(&self) -> Option<f64> {
+        let n = self.runs.len();
+        if n < 2 {
+            return None;
+        }
+
+        let nanos: Vec<f64> = self.runs.iter().map(|d| d.as_nanos() as f64).collect();
+        let mean = nanos.iter().sum::<f64>() / n as f64;
+        let variance = nanos.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
+        let stddev = variance.sqrt();
+
+        if stddev == 0.0 {
+            return Some(0.0);
+        }
+
+        let median = self.median_run().as_nanos() as f64;
+        Some(((median - mean) / stddev).abs())
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -282,6 +303,10 @@ pub struct QueryMeasurementJson {
     pub unit: String,
     pub value: u128,
     pub all_runtimes: Vec<u128>,
+    /// Absolute z-score of the median relative to the mean: |median - mean| / stddev.
+    /// Indicates how representative the reported median is. `None` when fewer than 2 runs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub abs_z_score: Option<f64>,
     pub target: Target,
     pub commit_id: String,
     pub env_triple: TripleJson,
@@ -313,6 +338,7 @@ impl ToJson for QueryMeasurement {
             unit: "ns".to_string(),
             value: self.median_run().as_nanos(),
             all_runtimes: self.runs.iter().map(|r| r.as_nanos()).collect_vec(),
+            abs_z_score: self.abs_z_score(),
             commit_id: GIT_COMMIT_ID.to_string(),
             target: self.target,
             env_triple: TripleJson {

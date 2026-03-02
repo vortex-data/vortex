@@ -63,6 +63,10 @@ threshold_pct = 30 if is_s3_benchmark else 10
 improvement_threshold = 1.0 - (threshold_pct / 100.0)  # e.g., 0.7 for 30%, 0.9 for 10%
 regression_threshold = 1.0 + (threshold_pct / 100.0)  # e.g., 1.3 for 30%, 1.1 for 10%
 
+# After merge with suffixes, z-score columns become abs_z_score_base and abs_z_score_pr
+has_z_base = "abs_z_score_base" in df3.columns
+has_z_pr = "abs_z_score_pr" in df3.columns
+
 # Generate summary statistics
 df3["ratio"] = df3["value_pr"] / df3["value_base"]
 df3["remark"] = pd.Series([""] * len(df3))
@@ -183,16 +187,21 @@ if len(vortex_df) > 0:
     )
 
 # Build table
-table_df = pd.DataFrame(
-    {
-        "name": df3["name"],
-        f"PR {pr_commit_id[:8]}": df3["value_pr"],
-        f"base {base_commit_id[:8]}": df3["value_base"],
-        "ratio (PR/base)": df3["ratio"],
-        "unit": df3["unit_base"],
-        "remark": df3["remark"],
-    }
-)
+table_dict = {
+    "name": df3["name"],
+    f"PR {pr_commit_id[:8]}": df3["value_pr"],
+    f"base {base_commit_id[:8]}": df3["value_base"],
+    "ratio (PR/base)": df3["ratio"],
+    "unit": df3["unit_base"],
+}
+
+if has_z_pr:
+    table_dict["|z| PR"] = df3["abs_z_score_pr"]
+if has_z_base:
+    table_dict["|z| base"] = df3["abs_z_score_base"]
+
+table_dict["remark"] = df3["remark"]
+table_df = pd.DataFrame(table_dict)
 
 # Output complete formatted markdown
 print("\n".join(summary_lines))
