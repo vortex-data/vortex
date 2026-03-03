@@ -76,12 +76,15 @@ impl<V: VTable> Array<V> {
         let len = V::len(&data);
         let dtype = V::dtype(&data).clone();
         let stats = data.array_stats().clone();
+        let child_slots = (0..V::nchildren(&data))
+            .map(|i| Some(V::child(&data, i)))
+            .collect();
         Self {
             vtable,
             len,
             dtype,
             data,
-            child_slots: Vec::new(),
+            child_slots,
             stats,
         }
     }
@@ -372,28 +375,31 @@ impl<V: VTable> ArrayEq for Array<V> {
 
 impl<V: VTable> ArrayVisitor for Array<V> {
     fn children(&self) -> Vec<ArrayRef> {
-        (0..V::nchildren(&self.data))
-            .map(|i| V::child(&self.data, i))
-            .collect()
+        self.child_slots.iter().filter_map(|s| s.clone()).collect()
     }
 
     fn nchildren(&self) -> usize {
-        V::nchildren(&self.data)
+        self.child_slots.iter().filter(|s| s.is_some()).count()
     }
 
     fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
-        (idx < V::nchildren(&self.data)).then(|| V::child(&self.data, idx))
+        self.child_slots.get(idx).and_then(|s| s.clone())
     }
 
     fn children_names(&self) -> Vec<String> {
-        (0..V::nchildren(&self.data))
+        (0..self.child_slots.len())
+            .filter(|i| self.child_slots[*i].is_some())
             .map(|i| V::child_name(&self.data, i))
             .collect()
     }
 
     fn named_children(&self) -> Vec<(String, ArrayRef)> {
-        (0..V::nchildren(&self.data))
-            .map(|i| (V::child_name(&self.data, i), V::child(&self.data, i)))
+        (0..self.child_slots.len())
+            .filter_map(|i| {
+                self.child_slots[i]
+                    .clone()
+                    .map(|child| (V::child_name(&self.data, i), child))
+            })
             .collect()
     }
 
