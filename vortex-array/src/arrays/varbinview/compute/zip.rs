@@ -243,9 +243,10 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, false, true]);
 
-        let zipped = a
-            .to_array()
-            .zip(b.to_array(), mask.clone().into_array())
+        let zipped = mask
+            .clone()
+            .into_array()
+            .zip(a.to_array(), b.to_array())
             .unwrap()
             .to_varbinview();
 
