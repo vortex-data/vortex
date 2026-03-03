@@ -259,8 +259,9 @@ fn build_duckdb(
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let build_type = match debug {
         true => "debug",
-        false => "release",
+        false => "reldebug",
     };
+    println!("cargo:info=DuckDB build type: {build_type}");
     // Check for ninja
     if Command::new("ninja").arg("--version").output().is_err() {
         return Err(
@@ -401,8 +402,6 @@ fn main() {
 
     let use_debug_build =
         env::var("VX_DUCKDB_DEBUG").is_ok_and(|v| matches!(v.as_str(), "1" | "true"));
-    println!("cargo:info=DuckDB debug build: {use_debug_build}");
-
     let library_path = if use_debug_build || !DUCKDB_VERSION.is_release() {
         // Build from source for:
         // - Commit hashes (no prebuilt available)
