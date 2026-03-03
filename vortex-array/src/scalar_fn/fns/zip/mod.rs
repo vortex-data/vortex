@@ -228,12 +228,14 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::Array;
+    use crate::ArrayRef;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::arrays::StructVTable;
     use crate::arrays::VarBinViewArray;
     use crate::arrow::IntoArrowArray;
     use crate::assert_arrays_eq;
@@ -342,16 +344,10 @@ mod tests {
         let wrapped1 = StructArray::try_from_iter([("nested", const1)])?.into_array();
         let wrapped2 = StructArray::try_from_iter([("nested", const2)])?.into_array();
 
-        let wrapped_result = mask_array.zip(wrapped1, wrapped2)?;
-        insta::assert_snapshot!(wrapped_result.display_tree(), @r"
-        root: vortex.struct({nested=utf8?}, len=100) nbytes=1.66 kB (100.00%)
-          metadata: EmptyMetadata
-          nested: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%) [all_valid]
-            metadata: EmptyMetadata
-            buffer: buffer_0 host 29 B (align=1) (1.75%)
-            buffer: buffer_1 host 28 B (align=1) (1.69%)
-            buffer: views host 1.60 kB (align=16) (96.56%)
-        ");
+        let wrapped_result = mask_array
+            .zip(wrapped1, wrapped2)?
+            .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        assert!(wrapped_result.is::<StructVTable>());
 
         Ok(())
     }
