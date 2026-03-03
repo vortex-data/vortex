@@ -315,30 +315,6 @@ async fn main() -> VortexResult<()> {
         .start_session(NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_NV12, init_params)
         .map_err(|e| vortex_err!("NVENC session start failed: {e}"))?;
 
-    // Register both NV12 GPU buffers directly with NVENC (zero-copy).
-    // The `()` marker is safe because `nv12_bufs` outlives the resources.
-    let nv12_resource_0 = nvenc_session
-        .register_generic_resource(
-            (),
-            NV_ENC_INPUT_RESOURCE_TYPE::NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR,
-            nv12_ptrs[0] as *mut c_void,
-            width,
-        )
-        .map_err(|e| vortex_err!("NVENC register NV12 buf 0 failed: {e}"))?;
-
-    let nv12_resource_1 = nvenc_session
-        .register_generic_resource(
-            (),
-            NV_ENC_INPUT_RESOURCE_TYPE::NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR,
-            nv12_ptrs[1] as *mut c_void,
-            width,
-        )
-        .map_err(|e| vortex_err!("NVENC register NV12 buf 1 failed: {e}"))?;
-
-    let output_bitstream = nvenc_session
-        .create_output_bitstream()
-        .map_err(|e| vortex_err!("NVENC create bitstream failed: {e}"))?;
-
     // Rebind CUDA context after NVENC init to restore context stack.
     cuda_context
         .bind_to_thread()
@@ -348,15 +324,42 @@ async fn main() -> VortexResult<()> {
     let (frame_tx, frame_rx) = mpsc::sync_channel::<EncoderMsg>(1);
     let (encoded_tx, encoded_rx) = mpsc::channel::<EncodedFrame>();
 
-    // Spawn encoder thread
+    // Pass raw NV12 device pointers to the encoder thread. Registration must
+    // happen on the thread that owns the Session to satisfy borrow lifetimes.
+    let nv12_ptr_0 = nv12_ptrs[0];
+    let nv12_ptr_1 = nv12_ptrs[1];
+
+    // Spawn encoder thread — owns Session, registers resources, encodes frames.
     let encoder_cuda_ctx = cuda_context.clone();
     let encoder_handle = std::thread::spawn(move || -> VortexResult<()> {
         encoder_cuda_ctx
             .bind_to_thread()
             .map_err(|e| vortex_err!("Encoder thread: failed to bind CUDA context: {e}"))?;
 
-        let mut nv12_resources = [nv12_resource_0, nv12_resource_1];
-        let mut output_bitstream = output_bitstream;
+        // Register both NV12 GPU buffers directly with NVENC (zero-copy).
+        // The `()` marker is safe because the main task keeps `nv12_bufs` alive
+        // for the entire duration of the encoder thread.
+        let mut nv12_resource_0 = nvenc_session
+            .register_generic_resource(
+                (),
+                NV_ENC_INPUT_RESOURCE_TYPE::NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR,
+                nv12_ptr_0 as *mut c_void,
+                width,
+            )
+            .map_err(|e| vortex_err!("NVENC register NV12 buf 0 failed: {e}"))?;
+
+        let mut nv12_resource_1 = nvenc_session
+            .register_generic_resource(
+                (),
+                NV_ENC_INPUT_RESOURCE_TYPE::NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR,
+                nv12_ptr_1 as *mut c_void,
+                width,
+            )
+            .map_err(|e| vortex_err!("NVENC register NV12 buf 1 failed: {e}"))?;
+
+        let mut output_bitstream = nvenc_session
+            .create_output_bitstream()
+            .map_err(|e| vortex_err!("NVENC create bitstream failed: {e}"))?;
 
         loop {
             let msg = frame_rx
@@ -370,9 +373,14 @@ async fn main() -> VortexResult<()> {
 
             let _span = tracing::info_span!("nvenc_encode", frame = frame.frame_idx).entered();
 
+            let input = if frame.buf_idx == 0 {
+                &mut nv12_resource_0
+            } else {
+                &mut nv12_resource_1
+            };
             nvenc_session
                 .encode_picture(
-                    &mut nv12_resources[frame.buf_idx],
+                    input,
                     &mut output_bitstream,
                     nvidia_video_codec_sdk::EncodePictureParams {
                         input_timestamp: frame.frame_idx,
@@ -394,6 +402,11 @@ async fn main() -> VortexResult<()> {
                 })
                 .map_err(|e| vortex_err!("Encoder thread: send encoded failed: {e}"))?;
         }
+
+        // Drop resources before flushing (NVENC requires this ordering)
+        drop(nv12_resource_0);
+        drop(nv12_resource_1);
+        drop(output_bitstream);
 
         // Flush encoder
         nvenc_session
