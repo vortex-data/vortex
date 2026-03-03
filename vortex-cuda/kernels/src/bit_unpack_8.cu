@@ -268,29 +268,14 @@ __device__ void _bit_unpack_8_0bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_0bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
     _bit_unpack_8_0bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
     _bit_unpack_8_0bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
-        // Make sure all threads in the block/warp have completed writing
         __syncwarp();
-        // Setup the patches cursor so we can seek patches
-        PatchesCursor cursor(patches);
-        // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
-        auto chunk = blockIdx.x;
-        // Patches are organized by chunk and lane.
-        cursor.seek(chunk, thread_idx);
-        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
-        uint8_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint8_t>() : 0;
+        PatchesCursor<uint8_t> cursor(patches, blockIdx.x, thread_idx, 32);
+        auto patch = cursor.next();
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (idx == next_patch_index) {
-                out[idx] = next_patch_value;
-                // Advance the patches cursor
-                if (cursor.next()) {
-                    next_patch_index = cursor.get_index();
-                    next_patch_value = cursor.get_value<uint8_t>();
-                } else {
-                    // We have visited all patches
-                    next_patch_index = 1024;
-                    next_patch_value = 0;
-                }
+            if (idx == patch.index) {
+                out[idx] = patch.value;
+                patch = cursor.next();
             } else {
                 out[idx] = shared_out[idx];
             }
@@ -310,29 +295,14 @@ __device__ void _bit_unpack_8_1bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_1bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
     _bit_unpack_8_1bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
     _bit_unpack_8_1bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
-        // Make sure all threads in the block/warp have completed writing
         __syncwarp();
-        // Setup the patches cursor so we can seek patches
-        PatchesCursor cursor(patches);
-        // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
-        auto chunk = blockIdx.x;
-        // Patches are organized by chunk and lane.
-        cursor.seek(chunk, thread_idx);
-        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
-        uint8_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint8_t>() : 0;
+        PatchesCursor<uint8_t> cursor(patches, blockIdx.x, thread_idx, 32);
+        auto patch = cursor.next();
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (idx == next_patch_index) {
-                out[idx] = next_patch_value;
-                // Advance the patches cursor
-                if (cursor.next()) {
-                    next_patch_index = cursor.get_index();
-                    next_patch_value = cursor.get_value<uint8_t>();
-                } else {
-                    // We have visited all patches
-                    next_patch_index = 1024;
-                    next_patch_value = 0;
-                }
+            if (idx == patch.index) {
+                out[idx] = patch.value;
+                patch = cursor.next();
             } else {
                 out[idx] = shared_out[idx];
             }
@@ -352,29 +322,14 @@ __device__ void _bit_unpack_8_2bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_2bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
     _bit_unpack_8_2bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
     _bit_unpack_8_2bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
-        // Make sure all threads in the block/warp have completed writing
         __syncwarp();
-        // Setup the patches cursor so we can seek patches
-        PatchesCursor cursor(patches);
-        // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
-        auto chunk = blockIdx.x;
-        // Patches are organized by chunk and lane.
-        cursor.seek(chunk, thread_idx);
-        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
-        uint8_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint8_t>() : 0;
+        PatchesCursor<uint8_t> cursor(patches, blockIdx.x, thread_idx, 32);
+        auto patch = cursor.next();
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (idx == next_patch_index) {
-                out[idx] = next_patch_value;
-                // Advance the patches cursor
-                if (cursor.next()) {
-                    next_patch_index = cursor.get_index();
-                    next_patch_value = cursor.get_value<uint8_t>();
-                } else {
-                    // We have visited all patches
-                    next_patch_index = 1024;
-                    next_patch_value = 0;
-                }
+            if (idx == patch.index) {
+                out[idx] = patch.value;
+                patch = cursor.next();
             } else {
                 out[idx] = shared_out[idx];
             }
@@ -394,29 +349,14 @@ __device__ void _bit_unpack_8_3bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_3bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
     _bit_unpack_8_3bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
     _bit_unpack_8_3bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
-        // Make sure all threads in the block/warp have completed writing
         __syncwarp();
-        // Setup the patches cursor so we can seek patches
-        PatchesCursor cursor(patches);
-        // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
-        auto chunk = blockIdx.x;
-        // Patches are organized by chunk and lane.
-        cursor.seek(chunk, thread_idx);
-        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
-        uint8_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint8_t>() : 0;
+        PatchesCursor<uint8_t> cursor(patches, blockIdx.x, thread_idx, 32);
+        auto patch = cursor.next();
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (idx == next_patch_index) {
-                out[idx] = next_patch_value;
-                // Advance the patches cursor
-                if (cursor.next()) {
-                    next_patch_index = cursor.get_index();
-                    next_patch_value = cursor.get_value<uint8_t>();
-                } else {
-                    // We have visited all patches
-                    next_patch_index = 1024;
-                    next_patch_value = 0;
-                }
+            if (idx == patch.index) {
+                out[idx] = patch.value;
+                patch = cursor.next();
             } else {
                 out[idx] = shared_out[idx];
             }
@@ -436,29 +376,14 @@ __device__ void _bit_unpack_8_4bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_4bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
     _bit_unpack_8_4bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
     _bit_unpack_8_4bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
-        // Make sure all threads in the block/warp have completed writing
         __syncwarp();
-        // Setup the patches cursor so we can seek patches
-        PatchesCursor cursor(patches);
-        // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
-        auto chunk = blockIdx.x;
-        // Patches are organized by chunk and lane.
-        cursor.seek(chunk, thread_idx);
-        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
-        uint8_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint8_t>() : 0;
+        PatchesCursor<uint8_t> cursor(patches, blockIdx.x, thread_idx, 32);
+        auto patch = cursor.next();
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (idx == next_patch_index) {
-                out[idx] = next_patch_value;
-                // Advance the patches cursor
-                if (cursor.next()) {
-                    next_patch_index = cursor.get_index();
-                    next_patch_value = cursor.get_value<uint8_t>();
-                } else {
-                    // We have visited all patches
-                    next_patch_index = 1024;
-                    next_patch_value = 0;
-                }
+            if (idx == patch.index) {
+                out[idx] = patch.value;
+                patch = cursor.next();
             } else {
                 out[idx] = shared_out[idx];
             }
@@ -478,29 +403,14 @@ __device__ void _bit_unpack_8_5bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_5bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
     _bit_unpack_8_5bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
     _bit_unpack_8_5bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
-        // Make sure all threads in the block/warp have completed writing
         __syncwarp();
-        // Setup the patches cursor so we can seek patches
-        PatchesCursor cursor(patches);
-        // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
-        auto chunk = blockIdx.x;
-        // Patches are organized by chunk and lane.
-        cursor.seek(chunk, thread_idx);
-        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
-        uint8_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint8_t>() : 0;
+        PatchesCursor<uint8_t> cursor(patches, blockIdx.x, thread_idx, 32);
+        auto patch = cursor.next();
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (idx == next_patch_index) {
-                out[idx] = next_patch_value;
-                // Advance the patches cursor
-                if (cursor.next()) {
-                    next_patch_index = cursor.get_index();
-                    next_patch_value = cursor.get_value<uint8_t>();
-                } else {
-                    // We have visited all patches
-                    next_patch_index = 1024;
-                    next_patch_value = 0;
-                }
+            if (idx == patch.index) {
+                out[idx] = patch.value;
+                patch = cursor.next();
             } else {
                 out[idx] = shared_out[idx];
             }
@@ -520,29 +430,14 @@ __device__ void _bit_unpack_8_6bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_6bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
     _bit_unpack_8_6bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
     _bit_unpack_8_6bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
-        // Make sure all threads in the block/warp have completed writing
         __syncwarp();
-        // Setup the patches cursor so we can seek patches
-        PatchesCursor cursor(patches);
-        // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
-        auto chunk = blockIdx.x;
-        // Patches are organized by chunk and lane.
-        cursor.seek(chunk, thread_idx);
-        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
-        uint8_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint8_t>() : 0;
+        PatchesCursor<uint8_t> cursor(patches, blockIdx.x, thread_idx, 32);
+        auto patch = cursor.next();
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (idx == next_patch_index) {
-                out[idx] = next_patch_value;
-                // Advance the patches cursor
-                if (cursor.next()) {
-                    next_patch_index = cursor.get_index();
-                    next_patch_value = cursor.get_value<uint8_t>();
-                } else {
-                    // We have visited all patches
-                    next_patch_index = 1024;
-                    next_patch_value = 0;
-                }
+            if (idx == patch.index) {
+                out[idx] = patch.value;
+                patch = cursor.next();
             } else {
                 out[idx] = shared_out[idx];
             }
@@ -562,29 +457,14 @@ __device__ void _bit_unpack_8_7bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_7bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
     _bit_unpack_8_7bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
     _bit_unpack_8_7bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
-        // Make sure all threads in the block/warp have completed writing
         __syncwarp();
-        // Setup the patches cursor so we can seek patches
-        PatchesCursor cursor(patches);
-        // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
-        auto chunk = blockIdx.x;
-        // Patches are organized by chunk and lane.
-        cursor.seek(chunk, thread_idx);
-        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
-        uint8_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint8_t>() : 0;
+        PatchesCursor<uint8_t> cursor(patches, blockIdx.x, thread_idx, 32);
+        auto patch = cursor.next();
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (idx == next_patch_index) {
-                out[idx] = next_patch_value;
-                // Advance the patches cursor
-                if (cursor.next()) {
-                    next_patch_index = cursor.get_index();
-                    next_patch_value = cursor.get_value<uint8_t>();
-                } else {
-                    // We have visited all patches
-                    next_patch_index = 1024;
-                    next_patch_value = 0;
-                }
+            if (idx == patch.index) {
+                out[idx] = patch.value;
+                patch = cursor.next();
             } else {
                 out[idx] = shared_out[idx];
             }
@@ -604,29 +484,14 @@ __device__ void _bit_unpack_8_8bw_32t(const uint8_t *__restrict in, uint8_t *__r
     _bit_unpack_8_8bw_lane(in, shared_out, reference, thread_idx * 4 + 1);
     _bit_unpack_8_8bw_lane(in, shared_out, reference, thread_idx * 4 + 2);
     _bit_unpack_8_8bw_lane(in, shared_out, reference, thread_idx * 4 + 3);
-        // Make sure all threads in the block/warp have completed writing
         __syncwarp();
-        // Setup the patches cursor so we can seek patches
-        PatchesCursor cursor(patches);
-        // Each thread block in the unpack kernel unpacks 1 chunk of 1024 values
-        auto chunk = blockIdx.x;
-        // Patches are organized by chunk and lane.
-        cursor.seek(chunk, thread_idx);
-        uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;
-        uint8_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint8_t>() : 0;
+        PatchesCursor<uint8_t> cursor(patches, blockIdx.x, thread_idx, 32);
+        auto patch = cursor.next();
         for (int i = 0; i < 32; i++) {
             auto idx = i * 32 + thread_idx;
-            if (idx == next_patch_index) {
-                out[idx] = next_patch_value;
-                // Advance the patches cursor
-                if (cursor.next()) {
-                    next_patch_index = cursor.get_index();
-                    next_patch_value = cursor.get_value<uint8_t>();
-                } else {
-                    // We have visited all patches
-                    next_patch_index = 1024;
-                    next_patch_value = 0;
-                }
+            if (idx == patch.index) {
+                out[idx] = patch.value;
+                patch = cursor.next();
             } else {
                 out[idx] = shared_out[idx];
             }

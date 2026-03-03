@@ -142,30 +142,15 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
         }
 
         output.indent(|output| {
-            writeln!(output, "// Make sure all threads in the block/warp have completed writing")?;
             writeln!(output, "__syncwarp();")?;
-            writeln!(output, "// Setup the patches cursor so we can seek patches")?;
-            writeln!(output, "PatchesCursor cursor(patches);")?;
-            writeln!(output, "// Each thread block in the unpack kernel unpacks 1 chunk of 1024 values")?;
-            writeln!(output, "auto chunk = blockIdx.x;")?;
-            writeln!(output, "// Patches are organized by chunk and lane.")?;
-            writeln!(output, "cursor.seek(chunk, thread_idx);")?;
-            writeln!(output, "uint16_t next_patch_index = cursor.n_patches > 0 ? cursor.get_index() : 1024;")?;
-            writeln!(output, "uint{bits}_t next_patch_value = cursor.n_patches > 0 ? cursor.get_value<uint{bits}_t>() : 0;")?;
+            writeln!(output, "PatchesCursor<uint{bits}_t> cursor(patches, blockIdx.x, thread_idx, {thread_count});")?;
+            writeln!(output, "auto patch = cursor.next();")?;
             writeln!(output, "for (int i = 0; i < {shared_copy_ncount}; i++) {{")?;
             output.indent(|output| {
                 writeln!(output, "auto idx = i * {thread_count} + thread_idx;")?;
-                writeln!(output, "if (idx == next_patch_index) {{")?;
-                writeln!(output, "    out[idx] = next_patch_value;")?;
-                writeln!(output, "    // Advance the patches cursor")?;
-                writeln!(output, "    if (cursor.next()) {{")?;
-                writeln!(output, "        next_patch_index = cursor.get_index();")?;
-                writeln!(output, "        next_patch_value = cursor.get_value<uint{bits}_t>();")?;
-                writeln!(output, "    }} else {{")?;
-                writeln!(output, "        // We have visited all patches")?;
-                writeln!(output, "        next_patch_index = 1024;")?;
-                writeln!(output, "        next_patch_value = 0;")?;
-                writeln!(output, "    }}")?;
+                writeln!(output, "if (idx == patch.index) {{")?;
+                writeln!(output, "    out[idx] = patch.value;")?;
+                writeln!(output, "    patch = cursor.next();")?;
                 writeln!(output, "}} else {{")?;
                 writeln!(output, "    out[idx] = shared_out[idx];")?;
                 writeln!(output, "}}")

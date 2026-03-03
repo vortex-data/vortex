@@ -132,17 +132,13 @@ where
 
     let patches_arg = if let Some(p) = &device_patches {
         GPUPatches {
-            n_chunks: p.n_chunks,
-            n_lanes: p.n_lanes,
             lane_offsets: p.lane_offsets.cuda_device_ptr()? as _,
             indices: p.indices.cuda_device_ptr()? as _,
             values: p.values.cuda_device_ptr()? as _,
         }
     } else {
-        // empty patches, will be ignored by the kernel threads
+        // NULL lane_offsets signals no patches to the kernel
         GPUPatches {
-            n_chunks: 0,
-            n_lanes: 0,
             lane_offsets: std::ptr::null_mut(),
             indices: std::ptr::null_mut(),
             values: std::ptr::null_mut(),
