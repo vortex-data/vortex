@@ -13,6 +13,7 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity;
@@ -118,6 +119,27 @@ fn chunked_varbinview_opt_into_canonical(bencher: Bencher, (len, chunk_count): (
     bencher
         .with_inputs(|| &chunks)
         .bench_refs(|chunk| chunk.to_canonical())
+}
+
+#[divan::bench(args = BENCH_ARGS)]
+fn chunked_constant_i32_append_to_builder(bencher: Bencher, (len, chunk_count): (usize, usize)) {
+    let chunk = make_constant_i32_chunks(len, chunk_count);
+
+    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
+        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+        chunk
+            .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
+            .vortex_expect("append failed");
+        builder.finish()
+    })
+}
+
+fn make_constant_i32_chunks(len: usize, chunk_count: usize) -> ArrayRef {
+    // Each chunk is a ConstantArray of i32; dtype is I32/NonNullable via From<i32> for Scalar.
+    (0..chunk_count)
+        .map(|i| ConstantArray::new(i as i32, len).into_array())
+        .collect::<ChunkedArray>()
+        .into_array()
 }
 
 fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {

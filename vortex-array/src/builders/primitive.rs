@@ -51,6 +51,12 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         self.nulls.append_non_null();
     }
 
+    /// Appends `n` copies of `value` as non-null entries, directly writing into the buffer.
+    pub fn append_value_n(&mut self, value: T, n: usize) {
+        self.values.push_n(value, n);
+        self.nulls.append_n_non_nulls(n);
+    }
+
     /// Returns the raw primitive values in this builder as a slice.
     pub fn values(&self) -> &[T] {
         self.values.as_ref()

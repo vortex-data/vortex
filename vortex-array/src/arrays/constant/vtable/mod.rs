@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use vortex_buffer::ByteBufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
@@ -18,7 +19,10 @@ use crate::arrays::ConstantArray;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::PrimitiveBuilder;
 use crate::dtype::DType;
+use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
@@ -168,5 +172,38 @@ impl VTable for ConstantVTable {
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         Ok(constant_canonicalize(array)?.into_array())
+    }
+
+    fn append_to_builder(
+        array: &ConstantArray,
+        builder: &mut dyn ArrayBuilder,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        match array.dtype() {
+            DType::Primitive(ptype, _) => {
+                match_each_native_ptype!(ptype, |P| {
+                    let pbuilder = builder
+                        .as_any_mut()
+                        .downcast_mut::<PrimitiveBuilder<P>>()
+                        .vortex_expect("Expected PrimitiveBuilder for primitive ConstantArray");
+                    if array.scalar().is_null() {
+                        // SAFETY: append_nulls_unchecked requires a nullable builder.
+                        // A null scalar implies a nullable dtype, so the builder created
+                        // for this array's dtype is necessarily nullable.
+                        unsafe { pbuilder.append_nulls_unchecked(array.len()) }
+                    } else {
+                        let value = P::try_from(array.scalar())
+                            .vortex_expect("Couldn't unwrap constant scalar to primitive");
+                        pbuilder.append_value_n(value, array.len());
+                    }
+                });
+                Ok(())
+            }
+            _ => {
+                let canonical = constant_canonicalize(array)?.into_array();
+                builder.extend_from_array(&canonical);
+                Ok(())
+            }
+        }
     }
 }
