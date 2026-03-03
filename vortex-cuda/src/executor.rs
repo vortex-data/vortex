@@ -269,6 +269,12 @@ impl CudaExecutionCtx {
     pub fn exporter(&self) -> &Arc<dyn ExportDeviceArray> {
         self.cuda_session.export_device_array()
     }
+
+    pub fn synchronize_stream(&self) -> VortexResult<()> {
+        self.stream
+            .synchronize()
+            .map_err(|e| vortex_err!("cuda error: {e}"))
+    }
 }
 
 /// Support trait for CUDA-accelerated decompression of arrays.
@@ -372,14 +378,5 @@ impl CudaArrayExt for ArrayRef {
         );
 
         support.execute(self, ctx).await
-    }
-}
-
-#[cfg(feature = "_test-harness")]
-impl CudaExecutionCtx {
-    pub fn synchronize_stream(&self) -> VortexResult<()> {
-        self.stream
-            .synchronize()
-            .map_err(|e| vortex_err!("cuda error: {e}"))
     }
 }
