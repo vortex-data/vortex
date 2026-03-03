@@ -26,7 +26,7 @@ fn varbinview_zip_fragmented_mask(bencher: Bencher) {
     bencher
         .with_inputs(|| (&if_true, &if_false, &mask))
         .bench_refs(|(t, f, m)| {
-            t.zip(f.clone(), m.clone().into_array()).unwrap();
+            m.clone().into_array().zip(t.clone(), f.clone()).unwrap();
         });
 }
 
@@ -41,7 +41,7 @@ fn varbinview_zip_block_mask(bencher: Bencher) {
     bencher
         .with_inputs(|| (&if_true, &if_false, &mask))
         .bench_refs(|(t, f, m)| {
-            t.zip(f.clone(), m.clone().into_array()).unwrap();
+            m.clone().into_array().zip(t.clone(), f.clone()).unwrap();
         });
 }
 
