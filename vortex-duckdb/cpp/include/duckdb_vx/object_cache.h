@@ -20,6 +20,7 @@ typedef void (*duckdb_vx_deleter_fn)(void *ptr);
 void duckdb_vx_object_cache_put(duckdb_vx_object_cache object_cache,
                                 const char *key,
                                 void *value,
+                                uint64_t estimated_size,
                                 duckdb_vx_deleter_fn deleter);
 
 // Fetches the key from the object cache, returning nullptr if the key is not present.
