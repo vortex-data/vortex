@@ -33,6 +33,7 @@ use vortex_array::dtype::half;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::HasArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
@@ -305,7 +306,7 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PcoVTable;
 
 impl PcoVTable {
@@ -323,6 +324,12 @@ pub struct PcoArray {
     stats_set: ArrayStats,
     slice_start: usize,
     slice_stop: usize,
+}
+
+impl HasArrayStats for PcoArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 impl PcoArray {

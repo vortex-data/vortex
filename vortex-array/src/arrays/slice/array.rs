@@ -9,12 +9,19 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 
 #[derive(Clone, Debug)]
 pub struct SliceArray {
     pub(super) child: ArrayRef,
     pub(super) range: Range<usize>,
     pub(super) stats: ArrayStats,
+}
+
+impl HasArrayStats for SliceArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats
+    }
 }
 
 pub struct SliceArrayParts {

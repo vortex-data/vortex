@@ -18,6 +18,7 @@ use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 use crate::validity::Validity;
 
 #[derive(Clone, Debug)]
@@ -27,6 +28,12 @@ pub struct VarBinArray {
     pub(super) offsets: ArrayRef,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
+}
+
+impl HasArrayStats for VarBinArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 impl VarBinArray {

@@ -18,6 +18,7 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::HasArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
@@ -177,7 +178,13 @@ pub struct ZigZagArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+impl HasArrayStats for ZigZagArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct ZigZagVTable;
 
 impl ZigZagVTable {

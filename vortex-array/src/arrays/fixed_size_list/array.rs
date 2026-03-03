@@ -11,6 +11,7 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 use crate::validity::Validity;
 
 /// The canonical encoding for fixed-size list arrays.
@@ -97,6 +98,12 @@ pub struct FixedSizeListArray {
 
     /// The stats for this array.
     pub(super) stats_set: ArrayStats,
+}
+
+impl HasArrayStats for FixedSizeListArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 impl FixedSizeListArray {

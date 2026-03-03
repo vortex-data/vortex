@@ -31,6 +31,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::HasArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
@@ -370,6 +371,12 @@ pub struct FSSTArray {
     compressor: Arc<LazyLock<Compressor, Box<dyn Fn() -> Compressor + Send>>>,
 }
 
+impl HasArrayStats for FSSTArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
+}
+
 impl Debug for FSSTArray {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FSSTArray")
@@ -382,7 +389,7 @@ impl Debug for FSSTArray {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FSSTVTable;
 
 impl FSSTVTable {

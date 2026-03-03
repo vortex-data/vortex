@@ -5,8 +5,6 @@ mod visitor;
 pub use visitor::*;
 
 mod typed;
-pub use typed::*;
-
 use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Formatter;
@@ -16,6 +14,7 @@ use std::ops::Deref;
 use std::ops::Range;
 use std::sync::Arc;
 
+pub use typed::*;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -312,10 +311,20 @@ impl dyn DynArray + '_ {
 
     /// Returns the array downcast to the given `A` as an owned object.
     pub fn try_into<V: VTable>(self: Arc<Self>) -> Result<V::Array, Arc<Self>> {
-        match self.is::<V>() {
-            true => {
-                let arc = self
-                    .as_any_arc()
+        if !self.is::<V>() {
+            return Err(self);
+        }
+
+        // Try Array<V> first (the primary construction path via IntoArray).
+        let any_arc = self.as_any_arc();
+        match any_arc.downcast::<Array<V>>() {
+            Ok(arc) => Ok(match Arc::try_unwrap(arc) {
+                Ok(array) => array.data,
+                Err(arc) => arc.data.clone(),
+            }),
+            Err(any_arc) => {
+                // Fall back to ArrayAdapter<V> (stack-local Deref path).
+                let arc = any_arc
                     .downcast::<ArrayAdapter<V>>()
                     .map_err(|_| vortex_err!("failed to downcast"))
                     .vortex_expect("Failed to downcast");
@@ -324,7 +333,6 @@ impl dyn DynArray + '_ {
                     Err(arc) => arc.deref().0.clone(),
                 })
             }
-            false => Err(self),
         }
     }
 
@@ -748,12 +756,15 @@ impl<V: VTable> Matcher for V {
     type Match<'a> = &'a V::Array;
 
     fn matches(array: &dyn DynArray) -> bool {
-        DynArray::as_any(array).is::<ArrayAdapter<V>>()
+        let any = DynArray::as_any(array);
+        any.is::<Array<V>>() || any.is::<ArrayAdapter<V>>()
     }
 
     fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
-        DynArray::as_any(array)
-            .downcast_ref::<ArrayAdapter<V>>()
-            .map(|array_adapter| &array_adapter.0)
+        let any = DynArray::as_any(array);
+        any.downcast_ref::<Array<V>>().map(|a| &a.data).or_else(|| {
+            any.downcast_ref::<ArrayAdapter<V>>()
+                .map(|array_adapter| &array_adapter.0)
+        })
     }
 }

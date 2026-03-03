@@ -32,7 +32,7 @@ mod validity;
 
 vtable!(Constant);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ConstantVTable;
 
 impl ConstantVTable {

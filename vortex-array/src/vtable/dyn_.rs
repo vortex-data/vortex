@@ -13,6 +13,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
+use crate::Array;
 use crate::ArrayAdapter;
 use crate::ArrayRef;
 use crate::DynArray;
@@ -196,11 +197,11 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
 }
 
 fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
-    array
-        .as_any()
-        .downcast_ref::<ArrayAdapter<V>>()
+    let any = array.as_any();
+    any.downcast_ref::<Array<V>>()
+        .map(|a| &a.data)
+        .or_else(|| any.downcast_ref::<ArrayAdapter<V>>().map(|a| a.as_inner()))
         .vortex_expect("Failed to downcast array to expected encoding type")
-        .as_inner()
 }
 
 impl<V: VTable> Debug for ArrayVTableAdapter<V> {

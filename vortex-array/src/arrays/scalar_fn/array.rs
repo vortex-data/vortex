@@ -9,6 +9,7 @@ use crate::DynArray;
 use crate::dtype::DType;
 use crate::scalar_fn::ScalarFnRef;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnArray {
@@ -17,6 +18,12 @@ pub struct ScalarFnArray {
     pub(super) len: usize,
     pub(super) children: Vec<ArrayRef>,
     pub(super) stats: ArrayStats,
+}
+
+impl HasArrayStats for ScalarFnArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats
+    }
 }
 
 impl ScalarFnArray {

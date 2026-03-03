@@ -24,6 +24,7 @@ use crate::iter::ArrayIteratorAdapter;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 use crate::stream::ArrayStream;
 use crate::stream::ArrayStreamAdapter;
 use crate::validity::Validity;
@@ -35,6 +36,12 @@ pub struct ChunkedArray {
     pub(super) chunk_offsets: PrimitiveArray,
     pub(super) chunks: Vec<ArrayRef>,
     pub(super) stats_set: ArrayStats,
+}
+
+impl HasArrayStats for ChunkedArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 impl ChunkedArray {

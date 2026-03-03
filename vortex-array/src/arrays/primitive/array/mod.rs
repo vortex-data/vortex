@@ -19,6 +19,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -74,6 +75,12 @@ pub struct PrimitiveArray {
     pub(super) buffer: BufferHandle,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
+}
+
+impl HasArrayStats for PrimitiveArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 pub struct PrimitiveArrayParts {

@@ -41,7 +41,7 @@ mod operations;
 mod validity;
 vtable!(Chunked);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ChunkedVTable;
 
 impl ChunkedVTable {

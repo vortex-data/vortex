@@ -18,6 +18,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::HasArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
@@ -36,7 +37,7 @@ use crate::ZstdBuffersMetadata;
 
 vtable!(ZstdBuffers);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ZstdBuffersVTable;
 
 impl ZstdBuffersVTable {
@@ -59,6 +60,12 @@ pub struct ZstdBuffersArray {
     dtype: DType,
     len: usize,
     stats_set: ArrayStats,
+}
+
+impl HasArrayStats for ZstdBuffersArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 #[derive(Clone, Debug)]

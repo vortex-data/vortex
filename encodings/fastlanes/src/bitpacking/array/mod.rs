@@ -10,6 +10,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::HasArrayStats;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -44,6 +45,12 @@ pub struct BitPackedArray {
     pub(super) patches: Option<Patches>,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
+}
+
+impl HasArrayStats for BitPackedArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 impl BitPackedArray {

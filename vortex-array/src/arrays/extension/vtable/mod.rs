@@ -170,7 +170,7 @@ impl VTable for ExtensionVTable {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ExtensionVTable;
 
 impl ExtensionVTable {

@@ -3,6 +3,7 @@
 
 //! Stats as they are stored on arrays.
 
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
@@ -34,6 +35,12 @@ use crate::scalar::ScalarValue;
 #[derive(Clone, Default, Debug)]
 pub struct ArrayStats {
     inner: Arc<RwLock<StatsSet>>,
+}
+
+/// Trait for array types that provide access to their [`ArrayStats`].
+pub trait HasArrayStats: Debug {
+    /// Returns a reference to the array's stats.
+    fn array_stats(&self) -> &ArrayStats;
 }
 
 /// Reference to an array's [`StatsSet`]. Can be used to get and mutate the underlying stats.

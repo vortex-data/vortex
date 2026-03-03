@@ -9,6 +9,7 @@ use pyo3::Py;
 use pyo3::PyAny;
 use pyo3::prelude::*;
 use vortex::array::stats::ArrayStats;
+use vortex::array::stats::HasArrayStats;
 use vortex::array::vtable::ArrayId;
 use vortex::dtype::DType;
 
@@ -26,6 +27,12 @@ pub struct PythonArray {
     pub(super) len: usize,
     pub(super) dtype: DType,
     pub(super) stats: ArrayStats,
+}
+
+impl HasArrayStats for PythonArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats
+    }
 }
 
 impl<'py> FromPyObject<'_, 'py> for PythonArray {
