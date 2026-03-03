@@ -274,6 +274,13 @@ async fn main() -> VortexResult<()> {
     };
     let cu_stream = cuda_ctx.stream().cu_stream();
 
+    // Synchronize to commit stream-ordered allocations (cuMemAllocAsync) so
+    // the NV12 device pointers are globally visible for NVENC registration.
+    cuda_ctx
+        .stream()
+        .synchronize()
+        .map_err(|e| vortex_err!("CUDA stream sync after alloc failed: {e}"))?;
+
     // Create NVENC encoder.
     // NVENC internally pushes/pops the CUDA context, so we rebind it afterward
     // to ensure the pinned buffer pool on worker threads can access CUDA memory.
