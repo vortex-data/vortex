@@ -661,6 +661,13 @@ async fn main() -> VortexResult<()> {
 
     sender.close().await?;
 
-    tracing::info!("Streamed {frame_idx} frames");
+    let elapsed = stream_start.elapsed();
+    let avg_fps = frame_idx as f64 / elapsed.as_secs_f64();
+    tracing::info!(
+        frames = frame_idx,
+        elapsed_secs = format!("{:.2}", elapsed.as_secs_f64()),
+        avg_fps = format!("{:.1}", avg_fps),
+        "streaming complete"
+    );
     Ok(())
 }
