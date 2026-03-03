@@ -10,8 +10,10 @@
 //! the equivalent Arrow compute function.
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArrayExt;
@@ -193,7 +195,10 @@ impl ArrayBuiltins for ArrayRef {
     }
 
     fn zip(&self, if_true: ArrayRef, if_false: ArrayRef) -> VortexResult<ArrayRef> {
-        Zip.try_new_array(self.len(), EmptyOptions, [if_true, if_false, self.clone()])
+        let scalar_fn =
+            Zip.try_new_array(if_true.len(), EmptyOptions, [if_true, if_false, self.clone()])?;
+        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        scalar_fn.execute::<ArrayRef>(&mut ctx)
     }
 
     fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef> {
