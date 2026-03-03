@@ -36,6 +36,7 @@ use crate::scalar::Scalar;
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
+#[cfg(feature = "_test-harness")]
 pub mod conformance;
 mod is_constant;
 mod is_sorted;
