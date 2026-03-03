@@ -174,6 +174,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::dtype::NativePType;
     use vortex::array::session::ArraySession;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::array::vtable::VTable;
@@ -184,6 +185,41 @@ mod tests {
     use super::*;
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
+
+    #[rstest]
+    #[case::u8(0u8, 128u8, 6, 2048)]
+    #[case::u16(0u16, 128u16, 6, 2048)]
+    #[case::u32(0u32, 128u32, 6, 2048)]
+    #[case::u64(0u64, 128u64, 6, 2048)]
+    fn test_patched<T: NativePType>(#[case] start: T, #[case] end: T, #[case] bw: usize, #[case] len: usize) {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = PrimitiveArray::new(
+            (start..end).cycle().take(len).collect::<Buffer<_>>(),
+            NonNullable,
+        );
+
+        // Last two items should be patched
+        let bp_with_patches = BitPackedArray::encode(&array.to_array(), bw)?;
+        assert!(bp_with_patches.patches().is_some());
+
+        let cpu_result = bp_with_patches.to_canonical()?.into_array();
+
+        let gpu_result = block_on(async {
+            BitPackedExecutor
+                .execute(bp_with_patches.to_array(), &mut cuda_ctx)
+                .await
+                .vortex_expect("GPU decompression failed")
+                .into_host()
+                .await
+                .map(|a| a.into_array())
+        })?;
+
+        assert_arrays_eq!(cpu_result, gpu_result);
+
+        Ok(())
+    }
 
     #[test]
     fn test_patches() -> VortexResult<()> {
