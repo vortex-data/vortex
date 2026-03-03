@@ -37,10 +37,10 @@ use vortex::encodings::sequence::SequenceVTable;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 
-use crate::duckdb::DUCKDB_STANDARD_VECTOR_SIZE;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::VectorRef;
+use crate::duckdb::duckdb_vector_size;
 
 pub struct ArrayExporter {
     ctx: ExecutionCtx,
@@ -83,13 +83,14 @@ impl ArrayExporter {
             // `EMPTY_COLUMN_IDX`, which we define as a bool column, we can leave the vector as
             // uninitialized and just return a DataChunk with the correct length.
             // One place no fields can occur is in count(*) queries.
-            chunk.set_len(self.remaining);
-            self.remaining = 0;
+            let chunk_len = duckdb_vector_size().min(self.remaining);
+            chunk.set_len(chunk_len);
+            self.remaining -= chunk_len;
 
             return Ok(true);
         }
 
-        let chunk_len = DUCKDB_STANDARD_VECTOR_SIZE.min(self.remaining);
+        let chunk_len = duckdb_vector_size().min(self.remaining);
         let position = self.array_len - self.remaining;
         self.remaining -= chunk_len;
         chunk.set_len(chunk_len);
