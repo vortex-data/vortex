@@ -12248,7 +12248,9 @@ pub fn vortex_array::scalar::Scalar::from_proto_value(value: &vortex_proto::scal
 
 impl vortex_array::scalar::Scalar
 
-pub fn vortex_array::scalar::Scalar::struct_(dtype: vortex_array::dtype::DType, children: alloc::vec::Vec<vortex_array::scalar::Scalar>) -> Self
+pub fn vortex_array::scalar::Scalar::struct_(dtype: vortex_array::dtype::DType, children: impl core::iter::traits::collect::IntoIterator<Item = vortex_array::scalar::Scalar>) -> Self
+
+pub unsafe fn vortex_array::scalar::Scalar::struct_unchecked(dtype: vortex_array::dtype::DType, children: impl core::iter::traits::collect::IntoIterator<Item = vortex_array::scalar::Scalar>) -> Self
 
 impl vortex_array::scalar::Scalar
 
