@@ -129,7 +129,7 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
     let func_name = format!("bit_unpack_{bits}_{bit_width}bw_{thread_count}t");
 
     let local_func_params = format!(
-        "(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, int thread_idx, GPUPatches patches)"
+        "(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, int thread_idx, GPUPatches& patches)"
     );
 
     writeln!(output, "__device__ void _{func_name}{local_func_params} {{")?;

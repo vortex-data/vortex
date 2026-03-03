@@ -886,7 +886,7 @@ __device__ inline void bit_unpack_16_lane(
     }
 }
 
-__device__ void _bit_unpack_16_0bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_0bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_0bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_0bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -911,7 +911,7 @@ extern "C" __global__ void bit_unpack_16_0bw_32t(const uint16_t *__restrict full
     _bit_unpack_16_0bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_1bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_1bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_1bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_1bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -936,7 +936,7 @@ extern "C" __global__ void bit_unpack_16_1bw_32t(const uint16_t *__restrict full
     _bit_unpack_16_1bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_2bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_2bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_2bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_2bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -961,7 +961,7 @@ extern "C" __global__ void bit_unpack_16_2bw_32t(const uint16_t *__restrict full
     _bit_unpack_16_2bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_3bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_3bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_3bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_3bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -986,7 +986,7 @@ extern "C" __global__ void bit_unpack_16_3bw_32t(const uint16_t *__restrict full
     _bit_unpack_16_3bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_4bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_4bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_4bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_4bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -1011,7 +1011,7 @@ extern "C" __global__ void bit_unpack_16_4bw_32t(const uint16_t *__restrict full
     _bit_unpack_16_4bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_5bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_5bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_5bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_5bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -1036,7 +1036,7 @@ extern "C" __global__ void bit_unpack_16_5bw_32t(const uint16_t *__restrict full
     _bit_unpack_16_5bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_6bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_6bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_6bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_6bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -1061,7 +1061,7 @@ extern "C" __global__ void bit_unpack_16_6bw_32t(const uint16_t *__restrict full
     _bit_unpack_16_6bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_7bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_7bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_7bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_7bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -1086,7 +1086,7 @@ extern "C" __global__ void bit_unpack_16_7bw_32t(const uint16_t *__restrict full
     _bit_unpack_16_7bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_8bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_8bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_8bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_8bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -1111,7 +1111,7 @@ extern "C" __global__ void bit_unpack_16_8bw_32t(const uint16_t *__restrict full
     _bit_unpack_16_8bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_9bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_9bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_9bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_9bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -1136,7 +1136,7 @@ extern "C" __global__ void bit_unpack_16_9bw_32t(const uint16_t *__restrict full
     _bit_unpack_16_9bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_10bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_10bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_10bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_10bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -1161,7 +1161,7 @@ extern "C" __global__ void bit_unpack_16_10bw_32t(const uint16_t *__restrict ful
     _bit_unpack_16_10bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_11bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_11bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_11bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_11bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -1186,7 +1186,7 @@ extern "C" __global__ void bit_unpack_16_11bw_32t(const uint16_t *__restrict ful
     _bit_unpack_16_11bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_12bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_12bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_12bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_12bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -1211,7 +1211,7 @@ extern "C" __global__ void bit_unpack_16_12bw_32t(const uint16_t *__restrict ful
     _bit_unpack_16_12bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_13bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_13bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_13bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_13bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -1236,7 +1236,7 @@ extern "C" __global__ void bit_unpack_16_13bw_32t(const uint16_t *__restrict ful
     _bit_unpack_16_13bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_14bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_14bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_14bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_14bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -1261,7 +1261,7 @@ extern "C" __global__ void bit_unpack_16_14bw_32t(const uint16_t *__restrict ful
     _bit_unpack_16_14bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_15bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_15bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_15bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_15bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
@@ -1286,7 +1286,7 @@ extern "C" __global__ void bit_unpack_16_15bw_32t(const uint16_t *__restrict ful
     _bit_unpack_16_15bw_32t(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_16_16bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches patches) {
+__device__ void _bit_unpack_16_16bw_32t(const uint16_t *__restrict in, uint16_t *__restrict out, uint16_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint16_t shared_out[1024];
     _bit_unpack_16_16bw_lane(in, shared_out, reference, thread_idx * 2 + 0);
     _bit_unpack_16_16bw_lane(in, shared_out, reference, thread_idx * 2 + 1);
