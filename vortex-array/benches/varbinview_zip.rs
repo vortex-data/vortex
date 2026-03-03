@@ -29,14 +29,14 @@ fn varbinview_zip_fragmented_mask(bencher: Bencher) {
     bencher
         .with_inputs(|| {
             (
-                &if_true,
-                &if_false,
+                if_true.clone(),
+                if_false.clone(),
                 mask.clone().into_array(),
                 LEGACY_SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(t, f, m, ctx)| {
-            t.zip(f.clone(), m.clone())
+            m.zip(t.clone(), f.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap();
@@ -54,14 +54,14 @@ fn varbinview_zip_block_mask(bencher: Bencher) {
     bencher
         .with_inputs(|| {
             (
-                &if_true,
-                &if_false,
-                &mask,
+                if_true.clone(),
+                if_false.clone(),
+                mask.clone().into_array(),
                 LEGACY_SESSION.create_execution_ctx(),
             )
         })
         .bench_refs(|(t, f, m, ctx)| {
-            t.zip(f.clone(), m.clone().into_array())
+            m.zip(t.clone(), f.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap();
