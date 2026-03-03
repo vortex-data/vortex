@@ -37,10 +37,10 @@ use vortex::encodings::sequence::SequenceVTable;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 
-use crate::duckdb::DUCKDB_STANDARD_VECTOR_SIZE;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::VectorRef;
+use crate::duckdb::duckdb_vector_size;
 
 pub struct ArrayExporter {
     ctx: ExecutionCtx,
@@ -89,7 +89,7 @@ impl ArrayExporter {
             vortex_bail!("Expected {expected_cols} columns in output chunk, got {chunk_cols}");
         }
 
-        let chunk_len = DUCKDB_STANDARD_VECTOR_SIZE.min(self.remaining);
+        let chunk_len = duckdb_vector_size().min(self.remaining);
         let position = self.array_len - self.remaining;
         self.remaining -= chunk_len;
         chunk.set_len(chunk_len);

@@ -28,7 +28,14 @@ use crate::duckdb::ValueRef;
 use crate::duckdb::VectorBufferRef;
 use crate::lifetime_wrapper;
 
-pub const DUCKDB_STANDARD_VECTOR_SIZE: usize = 2048;
+/// Returns the internal vector size used by DuckDB at runtime.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "DuckDB vector size always fits in usize"
+)]
+pub fn duckdb_vector_size() -> usize {
+    unsafe { cpp::duckdb_vector_size() as usize }
+}
 
 lifetime_wrapper!(Vector, cpp::duckdb_vector, cpp::duckdb_destroy_vector);
 
