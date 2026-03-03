@@ -5,6 +5,7 @@ use std::ops::Range;
 
 use vortex_error::VortexResult;
 
+use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
@@ -17,15 +18,16 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
-    pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
-        let patch_indices = patches.indices().to_canonical()?.into_primitive();
-        let patch_values = patches.values().to_canonical()?.into_primitive();
+    pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
 
         let patched_validity = self.validity().clone().patch(
             self.len(),
             patches.offset(),
             &patch_indices.to_array(),
             patch_values.validity(),
+            ctx,
         )?;
         Ok(match_each_integer_ptype!(patch_indices.ptype(), |I| {
             match_each_native_ptype!(self.ptype(), |T| {

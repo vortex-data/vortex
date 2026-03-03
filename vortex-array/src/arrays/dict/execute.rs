@@ -24,6 +24,7 @@ use crate::arrays::PrimitiveVTable;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::arrays::TakeExecute;
+use crate::arrays::TakeReduce;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 
@@ -42,11 +43,11 @@ pub fn take_canonical(
         Canonical::Primitive(a) => Canonical::Primitive(take_primitive(&a, codes, ctx)),
         Canonical::Decimal(a) => Canonical::Decimal(take_decimal(&a, codes, ctx)),
         Canonical::VarBinView(a) => Canonical::VarBinView(take_varbinview(&a, codes, ctx)),
-        Canonical::List(a) => Canonical::List(take_listview(&a, codes, ctx)),
+        Canonical::List(a) => Canonical::List(take_listview(&a, codes)),
         Canonical::FixedSizeList(a) => {
             Canonical::FixedSizeList(take_fixed_size_list(&a, codes, ctx))
         }
-        Canonical::Struct(a) => Canonical::Struct(take_struct(&a, codes, ctx)),
+        Canonical::Struct(a) => Canonical::Struct(take_struct(&a, codes)),
         Canonical::Extension(a) => Canonical::Extension(take_extension(&a, codes, ctx)),
     })
 }
@@ -106,12 +107,8 @@ fn take_varbinview(
         .clone()
 }
 
-fn take_listview(
-    array: &ListViewArray,
-    codes: &PrimitiveArray,
-    ctx: &mut ExecutionCtx,
-) -> ListViewArray {
-    <ListViewVTable as TakeExecute>::take(array, &codes.to_array(), ctx)
+fn take_listview(array: &ListViewArray, codes: &PrimitiveArray) -> ListViewArray {
+    <ListViewVTable as TakeReduce>::take(array, &codes.to_array())
         .vortex_expect("take listview array")
         .vortex_expect("take listview should not return None")
         .as_::<ListViewVTable>()
@@ -130,8 +127,8 @@ fn take_fixed_size_list(
         .clone()
 }
 
-fn take_struct(array: &StructArray, codes: &PrimitiveArray, ctx: &mut ExecutionCtx) -> StructArray {
-    <StructVTable as TakeExecute>::take(array, &codes.to_array(), ctx)
+fn take_struct(array: &StructArray, codes: &PrimitiveArray) -> StructArray {
+    <StructVTable as TakeReduce>::take(array, &codes.to_array())
         .vortex_expect("take struct array")
         .vortex_expect("take struct should not return None")
         .as_::<StructVTable>()

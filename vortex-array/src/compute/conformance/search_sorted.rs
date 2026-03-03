@@ -10,6 +10,8 @@ use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::patches::Patches;
@@ -30,6 +32,7 @@ pub fn sparse_high_null_fill() -> ArrayRef {
                 None,
             )
             .unwrap(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap()
         .into_array()
@@ -46,6 +49,7 @@ pub fn sparse_high_non_null_fill() -> ArrayRef {
                 None,
             )
             .unwrap(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap()
         .into_array()
@@ -62,6 +66,7 @@ pub fn sparse_low() -> ArrayRef {
                 None,
             )
             .unwrap(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap()
         .into_array()
@@ -78,6 +83,7 @@ pub fn sparse_low_high() -> ArrayRef {
                 None,
             )
             .unwrap(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap()
         .into_array()
@@ -94,6 +100,7 @@ pub fn sparse_edge_patch_high() -> ArrayRef {
                 None,
             )
             .unwrap(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap()
         .into_array()
@@ -110,6 +117,7 @@ pub fn sparse_edge_patch_low() -> ArrayRef {
                 None,
             )
             .unwrap(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap()
         .into_array()

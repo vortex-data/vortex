@@ -42,7 +42,7 @@ pub fn sequence_array_from_range<T: NativePType + TryFrom<isize> + Into<PValue>>
         vortex_bail!("Step, {}, does not fit in requested dtype: {}", step, dtype);
     };
 
-    Ok(SequenceArray::typed_new::<T>(start, step, dtype.nullability(), len)?.to_array())
+    Ok(SequenceArray::try_new_typed::<T>(start, step, dtype.nullability(), len)?.to_array())
 }
 
 fn range_len(start: isize, stop: isize, step: isize) -> Option<usize> {

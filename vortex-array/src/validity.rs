@@ -187,10 +187,7 @@ impl Validity {
             },
             Self::AllInvalid => Ok(Self::AllInvalid),
             Self::Array(is_valid) => {
-                let maybe_is_valid = is_valid
-                    .take(indices.to_array())?
-                    .to_canonical()?
-                    .into_array();
+                let maybe_is_valid = is_valid.take(indices.to_array())?;
                 // Null indices invalidate that position.
                 let is_valid = maybe_is_valid.fill_null(Scalar::from(false))?;
                 Ok(Self::Array(is_valid))
@@ -222,13 +219,7 @@ impl Validity {
             v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => {
                 Ok(v.clone())
             }
-            Validity::Array(arr) => Ok(Validity::Array(
-                arr.filter(mask.clone())?
-                    // TODO(connor): This is wrong!!! We should not be eagerly decompressing the
-                    // validity array.
-                    .to_canonical()?
-                    .into_array(),
-            )),
+            Validity::Array(arr) => Ok(Validity::Array(arr.filter(mask.clone())?)),
         }
     }
 
@@ -282,6 +273,7 @@ impl Validity {
         indices_offset: usize,
         indices: &ArrayRef,
         patches: &Validity,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         match (&self, patches) {
             (Validity::NonNullable, Validity::NonNullable) => return Ok(Validity::NonNullable),
@@ -306,14 +298,14 @@ impl Validity {
             Validity::NonNullable => BoolArray::from(BitBuffer::new_set(len)),
             Validity::AllValid => BoolArray::from(BitBuffer::new_set(len)),
             Validity::AllInvalid => BoolArray::from(BitBuffer::new_unset(len)),
-            Validity::Array(a) => a.to_bool(),
+            Validity::Array(a) => a.clone().execute::<BoolArray>(ctx)?,
         };
 
         let patch_values = match patches {
             Validity::NonNullable => BoolArray::from(BitBuffer::new_set(indices.len())),
             Validity::AllValid => BoolArray::from(BitBuffer::new_set(indices.len())),
             Validity::AllInvalid => BoolArray::from(BitBuffer::new_unset(indices.len())),
-            Validity::Array(a) => a.to_bool(),
+            Validity::Array(a) => a.clone().execute::<BoolArray>(ctx)?,
         };
 
         let patches = Patches::new(
@@ -326,7 +318,7 @@ impl Validity {
         )?;
 
         Ok(Self::from_array(
-            source.patch(&patches)?.into_array(),
+            source.patch(&patches, ctx)?.into_array(),
             own_nullability,
         ))
     }
@@ -531,6 +523,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
@@ -599,7 +593,15 @@ mod tests {
         let indices =
             PrimitiveArray::new(Buffer::copy_from(positions), Validity::NonNullable).into_array();
         assert_eq!(
-            validity.patch(len, 0, &indices, &patches).unwrap(),
+            validity
+                .patch(
+                    len,
+                    0,
+                    &indices,
+                    &patches,
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap(),
             expected
         );
     }
@@ -608,7 +610,13 @@ mod tests {
     #[should_panic]
     fn out_of_bounds_patch() {
         Validity::NonNullable
-            .patch(2, 0, &buffer![4].into_array(), &Validity::AllInvalid)
+            .patch(
+                2,
+                0,
+                &buffer![4].into_array(),
+                &Validity::AllInvalid,
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
             .unwrap();
     }
 

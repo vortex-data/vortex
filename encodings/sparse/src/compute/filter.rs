@@ -16,11 +16,11 @@ impl FilterKernel for SparseVTable {
     fn filter(
         array: &SparseArray,
         mask: &Mask,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let new_length = mask.true_count();
 
-        let Some(new_patches) = array.patches().filter(mask)? else {
+        let Some(new_patches) = array.patches().filter(mask, ctx)? else {
             return Ok(Some(
                 ConstantArray::new(array.fill_scalar().clone(), new_length).into_array(),
             ));

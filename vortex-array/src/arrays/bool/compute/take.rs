@@ -11,10 +11,10 @@ use vortex_mask::Mask;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantArray;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::TakeExecute;
 use crate::builtins::ArrayBuiltins;
 use crate::executor::ExecutionCtx;
@@ -26,7 +26,7 @@ impl TakeExecute for BoolVTable {
     fn take(
         array: &BoolArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let indices_nulls_zeroed = match indices.validity_mask()? {
             Mask::AllTrue(_) => indices.to_array(),
@@ -40,7 +40,7 @@ impl TakeExecute for BoolVTable {
                 .to_array()
                 .fill_null(Scalar::from(0).cast(indices.dtype())?)?,
         };
-        let indices_nulls_zeroed = indices_nulls_zeroed.to_primitive();
+        let indices_nulls_zeroed = indices_nulls_zeroed.execute::<PrimitiveArray>(ctx)?;
         let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |I| {
             take_valid_indices(&array.to_bit_buffer(), indices_nulls_zeroed.as_slice::<I>())
         });

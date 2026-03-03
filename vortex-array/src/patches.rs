@@ -11,6 +11,7 @@ use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -23,8 +24,10 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::Array;
 use crate::ArrayRef;
 use crate::ArrayVisitor;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
+use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::is_sorted;
@@ -563,7 +566,7 @@ impl Patches {
     }
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.
-    pub fn filter(&self, mask: &Mask) -> VortexResult<Option<Self>> {
+    pub fn filter(&self, mask: &Mask, ctx: &mut ExecutionCtx) -> VortexResult<Option<Self>> {
         if mask.len() != self.array_len {
             vortex_bail!(
                 "Filter mask length {} does not match array length {}",
@@ -576,7 +579,7 @@ impl Patches {
             AllOr::All => Ok(Some(self.clone())),
             AllOr::None => Ok(None),
             AllOr::Some(mask_indices) => {
-                let flat_indices = self.indices().to_primitive();
+                let flat_indices = self.indices().clone().execute::<PrimitiveArray>(ctx)?;
                 match_each_unsigned_integer_ptype!(flat_indices.ptype(), |I| {
                     filter_patches_with_mask(
                         flat_indices.as_slice::<I>(),
@@ -592,7 +595,8 @@ impl Patches {
     /// Mask the patches, REMOVING the patches where the mask is true.
     /// Unlike filter, this preserves the patch indices.
     /// Unlike mask on a single array, this does not set masked values to null.
-    pub fn mask(&self, mask: &Mask) -> VortexResult<Option<Self>> {
+    // TODO(joe): make this lazy and remove the ctx.
+    pub fn mask(&self, mask: &Mask, ctx: &mut ExecutionCtx) -> VortexResult<Option<Self>> {
         if mask.len() != self.array_len {
             vortex_bail!(
                 "Filter mask length {} does not match array length {}",
@@ -605,7 +609,7 @@ impl Patches {
             AllOr::All => return Ok(None),
             AllOr::None => return Ok(Some(self.clone())),
             AllOr::Some(masked) => {
-                let patch_indices = self.indices().to_primitive();
+                let patch_indices = self.indices().clone().execute::<PrimitiveArray>(ctx)?;
                 match_each_unsigned_integer_ptype!(patch_indices.ptype(), |P| {
                     let patch_indices = patch_indices.as_slice::<P>();
                     Mask::from_buffer(BitBuffer::collect_bool(patch_indices.len(), |i| {
@@ -700,32 +704,40 @@ impl Patches {
     /// Take the indices from the patches
     ///
     /// Any nulls in take_indices are added to the resulting patches.
-    pub fn take_with_nulls(&self, take_indices: &ArrayRef) -> VortexResult<Option<Self>> {
+    pub fn take_with_nulls(
+        &self,
+        take_indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Self>> {
         if take_indices.is_empty() {
             return Ok(None);
         }
 
-        let take_indices = take_indices.to_primitive();
+        let take_indices = take_indices.to_array().execute::<PrimitiveArray>(ctx)?;
         if self.is_map_faster_than_search(&take_indices) {
-            self.take_map(take_indices, true)
+            self.take_map(take_indices, true, ctx)
         } else {
-            self.take_search(take_indices, true)
+            self.take_search(take_indices, true, ctx)
         }
     }
 
     /// Take the indices from the patches.
     ///
     /// Any nulls in take_indices are ignored.
-    pub fn take(&self, take_indices: &ArrayRef) -> VortexResult<Option<Self>> {
+    pub fn take(
+        &self,
+        take_indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Self>> {
         if take_indices.is_empty() {
             return Ok(None);
         }
 
-        let take_indices = take_indices.to_primitive();
+        let take_indices = take_indices.to_array().execute::<PrimitiveArray>(ctx)?;
         if self.is_map_faster_than_search(&take_indices) {
-            self.take_map(take_indices, false)
+            self.take_map(take_indices, false, ctx)
         } else {
-            self.take_search(take_indices, false)
+            self.take_search(take_indices, false, ctx)
         }
     }
 
@@ -737,10 +749,15 @@ impl Patches {
         &self,
         take_indices: PrimitiveArray,
         include_nulls: bool,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Self>> {
         let take_indices_validity = take_indices.validity();
-        let patch_indices = self.indices.to_primitive();
-        let chunk_offsets = self.chunk_offsets().as_ref().map(|co| co.to_primitive());
+        let patch_indices = self.indices.clone().execute::<PrimitiveArray>(ctx)?;
+        let chunk_offsets = self
+            .chunk_offsets()
+            .as_ref()
+            .map(|co| co.clone().execute::<PrimitiveArray>(ctx))
+            .transpose()?;
 
         let (values_indices, new_indices): (BufferMut<u64>, BufferMut<u64>) =
             match_each_unsigned_integer_ptype!(patch_indices.ptype(), |PatchT| {
@@ -809,8 +826,9 @@ impl Patches {
         &self,
         take_indices: PrimitiveArray,
         include_nulls: bool,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Self>> {
-        let indices = self.indices.to_primitive();
+        let indices = self.indices.clone().execute::<PrimitiveArray>(ctx)?;
         let new_length = take_indices.len();
 
         let min_index = self.min_index()?;
@@ -856,9 +874,22 @@ impl Patches {
     ///
     /// - All patch indices after offset adjustment must be valid indices into the buffer.
     /// - The buffer and validity mask must have the same length.
-    pub unsafe fn apply_to_buffer<P: NativePType>(&self, buffer: &mut [P], validity: &mut MaskMut) {
-        let patch_indices = self.indices.to_primitive();
-        let patch_values = self.values.to_primitive();
+    pub unsafe fn apply_to_buffer<P: NativePType>(
+        &self,
+        buffer: &mut [P],
+        validity: &mut MaskMut,
+        ctx: &mut ExecutionCtx,
+    ) {
+        let patch_indices = self
+            .indices
+            .clone()
+            .execute::<PrimitiveArray>(ctx)
+            .vortex_expect("patch indices must be convertible to PrimitiveArray");
+        let patch_values = self
+            .values
+            .clone()
+            .execute::<PrimitiveArray>(ctx)
+            .vortex_expect("patch values must be convertible to PrimitiveArray");
         let patches_validity = patch_values.validity();
 
         let patch_values_slice = patch_values.as_slice::<P>();
@@ -878,6 +909,7 @@ impl Patches {
                     self.offset,
                     patch_values_slice,
                     patches_validity,
+                    ctx,
                 );
             }
         });
@@ -923,6 +955,7 @@ unsafe fn apply_patches_to_buffer_inner<P, I>(
     patch_offset: usize,
     patch_values: &[P],
     patches_validity: &Validity,
+    ctx: &mut ExecutionCtx,
 ) where
     P: NativePType,
     I: UnsignedPType,
@@ -959,7 +992,10 @@ unsafe fn apply_patches_to_buffer_inner<P, I>(
         }
         Validity::Array(array) => {
             // Some patch values may be null, check each one.
-            let bool_array = array.to_bool();
+            let bool_array = array
+                .clone()
+                .execute::<BoolArray>(ctx)
+                .vortex_expect("validity array must be convertible to BoolArray");
             let mask = bool_array.to_bit_buffer();
             for (patch_idx, (&i, &value)) in patch_indices.iter().zip_eq(patch_values).enumerate() {
                 let index = i.as_() - patch_offset;
@@ -1191,7 +1227,9 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::patches::Patches;
@@ -1210,7 +1248,10 @@ mod test {
         .unwrap();
 
         let filtered = patches
-            .filter(&Mask::from_indices(100, vec![10, 20, 30]))
+            .filter(
+                &Mask::from_indices(100, vec![10, 20, 30]),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
             .unwrap()
             .unwrap();
 
@@ -1233,6 +1274,7 @@ mod test {
             .take(
                 &PrimitiveArray::new(buffer![9, 0], Validity::from_iter(vec![true, false]))
                     .into_array(),
+                &mut LEGACY_SESSION.create_execution_ctx(),
             )
             .unwrap()
             .unwrap();
@@ -1265,6 +1307,7 @@ mod test {
             .take_search(
                 PrimitiveArray::new(buffer![9, 0], Validity::from_iter([true, false])),
                 true,
+                &mut LEGACY_SESSION.create_execution_ctx(),
             )
             .unwrap()
             .unwrap();
@@ -1298,6 +1341,7 @@ mod test {
             .take_search(
                 PrimitiveArray::new(buffer![500, 1200, 999], Validity::AllValid),
                 true,
+                &mut LEGACY_SESSION.create_execution_ctx(),
             )
             .unwrap()
             .unwrap();
@@ -1324,6 +1368,7 @@ mod test {
             .take_search(
                 PrimitiveArray::new(buffer![3, 4, 5], Validity::AllValid),
                 true,
+                &mut LEGACY_SESSION.create_execution_ctx(),
             )
             .unwrap();
 
@@ -1345,6 +1390,7 @@ mod test {
             .take_search(
                 PrimitiveArray::new(buffer![10, 15, 20, 99], Validity::AllValid),
                 true,
+                &mut LEGACY_SESSION.create_execution_ctx(),
             )
             .unwrap()
             .unwrap();
@@ -1371,6 +1417,7 @@ mod test {
             .take_search(
                 PrimitiveArray::new(BufferMut::from_iter(0..1500u64), Validity::AllValid),
                 false,
+                &mut LEGACY_SESSION.create_execution_ctx(),
             )
             .unwrap()
             .unwrap();
@@ -1420,7 +1467,9 @@ mod test {
         .unwrap();
 
         let mask = Mask::new_true(10);
-        let masked = patches.mask(&mask).unwrap();
+        let masked = patches
+            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert!(masked.is_none());
     }
 
@@ -1436,7 +1485,10 @@ mod test {
         .unwrap();
 
         let mask = Mask::new_false(10);
-        let masked = patches.mask(&mask).unwrap().unwrap();
+        let masked = patches
+            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .unwrap();
 
         // No patch values should be masked
         assert_arrays_eq!(
@@ -1466,7 +1518,10 @@ mod test {
         let mask = Mask::from_iter([
             false, false, true, false, false, false, false, false, true, false,
         ]);
-        let masked = patches.mask(&mask).unwrap().unwrap();
+        let masked = patches
+            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .unwrap();
 
         // Only the patch at index 5 should remain
         assert_eq!(masked.values().len(), 1);
@@ -1492,7 +1547,10 @@ mod test {
             false, false, true, false, false, false, false, false, false, false,
         ]);
 
-        let masked = patches.mask(&mask).unwrap().unwrap();
+        let masked = patches
+            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .unwrap();
         assert_eq!(masked.array_len(), 10);
         assert_eq!(masked.offset(), 5);
         assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([10u64, 13]));
@@ -1514,7 +1572,10 @@ mod test {
         let mask = Mask::from_iter([
             false, false, true, false, false, false, false, false, false, false,
         ]);
-        let masked = patches.mask(&mask).unwrap().unwrap();
+        let masked = patches
+            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .unwrap();
 
         // Patches at indices 5 and 8 should remain
         assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([5u64, 8]));
@@ -1543,7 +1604,10 @@ mod test {
 
         // Keep all indices (mask with indices 0-9)
         let mask = Mask::from_indices(10, (0..10).collect());
-        let filtered = patches.filter(&mask).unwrap().unwrap();
+        let filtered = patches
+            .filter(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .unwrap();
 
         assert_arrays_eq!(filtered.indices(), PrimitiveArray::from_iter([2u64, 5, 8]));
         assert_arrays_eq!(
@@ -1565,7 +1629,9 @@ mod test {
 
         // Filter out all (empty mask means keep nothing)
         let mask = Mask::from_indices(10, vec![]);
-        let filtered = patches.filter(&mask).unwrap();
+        let filtered = patches
+            .filter(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert!(filtered.is_none());
     }
 
@@ -1582,7 +1648,10 @@ mod test {
 
         // Keep indices 2, 5, 9 (so patches at 2 and 5 remain)
         let mask = Mask::from_indices(10, vec![2, 5, 9]);
-        let filtered = patches.filter(&mask).unwrap().unwrap();
+        let filtered = patches
+            .filter(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .unwrap();
 
         assert_arrays_eq!(filtered.indices(), PrimitiveArray::from_iter([0u64, 1])); // Adjusted indices
         assert_arrays_eq!(filtered.values(), PrimitiveArray::from_iter([100i32, 200]));
@@ -1742,7 +1811,9 @@ mod test {
         let mask = Mask::from_iter([
             true, false, false, false, false, false, false, false, false, false,
         ]);
-        let masked = patches.mask(&mask).unwrap();
+        let masked = patches
+            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert!(masked.is_some());
         let masked = masked.unwrap();
         assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([9u64]));
@@ -1765,7 +1836,9 @@ mod test {
         let mask = Mask::from_iter([
             false, false, true, false, false, true, false, false, true, false,
         ]);
-        let masked = patches.mask(&mask).unwrap();
+        let masked = patches
+            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert!(masked.is_none());
     }
 
@@ -1785,7 +1858,10 @@ mod test {
         let mask = Mask::from_iter([
             true, false, false, true, false, false, true, false, false, true,
         ]);
-        let masked = patches.mask(&mask).unwrap().unwrap();
+        let masked = patches
+            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .unwrap();
 
         assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([2u64, 5, 8]));
         assert_arrays_eq!(
@@ -1808,12 +1884,17 @@ mod test {
 
         // Mask that removes the single patch
         let mask = Mask::from_iter([false, false, true, false, false]);
-        let masked = patches.mask(&mask).unwrap();
+        let masked = patches
+            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert!(masked.is_none());
 
         // Mask that keeps the single patch
         let mask = Mask::from_iter([true, false, false, true, false]);
-        let masked = patches.mask(&mask).unwrap().unwrap();
+        let masked = patches
+            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .unwrap();
         assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([2u64]));
     }
 
@@ -1833,7 +1914,10 @@ mod test {
         let mask = Mask::from_iter([
             false, false, false, false, true, true, false, false, false, false,
         ]);
-        let masked = patches.mask(&mask).unwrap().unwrap();
+        let masked = patches
+            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .unwrap();
 
         assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([3u64, 6]));
         assert_arrays_eq!(masked.values(), PrimitiveArray::from_iter([100i32, 400]));
@@ -1856,7 +1940,10 @@ mod test {
             false, false, true, false, false, false, false, false, false, false, false, false,
             false, false, false, false, false, false, false, false,
         ]);
-        let masked = patches.mask(&mask).unwrap().unwrap();
+        let masked = patches
+            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .unwrap();
 
         assert_arrays_eq!(masked.indices(), PrimitiveArray::from_iter([16u64, 19]));
         assert_arrays_eq!(masked.values(), PrimitiveArray::from_iter([100i32, 300]));
@@ -1876,7 +1963,9 @@ mod test {
 
         // Mask with wrong length
         let mask = Mask::from_iter([false, false, true, false, false]);
-        patches.mask(&mask).unwrap();
+        patches
+            .mask(&mask, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
     }
 
     #[test]

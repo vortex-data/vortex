@@ -17,12 +17,12 @@ impl TakeExecute for ALPRDVTable {
     fn take(
         array: &ALPRDArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let taken_left_parts = array.left_parts().take(indices.to_array())?;
         let left_parts_exceptions = array
             .left_parts_patches()
-            .map(|patches| patches.take(indices))
+            .map(|patches| patches.take(indices, ctx))
             .transpose()?
             .flatten()
             .map(|p| {

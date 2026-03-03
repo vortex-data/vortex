@@ -43,6 +43,8 @@ pub use compare::*;
 mod numeric;
 pub(crate) use numeric::*;
 
+use crate::scalar::NumericOperator;
+
 #[derive(Clone)]
 pub struct Binary;
 
@@ -140,10 +142,10 @@ impl ScalarFnVTable for Binary {
             Operator::Gte => execute_compare(&lhs, &rhs, CompareOperator::Gte),
             Operator::And => execute_boolean(&lhs, &rhs, Operator::And),
             Operator::Or => execute_boolean(&lhs, &rhs, Operator::Or),
-            Operator::Add => execute_numeric(&lhs, &rhs, crate::scalar::NumericOperator::Add),
-            Operator::Sub => execute_numeric(&lhs, &rhs, crate::scalar::NumericOperator::Sub),
-            Operator::Mul => execute_numeric(&lhs, &rhs, crate::scalar::NumericOperator::Mul),
-            Operator::Div => execute_numeric(&lhs, &rhs, crate::scalar::NumericOperator::Div),
+            Operator::Add => execute_numeric(&lhs, &rhs, NumericOperator::Add),
+            Operator::Sub => execute_numeric(&lhs, &rhs, NumericOperator::Sub),
+            Operator::Mul => execute_numeric(&lhs, &rhs, NumericOperator::Mul),
+            Operator::Div => execute_numeric(&lhs, &rhs, NumericOperator::Div),
         }
     }
 

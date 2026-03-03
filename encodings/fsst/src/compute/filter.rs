@@ -22,8 +22,9 @@ impl FilterKernel for FSSTVTable {
         // Directly invoke VarBin's FilterKernel to get a concrete VarBinArray back.
         let filtered_codes = <VarBinVTable as FilterKernel>::filter(array.codes(), mask, ctx)?
             .vortex_expect("VarBin filter kernel always returns Some")
-            .as_::<VarBinVTable>()
-            .clone();
+            .try_into::<VarBinVTable>()
+            .ok()
+            .vortex_expect("must be VarBinVTable");
 
         Ok(Some(
             FSSTArray::try_new(

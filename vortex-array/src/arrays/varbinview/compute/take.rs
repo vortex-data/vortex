@@ -11,8 +11,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::BinaryView;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::TakeExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
@@ -26,10 +26,10 @@ impl TakeExecute for VarBinViewVTable {
     fn take(
         array: &VarBinViewArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity().take(indices)?;
-        let indices = indices.to_primitive();
+        let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
 
         let indices_mask = indices.validity_mask()?;
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {

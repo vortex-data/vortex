@@ -11,7 +11,6 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::TakeExecute;
 use crate::arrays::VarBinVTable;
@@ -26,12 +25,12 @@ impl TakeExecute for VarBinVTable {
     fn take(
         array: &VarBinArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // TODO(joe): Be lazy with execute
-        let offsets = array.offsets().to_primitive();
+        let offsets = array.offsets().to_array().execute::<PrimitiveArray>(ctx)?;
         let data = array.bytes();
-        let indices = indices.to_primitive();
+        let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
         let dtype = array
             .dtype()
             .clone()

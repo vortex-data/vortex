@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::Ordering;
+
 use arrow_array::BooleanArray;
+use arrow_buffer::NullBuffer;
 use arrow_ord::cmp;
+use arrow_ord::ord::make_comparator;
+use arrow_schema::SortOptions;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -17,7 +22,6 @@ use crate::arrays::ScalarFnVTable;
 use crate::arrow::Datum;
 use crate::arrow::IntoArrowArray;
 use crate::arrow::from_arrow_array_with_len;
-use crate::compute::compare_nested_arrow_arrays;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::kernel::ExecuteParentKernel;
@@ -192,6 +196,37 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> Scal
 
         Scalar::bool(b, lhs.dtype().nullability() | rhs.dtype().nullability())
     }
+}
+
+/// Compare two Arrow arrays element-wise using [`make_comparator`].
+///
+/// This function is required for nested types (Struct, List, FixedSizeList) because Arrow's
+/// vectorized comparison kernels ([`cmp::eq`], [`cmp::neq`], etc.) do not support them.
+///
+/// The vectorized kernels are faster but only work on primitive types, so for non-nested types,
+/// prefer using the vectorized kernels directly for better performance.
+pub fn compare_nested_arrow_arrays(
+    lhs: &dyn arrow_array::Array,
+    rhs: &dyn arrow_array::Array,
+    operator: CompareOperator,
+) -> VortexResult<BooleanArray> {
+    let compare_arrays_at = make_comparator(lhs, rhs, SortOptions::default())?;
+
+    let cmp_fn = match operator {
+        CompareOperator::Eq => Ordering::is_eq,
+        CompareOperator::NotEq => Ordering::is_ne,
+        CompareOperator::Gt => Ordering::is_gt,
+        CompareOperator::Gte => Ordering::is_ge,
+        CompareOperator::Lt => Ordering::is_lt,
+        CompareOperator::Lte => Ordering::is_le,
+    };
+
+    let values = (0..lhs.len())
+        .map(|i| cmp_fn(compare_arrays_at(i, i)))
+        .collect();
+    let nulls = NullBuffer::union(lhs.nulls(), rhs.nulls());
+
+    Ok(BooleanArray::new(values, nulls))
 }
 
 #[cfg(test)]

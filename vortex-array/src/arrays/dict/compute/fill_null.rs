@@ -7,9 +7,10 @@ use super::DictArray;
 use super::DictVTable;
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ToCanonical;
+use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::match_each_integer_ptype;
@@ -22,7 +23,7 @@ impl FillNullKernel for DictVTable {
     fn fill_null(
         array: &DictArray,
         fill_value: &Scalar,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // If the fill value already exists in the dictionary, we can simply rewrite the null codes
         // to point to the value.
@@ -33,7 +34,7 @@ impl FillNullKernel for DictVTable {
                 ConstantArray::new(fill_value.clone(), array.values().len()).to_array(),
                 Operator::Eq,
             )?
-            .to_bool();
+            .execute::<BoolArray>(ctx)?;
 
         // We found the fill value already in the values at this given index.
         let Some(existing_fill_value_index) =
@@ -42,7 +43,8 @@ impl FillNullKernel for DictVTable {
             // No fill values found, so we must canonicalize and fill_null.
             return Ok(Some(
                 array
-                    .to_canonical()?
+                    .to_array()
+                    .execute::<Canonical>(ctx)?
                     .into_array()
                     .fill_null(fill_value.clone())?,
             ));

@@ -15,7 +15,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 
 use arcref::ArcRef;
-pub use compare::*;
 pub use is_constant::*;
 pub use is_sorted::*;
 use itertools::Itertools;
@@ -37,8 +36,6 @@ use crate::scalar::Scalar;
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
-mod compare;
-#[cfg(feature = "_test-harness")]
 pub mod conformance;
 mod is_constant;
 mod is_sorted;

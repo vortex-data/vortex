@@ -10,7 +10,6 @@ use vortex_error::vortex_panic;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::arrays::PrimitiveArray;
@@ -30,10 +29,10 @@ impl TakeExecute for FixedSizeListVTable {
     fn take(
         array: &FixedSizeListArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         match_each_integer_ptype!(indices.dtype().as_ptype(), |I| {
-            take_with_indices::<I>(array, indices)
+            take_with_indices::<I>(array, indices, ctx)
         })
         .map(Some)
     }
@@ -43,10 +42,11 @@ impl TakeExecute for FixedSizeListVTable {
 fn take_with_indices<I: IntegerPType>(
     array: &FixedSizeListArray,
     indices: &ArrayRef,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
 
-    let indices_array = indices.to_primitive();
+    let indices_array = indices.to_array().execute::<PrimitiveArray>(ctx)?;
 
     // Make sure to handle degenerate case where lists have size 0 (these can take fast paths).
     if list_size == 0 {

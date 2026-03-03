@@ -6,7 +6,6 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::ToCanonical;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::arrays::PrimitiveArray;
@@ -33,16 +32,16 @@ impl TakeExecute for ListVTable {
     fn take(
         array: &ListArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let indices = indices.to_primitive();
+        let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
         // This is an over-approximation of the total number of elements in the resulting array.
         let total_approx = array.elements().len().saturating_mul(indices.len());
 
         match_each_integer_ptype!(array.offsets().dtype().as_ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 match_smallest_offset_type!(total_approx, |OutputOffsetType| {
-                    _take::<I, O, OutputOffsetType>(array, &indices).map(Some)
+                    _take::<I, O, OutputOffsetType>(array, &indices, ctx).map(Some)
                 })
             })
         })
@@ -52,15 +51,16 @@ impl TakeExecute for ListVTable {
 fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     array: &ListArray,
     indices_array: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let data_validity = array.validity_mask()?;
     let indices_validity = indices_array.validity_mask()?;
 
     if !indices_validity.all_true() || !data_validity.all_true() {
-        return _take_nullable::<I, O, OutputOffsetType>(array, indices_array);
+        return _take_nullable::<I, O, OutputOffsetType>(array, indices_array, ctx);
     }
 
-    let offsets_array = array.offsets().to_primitive();
+    let offsets_array = array.offsets().to_array().execute::<PrimitiveArray>(ctx)?;
     let offsets: &[O] = offsets_array.as_slice();
     let indices: &[I] = indices_array.as_slice();
 
@@ -113,8 +113,9 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
 fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     array: &ListArray,
     indices_array: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let offsets_array = array.offsets().to_primitive();
+    let offsets_array = array.offsets().to_array().execute::<PrimitiveArray>(ctx)?;
     let offsets: &[O] = offsets_array.as_slice();
     let indices: &[I] = indices_array.as_slice();
     let data_validity = array.validity_mask()?;

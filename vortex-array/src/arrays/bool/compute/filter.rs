@@ -10,22 +10,17 @@ use vortex_mask::Mask;
 use vortex_mask::MaskIter;
 
 use crate::ArrayRef;
-use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
-use crate::arrays::filter::FilterKernel;
+use crate::arrays::FilterReduce;
 use crate::vtable::ValidityHelper;
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
-impl FilterKernel for BoolVTable {
-    fn filter(
-        array: &BoolArray,
-        mask: &Mask,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
+impl FilterReduce for BoolVTable {
+    fn filter(array: &BoolArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity().filter(mask)?;
 
         let mask_values = mask

@@ -14,11 +14,11 @@ impl FilterKernel for ALPVTable {
     fn filter(
         array: &ALPArray,
         mask: &Mask,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let patches = array
             .patches()
-            .map(|p| p.filter(mask))
+            .map(|p| p.filter(mask, ctx))
             .transpose()?
             .flatten();
 

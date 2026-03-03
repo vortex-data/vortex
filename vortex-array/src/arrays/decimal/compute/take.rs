@@ -5,9 +5,9 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::ToCanonical;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::TakeExecute;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativeDecimalType;
@@ -20,9 +20,9 @@ impl TakeExecute for DecimalVTable {
     fn take(
         array: &DecimalArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let indices = indices.to_primitive();
+        let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
         let validity = array.validity().take(&indices.to_array())?;
 
         // TODO(joe): if the true count of take indices validity is low, only take array values with

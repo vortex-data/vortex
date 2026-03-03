@@ -17,7 +17,6 @@ use vortex_error::vortex_bail;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::TakeExecute;
 use crate::arrays::primitive::PrimitiveArray;
@@ -85,20 +84,20 @@ impl TakeExecute for PrimitiveVTable {
     fn take(
         array: &PrimitiveArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let DType::Primitive(ptype, null) = indices.dtype() else {
             vortex_bail!("Invalid indices dtype: {}", indices.dtype())
         };
 
         let unsigned_indices = if ptype.is_unsigned_int() {
-            indices.to_primitive()
+            indices.to_array().execute::<PrimitiveArray>(ctx)?
         } else {
             // This will fail if all values cannot be converted to unsigned
             indices
                 .to_array()
                 .cast(DType::Primitive(ptype.to_unsigned(), *null))?
-                .to_primitive()
+                .execute::<PrimitiveArray>(ctx)?
         };
 
         let validity = array.validity().take(&unsigned_indices.to_array())?;
