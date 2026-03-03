@@ -17,14 +17,12 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
-use crate::scalar_fn::fns::zip::ZipReduceAdaptor;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<ChunkedVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&CastReduceAdaptor(ChunkedVTable)),
     ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule),
     ParentRuleSet::lift(&ChunkedConstantScalarFnPushDownRule),
     ParentRuleSet::lift(&FillNullReduceAdaptor(ChunkedVTable)),
-    ParentRuleSet::lift(&ZipReduceAdaptor(ChunkedVTable)),
 ]);
 
 /// Push down any unary scalar function through chunked arrays.

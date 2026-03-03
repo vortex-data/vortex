@@ -16,6 +16,7 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::BoolArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
@@ -114,7 +115,7 @@ impl ScalarFnVTable for Zip {
         let if_false = args.get(1)?;
         let mask_array = args.get(2)?;
 
-        let mask = mask_array.try_to_mask_fill_null_false()?;
+        let mask = mask_array.execute::<BoolArray>(ctx)?.to_mask();
 
         let return_dtype = if_true
             .dtype()

@@ -393,6 +393,7 @@ impl SparseArray {
             );
         } else if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
             // Array is dominated by NULL but has non-NULL values
+            // TODO(joe): use exe ctx?
             let non_null_values = array.filter(mask.clone())?.to_canonical()?.into_array();
             let non_null_indices = match mask.indices() {
                 AllOr::All => {

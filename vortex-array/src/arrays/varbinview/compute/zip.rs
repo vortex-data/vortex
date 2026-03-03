@@ -24,8 +24,8 @@ impl ZipKernel for VarBinViewVTable {
     fn zip(
         if_true: &VarBinViewArray,
         if_false: &ArrayRef,
-        mask: &Mask,
-        _ctx: &mut ExecutionCtx,
+        mask: &ArrayRef,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(if_false) = if_false.as_opt::<VarBinViewVTable>() else {
             return Ok(None);
@@ -54,6 +54,7 @@ impl ZipKernel for VarBinViewVTable {
         let true_validity = if_true.validity_mask()?;
         let false_validity = if_false.validity_mask()?;
 
+        let mask = mask.clone().execute::<Mask>(ctx)?;
         match mask.slices() {
             AllOr::All => push_range(
                 if_true,

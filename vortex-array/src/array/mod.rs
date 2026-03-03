@@ -16,7 +16,6 @@ pub use visitor::*;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -44,7 +43,6 @@ use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
-use crate::builtins::ArrayBuiltins;
 use crate::compute;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -355,20 +353,6 @@ impl dyn Array + '_ {
     pub fn is_canonical(&self) -> bool {
         self.is::<AnyCanonical>()
     }
-
-    /// Converts from a possible nullable boolean array. Null values are treated as false.
-    pub fn try_to_mask_fill_null_false(&self) -> VortexResult<Mask> {
-        if !matches!(self.dtype(), DType::Bool(_)) {
-            vortex_bail!("mask must be bool array, has dtype {}", self.dtype());
-        }
-
-        // Convert nulls to false first in case this can be done cheaply by the encoding.
-        let array = self
-            .to_array()
-            .fill_null(Scalar::bool(false, self.dtype().nullability()))?;
-
-        Ok(array.to_bool().to_mask_fill_null_false())
-    }
 }
 
 /// Trait for converting a type into a Vortex [`ArrayRef`].
@@ -620,7 +604,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(Mask::new_true(self.len())),
             Validity::AllInvalid => Ok(Mask::new_false(self.len())),
-            Validity::Array(a) => a.try_to_mask_fill_null_false(),
+            Validity::Array(a) => Ok(a.to_bool().to_mask()),
         }
     }
 
