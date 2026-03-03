@@ -167,8 +167,12 @@ impl Scalar {
     /// # Errors
     ///
     /// Returns an error if type validation fails.
-    pub fn from_proto_value(value: &pb::ScalarValue, dtype: &DType) -> VortexResult<Self> {
-        let scalar_value = ScalarValue::from_proto(value, dtype)?;
+    pub fn from_proto_value(
+        value: &pb::ScalarValue,
+        dtype: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
+        let scalar_value = ScalarValue::from_proto(value, dtype, session)?;
 
         Scalar::try_new(dtype.clone(), scalar_value)
     }
@@ -192,7 +196,7 @@ impl Scalar {
             .as_ref()
             .ok_or_else(|| vortex_err!(Serde: "Scalar missing value"))?;
 
-        let value: Option<ScalarValue> = ScalarValue::from_proto(pb_scalar_value, &dtype)?;
+        let value: Option<ScalarValue> = ScalarValue::from_proto(pb_scalar_value, &dtype, session)?;
 
         Scalar::try_new(dtype, value)
     }
@@ -207,9 +211,13 @@ impl ScalarValue {
     /// # Errors
     ///
     /// Returns an error if decoding or type validation fails.
-    pub fn from_proto_bytes(bytes: &[u8], dtype: &DType) -> VortexResult<Option<Self>> {
+    pub fn from_proto_bytes(
+        bytes: &[u8],
+        dtype: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Self>> {
         let proto = pb::ScalarValue::decode(bytes)?;
-        Self::from_proto(&proto, dtype)
+        Self::from_proto(&proto, dtype, session)
     }
 
     /// Creates a [`ScalarValue`] from its [protobuf](pb::ScalarValue) representation.
@@ -220,7 +228,11 @@ impl ScalarValue {
     /// # Errors
     ///
     /// Returns an error if the protobuf value cannot be converted to the given [`DType`].
-    pub fn from_proto(value: &pb::ScalarValue, dtype: &DType) -> VortexResult<Option<Self>> {
+    pub fn from_proto(
+        value: &pb::ScalarValue,
+        dtype: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Self>> {
         let kind = value
             .kind
             .as_ref()
@@ -242,7 +254,7 @@ impl ScalarValue {
             Kind::F64Value(v) => f64_from_proto(*v, dtype)?,
             Kind::StringValue(s) => string_from_proto(s, dtype)?,
             Kind::BytesValue(b) => bytes_from_proto(b, dtype)?,
-            Kind::ListValue(v) => list_from_proto(v, dtype)?,
+            Kind::ListValue(v) => list_from_proto(v, dtype, session)?,
         }))
     }
 }
@@ -415,14 +427,22 @@ fn bytes_from_proto(bytes: &[u8], dtype: &DType) -> VortexResult<ScalarValue> {
 }
 
 /// Deserialize a [`ScalarValue::List`] from a protobuf `ListValue`.
-fn list_from_proto(v: &ListValue, dtype: &DType) -> VortexResult<ScalarValue> {
+fn list_from_proto(
+    v: &ListValue,
+    dtype: &DType,
+    session: &VortexSession,
+) -> VortexResult<ScalarValue> {
     let element_dtype = dtype
         .as_list_element_opt()
         .ok_or_else(|| vortex_err!(Serde: "expected List dtype for ListValue, got {dtype}"))?;
 
     let mut values = Vec::with_capacity(v.values.len());
     for elem in v.values.iter() {
-        values.push(ScalarValue::from_proto(elem, element_dtype.as_ref())?);
+        values.push(ScalarValue::from_proto(
+            elem,
+            element_dtype.as_ref(),
+            session,
+        )?);
     }
 
     Ok(ScalarValue::List(values))
@@ -604,6 +624,7 @@ mod tests {
         let scalar_value = ScalarValue::from_proto(
             &pb_scalar_value,
             &DType::Primitive(PType::U64, Nullability::NonNullable),
+            &session(),
         )
         .unwrap();
         assert_eq!(
@@ -615,6 +636,7 @@ mod tests {
         let scalar_value_f16 = ScalarValue::from_proto(
             &pb_scalar_value,
             &DType::Primitive(PType::F16, Nullability::Nullable),
+            &session(),
         )
         .unwrap();
 
@@ -651,6 +673,7 @@ mod tests {
             let read_back = ScalarValue::from_proto(
                 &pb_value,
                 &DType::Primitive(PType::F16, Nullability::NonNullable),
+                &session(),
             )
             .unwrap();
 
@@ -729,7 +752,7 @@ mod tests {
 
         for (name, value, dtype) in exact_roundtrip_cases {
             let pb_value = ScalarValue::to_proto(value.as_ref());
-            let read_back = ScalarValue::from_proto(&pb_value, &dtype).unwrap();
+            let read_back = ScalarValue::from_proto(&pb_value, &dtype, &session()).unwrap();
 
             let original_debug = format!("{value:?}");
             let roundtrip_debug = format!("{read_back:?}");
@@ -764,7 +787,7 @@ mod tests {
 
         for (name, value, dtype, expected) in unsigned_cases {
             let pb_value = ScalarValue::to_proto(Some(&value));
-            let read_back = ScalarValue::from_proto(&pb_value, &dtype).unwrap();
+            let read_back = ScalarValue::from_proto(&pb_value, &dtype, &session()).unwrap();
 
             match read_back.as_ref() {
                 Some(ScalarValue::Primitive(pv)) => {
@@ -808,7 +831,7 @@ mod tests {
 
         for (name, value, dtype, expected) in signed_cases {
             let pb_value = ScalarValue::to_proto(Some(&value));
-            let read_back = ScalarValue::from_proto(&pb_value, &dtype).unwrap();
+            let read_back = ScalarValue::from_proto(&pb_value, &dtype, &session()).unwrap();
 
             match read_back.as_ref() {
                 Some(ScalarValue::Primitive(pv)) => {
@@ -837,7 +860,8 @@ mod tests {
         assert_eq!(
             Scalar::from_proto_value(
                 &pb::ScalarValue::from(&v),
-                &DType::Primitive(PType::U64, Nullability::Nullable)
+                &DType::Primitive(PType::U64, Nullability::Nullable),
+                &session()
             )
             .unwrap(),
             Scalar::primitive(0u64, Nullability::Nullable)
@@ -852,7 +876,8 @@ mod tests {
         assert_eq!(
             Scalar::from_proto_value(
                 &pb::ScalarValue::from(&v),
-                &DType::Primitive(PType::I64, Nullability::Nullable)
+                &DType::Primitive(PType::I64, Nullability::Nullable),
+                &session()
             )
             .unwrap(),
             Scalar::primitive(0i64, Nullability::Nullable)

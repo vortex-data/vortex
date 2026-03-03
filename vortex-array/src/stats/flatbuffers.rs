@@ -7,6 +7,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::array as fba;
+use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -113,6 +114,7 @@ impl StatsSet {
     pub fn from_flatbuffer<'a>(
         fb: &fba::ArrayStats<'a>,
         array_dtype: &DType,
+        session: &VortexSession,
     ) -> VortexResult<Self> {
         let mut stats_set = StatsSet::default();
 
@@ -142,7 +144,8 @@ impl StatsSet {
                     if let Some(max) = fb.max()
                         && let Some(stat_dtype) = stat_dtype
                     {
-                        let value = ScalarValue::from_proto_bytes(max.bytes(), &stat_dtype)?;
+                        let value =
+                            ScalarValue::from_proto_bytes(max.bytes(), &stat_dtype, session)?;
                         let Some(value) = value else {
                             continue;
                         };
@@ -161,7 +164,8 @@ impl StatsSet {
                     if let Some(min) = fb.min()
                         && let Some(stat_dtype) = stat_dtype
                     {
-                        let value = ScalarValue::from_proto_bytes(min.bytes(), &stat_dtype)?;
+                        let value =
+                            ScalarValue::from_proto_bytes(min.bytes(), &stat_dtype, session)?;
                         let Some(value) = value else {
                             continue;
                         };
@@ -193,7 +197,8 @@ impl StatsSet {
                     if let Some(sum) = fb.sum()
                         && let Some(stat_dtype) = stat_dtype
                     {
-                        let value = ScalarValue::from_proto_bytes(sum.bytes(), &stat_dtype)?;
+                        let value =
+                            ScalarValue::from_proto_bytes(sum.bytes(), &stat_dtype, session)?;
                         let Some(value) = value else {
                             continue;
                         };

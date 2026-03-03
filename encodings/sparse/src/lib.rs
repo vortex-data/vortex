@@ -163,7 +163,7 @@ impl VTable for SparseVTable {
         dtype: &DType,
         _len: usize,
         buffers: &[BufferHandle],
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         let prost_patches =
             <ProstMetadata<ProstPatchesMetadata> as DeserializeMetadata>::deserialize(bytes)?;
@@ -175,7 +175,7 @@ impl VTable for SparseVTable {
         }
         let scalar_bytes: &[u8] = &buffers[0].clone().try_to_host_sync()?;
 
-        let scalar_value = ScalarValue::from_proto_bytes(scalar_bytes, dtype)?;
+        let scalar_value = ScalarValue::from_proto_bytes(scalar_bytes, dtype, session)?;
         let fill_value = Scalar::try_new(dtype.clone(), scalar_value)?;
 
         Ok(SparseMetadata {

@@ -322,7 +322,7 @@ impl VTable for SequenceVTable {
         dtype: &DType,
         _len: usize,
         _buffers: &[BufferHandle],
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         let prost =
             <ProstMetadata<ProstSequenceMetadata> as DeserializeMetadata>::deserialize(bytes)?;
@@ -336,6 +336,7 @@ impl VTable for SequenceVTable {
                 .as_ref()
                 .ok_or_else(|| vortex_err!("base required"))?,
             &DType::Primitive(ptype, NonNullable),
+            session,
         )?
         .as_primitive()
         .pvalue()
@@ -347,6 +348,7 @@ impl VTable for SequenceVTable {
                 .as_ref()
                 .ok_or_else(|| vortex_err!("multiplier required"))?,
             &DType::Primitive(ptype, NonNullable),
+            session,
         )?
         .as_primitive()
         .pvalue()

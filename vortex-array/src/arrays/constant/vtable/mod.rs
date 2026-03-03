@@ -133,7 +133,7 @@ impl VTable for ConstantVTable {
         dtype: &DType,
         _len: usize,
         buffers: &[BufferHandle],
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         vortex_ensure!(
             buffers.len() == 1,
@@ -144,7 +144,7 @@ impl VTable for ConstantVTable {
         let buffer = buffers[0].clone().try_to_host_sync()?;
         let bytes: &[u8] = buffer.as_ref();
 
-        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype)?;
+        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
         let scalar = Scalar::try_new(dtype.clone(), scalar_value)?;
 
         Ok(scalar)

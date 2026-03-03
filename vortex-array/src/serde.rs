@@ -377,7 +377,7 @@ impl ArrayParts {
         if let Some(stats) = self.flatbuffer().stats() {
             decoded
                 .statistics()
-                .set_iter(StatsSet::from_flatbuffer(&stats, dtype)?.into_iter());
+                .set_iter(StatsSet::from_flatbuffer(&stats, dtype, session)?.into_iter());
         }
 
         Ok(decoded)
