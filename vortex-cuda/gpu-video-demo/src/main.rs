@@ -483,8 +483,10 @@ async fn main() -> VortexResult<()> {
     );
 
     // Spawn a background sender task so TCP backpressure doesn't block the
-    // encoding pipeline. Buffer up to 8 frames of TS data.
-    let (ts_tx, mut ts_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(8);
+    // encoding pipeline. Buffer 2 seconds of frames to absorb jitter; if the
+    // consumer is permanently slower we gracefully slow down (no frame drops).
+    let send_buf_frames = fps as usize * 2;
+    let (ts_tx, mut ts_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(send_buf_frames);
     let sender_task = tokio::spawn(async move {
         while let Some(ts_packets) = ts_rx.recv().await {
             if let Err(e) = sender.send(ts_packets).await {
@@ -510,7 +512,6 @@ async fn main() -> VortexResult<()> {
     let mut stage_mux_ns: u64 = 0;
     let mut stage_send_ns: u64 = 0;
     let mut batch_count: u64 = 0;
-    let mut dropped_frames: u64 = 0;
 
     loop {
         let gpu_file = session.open_options().open(Arc::clone(&reader)).await?;
@@ -660,15 +661,10 @@ async fn main() -> VortexResult<()> {
                         stage_mux_ns += t.elapsed().as_nanos() as u64;
 
                         let t = std::time::Instant::now();
-                        match ts_tx.try_send(ts_packets) {
-                            Ok(()) => {}
-                            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-                                dropped_frames += 1;
-                            }
-                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-                                return Err(vortex_err!("Sender task died"));
-                            }
-                        }
+                        ts_tx
+                            .send(ts_packets)
+                            .await
+                            .map_err(|_| vortex_err!("Sender task died"))?;
                         stage_send_ns += t.elapsed().as_nanos() as u64;
 
                         let target = stream_start + frame_duration * (encoded.frame_idx + 1) as u32;
@@ -729,7 +725,7 @@ async fn main() -> VortexResult<()> {
     tracing::info!(
         frames = frame_idx,
         batches = batch_count,
-        dropped_frames,
+        send_buf_frames,
         elapsed_secs = format!("{:.2}", elapsed.as_secs_f64()),
         avg_fps = format!("{:.1}", avg_fps),
         "streaming complete"
