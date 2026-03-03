@@ -6,15 +6,22 @@ use std::cmp::Ordering;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 
 use crate::Array;
+use crate::ExecutionCtx;
+use crate::ToCanonical;
+use crate::arrays::BoolArray;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::sum;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::PType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::scalar::PValue;
+use crate::scalar::Scalar;
 use crate::search_sorted::IndexOrd;
 
 impl dyn Array + '_ {
@@ -79,6 +86,19 @@ impl dyn Array + '_ {
         matches!(self.dtype(), DType::Extension(..))
             .then(|| ExtensionTyped(self))
             .vortex_expect("Array does not have DType::Extension")
+    }
+
+    pub fn try_to_mask_fill_null_false(&self, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
+        if !matches!(self.dtype(), DType::Bool(_)) {
+            vortex_bail!("mask must be bool array, has dtype {}", self.dtype());
+        }
+
+        // Convert nulls to false first in case this can be done cheaply by the encoding.
+        let array = self
+            .to_array()
+            .fill_null(Scalar::bool(false, self.dtype().nullability()))?;
+
+        Ok(array.execute::<BoolArray>(ctx)?.to_mask_fill_null_false())
     }
 }
 

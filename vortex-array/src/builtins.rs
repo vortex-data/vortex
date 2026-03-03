@@ -157,6 +157,9 @@ impl ArrayBuiltins for ArrayRef {
     }
 
     fn fill_null(&self, fill_value: impl Into<Scalar>) -> VortexResult<ArrayRef> {
+        if !self.dtype().is_nullable() {
+            return Ok(self.clone());
+        }
         FillNull
             .try_new_array(
                 self.len(),

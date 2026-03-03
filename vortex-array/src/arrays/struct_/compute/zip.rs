@@ -46,7 +46,7 @@ impl ZipKernel for StructVTable {
             (&Validity::AllInvalid, &Validity::AllInvalid) => Validity::AllInvalid,
 
             (v1, v2) => {
-                let mask_mask = mask.clone().execute::<Mask>(ctx)?;
+                let mask_mask = mask.try_to_mask_fill_null_false(ctx)?;
                 let v1m = v1.to_mask(if_true.len());
                 let v2m = v2.to_mask(if_false.len());
 
