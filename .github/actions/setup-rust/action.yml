@@ -3,9 +3,9 @@ description: "Toolchain setup and Initial compilation"
 
 inputs:
   repo-token:
-    description: "Deprecated: no longer used. Protoc is now downloaded directly from GitHub releases CDN."
+    description: "GitHub token for accessing the repository (typically secrets.GITHUB_TOKEN)"
     required: false
-    default: ""
+    default: "${{ github.token }}"
   toolchain:
     description: "optional override for the toolchain version (e.g. nightly)"
     required: false
@@ -50,9 +50,23 @@ runs:
     - name: Rust Compile Cache
       if: inputs.enable-sccache == 'true'
       uses: mozilla-actions/sccache-action@v0.0.9
-      with:
-        version: "v0.14.0"
 
     - name: Install Protoc (for lance-encoding build step)
       if: runner.os != 'Windows'
-      uses: ./.github/actions/setup-protoc
+      uses: arduino/setup-protoc@v3
+      with:
+        version: "29.3"
+        repo-token: ${{ inputs.repo-token }}
+
+    - name: Install Ninja (for DuckDB build system)
+      uses: seanmiddleditch/gha-setup-ninja@master
+
+    - name: Install Sweep
+      shell: bash
+      if: ${{ inputs.timestamp == 'true' && github.ref_name == 'develop' }}
+      run: cargo install cargo-sweep
+
+    - name: Timestamp Cache
+      shell: bash
+      if: ${{ inputs.timestamp == 'true' && github.ref_name == 'develop' }}
+      run: cargo sweep --stamp
