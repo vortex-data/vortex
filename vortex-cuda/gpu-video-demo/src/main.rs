@@ -20,8 +20,6 @@
 #![allow(unused_imports)]
 
 use std::ffi::c_void;
-use std::fs::File;
-use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -472,9 +470,6 @@ async fn main() -> VortexResult<()> {
     // Create MPEG-TS muxer
     let mut mux = mux::TsMuxer::new(fps);
 
-    // Debug: save first 5 seconds of TS output to file
-    let mut debug_file = File::create("/tmp/gpu-video-debug.ts")?;
-
     // Wait for TCP connection
     let mut sender = transport::TcpSender::listen(cli.port).await?;
 
@@ -619,9 +614,8 @@ async fn main() -> VortexResult<()> {
                         .map_err(|e| vortex_err!("CUDA stream sync failed: {e}"))?;
                     stage_sync_ns += t.elapsed().as_nanos() as u64;
 
-                    // Collect the PREVIOUS frame's encoded output before sending the
-                    // new one. While we were scanning+accumulating this frame, the
-                    // encoder was processing the previous one in parallel.
+                    // Collect the PREVIOUS frame's encoded output. The encoder
+                    // was processing it in parallel while we scanned this frame.
                     if frame_idx > 0 {
                         let t = std::time::Instant::now();
                         let encoded = encoded_rx
@@ -639,23 +633,26 @@ async fn main() -> VortexResult<()> {
                             );
                         }
 
+                        // Send current frame to encoder BEFORE mux+send so
+                        // encoding overlaps with mux + TCP write.
+                        frame_tx
+                            .send(EncoderMsg::Frame(Nv12ReadyFrame { buf_idx, frame_idx }))
+                            .map_err(|e| vortex_err!("Send to encoder failed: {e}"))?;
+
                         let t = std::time::Instant::now();
                         let ts_packets =
                             mux.write_access_unit(&encoded.h264_nals, encoded.frame_idx);
-                        if encoded.frame_idx < 300 {
-                            debug_file.write_all(&ts_packets)?;
-                        }
                         sender.send(ts_packets).await?;
                         stage_mux_send_ns += t.elapsed().as_nanos() as u64;
 
                         let target = stream_start + frame_duration * (encoded.frame_idx + 1) as u32;
                         sleep_until(target).await;
+                    } else {
+                        // First frame: no previous frame to collect, just send to encoder.
+                        frame_tx
+                            .send(EncoderMsg::Frame(Nv12ReadyFrame { buf_idx, frame_idx }))
+                            .map_err(|e| vortex_err!("Send to encoder failed: {e}"))?;
                     }
-
-                    // Send current frame to encoder (non-blocking: encoder just finished)
-                    frame_tx
-                        .send(EncoderMsg::Frame(Nv12ReadyFrame { buf_idx, frame_idx }))
-                        .map_err(|e| vortex_err!("Send to encoder failed: {e}"))?;
 
                     // Flip to the other NV12 buffer for the next frame
                     buf_idx = 1 - buf_idx;
