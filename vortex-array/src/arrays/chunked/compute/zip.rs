@@ -75,8 +75,11 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ChunkedVTable;
     use crate::builtins::ArrayBuiltins;
@@ -111,6 +114,11 @@ mod tests {
         let zipped = &mask
             .into_array()
             .zip(if_true.to_array(), if_false.to_array())
+            .unwrap();
+        // One step of execution will push down the zip.
+        let zipped = zipped
+            .clone()
+            .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         let zipped = zipped
             .as_opt::<ChunkedVTable>()
