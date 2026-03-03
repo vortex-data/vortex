@@ -4,6 +4,13 @@
 //! GPU Video Demo: scans a Vortex file containing RGB video frames, converts to
 //! NV12 on GPU, encodes to H.264 via NVENC, and streams over TCP.
 //!
+//! The pipeline uses two threads for parallelism:
+//! - **Main async task**: scans batches → GPU decompression → RGB→NV12 kernel
+//! - **Encoder thread**: NVENC encode → H264 bytes back to main
+//!
+//! Double-buffered NV12 lets the main task write the next frame while the encoder
+//! reads the current one.
+//!
 //! Usage:
 //!   cargo run -p gpu-video-demo -- s3://bucket/video.vortex --width 1920 --height 1080
 //!
@@ -12,10 +19,12 @@
 
 #![allow(unused_imports)]
 
+use std::ffi::c_void;
 use std::fs::File;
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::mpsc;
 
 use clap::Parser;
 use cudarc::driver::CudaSlice;
@@ -23,6 +32,7 @@ use cudarc::driver::DevicePtr;
 use futures::StreamExt;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_BUFFER_FORMAT;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_CODEC_H264_GUID;
+use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_INPUT_RESOURCE_TYPE;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_PRESET_P4_GUID;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_TUNING_INFO;
 use object_store::aws::AmazonS3Builder;
@@ -95,6 +105,25 @@ struct Cli {
     /// Loop the video file continuously.
     #[arg(long)]
     loop_playback: bool,
+}
+
+/// Sent from main task → encoder thread when an NV12 buffer is ready to encode.
+struct Nv12ReadyFrame {
+    /// Which of the double buffers contains the NV12 data (0 or 1).
+    buf_idx: usize,
+    frame_idx: u64,
+}
+
+/// Sent from encoder thread → main task with the encoded H.264 bitstream.
+struct EncodedFrame {
+    h264_nals: Vec<u8>,
+    frame_idx: u64,
+}
+
+/// Signals the encoder thread to shut down gracefully.
+enum EncoderMsg {
+    Frame(Nv12ReadyFrame),
+    Shutdown,
 }
 
 /// Parse H.264 NAL unit types from Annex B bitstream for debug logging.
@@ -201,24 +230,33 @@ async fn main() -> VortexResult<()> {
     let width = cli.width;
     let height = cli.height;
     let fps = cli.fps;
-    let bitrate = cli.bitrate_mbps * 1_000_000;
+    let _bitrate = cli.bitrate_mbps * 1_000_000;
 
     // Load RGB→NV12 kernel
     let nv12_kernel = nv12::load_rgb_to_nv12_kernel(&session)?;
 
     let cuda_context = cuda_ctx.stream().context().clone();
 
-    // Allocate NV12 buffer on GPU (width * height * 3/2 for Y + UV planes)
+    // Allocate double-buffered NV12 on GPU (width * height * 3/2 for Y + UV planes)
     let pixels_per_frame = (width as usize) * (height as usize);
     let nv12_size = pixels_per_frame * 3 / 2;
-    let nv12_device: CudaSlice<u8> = cuda_ctx.device_alloc(nv12_size)?;
-    let nv12_ptr = {
-        let (ptr, _sync) = nv12_device.device_ptr(cuda_ctx.stream());
-        ptr
-    };
+
+    let nv12_bufs: [CudaSlice<u8>; 2] = [
+        cuda_ctx.device_alloc(nv12_size)?,
+        cuda_ctx.device_alloc(nv12_size)?,
+    ];
+    let nv12_ptrs = [
+        {
+            let (ptr, _sync) = nv12_bufs[0].device_ptr(cuda_ctx.stream());
+            ptr
+        },
+        {
+            let (ptr, _sync) = nv12_bufs[1].device_ptr(cuda_ctx.stream());
+            ptr
+        },
+    ];
 
     // Allocate RGB frame buffers on GPU for accumulating pixels across scan batches.
-    // Scan batches may not align to frame boundaries (width * height pixels).
     let r_frame: CudaSlice<u8> = cuda_ctx.device_alloc(pixels_per_frame)?;
     let g_frame: CudaSlice<u8> = cuda_ctx.device_alloc(pixels_per_frame)?;
     let b_frame: CudaSlice<u8> = cuda_ctx.device_alloc(pixels_per_frame)?;
@@ -277,12 +315,27 @@ async fn main() -> VortexResult<()> {
         .start_session(NV_ENC_BUFFER_FORMAT::NV_ENC_BUFFER_FORMAT_NV12, init_params)
         .map_err(|e| vortex_err!("NVENC session start failed: {e}"))?;
 
-    // Create NVENC-managed input and output buffers
-    let mut input_buffer = nvenc_session
-        .create_input_buffer()
-        .map_err(|e| vortex_err!("NVENC create input buffer failed: {e}"))?;
+    // Register both NV12 GPU buffers directly with NVENC (zero-copy).
+    // The `()` marker is safe because `nv12_bufs` outlives the resources.
+    let nv12_resource_0 = nvenc_session
+        .register_generic_resource(
+            (),
+            NV_ENC_INPUT_RESOURCE_TYPE::NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR,
+            nv12_ptrs[0] as *mut c_void,
+            width,
+        )
+        .map_err(|e| vortex_err!("NVENC register NV12 buf 0 failed: {e}"))?;
 
-    let mut output_bitstream = nvenc_session
+    let nv12_resource_1 = nvenc_session
+        .register_generic_resource(
+            (),
+            NV_ENC_INPUT_RESOURCE_TYPE::NV_ENC_INPUT_RESOURCE_TYPE_CUDADEVICEPTR,
+            nv12_ptrs[1] as *mut c_void,
+            width,
+        )
+        .map_err(|e| vortex_err!("NVENC register NV12 buf 1 failed: {e}"))?;
+
+    let output_bitstream = nvenc_session
         .create_output_bitstream()
         .map_err(|e| vortex_err!("NVENC create bitstream failed: {e}"))?;
 
@@ -290,6 +343,65 @@ async fn main() -> VortexResult<()> {
     cuda_context
         .bind_to_thread()
         .map_err(|e| vortex_err!("Failed to rebind CUDA context: {e}"))?;
+
+    // Channels: bounded(1) for backpressure so main blocks if encoder is behind.
+    let (frame_tx, frame_rx) = mpsc::sync_channel::<EncoderMsg>(1);
+    let (encoded_tx, encoded_rx) = mpsc::channel::<EncodedFrame>();
+
+    // Spawn encoder thread
+    let encoder_cuda_ctx = cuda_context.clone();
+    let encoder_handle = std::thread::spawn(move || -> VortexResult<()> {
+        encoder_cuda_ctx
+            .bind_to_thread()
+            .map_err(|e| vortex_err!("Encoder thread: failed to bind CUDA context: {e}"))?;
+
+        let mut nv12_resources = [nv12_resource_0, nv12_resource_1];
+        let mut output_bitstream = output_bitstream;
+
+        loop {
+            let msg = frame_rx
+                .recv()
+                .map_err(|e| vortex_err!("Encoder thread: channel recv failed: {e}"))?;
+
+            let frame = match msg {
+                EncoderMsg::Frame(f) => f,
+                EncoderMsg::Shutdown => break,
+            };
+
+            let _span = tracing::info_span!("nvenc_encode", frame = frame.frame_idx).entered();
+
+            nvenc_session
+                .encode_picture(
+                    &mut nv12_resources[frame.buf_idx],
+                    &mut output_bitstream,
+                    nvidia_video_codec_sdk::EncodePictureParams {
+                        input_timestamp: frame.frame_idx,
+                        ..Default::default()
+                    },
+                )
+                .map_err(|e| vortex_err!("NVENC encode failed: {e}"))?;
+
+            let lock = output_bitstream
+                .lock()
+                .map_err(|e| vortex_err!("NVENC lock bitstream failed: {e}"))?;
+            let h264_nals = lock.data().to_vec();
+            drop(lock);
+
+            encoded_tx
+                .send(EncodedFrame {
+                    h264_nals,
+                    frame_idx: frame.frame_idx,
+                })
+                .map_err(|e| vortex_err!("Encoder thread: send encoded failed: {e}"))?;
+        }
+
+        // Flush encoder
+        nvenc_session
+            .end_of_stream()
+            .map_err(|e| vortex_err!("NVENC flush failed: {e}"))?;
+
+        Ok(())
+    });
 
     // Create MPEG-TS muxer
     let mut mux = mux::TsMuxer::new(fps);
@@ -312,6 +424,7 @@ async fn main() -> VortexResult<()> {
     let stream_start = tokio::time::Instant::now();
     let mut frame_idx: u64 = 0;
     let mut frame_fill: usize = 0;
+    let mut buf_idx: usize = 0;
 
     loop {
         let gpu_file = session.open_options().open(Arc::clone(&reader)).await?;
@@ -392,86 +505,54 @@ async fn main() -> VortexResult<()> {
                 batch_offset += copy_count;
 
                 if frame_fill == pixels_per_frame {
-                    // Full frame accumulated — convert, encode, and send.
-                    let _span =
-                        tracing::info_span!("encode_frame", frame = frame_idx).entered();
+                    // Full frame accumulated — convert and hand off to encoder.
+                    let _span = tracing::info_span!("produce_frame", frame = frame_idx).entered();
 
-                    // Launch RGB→NV12 kernel on the complete frame
+                    // Launch RGB→NV12 kernel into current double buffer
                     nv12::rgb_to_nv12_launch(
                         cuda_ctx.stream(),
                         &nv12_kernel,
                         r_frame_ptr,
                         g_frame_ptr,
                         b_frame_ptr,
-                        nv12_ptr,
+                        nv12_ptrs[buf_idx],
                         width,
                         height,
                     )?;
 
+                    // Wait for NV12 kernel to finish before encoder reads the buffer
                     cuda_ctx
                         .stream()
                         .synchronize()
                         .map_err(|e| vortex_err!("CUDA stream sync failed: {e}"))?;
 
-                    // Download NV12 data from GPU to host
-                    let nv12_host: Vec<u8> = cuda_ctx
-                        .stream()
-                        .clone_dtoh(&nv12_device)
-                        .map_err(|e| vortex_err!("NV12 dtoh copy failed: {e}"))?;
+                    // Send to encoder thread (blocks if encoder is still busy with previous frame)
+                    frame_tx
+                        .send(EncoderMsg::Frame(Nv12ReadyFrame { buf_idx, frame_idx }))
+                        .map_err(|e| vortex_err!("Send to encoder failed: {e}"))?;
 
-                    // Debug dumps for first frame
-                    if frame_idx == 0 {
-                        std::fs::write("/tmp/frame0.nv12", &nv12_host)?;
+                    // Flip to the other NV12 buffer for the next frame
+                    buf_idx = 1 - buf_idx;
+
+                    // Receive the encoded frame from encoder thread
+                    let encoded = encoded_rx
+                        .recv()
+                        .map_err(|e| vortex_err!("Recv encoded frame failed: {e}"))?;
+
+                    if encoded.frame_idx < 5 {
+                        let nal_types = parse_nal_types(&encoded.h264_nals);
                         tracing::info!(
-                            nv12_bytes = nv12_host.len(),
-                            "saved raw NV12 frame 0"
-                        );
-                    }
-
-                    // Write to NVENC input buffer (pitch-aware for NV12)
-                    unsafe {
-                        let mut lock = input_buffer
-                            .lock()
-                            .map_err(|e| vortex_err!("NVENC lock input failed: {e}"))?;
-                        if frame_idx == 0 {
-                            tracing::info!(
-                                pitch = lock.pitch(),
-                                width,
-                                "NVENC input buffer pitch"
-                            );
-                        }
-                        lock.write_nv12(&nv12_host, width, height);
-                    }
-                    nvenc_session
-                        .encode_picture(
-                            &mut input_buffer,
-                            &mut output_bitstream,
-                            nvidia_video_codec_sdk::EncodePictureParams {
-                                input_timestamp: frame_idx,
-                                ..Default::default()
-                            },
-                        )
-                        .map_err(|e| vortex_err!("NVENC encode failed: {e}"))?;
-                    let lock = output_bitstream
-                        .lock()
-                        .map_err(|e| vortex_err!("NVENC lock bitstream failed: {e}"))?;
-                    let h264_nals = lock.data().to_vec();
-                    drop(lock);
-
-                    if frame_idx < 5 {
-                        let nal_types = parse_nal_types(&h264_nals);
-                        tracing::info!(
-                            frame = frame_idx,
-                            h264_bytes = h264_nals.len(),
+                            frame = encoded.frame_idx,
+                            h264_bytes = encoded.h264_nals.len(),
                             ?nal_types,
                             "encoded frame"
                         );
                     }
 
                     // Mux to MPEG-TS
-                    let ts_packets = mux.write_access_unit(&h264_nals, frame_idx);
+                    let ts_packets = mux.write_access_unit(&encoded.h264_nals, encoded.frame_idx);
 
-                    if frame_idx < 300 {
+                    if encoded.frame_idx < 300 {
                         debug_file.write_all(&ts_packets)?;
                     }
 
@@ -492,10 +573,15 @@ async fn main() -> VortexResult<()> {
         tracing::info!("Looping back to start of file");
     }
 
-    // Flush encoder
-    nvenc_session
-        .end_of_stream()
-        .map_err(|e| vortex_err!("NVENC flush failed: {e}"))?;
+    // Signal encoder thread to shut down and wait for it
+    frame_tx
+        .send(EncoderMsg::Shutdown)
+        .map_err(|e| vortex_err!("Send shutdown to encoder failed: {e}"))?;
+
+    encoder_handle
+        .join()
+        .map_err(|_| vortex_err!("Encoder thread panicked"))?
+        .map_err(|e| vortex_err!("Encoder thread error: {e}"))?;
 
     sender.close().await?;
 

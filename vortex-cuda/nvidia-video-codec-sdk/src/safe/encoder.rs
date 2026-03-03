@@ -52,6 +52,10 @@ pub struct Encoder {
     pub(crate) ctx: Arc<CudaContext>,
 }
 
+// SAFETY: The NVENC encoder handle is thread-safe when the CUDA context is
+// properly bound via `bind_to_thread()` before use on the new thread.
+unsafe impl Send for Encoder {}
+
 /// The client must flush the encoder before freeing any resources.
 /// Do this by sending an EOS encode frame.
 /// (This is also done automatically when [`Session`] is dropped.).

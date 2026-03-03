@@ -668,6 +668,10 @@ pub struct RegisteredResource<'a, T> {
 }
 
 unsafe impl Send for RegisteredResource<'_, MappedBuffer> {}
+// SAFETY: When the marker is `()` (no owned resource), the raw pointers are the
+// only non-Send fields. They are only accessed through the NVENC API which is
+// thread-safe when the CUDA context is bound to the calling thread.
+unsafe impl Send for RegisteredResource<'_, ()> {}
 
 /// Automatically unmap and unregister the external resource
 /// when it goes out of scope.
