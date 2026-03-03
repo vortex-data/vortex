@@ -4,7 +4,6 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::builtins::ArrayBuiltins;
@@ -23,11 +22,7 @@ impl CastReduce for ListVTable {
             .clone()
             .cast_nullability(dtype.nullability(), array.len())?;
 
-        let new_elements = array
-            .elements()
-            .cast((**target_element_type).clone())?
-            .to_canonical()?
-            .into_array();
+        let new_elements = array.elements().cast((**target_element_type).clone())?;
 
         ListArray::try_new(new_elements, array.offsets().clone(), validity)
             .map(|a| Some(a.to_array()))
@@ -42,6 +37,9 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::RecursiveCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
@@ -114,7 +112,8 @@ mod tests {
             .and_then(|a| a.to_canonical().map(|c| c.into_array()));
         assert!(result.is_err());
 
-        // Nulls in list element array
+        // Nulls in list element array — the inner cast error is deferred until
+        // the elements are executed.
         let list = ListArray::try_new(
             PrimitiveArray::from_option_iter([Some(0i32), Some(2), None, None]).to_array(),
             buffer![0, 2, 3].into_array().to_array(),
@@ -127,10 +126,10 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = list
-            .to_array()
-            .cast(target_dtype)
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+        let result = list.to_array().cast(target_dtype).and_then(|a| {
+            a.execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .map(|c| c.0.into_array())
+        });
         assert!(result.is_err());
     }
 

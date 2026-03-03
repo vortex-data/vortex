@@ -626,16 +626,8 @@ impl Patches {
         }
 
         // SAFETY: filtering indices/values with same mask maintains their 1:1 relationship
-        let filtered_indices = self
-            .indices
-            .filter(filter_mask.clone())?
-            .to_canonical()?
-            .into_array();
-        let filtered_values = self
-            .values
-            .filter(filter_mask)?
-            .to_canonical()?
-            .into_array();
+        let filtered_indices = self.indices.filter(filter_mask.clone())?;
+        let filtered_values = self.values.filter(filter_mask)?;
 
         Ok(Some(Self {
             array_len: self.array_len,
@@ -1167,10 +1159,8 @@ fn filter_patches_with_mask<T: IntegerPType>(
     }
 
     let new_patch_indices = new_patch_indices.into_array();
-    let new_patch_values = patch_values
-        .filter(Mask::from_indices(patch_values.len(), new_mask_indices))?
-        .to_canonical()?
-        .into_array();
+    let new_patch_values =
+        patch_values.filter(Mask::from_indices(patch_values.len(), new_mask_indices))?;
 
     Ok(Some(Patches::new(
         true_count,

@@ -19,11 +19,7 @@ impl CastReduce for ExtensionVTable {
             unreachable!("Already verified we have an extension dtype");
         };
 
-        let new_storage = match array
-            .storage()
-            .cast(ext_dtype.storage_dtype().clone())
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
-        {
+        let new_storage = match array.storage().cast(ext_dtype.storage_dtype().clone()) {
             Ok(arr) => arr,
             Err(e) => {
                 tracing::warn!("Failed to cast storage array: {e}");
