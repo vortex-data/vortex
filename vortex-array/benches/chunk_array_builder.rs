@@ -137,7 +137,7 @@ fn chunked_constant_i32_append_to_builder(bencher: Bencher, (len, chunk_count): 
 fn make_constant_i32_chunks(len: usize, chunk_count: usize) -> ArrayRef {
     // Each chunk is a ConstantArray of i32; dtype is I32/NonNullable via From<i32> for Scalar.
     (0..chunk_count)
-        .map(|i| ConstantArray::new(i as i32, len).into_array())
+        .map(|_| ConstantArray::new(42i32, len).into_array())
         .collect::<ChunkedArray>()
         .into_array()
 }

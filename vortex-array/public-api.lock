@@ -818,7 +818,7 @@ pub type vortex_array::arrays::ConstantVTable::OperationsVTable = vortex_array::
 
 pub type vortex_array::arrays::ConstantVTable::ValidityVTable = vortex_array::arrays::ConstantVTable
 
-pub fn vortex_array::arrays::ConstantVTable::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::ConstantVTable::append_to_builder(array: &vortex_array::arrays::ConstantArray, builder: &mut dyn vortex_array::builders::ArrayBuilder, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::arrays::ConstantVTable::array_eq(array: &vortex_array::arrays::ConstantArray, other: &vortex_array::arrays::ConstantArray, _precision: vortex_array::Precision) -> bool
 
@@ -4933,6 +4933,8 @@ pub struct vortex_array::builders::PrimitiveBuilder<T>
 impl<T: vortex_array::dtype::NativePType> vortex_array::builders::PrimitiveBuilder<T>
 
 pub fn vortex_array::builders::PrimitiveBuilder<T>::append_value(&mut self, value: T)
+
+pub fn vortex_array::builders::PrimitiveBuilder<T>::append_value_n(&mut self, value: T, n: usize)
 
 pub fn vortex_array::builders::PrimitiveBuilder<T>::extend_with_iterator(&mut self, iter: impl core::iter::traits::collect::IntoIterator<Item = T>, mask: vortex_mask::Mask)
 
@@ -16644,7 +16646,7 @@ pub type vortex_array::arrays::ConstantVTable::OperationsVTable = vortex_array::
 
 pub type vortex_array::arrays::ConstantVTable::ValidityVTable = vortex_array::arrays::ConstantVTable
 
-pub fn vortex_array::arrays::ConstantVTable::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::ConstantVTable::append_to_builder(array: &vortex_array::arrays::ConstantArray, builder: &mut dyn vortex_array::builders::ArrayBuilder, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::arrays::ConstantVTable::array_eq(array: &vortex_array::arrays::ConstantArray, other: &vortex_array::arrays::ConstantArray, _precision: vortex_array::Precision) -> bool
 
