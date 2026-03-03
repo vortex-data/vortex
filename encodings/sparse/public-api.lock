@@ -122,7 +122,7 @@ pub fn vortex_sparse::SparseVTable::child(array: &vortex_sparse::SparseArray, id
 
 pub fn vortex_sparse::SparseVTable::child_name(_array: &vortex_sparse::SparseArray, idx: usize) -> alloc::string::String
 
-pub fn vortex_sparse::SparseVTable::deserialize(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_sparse::SparseVTable::deserialize(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, buffers: &[vortex_array::buffer::BufferHandle], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_sparse::SparseVTable::dtype(array: &vortex_sparse::SparseArray) -> &vortex_array::dtype::DType
 

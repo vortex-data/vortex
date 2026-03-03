@@ -124,7 +124,7 @@ pub fn vortex_sequence::SequenceVTable::child(_array: &vortex_sequence::Sequence
 
 pub fn vortex_sequence::SequenceVTable::child_name(_array: &vortex_sequence::SequenceArray, idx: usize) -> alloc::string::String
 
-pub fn vortex_sequence::SequenceVTable::deserialize(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_sequence::SequenceVTable::deserialize(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_sequence::SequenceVTable::dtype(array: &vortex_sequence::SequenceArray) -> &vortex_array::dtype::DType
 

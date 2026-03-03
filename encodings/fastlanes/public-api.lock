@@ -494,7 +494,7 @@ pub fn vortex_fastlanes::FoRVTable::child(array: &vortex_fastlanes::FoRArray, id
 
 pub fn vortex_fastlanes::FoRVTable::child_name(_array: &vortex_fastlanes::FoRArray, idx: usize) -> alloc::string::String
 
-pub fn vortex_fastlanes::FoRVTable::deserialize(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_fastlanes::FoRVTable::deserialize(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_fastlanes::FoRVTable::dtype(array: &vortex_fastlanes::FoRArray) -> &vortex_array::dtype::DType
 

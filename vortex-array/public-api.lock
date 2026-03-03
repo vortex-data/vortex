@@ -834,7 +834,7 @@ pub fn vortex_array::arrays::ConstantVTable::child(_array: &vortex_array::arrays
 
 pub fn vortex_array::arrays::ConstantVTable::child_name(_array: &vortex_array::arrays::ConstantArray, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::ConstantVTable::deserialize(_bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::arrays::ConstantVTable::deserialize(_bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, buffers: &[vortex_array::buffer::BufferHandle], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::arrays::ConstantVTable::dtype(array: &vortex_array::arrays::ConstantArray) -> &vortex_array::dtype::DType
 
@@ -11542,9 +11542,9 @@ pub fn vortex_array::scalar::ScalarValue::into_utf8(self) -> vortex_buffer::stri
 
 impl vortex_array::scalar::ScalarValue
 
-pub fn vortex_array::scalar::ScalarValue::from_proto(value: &vortex_proto::scalar::ScalarValue, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<Self>>
+pub fn vortex_array::scalar::ScalarValue::from_proto(value: &vortex_proto::scalar::ScalarValue, dtype: &vortex_array::dtype::DType, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<Self>>
 
-pub fn vortex_array::scalar::ScalarValue::from_proto_bytes(bytes: &[u8], dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<Self>>
+pub fn vortex_array::scalar::ScalarValue::from_proto_bytes(bytes: &[u8], dtype: &vortex_array::dtype::DType, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<Self>>
 
 impl vortex_array::scalar::ScalarValue
 
@@ -12250,7 +12250,7 @@ impl vortex_array::scalar::Scalar
 
 pub fn vortex_array::scalar::Scalar::from_proto(value: &vortex_proto::scalar::Scalar, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_array::scalar::Scalar::from_proto_value(value: &vortex_proto::scalar::ScalarValue, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::scalar::Scalar::from_proto_value(value: &vortex_proto::scalar::ScalarValue, dtype: &vortex_array::dtype::DType, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::scalar::Scalar
 
@@ -15980,7 +15980,7 @@ pub fn vortex_array::stats::StatsSet::merge_unordered(self, other: &Self, dtype:
 
 impl vortex_array::stats::StatsSet
 
-pub fn vortex_array::stats::StatsSet::from_flatbuffer<'a>(fb: &vortex_flatbuffers::array::ArrayStats<'a>, array_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::stats::StatsSet::from_flatbuffer<'a>(fb: &vortex_flatbuffers::array::ArrayStats<'a>, array_dtype: &vortex_array::dtype::DType, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_array::stats::StatsSet
 
@@ -16666,7 +16666,7 @@ pub fn vortex_array::arrays::ConstantVTable::child(_array: &vortex_array::arrays
 
 pub fn vortex_array::arrays::ConstantVTable::child_name(_array: &vortex_array::arrays::ConstantArray, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::ConstantVTable::deserialize(_bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::arrays::ConstantVTable::deserialize(_bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, buffers: &[vortex_array::buffer::BufferHandle], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::arrays::ConstantVTable::dtype(array: &vortex_array::arrays::ConstantArray) -> &vortex_array::dtype::DType
 

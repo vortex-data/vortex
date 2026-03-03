@@ -134,7 +134,7 @@ impl vortex_file::FileStatistics
 
 pub fn vortex_file::FileStatistics::dtypes(&self) -> &alloc::sync::Arc<[vortex_array::dtype::DType]>
 
-pub fn vortex_file::FileStatistics::from_flatbuffer<'a>(fb: &vortex_flatbuffers::footer::FileStatistics<'a>, file_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
+pub fn vortex_file::FileStatistics::from_flatbuffer<'a>(fb: &vortex_flatbuffers::footer::FileStatistics<'a>, file_dtype: &vortex_array::dtype::DType, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_file::FileStatistics::get(&self, field_idx: usize) -> (&vortex_array::stats::stats_set::StatsSet, &vortex_array::dtype::DType)
 
