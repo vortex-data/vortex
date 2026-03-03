@@ -482,6 +482,18 @@ async fn main() -> VortexResult<()> {
         cli.bitrate_mbps
     );
 
+    // Spawn a background sender task so TCP backpressure doesn't block the
+    // encoding pipeline. Buffer up to 8 frames of TS data.
+    let (ts_tx, mut ts_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(8);
+    let sender_task = tokio::spawn(async move {
+        while let Some(ts_packets) = ts_rx.recv().await {
+            if let Err(e) = sender.send(ts_packets).await {
+                tracing::error!("TCP send failed: {e}");
+                break;
+            }
+        }
+    });
+
     let frame_duration = Duration::from_secs_f64(1.0 / f64::from(fps));
     let stream_start = tokio::time::Instant::now();
     let mut frame_idx: u64 = 0;
@@ -495,7 +507,8 @@ async fn main() -> VortexResult<()> {
     let mut stage_nv12_ns: u64 = 0;
     let mut stage_sync_ns: u64 = 0;
     let mut stage_recv_ns: u64 = 0;
-    let mut stage_mux_send_ns: u64 = 0;
+    let mut stage_mux_ns: u64 = 0;
+    let mut stage_send_ns: u64 = 0;
     let mut batch_count: u64 = 0;
 
     loop {
@@ -643,8 +656,14 @@ async fn main() -> VortexResult<()> {
                         let t = std::time::Instant::now();
                         let ts_packets =
                             mux.write_access_unit(&encoded.h264_nals, encoded.frame_idx);
-                        sender.send(ts_packets).await?;
-                        stage_mux_send_ns += t.elapsed().as_nanos() as u64;
+                        stage_mux_ns += t.elapsed().as_nanos() as u64;
+
+                        let t = std::time::Instant::now();
+                        ts_tx
+                            .send(ts_packets)
+                            .await
+                            .map_err(|_| vortex_err!("Sender task died"))?;
+                        stage_send_ns += t.elapsed().as_nanos() as u64;
 
                         let target = stream_start + frame_duration * (encoded.frame_idx + 1) as u32;
                         sleep_until(target).await;
@@ -675,7 +694,10 @@ async fn main() -> VortexResult<()> {
             .recv()
             .map_err(|e| vortex_err!("Recv final encoded frame failed: {e}"))?;
         let ts_packets = mux.write_access_unit(&encoded.h264_nals, encoded.frame_idx);
-        sender.send(ts_packets).await?;
+        ts_tx
+            .send(ts_packets)
+            .await
+            .map_err(|_| vortex_err!("Sender task died"))?;
     }
 
     // Signal encoder thread to shut down and wait for it
@@ -688,7 +710,11 @@ async fn main() -> VortexResult<()> {
         .map_err(|_| vortex_err!("Encoder thread panicked"))?
         .map_err(|e| vortex_err!("Encoder thread error: {e}"))?;
 
-    sender.close().await?;
+    // Drop the channel sender so the sender task finishes, then wait for it.
+    drop(ts_tx);
+    sender_task
+        .await
+        .map_err(|e| vortex_err!("Sender task panicked: {e}"))?;
 
     let elapsed = stream_start.elapsed();
     let avg_fps = frame_idx as f64 / elapsed.as_secs_f64();
@@ -709,7 +735,8 @@ async fn main() -> VortexResult<()> {
         nv12_ms = format!("{:.1}", stage_nv12_ns as f64 / 1e6),
         sync_ms = format!("{:.1}", stage_sync_ns as f64 / 1e6),
         recv_ms = format!("{:.1}", stage_recv_ns as f64 / 1e6),
-        mux_send_ms = format!("{:.1}", stage_mux_send_ns as f64 / 1e6),
+        mux_ms = format!("{:.1}", stage_mux_ns as f64 / 1e6),
+        send_ms = format!("{:.1}", stage_send_ns as f64 / 1e6),
         "total stage time (ms)"
     );
     tracing::info!(
@@ -720,7 +747,8 @@ async fn main() -> VortexResult<()> {
         nv12_per_frame_us = format!("{:.0}", stage_nv12_ns as f64 / 1e3 / fc),
         sync_per_frame_us = format!("{:.0}", stage_sync_ns as f64 / 1e3 / fc),
         recv_per_frame_us = format!("{:.0}", stage_recv_ns as f64 / 1e3 / fc),
-        mux_send_per_frame_us = format!("{:.0}", stage_mux_send_ns as f64 / 1e3 / fc),
+        mux_per_frame_us = format!("{:.0}", stage_mux_ns as f64 / 1e3 / fc),
+        send_per_frame_us = format!("{:.0}", stage_send_ns as f64 / 1e3 / fc),
         "per-unit stage time (us)"
     );
     Ok(())
