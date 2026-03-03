@@ -20,6 +20,7 @@
 #![allow(unused_imports)]
 
 use std::ffi::c_void;
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc;
