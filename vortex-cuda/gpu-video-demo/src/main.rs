@@ -29,6 +29,7 @@ use std::sync::mpsc;
 use clap::Parser;
 use cudarc::driver::CudaSlice;
 use cudarc::driver::DevicePtr;
+use cudarc::driver::sys::CUdeviceptr;
 use futures::StreamExt;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_BUFFER_FORMAT;
 use nvidia_video_codec_sdk::sys::nvEncodeAPI::NV_ENC_CODEC_H264_GUID;
@@ -68,6 +69,39 @@ use vortex_cuda_macros::cuda_not_available;
 mod mux;
 mod nv12;
 mod transport;
+
+/// RAII wrapper for GPU memory allocated with `cuMemAlloc` (synchronous).
+///
+/// NVENC requires `cuMemAlloc`-allocated memory; stream-ordered allocations
+/// from `cuMemAllocAsync` are not supported for resource registration.
+#[cuda_available]
+struct SyncDeviceBuf {
+    ptr: CUdeviceptr,
+    _len: usize,
+}
+
+#[cuda_available]
+impl SyncDeviceBuf {
+    fn alloc(len: usize) -> VortexResult<Self> {
+        let ptr = unsafe { cudarc::driver::result::malloc_sync(len) }
+            .map_err(|e| vortex_err!("cuMemAlloc failed: {e}"))?;
+        Ok(Self { ptr, _len: len })
+    }
+
+    fn device_ptr(&self) -> CUdeviceptr {
+        self.ptr
+    }
+}
+
+#[cuda_available]
+impl Drop for SyncDeviceBuf {
+    fn drop(&mut self) {
+        unsafe {
+            // Ignore errors during cleanup — the CUDA context may already be torn down.
+            drop(cudarc::driver::result::free_sync(self.ptr));
+        }
+    }
+}
 
 #[derive(Parser)]
 #[command(
@@ -237,24 +271,17 @@ async fn main() -> VortexResult<()> {
 
     let cuda_context = cuda_ctx.stream().context().clone();
 
-    // Allocate double-buffered NV12 on GPU (width * height * 3/2 for Y + UV planes)
+    // Allocate double-buffered NV12 on GPU (width * height * 3/2 for Y + UV planes).
+    // Use cuMemAlloc (synchronous) because NVENC cannot register stream-ordered
+    // allocations from cuMemAllocAsync.
     let pixels_per_frame = (width as usize) * (height as usize);
     let nv12_size = pixels_per_frame * 3 / 2;
 
-    let nv12_bufs: [CudaSlice<u8>; 2] = [
-        cuda_ctx.device_alloc(nv12_size)?,
-        cuda_ctx.device_alloc(nv12_size)?,
+    let nv12_bufs = [
+        SyncDeviceBuf::alloc(nv12_size)?,
+        SyncDeviceBuf::alloc(nv12_size)?,
     ];
-    let nv12_ptrs = [
-        {
-            let (ptr, _sync) = nv12_bufs[0].device_ptr(cuda_ctx.stream());
-            ptr
-        },
-        {
-            let (ptr, _sync) = nv12_bufs[1].device_ptr(cuda_ctx.stream());
-            ptr
-        },
-    ];
+    let nv12_ptrs = [nv12_bufs[0].device_ptr(), nv12_bufs[1].device_ptr()];
 
     // Allocate RGB frame buffers on GPU for accumulating pixels across scan batches.
     let r_frame: CudaSlice<u8> = cuda_ctx.device_alloc(pixels_per_frame)?;
@@ -273,13 +300,6 @@ async fn main() -> VortexResult<()> {
         ptr
     };
     let cu_stream = cuda_ctx.stream().cu_stream();
-
-    // Synchronize to commit stream-ordered allocations (cuMemAllocAsync) so
-    // the NV12 device pointers are globally visible for NVENC registration.
-    cuda_ctx
-        .stream()
-        .synchronize()
-        .map_err(|e| vortex_err!("CUDA stream sync after alloc failed: {e}"))?;
 
     // Create NVENC encoder.
     // NVENC internally pushes/pops the CUDA context, so we rebind it afterward
