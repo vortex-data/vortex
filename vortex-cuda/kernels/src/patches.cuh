@@ -30,11 +30,7 @@ struct Patch {
 ///         }
 ///     }
 template <typename T>
-struct PatchesCursor {
-    const uint16_t *indices;
-    const T *values;
-    uint8_t remaining;
-
+class PatchesCursor {
     /// Construct a cursor positioned at the patches for the given (chunk, lane).
     /// n_lanes is a compile-time constant emitted by the code generator (16 or 32).
     __device__ PatchesCursor(const GPUPatches &patches, uint32_t chunk, uint32_t lane, uint32_t n_lanes) {
@@ -62,4 +58,9 @@ struct PatchesCursor {
         remaining--;
         return patch;
     }
+
+    private:
+        const uint16_t *indices;
+        const T *values;
+        uint8_t remaining;
 };
