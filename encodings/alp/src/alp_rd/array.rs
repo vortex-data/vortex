@@ -24,6 +24,7 @@ use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::HasArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
@@ -366,7 +367,13 @@ pub struct ALPRDArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+impl HasArrayStats for ALPRDArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct ALPRDVTable;
 
 impl ALPRDVTable {

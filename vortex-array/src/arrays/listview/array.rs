@@ -20,6 +20,7 @@ use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 use crate::validity::Validity;
 
 /// The canonical encoding for variable-length list arrays.
@@ -125,6 +126,12 @@ pub struct ListViewArray {
 
     /// The stats for this array.
     pub(super) stats_set: ArrayStats,
+}
+
+impl HasArrayStats for ListViewArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 pub struct ListViewArrayParts {

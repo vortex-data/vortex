@@ -15,6 +15,7 @@ use crate::arrays::bool;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 use crate::validity::Validity;
 
 /// A boolean array that stores true/false values in a compact bit-packed format.
@@ -57,6 +58,12 @@ pub struct BoolArray {
     pub(super) len: usize,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
+}
+
+impl HasArrayStats for BoolArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 pub struct BoolArrayParts {

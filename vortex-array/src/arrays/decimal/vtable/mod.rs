@@ -228,7 +228,7 @@ impl VTable for DecimalVTable {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DecimalVTable;
 
 impl DecimalVTable {

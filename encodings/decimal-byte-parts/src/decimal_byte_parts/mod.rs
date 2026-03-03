@@ -29,6 +29,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::HasArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
@@ -220,6 +221,12 @@ pub struct DecimalBytePartsArray {
     stats_set: ArrayStats,
 }
 
+impl HasArrayStats for DecimalBytePartsArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
+}
+
 pub struct DecimalBytePartsArrayParts {
     pub msp: ArrayRef,
     pub dtype: DType,
@@ -269,7 +276,7 @@ impl DecimalBytePartsArray {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DecimalBytePartsVTable;
 
 impl DecimalBytePartsVTable {

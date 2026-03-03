@@ -6,6 +6,7 @@ use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 
 /// An extension array that wraps another array with additional type information.
 ///
@@ -50,6 +51,12 @@ pub struct ExtensionArray {
     pub(super) dtype: DType,
     pub(super) storage: ArrayRef,
     pub(super) stats_set: ArrayStats,
+}
+
+impl HasArrayStats for ExtensionArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 impl ExtensionArray {

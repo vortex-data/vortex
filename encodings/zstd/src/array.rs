@@ -27,6 +27,7 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::HasArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
@@ -284,7 +285,13 @@ impl VTable for ZstdVTable {
     }
 }
 
-#[derive(Debug)]
+impl HasArrayStats for ZstdArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct ZstdVTable;
 
 impl ZstdVTable {

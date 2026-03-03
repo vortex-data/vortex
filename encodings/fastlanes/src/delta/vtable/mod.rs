@@ -194,7 +194,7 @@ impl VTable for DeltaVTable {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DeltaVTable;
 
 impl DeltaVTable {

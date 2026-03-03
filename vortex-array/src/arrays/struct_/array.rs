@@ -18,6 +18,7 @@ use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::StructFields;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -146,6 +147,12 @@ pub struct StructArray {
     pub(super) fields: Arc<[ArrayRef]>,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
+}
+
+impl HasArrayStats for StructArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 pub struct StructArrayParts {

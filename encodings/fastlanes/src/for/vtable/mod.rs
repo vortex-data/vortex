@@ -179,7 +179,7 @@ impl VTable for FoRVTable {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FoRVTable;
 
 impl FoRVTable {

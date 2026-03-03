@@ -6,6 +6,7 @@ use vortex_array::DynArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::HasArrayStats;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -36,6 +37,12 @@ pub struct RLEArray {
     // Offset relative to the start of the chunk.
     pub(super) offset: usize,
     pub(super) length: usize,
+}
+
+impl HasArrayStats for RLEArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 impl RLEArray {

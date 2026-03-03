@@ -224,7 +224,7 @@ impl VTable for ListVTable {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ListVTable;
 
 impl ListVTable {

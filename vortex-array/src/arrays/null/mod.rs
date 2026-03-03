@@ -19,6 +19,7 @@ use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
@@ -169,7 +170,13 @@ pub struct NullArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+impl HasArrayStats for NullArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct NullVTable;
 
 impl NullVTable {

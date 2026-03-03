@@ -26,6 +26,7 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::HasArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
@@ -267,7 +268,13 @@ pub struct SparseArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+impl HasArrayStats for SparseArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct SparseVTable;
 
 impl SparseVTable {

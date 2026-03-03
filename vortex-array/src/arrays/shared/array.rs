@@ -14,6 +14,7 @@ use crate::Canonical;
 use crate::IntoArray;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 
 /// A lazily-executing array wrapper with a one-way transition from source to cached form.
 ///
@@ -26,6 +27,12 @@ pub struct SharedArray {
     async_compute_lock: Arc<AsyncMutex<()>>,
     pub(super) dtype: DType,
     pub(super) stats: ArrayStats,
+}
+
+impl HasArrayStats for SharedArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats
+    }
 }
 
 impl SharedArray {

@@ -14,6 +14,7 @@ use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 
 #[derive(Clone, prost::Message)]
 pub struct DictMetadata {
@@ -43,6 +44,12 @@ pub struct DictArray {
     /// In case this is incorrect never use this to enable memory unsafe behaviour just semantically
     /// incorrect behaviour.
     pub(super) all_values_referenced: bool,
+}
+
+impl HasArrayStats for DictArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 pub struct DictArrayParts {

@@ -20,6 +20,7 @@ use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 use crate::validity::Validity;
 
 /// A variable-length binary view array that stores strings and binary data efficiently.
@@ -88,6 +89,12 @@ pub struct VarBinViewArray {
     pub(super) views: BufferHandle,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
+}
+
+impl HasArrayStats for VarBinViewArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 pub struct VarBinViewArrayParts {

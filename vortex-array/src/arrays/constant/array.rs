@@ -3,12 +3,19 @@
 
 use crate::scalar::Scalar;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 
 #[derive(Clone, Debug)]
 pub struct ConstantArray {
     pub(super) scalar: Scalar,
     pub(super) len: usize,
     pub(super) stats_set: ArrayStats,
+}
+
+impl HasArrayStats for ConstantArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 impl ConstantArray {

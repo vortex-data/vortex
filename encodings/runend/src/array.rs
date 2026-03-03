@@ -24,6 +24,7 @@ use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::HasArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
@@ -214,12 +215,18 @@ pub struct RunEndArray {
     stats_set: ArrayStats,
 }
 
+impl HasArrayStats for RunEndArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
+}
+
 pub struct RunEndArrayParts {
     pub ends: ArrayRef,
     pub values: ArrayRef,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RunEndVTable;
 
 impl RunEndVTable {

@@ -367,7 +367,7 @@ impl VTable for BitPackedVTable {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BitPackedVTable;
 
 impl BitPackedVTable {

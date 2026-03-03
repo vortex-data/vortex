@@ -26,6 +26,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::HasArrayStats;
 use vortex_array::stats::StatsSet;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
@@ -79,6 +80,12 @@ pub struct SequenceArray {
     dtype: DType,
     pub(crate) len: usize,
     stats_set: ArrayStats,
+}
+
+impl HasArrayStats for SequenceArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 impl SequenceArray {
@@ -417,7 +424,7 @@ impl ValidityVTable<SequenceVTable> for SequenceVTable {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SequenceVTable;
 
 impl SequenceVTable {

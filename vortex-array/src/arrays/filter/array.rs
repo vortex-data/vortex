@@ -8,6 +8,7 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 
 /// Decomposed parts of the filter array.
 pub struct FilterArrayParts {
@@ -32,6 +33,12 @@ pub struct FilterArray {
 
     /// The stats for this array.
     pub(super) stats: ArrayStats,
+}
+
+impl HasArrayStats for FilterArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats
+    }
 }
 
 impl FilterArray {

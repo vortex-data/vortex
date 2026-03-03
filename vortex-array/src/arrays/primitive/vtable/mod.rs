@@ -220,7 +220,7 @@ impl VTable for PrimitiveVTable {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PrimitiveVTable;
 
 impl PrimitiveVTable {

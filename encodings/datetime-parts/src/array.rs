@@ -20,6 +20,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::HasArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
@@ -252,6 +253,12 @@ pub struct DateTimePartsArray {
     stats_set: ArrayStats,
 }
 
+impl HasArrayStats for DateTimePartsArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct DateTimePartsArrayParts {
     pub dtype: DType,
@@ -260,7 +267,7 @@ pub struct DateTimePartsArrayParts {
     pub subseconds: ArrayRef,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DateTimePartsVTable;
 
 impl DateTimePartsVTable {

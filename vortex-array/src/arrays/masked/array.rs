@@ -7,6 +7,7 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 use crate::validity::Validity;
 
 #[derive(Clone, Debug)]
@@ -15,6 +16,12 @@ pub struct MaskedArray {
     pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) stats: ArrayStats,
+}
+
+impl HasArrayStats for MaskedArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats
+    }
 }
 
 impl MaskedArray {

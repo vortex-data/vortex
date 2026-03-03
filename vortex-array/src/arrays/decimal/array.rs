@@ -25,6 +25,7 @@ use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
 use crate::patches::Patches;
 use crate::stats::ArrayStats;
+use crate::stats::HasArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -92,6 +93,12 @@ pub struct DecimalArray {
     pub(super) values_type: DecimalType,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
+}
+
+impl HasArrayStats for DecimalArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 pub struct DecimalArrayParts {

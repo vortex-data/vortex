@@ -5,6 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::HasArrayStats;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -20,6 +21,12 @@ pub struct FoRArray {
     pub(super) encoded: ArrayRef,
     pub(super) reference: Scalar,
     pub(super) stats_set: ArrayStats,
+}
+
+impl HasArrayStats for FoRArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 impl FoRArray {

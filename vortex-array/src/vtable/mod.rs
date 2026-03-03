@@ -31,6 +31,7 @@ use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::patches::Patches;
 use crate::serde::ArrayChildren;
+use crate::stats::HasArrayStats;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
@@ -47,8 +48,15 @@ use crate::validity::Validity;
 /// implementations so do not need to be checked in the vtable implementations (for example, index
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
-pub trait VTable: 'static + Sized + Send + Sync + Debug {
-    type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn DynArray> + IntoArray;
+pub trait VTable: 'static + Sized + Send + Sync + Clone + Debug {
+    type Array: 'static
+        + Send
+        + Sync
+        + Clone
+        + Debug
+        + Deref<Target = dyn DynArray>
+        + IntoArray
+        + HasArrayStats;
     type Metadata: Debug;
 
     type OperationsVTable: OperationsVTable<Self>;
@@ -328,8 +336,7 @@ macro_rules! vtable {
 
             impl $crate::IntoArray for [<$V Array>] {
                 fn into_array(self) -> $crate::ArrayRef {
-                    // We can unsafe transmute ourselves to an ArrayAdapter.
-                    std::sync::Arc::new(unsafe { std::mem::transmute::<[<$V Array>], $crate::ArrayAdapter::<[<$V VTable>]>>(self) })
+                    std::sync::Arc::new($crate::Array::new([<$V VTable>], self))
                 }
             }
 

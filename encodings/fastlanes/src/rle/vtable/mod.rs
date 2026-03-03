@@ -235,7 +235,7 @@ impl VTable for RLEVTable {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RLEVTable;
 
 impl RLEVTable {

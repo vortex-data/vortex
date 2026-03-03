@@ -35,7 +35,7 @@ use crate::arrays::py::PythonArray;
 vtable!(Python);
 
 /// Wrapper struct encapsulating a Python encoding.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct PythonVTable;
 
 impl VTable for PythonVTable {

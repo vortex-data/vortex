@@ -10,6 +10,7 @@ use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::stats::ArrayStats;
+use vortex_array::stats::HasArrayStats;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect as _;
@@ -61,6 +62,12 @@ pub struct DeltaArray {
     pub(super) bases: ArrayRef,
     pub(super) deltas: ArrayRef,
     pub(super) stats_set: ArrayStats,
+}
+
+impl HasArrayStats for DeltaArray {
+    fn array_stats(&self) -> &ArrayStats {
+        &self.stats_set
+    }
 }
 
 impl DeltaArray {

@@ -40,7 +40,7 @@ mod operations;
 mod validity;
 vtable!(VarBinView);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VarBinViewVTable;
 
 impl VarBinViewVTable {
