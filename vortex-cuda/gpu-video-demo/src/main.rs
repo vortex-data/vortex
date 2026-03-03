@@ -139,6 +139,10 @@ struct Cli {
     /// Loop the video file continuously.
     #[arg(long)]
     loop_playback: bool,
+
+    /// Number of scan batches to prefetch ahead of GPU processing.
+    #[arg(long, default_value_t = 16)]
+    prefetch: usize,
 }
 
 /// Sent from main task → encoder thread when an NV12 buffer is ready to encode.
@@ -494,9 +498,21 @@ async fn main() -> VortexResult<()> {
 
     loop {
         let gpu_file = session.open_options().open(Arc::clone(&reader)).await?;
-        let mut batches = gpu_file.scan()?.into_array_stream()?;
+        let batches = gpu_file.scan()?.into_array_stream()?;
 
-        while let Some(batch) = batches.next().await.transpose()? {
+        // Spawn prefetch task to read scan batches ahead of GPU processing.
+        // This overlaps S3 I/O with GPU decompression + NV12 conversion.
+        let (batch_tx, mut batch_rx) = tokio::sync::mpsc::channel(cli.prefetch);
+        tokio::spawn(async move {
+            let mut batches = batches;
+            while let Some(result) = batches.next().await {
+                if batch_tx.send(result).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        while let Some(batch) = batch_rx.recv().await.transpose()? {
             // Execute on GPU to get canonical form
             let canonical = batch.execute_cuda(&mut cuda_ctx).await?;
             let struct_arr = canonical.into_struct();
