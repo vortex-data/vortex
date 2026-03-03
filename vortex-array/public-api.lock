@@ -652,9 +652,9 @@ impl vortex_array::scalar_fn::fns::mask::MaskKernel for vortex_array::arrays::Ch
 
 pub fn vortex_array::arrays::ChunkedVTable::mask(array: &vortex_array::arrays::ChunkedArray, mask: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::scalar_fn::fns::zip::ZipReduce for vortex_array::arrays::ChunkedVTable
+impl vortex_array::scalar_fn::fns::zip::ZipKernel for vortex_array::arrays::ChunkedVTable
 
-pub fn vortex_array::arrays::ChunkedVTable::zip(if_true: &vortex_array::arrays::ChunkedArray, if_false: &vortex_array::ArrayRef, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::ChunkedVTable::zip(if_true: &vortex_array::arrays::ChunkedArray, if_false: &vortex_array::ArrayRef, mask: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::vtable::OperationsVTable<vortex_array::arrays::ChunkedVTable> for vortex_array::arrays::ChunkedVTable
 
@@ -3290,7 +3290,7 @@ pub fn vortex_array::arrays::StructVTable::mask(array: &vortex_array::arrays::St
 
 impl vortex_array::scalar_fn::fns::zip::ZipKernel for vortex_array::arrays::StructVTable
 
-pub fn vortex_array::arrays::StructVTable::zip(if_true: &vortex_array::arrays::StructArray, if_false: &vortex_array::ArrayRef, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::StructVTable::zip(if_true: &vortex_array::arrays::StructArray, if_false: &vortex_array::ArrayRef, mask: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::vtable::OperationsVTable<vortex_array::arrays::StructVTable> for vortex_array::arrays::StructVTable
 
@@ -3834,7 +3834,7 @@ pub fn vortex_array::arrays::VarBinViewVTable::mask(array: &vortex_array::arrays
 
 impl vortex_array::scalar_fn::fns::zip::ZipKernel for vortex_array::arrays::VarBinViewVTable
 
-pub fn vortex_array::arrays::VarBinViewVTable::zip(if_true: &vortex_array::arrays::VarBinViewArray, if_false: &vortex_array::ArrayRef, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::VarBinViewVTable::zip(if_true: &vortex_array::arrays::VarBinViewArray, if_false: &vortex_array::ArrayRef, mask: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::vtable::OperationsVTable<vortex_array::arrays::VarBinViewVTable> for vortex_array::arrays::VarBinViewVTable
 
@@ -6308,22 +6308,6 @@ impl vortex_array::compute::SumKernel for vortex_array::arrays::PrimitiveVTable
 
 pub fn vortex_array::arrays::PrimitiveVTable::sum(&self, array: &vortex_array::arrays::PrimitiveArray, accumulator: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::compute::add(lhs: &vortex_array::ArrayRef, rhs: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::add_scalar(lhs: &vortex_array::ArrayRef, rhs: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::and_kleene(lhs: &vortex_array::ArrayRef, rhs: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::cast(array: &dyn vortex_array::Array, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::div(lhs: &vortex_array::ArrayRef, rhs: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::div_scalar(lhs: &vortex_array::ArrayRef, rhs: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::fill_null(array: &vortex_array::ArrayRef, fill_value: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::invert(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 pub fn vortex_array::compute::is_constant(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<bool>>
 
 pub fn vortex_array::compute::is_constant_opts(array: &vortex_array::ArrayRef, options: &vortex_array::compute::IsConstantOpts) -> vortex_error::VortexResult<core::option::Option<bool>>
@@ -6334,33 +6318,15 @@ pub fn vortex_array::compute::is_sorted_opts(array: &vortex_array::ArrayRef, str
 
 pub fn vortex_array::compute::is_strict_sorted(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<bool>>
 
-pub fn vortex_array::compute::list_contains(array: &vortex_array::ArrayRef, value: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::mask(array: &vortex_array::ArrayRef, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 pub fn vortex_array::compute::min_max(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 
-pub fn vortex_array::compute::mul(lhs: &vortex_array::ArrayRef, rhs: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::mul_scalar(lhs: &vortex_array::ArrayRef, rhs: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 pub fn vortex_array::compute::nan_count(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<usize>
-
-pub fn vortex_array::compute::numeric(lhs: &vortex_array::ArrayRef, rhs: &vortex_array::ArrayRef, op: vortex_array::scalar::NumericOperator) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::or_kleene(lhs: &vortex_array::ArrayRef, rhs: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::sub(lhs: &vortex_array::ArrayRef, rhs: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::sub_scalar(lhs: &vortex_array::ArrayRef, rhs: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::compute::sum(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::compute::sum_impl(array: &vortex_array::ArrayRef, accumulator: &vortex_array::scalar::Scalar, kernels: &[arcref::ArcRef<dyn vortex_array::compute::Kernel>]) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::compute::warm_up_vtables()
-
-pub fn vortex_array::compute::zip(if_true: &vortex_array::ArrayRef, if_false: &vortex_array::ArrayRef, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub mod vortex_array::display
 
@@ -14658,23 +14624,23 @@ pub fn vortex_array::scalar_fn::fns::zip::ZipReduceAdaptor<V>::reduce_parent(&se
 
 pub trait vortex_array::scalar_fn::fns::zip::ZipKernel: vortex_array::vtable::VTable
 
-pub fn vortex_array::scalar_fn::fns::zip::ZipKernel::zip(array: &Self::Array, if_false: &vortex_array::ArrayRef, mask: &vortex_mask::Mask, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::scalar_fn::fns::zip::ZipKernel::zip(array: &Self::Array, if_false: &vortex_array::ArrayRef, mask: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::scalar_fn::fns::zip::ZipKernel for vortex_array::arrays::ChunkedVTable
+
+pub fn vortex_array::arrays::ChunkedVTable::zip(if_true: &vortex_array::arrays::ChunkedArray, if_false: &vortex_array::ArrayRef, mask: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::zip::ZipKernel for vortex_array::arrays::StructVTable
 
-pub fn vortex_array::arrays::StructVTable::zip(if_true: &vortex_array::arrays::StructArray, if_false: &vortex_array::ArrayRef, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::StructVTable::zip(if_true: &vortex_array::arrays::StructArray, if_false: &vortex_array::ArrayRef, mask: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::zip::ZipKernel for vortex_array::arrays::VarBinViewVTable
 
-pub fn vortex_array::arrays::VarBinViewVTable::zip(if_true: &vortex_array::arrays::VarBinViewArray, if_false: &vortex_array::ArrayRef, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::VarBinViewVTable::zip(if_true: &vortex_array::arrays::VarBinViewArray, if_false: &vortex_array::ArrayRef, mask: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub trait vortex_array::scalar_fn::fns::zip::ZipReduce: vortex_array::vtable::VTable
 
-pub fn vortex_array::scalar_fn::fns::zip::ZipReduce::zip(array: &Self::Array, if_false: &vortex_array::ArrayRef, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::scalar_fn::fns::zip::ZipReduce for vortex_array::arrays::ChunkedVTable
-
-pub fn vortex_array::arrays::ChunkedVTable::zip(if_true: &vortex_array::arrays::ChunkedArray, if_false: &vortex_array::ArrayRef, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::scalar_fn::fns::zip::ZipReduce::zip(array: &Self::Array, if_false: &vortex_array::ArrayRef, mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub mod vortex_array::scalar_fn::session
 
