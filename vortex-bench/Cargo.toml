@@ -25,6 +25,7 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 bzip2 = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
+cudarc = { workspace = true }
 futures = { workspace = true }
 get_dir = { workspace = true }
 glob = { workspace = true }

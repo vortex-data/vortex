@@ -5,6 +5,7 @@ use std::path::Path;
 use std::path::PathBuf;
 #[cfg(target_os = "linux")]
 use std::str::FromStr;
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
@@ -16,6 +17,9 @@ use std::time::Instant;
 use anyhow::Result;
 use clap::Parser;
 use clap::ValueEnum;
+use cudarc::driver::DevicePtr;
+use cudarc::driver::result;
+use cudarc::driver::sys;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::future::BoxFuture;
@@ -84,12 +88,14 @@ use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
 use vortex_bench::SESSION;
 use vortex_bench::rdma_proto::DEFAULT_RDMA_PORT;
+use vortex_bench::rdma_proto::OP_IPC_HANDLE;
 use vortex_bench::rdma_proto::OP_LIST;
 use vortex_bench::rdma_proto::OP_READ;
 use vortex_bench::rdma_proto::OP_SIZE;
 use vortex_bench::rdma_proto::read_status;
 use vortex_bench::rdma_proto::read_string;
 use vortex_bench::rdma_proto::write_string;
+use vortex_cuda::CudaDeviceBuffer;
 use vortex_cuda::CudaSessionExt;
 use vortex_cuda::PinnedByteBufferPool;
 use vortex_cuda::PinnedDeviceAllocator;
@@ -101,7 +107,7 @@ use vortex_scan::ScanBuilder;
     about = "Benchmark Vortex scans over local files vs object stores"
 )]
 struct Args {
-    /// File path, directory, or URL (e.g. file:/..., s3://bucket/path, rdma://host:9900/path)
+    /// File path, directory, or URL (e.g. file:/..., s3://bucket/path, rdma://host:9900/path, p2p://host:9900/path)
     #[arg(long)]
     source: String,
     /// Use object_store even for file: URLs
@@ -199,6 +205,9 @@ async fn main() -> Result<()> {
     } else {
         args.mode.clone()
     };
+    let source_is_p2p = Url::parse(&args.source)
+        .ok()
+        .is_some_and(|url| url.scheme() == "p2p");
     // `vortex-cuda` datasets require this layout decoder even when running
     // CPU decode/full scans (i.e. without `--gpu` data movement).
     vortex_cuda::layout::register_cuda_layout(&SESSION);
@@ -206,8 +215,9 @@ async fn main() -> Result<()> {
     let (projection, filter) = build_scan_exprs(&args)?;
     let metrics: std::sync::Arc<dyn MetricsRegistry> =
         std::sync::Arc::new(DefaultMetricsRegistry::default());
+    let use_gpu_allocator = args.gpu && !source_is_p2p;
     #[allow(clippy::if_then_some_else_none)]
-    let (gpu_allocator, pinned_pool) = if args.gpu {
+    let (gpu_allocator, pinned_pool) = if use_gpu_allocator {
         let cuda_session = SESSION.cuda_session();
         let pool = std::sync::Arc::new(PinnedByteBufferPool::new(cuda_session.context().clone()));
         let allocator = std::sync::Arc::new(PinnedDeviceAllocator::from_session_with_streams(
@@ -312,6 +322,9 @@ async fn main() -> Result<()> {
                             ScanTarget::Rdma { .. } => {
                                 read_all_segments(&file, args.concurrency).await?;
                             }
+                            ScanTarget::P2p { .. } => {
+                                read_all_segments(&file, args.concurrency).await?;
+                            }
                         }
                     } else {
                         read_all_segments(&file, args.concurrency).await?;
@@ -381,13 +394,15 @@ async fn main() -> Result<()> {
         .await?;
 
     let elapsed = start.elapsed().as_secs_f64();
-    let gpu_sync_ms = if let Some(allocator) = gpu_allocator {
+    let allocator_sync_ms = if let Some(allocator) = gpu_allocator {
         let sync_start = Instant::now();
         allocator.synchronize()?;
         sync_start.elapsed().as_secs_f64() * 1000.0
     } else {
         0.0
     };
+    let p2p_sync_ms = synchronize_registered_p2p_streams()?;
+    let gpu_sync_ms = allocator_sync_ms + p2p_sync_ms;
     let first_latency_s = (*first_latency.lock()).unwrap_or(elapsed);
     let avg_time_s = elapsed / args.iterations as f64;
     let data_mb = data_size_per_iter as f64 / (1024.0 * 1024.0);
@@ -422,7 +437,7 @@ async fn main() -> Result<()> {
     if s3_ktls_enabled() {
         println!("s3_ktls=1");
     }
-    if args.gpu {
+    if args.gpu || p2p_sync_ms > 0.0 {
         println!("gpu_sync_ms={:.2}", gpu_sync_ms);
     }
     print_stats(pinned_pool.as_deref());
@@ -489,6 +504,10 @@ enum ScanTarget {
         endpoint: std::sync::Arc<str>,
         key: std::sync::Arc<str>,
     },
+    P2p {
+        endpoint: std::sync::Arc<str>,
+        key: std::sync::Arc<str>,
+    },
     AmazonS3 {
         store: std::sync::Arc<AmazonS3>,
         path: ObjectStorePath,
@@ -533,6 +552,34 @@ async fn resolve_targets(args: &Args) -> Result<Vec<ScanTarget>> {
             }
 
             return Ok(vec![ScanTarget::Rdma {
+                endpoint: std::sync::Arc::from(endpoint),
+                key: std::sync::Arc::from(key_or_prefix),
+            }]);
+        }
+        if url.scheme() == "p2p" {
+            let (endpoint, key_or_prefix) = p2p_endpoint_and_path(&url)?;
+            if is_prefix(source) {
+                let objects = rdma_list(&endpoint, &key_or_prefix).await?;
+                let mut targets = objects
+                    .into_iter()
+                    .map(|obj| ScanTarget::P2p {
+                        endpoint: std::sync::Arc::from(endpoint.clone()),
+                        key: std::sync::Arc::from(obj.key),
+                    })
+                    .collect::<Vec<_>>();
+                targets.sort_by(|a, b| {
+                    let ScanTarget::P2p { key: ka, .. } = a else {
+                        unreachable!("P2p-only target list expected")
+                    };
+                    let ScanTarget::P2p { key: kb, .. } = b else {
+                        unreachable!("P2p-only target list expected")
+                    };
+                    ka.cmp(kb)
+                });
+                return Ok(targets);
+            }
+
+            return Ok(vec![ScanTarget::P2p {
                 endpoint: std::sync::Arc::from(endpoint),
                 key: std::sync::Arc::from(key_or_prefix),
             }]);
@@ -633,6 +680,15 @@ async fn open_vortex_file_for_target(
             );
             Ok(options.open(source).await?)
         }
+        ScanTarget::P2p { endpoint, key } => {
+            let options = session.open_options().with_metrics_registry(metrics);
+            let source = std::sync::Arc::new(
+                P2pReadSource::new(endpoint.clone(), key.clone())
+                    .await
+                    .map_err(|e| anyhow::anyhow!("failed to create p2p source: {e}"))?,
+            );
+            Ok(options.open(source).await?)
+        }
         ScanTarget::AmazonS3 { store, path } => {
             let mut options = session.open_options().with_metrics_registry(metrics);
             if let Some(allocator) = allocator {
@@ -727,17 +783,25 @@ struct RdmaListedObject {
 }
 
 fn rdma_endpoint_and_path(url: &Url) -> Result<(String, String)> {
-    anyhow::ensure!(url.scheme() == "rdma", "URL scheme must be rdma://");
+    endpoint_and_path(url, "rdma")
+}
+
+fn p2p_endpoint_and_path(url: &Url) -> Result<(String, String)> {
+    endpoint_and_path(url, "p2p")
+}
+
+fn endpoint_and_path(url: &Url, scheme: &str) -> Result<(String, String)> {
+    anyhow::ensure!(url.scheme() == scheme, "URL scheme must be {scheme}://");
     anyhow::ensure!(
         url.query().is_none() && url.fragment().is_none(),
-        "rdma:// URLs do not support query or fragment"
+        "{scheme}:// URLs do not support query or fragment"
     );
     let host = url
         .host_str()
-        .ok_or_else(|| anyhow::anyhow!("rdma:// URL must include a host"))?;
+        .ok_or_else(|| anyhow::anyhow!("{scheme}:// URL must include a host"))?;
     let port = url.port().unwrap_or(DEFAULT_RDMA_PORT);
     let key = url.path().trim_start_matches('/').to_string();
-    anyhow::ensure!(!key.is_empty(), "rdma:// URL path must not be empty");
+    anyhow::ensure!(!key.is_empty(), "{scheme}:// URL path must not be empty");
     Ok((format!("{host}:{port}"), key))
 }
 
@@ -766,6 +830,19 @@ async fn rdma_size(endpoint: &str, key: &str) -> Result<u64> {
     write_string(&mut stream, key).await?;
     read_status(&mut stream).await?;
     Ok(stream.read_u64_le().await?)
+}
+
+async fn p2p_ipc_info(endpoint: &str, key: &str) -> Result<(u64, [u8; 64])> {
+    let mut stream = TcpStream::connect(endpoint)
+        .await
+        .map_err(|e| anyhow::anyhow!("p2p connect to {endpoint} failed: {e}"))?;
+    stream.write_u8(OP_IPC_HANDLE).await?;
+    write_string(&mut stream, key).await?;
+    read_status(&mut stream).await?;
+    let size = stream.read_u64_le().await?;
+    let mut handle = [0u8; 64];
+    stream.read_exact(&mut handle).await?;
+    Ok((size, handle))
 }
 
 async fn read_all_segments(file: &vortex::file::VortexFile, concurrency: usize) -> Result<()> {
@@ -823,6 +900,41 @@ fn read_env_bool(key: &str, default: bool) -> bool {
         .and_then(|value| value.parse::<u8>().ok())
         .map(|value| value != 0)
         .unwrap_or(default)
+}
+
+static P2P_STREAM_REGISTRY: OnceLock<
+    std::sync::Mutex<Vec<std::sync::Arc<cudarc::driver::CudaStream>>>,
+> = OnceLock::new();
+
+fn register_p2p_stream(stream: &std::sync::Arc<cudarc::driver::CudaStream>) {
+    let registry = P2P_STREAM_REGISTRY.get_or_init(|| std::sync::Mutex::new(Vec::new()));
+    let mut guard = registry.lock().expect("p2p stream registry mutex poisoned");
+    if !guard
+        .iter()
+        .any(|existing| std::sync::Arc::ptr_eq(existing, stream))
+    {
+        guard.push(stream.clone());
+    }
+}
+
+fn synchronize_registered_p2p_streams() -> Result<f64> {
+    let Some(registry) = P2P_STREAM_REGISTRY.get() else {
+        return Ok(0.0);
+    };
+    let streams = registry
+        .lock()
+        .expect("p2p stream registry mutex poisoned")
+        .clone();
+    if streams.is_empty() {
+        return Ok(0.0);
+    }
+    let start = Instant::now();
+    for stream in streams {
+        stream
+            .synchronize()
+            .map_err(|e| anyhow::anyhow!("failed to synchronize p2p stream: {e}"))?;
+    }
+    Ok(start.elapsed().as_secs_f64() * 1000.0)
 }
 
 fn no_copy_coalesce_distance() -> u64 {
@@ -1166,6 +1278,194 @@ impl VortexReadAt for RdmaReadSource {
                 .map_err(|e| vortex_err!("rdma read failed at offset {offset}: {e}"))?;
             target.into_handle()
         })
+    }
+}
+
+const DEFAULT_P2P_COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
+    distance: 1024 * 1024,      // 1 MB
+    max_size: 16 * 1024 * 1024, // 16 MB
+};
+const DEFAULT_P2P_CONCURRENCY: usize = 192;
+const P2P_READ_CONCURRENCY_ENV: &str = "VORTEX_P2P_READ_CONCURRENCY";
+const P2P_COALESCE_DISTANCE_ENV: &str = "VORTEX_P2P_COALESCE_DISTANCE";
+const P2P_COALESCE_MAX_SIZE_ENV: &str = "VORTEX_P2P_COALESCE_MAX_SIZE";
+const P2P_COALESCE_DISABLE_ENV: &str = "VORTEX_P2P_COALESCE_DISABLE";
+const P2P_STREAMS_ENV: &str = "VORTEX_P2P_STREAMS";
+
+struct P2pMappedRegion {
+    context: std::sync::Arc<cudarc::driver::CudaContext>,
+    base_ptr: sys::CUdeviceptr,
+}
+
+impl Drop for P2pMappedRegion {
+    fn drop(&mut self) {
+        if self.base_ptr == 0 {
+            return;
+        }
+        if self.context.bind_to_thread().is_err() {
+            return;
+        }
+        unsafe {
+            let _ = sys::cuIpcCloseMemHandle(self.base_ptr).result();
+        }
+    }
+}
+
+#[derive(Clone)]
+struct P2pReadSource {
+    uri: std::sync::Arc<str>,
+    size: u64,
+    concurrency: usize,
+    coalesce_config: Option<CoalesceConfig>,
+    streams: std::sync::Arc<Vec<std::sync::Arc<cudarc::driver::CudaStream>>>,
+    next_stream: std::sync::Arc<AtomicUsize>,
+    mapped: std::sync::Arc<P2pMappedRegion>,
+}
+
+impl P2pReadSource {
+    async fn new(endpoint: std::sync::Arc<str>, key: std::sync::Arc<str>) -> Result<Self> {
+        let (size, handle_bytes) = p2p_ipc_info(endpoint.as_ref(), key.as_ref()).await?;
+        let cuda_session = SESSION.cuda_session();
+        let context = cuda_session.context().clone();
+        context
+            .bind_to_thread()
+            .map_err(|e| anyhow::anyhow!("failed to bind CUDA context: {e}"))?;
+        let base_ptr = open_ipc_mem_handle(&context, handle_bytes)?;
+
+        let mut coalesce_config = Some(DEFAULT_P2P_COALESCING_CONFIG);
+        if read_env_bool(P2P_COALESCE_DISABLE_ENV, false) {
+            coalesce_config = None;
+        } else if let Some(defaults) = coalesce_config.as_mut() {
+            if let Some(distance) = read_env_u64(P2P_COALESCE_DISTANCE_ENV) {
+                defaults.distance = distance;
+            }
+            if let Some(max_size) = read_env_u64(P2P_COALESCE_MAX_SIZE_ENV) {
+                defaults.max_size = max_size;
+            }
+        }
+
+        let concurrency =
+            read_env_usize(P2P_READ_CONCURRENCY_ENV).unwrap_or(DEFAULT_P2P_CONCURRENCY);
+        let stream_count = read_env_usize(P2P_STREAMS_ENV).unwrap_or(4).max(1);
+        let mut streams = Vec::with_capacity(stream_count);
+        for _ in 0..stream_count {
+            streams.push(
+                context
+                    .new_stream()
+                    .map_err(|e| anyhow::anyhow!("failed to create p2p CUDA stream: {e}"))?,
+            );
+        }
+        for stream in &streams {
+            register_p2p_stream(stream);
+        }
+
+        Ok(Self {
+            uri: std::sync::Arc::from(format!("p2p://{endpoint}/{key}")),
+            size,
+            concurrency,
+            coalesce_config,
+            streams: std::sync::Arc::new(streams),
+            next_stream: std::sync::Arc::new(AtomicUsize::new(0)),
+            mapped: std::sync::Arc::new(P2pMappedRegion { context, base_ptr }),
+        })
+    }
+
+    fn next_stream(&self) -> &std::sync::Arc<cudarc::driver::CudaStream> {
+        let idx = self.next_stream.fetch_add(1, Ordering::Relaxed) % self.streams.len();
+        &self.streams[idx]
+    }
+
+    fn read_at_device(&self, offset: u64, length: usize) -> VortexResult<BufferHandle> {
+        let end = offset.saturating_add(length as u64);
+        if end > self.size {
+            return Err(vortex_err!(
+                "p2p range {}..{} out of bounds for object size {}",
+                offset,
+                end,
+                self.size
+            ));
+        }
+
+        let stream = self.next_stream();
+        let mut device = unsafe { stream.alloc::<u8>(length) }
+            .map_err(|e| vortex_err!("failed to allocate device buffer for p2p read: {e}"))?;
+        let (dst_ptr, _) = device.device_ptr(device.stream());
+        let src_ptr = self.mapped.base_ptr + offset;
+        unsafe {
+            result::memcpy_dtod_async(dst_ptr, src_ptr, length, stream.cu_stream())
+                .map_err(|e| vortex_err!("p2p d2d copy failed at offset {offset}: {e}"))?;
+        }
+        Ok(BufferHandle::new_device(std::sync::Arc::new(
+            CudaDeviceBuffer::new(device),
+        )))
+    }
+}
+
+fn open_ipc_mem_handle(
+    context: &std::sync::Arc<cudarc::driver::CudaContext>,
+    handle_bytes: [u8; 64],
+) -> Result<sys::CUdeviceptr> {
+    context
+        .bind_to_thread()
+        .map_err(|e| anyhow::anyhow!("failed to bind CUDA context for IPC open: {e}"))?;
+    let handle = bytes_to_ipc_handle(handle_bytes);
+    let mut ptr: sys::CUdeviceptr = 0;
+    unsafe {
+        sys::cuIpcOpenMemHandle_v2(
+            &mut ptr,
+            handle,
+            sys::CUipcMem_flags_enum::CU_IPC_MEM_LAZY_ENABLE_PEER_ACCESS as u32,
+        )
+        .result()
+        .map_err(|e| anyhow::anyhow!("cuIpcOpenMemHandle_v2 failed: {e}"))?;
+    }
+    Ok(ptr)
+}
+
+fn bytes_to_ipc_handle(bytes: [u8; 64]) -> sys::CUipcMemHandle {
+    let mut reserved: [std::ffi::c_char; 64] = [0; 64];
+    for (idx, value) in bytes.into_iter().enumerate() {
+        reserved[idx] = value as std::ffi::c_char;
+    }
+    sys::CUipcMemHandle { reserved }
+}
+
+impl VortexReadAt for P2pReadSource {
+    fn uri(&self) -> Option<&std::sync::Arc<str>> {
+        Some(&self.uri)
+    }
+
+    fn coalesce_config(&self) -> Option<CoalesceConfig> {
+        self.coalesce_config
+    }
+
+    fn concurrency(&self) -> usize {
+        self.concurrency
+    }
+
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        let size = self.size;
+        Box::pin(async move { Ok(size) })
+    }
+
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        _alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let source = self.clone();
+        Box::pin(async move { source.read_at_device(offset, length) })
+    }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let source = self.clone();
+        let length = target.len();
+        Box::pin(async move { source.read_at_device(offset, length) })
     }
 }
 

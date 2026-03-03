@@ -2,11 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::io;
+use std::mem::MaybeUninit;
 use std::sync::Arc;
 
 use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;
+use cudarc::driver::CudaContext;
+use cudarc::driver::CudaSlice;
+use cudarc::driver::CudaStream;
+use cudarc::driver::DevicePtr;
+use cudarc::driver::sys;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use object_store::ObjectStore;
@@ -24,6 +30,7 @@ use tracing_subscriber::EnvFilter;
 use url::Url;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_bench::rdma_proto::DEFAULT_RDMA_PORT;
+use vortex_bench::rdma_proto::OP_IPC_HANDLE;
 use vortex_bench::rdma_proto::OP_LIST;
 use vortex_bench::rdma_proto::OP_READ;
 use vortex_bench::rdma_proto::OP_SIZE;
@@ -47,6 +54,12 @@ struct Args {
     /// Number of concurrent S3 downloads during warmup.
     #[arg(long, default_value_t = 32)]
     download_concurrency: usize,
+    /// Cache objects in CUDA device memory and expose CUDA IPC handles.
+    #[arg(long, default_value_t = false)]
+    gpu_cache: bool,
+    /// CUDA device ordinal used for `--gpu-cache` (relative to CUDA_VISIBLE_DEVICES).
+    #[arg(long, default_value_t = 0)]
+    gpu_ordinal: usize,
 }
 
 struct CachedObject {
@@ -54,9 +67,16 @@ struct CachedObject {
     size: u64,
 }
 
+struct GpuCachedObject {
+    _device: CudaSlice<u8>,
+    size: u64,
+    ipc_handle: [u8; 64],
+}
+
 #[derive(Clone)]
 struct CachedStore {
     objects: Arc<HashMap<String, CachedObject>>,
+    gpu_objects: Arc<HashMap<String, Arc<GpuCachedObject>>>,
     keys: Arc<Vec<(String, u64)>>,
     total_bytes: u64,
 }
@@ -73,9 +93,16 @@ async fn main() -> Result<()> {
         "--source must be a prefix ending with '/'"
     );
 
-    let cache = preload_s3_prefix(&args.source, args.download_concurrency.max(1)).await?;
+    let cache = preload_s3_prefix(
+        &args.source,
+        args.download_concurrency.max(1),
+        args.gpu_cache,
+        args.gpu_ordinal,
+    )
+    .await?;
     info!(
         objects = cache.keys.len(),
+        gpu_objects = cache.gpu_objects.len(),
         total_bytes = cache.total_bytes,
         "warmup complete, accepting connections"
     );
@@ -96,7 +123,12 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn preload_s3_prefix(source: &str, download_concurrency: usize) -> Result<CachedStore> {
+async fn preload_s3_prefix(
+    source: &str,
+    download_concurrency: usize,
+    gpu_cache: bool,
+    gpu_ordinal: usize,
+) -> Result<CachedStore> {
     let url = Url::parse(source)?;
     let (scheme, prefix) = ObjectStoreScheme::parse(&url).map_err(object_store::Error::from)?;
     anyhow::ensure!(
@@ -138,9 +170,15 @@ async fn preload_s3_prefix(source: &str, download_concurrency: usize) -> Result<
         map.insert(key, CachedObject { data, size });
     }
     keys.sort_by(|a, b| a.0.cmp(&b.0));
+    let gpu_objects = if gpu_cache {
+        Arc::new(build_gpu_cache(&map, gpu_ordinal)?)
+    } else {
+        Arc::new(HashMap::default())
+    };
 
     Ok(CachedStore {
         objects: Arc::new(map),
+        gpu_objects,
         keys: Arc::new(keys),
         total_bytes,
     })
@@ -166,6 +204,65 @@ async fn download_object(
         expected_size
     );
     Ok(Arc::from(out.into_boxed_slice()))
+}
+
+fn build_gpu_cache(
+    objects: &HashMap<String, CachedObject>,
+    gpu_ordinal: usize,
+) -> Result<HashMap<String, Arc<GpuCachedObject>>> {
+    let context = CudaContext::new(gpu_ordinal)
+        .with_context(|| format!("failed to initialize CUDA device {gpu_ordinal}"))?;
+    context
+        .bind_to_thread()
+        .context("failed to bind CUDA context to thread")?;
+    let stream = context.default_stream();
+    let mut out = HashMap::with_capacity(objects.len());
+
+    for (key, object) in objects {
+        let mut device = copy_to_device(&stream, object.data.as_ref())
+            .with_context(|| format!("failed to cache {key} on GPU"))?;
+        let ipc_handle =
+            ipc_handle_for_slice(&mut device).with_context(|| format!("failed to export {key}"))?;
+        out.insert(
+            key.clone(),
+            Arc::new(GpuCachedObject {
+                _device: device,
+                size: object.size,
+                ipc_handle,
+            }),
+        );
+    }
+
+    stream
+        .synchronize()
+        .context("failed to synchronize GPU preload stream")?;
+    info!(gpu_ordinal, objects = out.len(), "gpu cache ready");
+    Ok(out)
+}
+
+fn copy_to_device(stream: &Arc<CudaStream>, data: &[u8]) -> Result<CudaSlice<u8>> {
+    let mut device = unsafe { stream.alloc::<u8>(data.len()) }
+        .context("failed to allocate device memory for object")?;
+    stream
+        .memcpy_htod(data, &mut device)
+        .context("failed to copy object to device")?;
+    Ok(device)
+}
+
+fn ipc_handle_for_slice(slice: &mut CudaSlice<u8>) -> Result<[u8; 64]> {
+    let (ptr, _) = slice.device_ptr(slice.stream());
+    let mut handle = MaybeUninit::<sys::CUipcMemHandle>::uninit();
+    unsafe {
+        sys::cuIpcGetMemHandle(handle.as_mut_ptr(), ptr)
+            .result()
+            .context("cuIpcGetMemHandle failed")?;
+    }
+    let handle = unsafe { handle.assume_init() };
+    Ok(handle_to_bytes(handle))
+}
+
+fn handle_to_bytes(handle: sys::CUipcMemHandle) -> [u8; 64] {
+    handle.reserved.map(|value| value as u8)
 }
 
 async fn handle_client(mut stream: TcpStream, cache: CachedStore) -> Result<()> {
@@ -231,6 +328,20 @@ async fn handle_client(mut stream: TcpStream, cache: CachedStore) -> Result<()> 
                 stream.write_u8(STATUS_OK).await?;
                 stream.write_u32_le(length_u32).await?;
                 stream.write_all(&obj.data[start..end]).await?;
+            }
+            OP_IPC_HANDLE => {
+                let key = read_string(&mut stream).await?;
+                if let Some(obj) = cache.gpu_objects.get(key.as_str()) {
+                    stream.write_u8(STATUS_OK).await?;
+                    stream.write_u64_le(obj.size).await?;
+                    stream.write_all(&obj.ipc_handle).await?;
+                } else {
+                    write_error(
+                        &mut stream,
+                        &format!("gpu object not found (did you start with --gpu-cache?): {key}"),
+                    )
+                    .await?;
+                }
             }
             other => {
                 write_error(&mut stream, &format!("unknown opcode: {other}")).await?;

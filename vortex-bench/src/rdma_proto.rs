@@ -13,6 +13,7 @@ pub const DEFAULT_RDMA_PORT: u16 = 9900;
 pub const OP_LIST: u8 = 1;
 pub const OP_SIZE: u8 = 2;
 pub const OP_READ: u8 = 3;
+pub const OP_IPC_HANDLE: u8 = 4;
 
 pub const STATUS_OK: u8 = 0;
 pub const STATUS_ERR: u8 = 1;
