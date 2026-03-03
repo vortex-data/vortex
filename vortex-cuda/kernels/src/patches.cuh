@@ -4,62 +4,62 @@
 #pragma once
 
 #include "patches.h"
-#include "fastlanes_common.cuh"
 
-// Cursor that makes it easy to statefully iterate over a set of patches.
+/// A single patch: a within-chunk index and its replacement value.
+/// A sentinel patch has index == 1024, which can never match a valid
+/// within-chunk position (0–1023).
+template <typename T>
+struct Patch {
+    uint16_t index;
+    T value;
+};
+
+/// Cursor for iterating over a single lane's patches within a chunk.
+///
+/// Usage in the generated merge-loop:
+///
+///     PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
+///     auto patch = cursor.next();
+///     for (int i = 0; i < 32; i++) {
+///         auto idx = i * 32 + thread_idx;
+///         if (idx == patch.index) {
+///             out[idx] = patch.value;
+///             patch = cursor.next();
+///         } else {
+///             out[idx] = shared_out[idx];
+///         }
+///     }
+template <typename T>
 struct PatchesCursor {
-    // The set of patches
-    GPUPatches patches;
+    const uint16_t *indices;
+    const T *values;
+    uint8_t remaining;
 
-    uint32_t chunk_index;
-    uint32_t lane;
-    // this is number of patches for the currently configured chunk_index
-    // and lane and is set whenever seek() is called
-    uint32_t n_patches;
-
-    // this is the offset into the indices.
-    uint32_t start_offset;
-    uint32_t offset;
-
-    __device__ PatchesCursor(GPUPatches p)
-        : patches(p), chunk_index(0), lane(0), n_patches(0), start_offset(0), offset(0) {
-    }
-
-    // Reset the cursor to the start of the patches range given at this.
-    __device__ void seek(uint32_t chunk, uint32_t theLane) {
-        chunk_index = chunk;
-        lane = theLane;
-        offset = 0;
-
-        // This is the sentinel for a set of empty patches, which we know
-        // means to ignore the kernel completely.
-        if (patches.n_chunks == 0) {
-            n_patches = 0;
-            start_offset = 0;
+    /// Construct a cursor positioned at the patches for the given (chunk, lane).
+    /// n_lanes is a compile-time constant emitted by the code generator (16 or 32).
+    __device__ PatchesCursor(const GPUPatches &patches, uint32_t chunk, uint32_t lane, uint32_t n_lanes) {
+        if (patches.lane_offsets == nullptr) {
+            indices = nullptr;
+            values = nullptr;
+            remaining = 0;
             return;
         }
-
-        auto idx = chunk * patches.n_lanes + lane;
-        auto startIdx = patches.lane_offsets[idx];
-        auto stopIdx = patches.lane_offsets[idx + 1];
-
-        n_patches = stopIdx - startIdx;
-        start_offset = startIdx;
+        auto slot = chunk * n_lanes + lane;
+        auto start = patches.lane_offsets[slot];
+        remaining = patches.lane_offsets[slot + 1] - start;
+        indices = patches.indices + start;
+        values = reinterpret_cast<const T *>(patches.values) + start;
     }
 
-    // Advance to the next patch in the patching group.
-    __device__ bool next() {
-        return ++offset < n_patches;
-    }
-
-    template <typename T>
-    __device__ T get_value() {
-        T *values = reinterpret_cast<T *>(patches.values);
-        return values[start_offset + offset];
-    }
-
-    // Get the patch index of the current position in the cursor.
-    __device__ uint16_t get_index() {
-        return patches.indices[start_offset + offset];
+    /// Return the current patch and advance, or a sentinel {1024, 0} if exhausted.
+    __device__ Patch<T> next() {
+        if (remaining == 0) {
+            return {1024, T{}};
+        }
+        Patch<T> patch = {*indices, *values};
+        indices++;
+        values++;
+        remaining--;
+        return patch;
     }
 };

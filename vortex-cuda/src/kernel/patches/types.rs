@@ -24,8 +24,6 @@ use crate::CudaExecutionCtx;
 /// These are dynamically typed.
 #[repr(C)]
 pub struct DevicePatches {
-    pub(crate) n_chunks: u32,
-    pub(crate) n_lanes: u32,
     pub(crate) lane_offsets: BufferHandle,
     pub(crate) indices: BufferHandle,
     pub(crate) values: BufferHandle,
@@ -56,6 +54,7 @@ impl<V: Copy + Default> Default for Chunk<V> {
 }
 
 /// A set of patches of values `V` existing in host buffers.
+#[allow(dead_code)]
 pub struct HostPatches<V> {
     n_chunks: usize,
     n_lanes: usize,
@@ -115,12 +114,7 @@ impl<V: Copy> HostPatches<V> {
         let indices_handle = ctx.ensure_on_device(indices_handle).await?;
         let values_handle = ctx.ensure_on_device(values_handle).await?;
 
-        let n_chunks = u32::try_from(self.n_chunks)?;
-        let n_lanes = u32::try_from(self.n_lanes)?;
-
         Ok(DevicePatches {
-            n_chunks,
-            n_lanes,
             lane_offsets: lane_offsets_handle,
             indices: indices_handle,
             values: values_handle,
