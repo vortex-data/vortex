@@ -228,9 +228,12 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::arrays::VarBinViewArray;
     use crate::arrays::VarBinViewVTable;
     use crate::arrow::IntoArrowArray;
     use crate::assert_arrays_eq;
@@ -322,7 +325,10 @@ mod tests {
         let mask = Mask::from_indices(len, indices);
         let mask_array = mask.into_array();
 
-        let result = mask_array.clone().zip(const1.clone(), const2.clone()).unwrap();
+        let result = mask_array
+            .clone()
+            .zip(const1.clone(), const2.clone())?
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
 
         insta::assert_snapshot!(result.display_tree(), @r"
         root: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%) [all_valid]
@@ -336,7 +342,7 @@ mod tests {
         let wrapped1 = StructArray::try_from_iter([("nested", const1)])?.into_array();
         let wrapped2 = StructArray::try_from_iter([("nested", const2)])?.into_array();
 
-        let wrapped_result = mask_array.zip(wrapped1, wrapped2).unwrap();
+        let wrapped_result = mask_array.zip(wrapped1, wrapped2)?;
         insta::assert_snapshot!(wrapped_result.display_tree(), @r"
         root: vortex.struct({nested=utf8?}, len=100) nbytes=1.66 kB (100.00%)
           metadata: EmptyMetadata
@@ -386,8 +392,11 @@ mod tests {
         let mask = Mask::from_indices(200, (0..100).filter(|i| i % 3 != 0).collect());
         let mask_array = mask.clone().into_array();
 
-        let zipped = mask_array.zip(if_true.clone(), if_false.clone()).unwrap();
-        let zipped = zipped.as_opt::<VarBinViewVTable>().unwrap();
+        let zipped = mask_array
+            .zip(if_true.clone(), if_false.clone())
+            .unwrap()
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(zipped.nbuffers(), 2);
 
         // assert the result is the same as arrow
