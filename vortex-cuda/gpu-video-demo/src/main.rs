@@ -139,10 +139,6 @@ struct Cli {
     /// Loop the video file continuously.
     #[arg(long)]
     loop_playback: bool,
-
-    /// Number of scan batches to prefetch ahead of GPU processing.
-    #[arg(long, default_value_t = 16)]
-    prefetch: usize,
 }
 
 /// Sent from main task → encoder thread when an NV12 buffer is ready to encode.
@@ -496,28 +492,34 @@ async fn main() -> VortexResult<()> {
     let mut frame_fill: usize = 0;
     let mut buf_idx: usize = 0;
 
+    let mut stage_scan_ns: u64 = 0;
+    let mut stage_cuda_ns: u64 = 0;
+    let mut stage_extract_ns: u64 = 0;
+    let mut stage_d2d_ns: u64 = 0;
+    let mut stage_nv12_ns: u64 = 0;
+    let mut stage_sync_ns: u64 = 0;
+    let mut stage_recv_ns: u64 = 0;
+    let mut stage_mux_send_ns: u64 = 0;
+    let mut batch_count: u64 = 0;
+
     loop {
         let gpu_file = session.open_options().open(Arc::clone(&reader)).await?;
-        let batches = gpu_file.scan()?.into_array_stream()?;
+        let mut batches = gpu_file.scan()?.into_array_stream()?;
 
-        // Spawn prefetch task to read scan batches ahead of GPU processing.
-        // This overlaps S3 I/O with GPU decompression + NV12 conversion.
-        let (batch_tx, mut batch_rx) = tokio::sync::mpsc::channel(cli.prefetch);
-        tokio::spawn(async move {
-            let mut batches = batches;
-            while let Some(result) = batches.next().await {
-                if batch_tx.send(result).await.is_err() {
-                    break;
-                }
-            }
-        });
-
-        while let Some(batch) = batch_rx.recv().await.transpose()? {
+        while let Some(batch) = {
+            let t = std::time::Instant::now();
+            let b = batches.next().await.transpose()?;
+            stage_scan_ns += t.elapsed().as_nanos() as u64;
+            b
+        } {
             // Execute on GPU to get canonical form
+            let t = std::time::Instant::now();
             let canonical = batch.execute_cuda(&mut cuda_ctx).await?;
             let struct_arr = canonical.into_struct();
+            stage_cuda_ns += t.elapsed().as_nanos() as u64;
 
             // Extract R, G, B device pointers — flat u8 columns, no list wrapping.
+            let t = std::time::Instant::now();
             let r_prim = struct_arr
                 .unmasked_field_by_name("R")?
                 .to_canonical()?
@@ -535,8 +537,10 @@ async fn main() -> VortexResult<()> {
                 .to_canonical()?
                 .into_primitive();
             let b_ptr = b_prim.buffer_handle().cuda_device_ptr()?;
+            stage_extract_ns += t.elapsed().as_nanos() as u64;
 
             let batch_pixels = r_prim.len();
+            batch_count += 1;
             if frame_idx < 3 {
                 tracing::info!(
                     frame = frame_idx,
@@ -556,6 +560,7 @@ async fn main() -> VortexResult<()> {
                 let copy_count = needed.min(available);
 
                 // D2D copy from batch into frame accumulation buffers
+                let t = std::time::Instant::now();
                 unsafe {
                     cudarc::driver::sys::cuMemcpyDtoDAsync_v2(
                         r_frame_ptr + frame_fill as u64,
@@ -583,6 +588,8 @@ async fn main() -> VortexResult<()> {
                     .map_err(|e| vortex_err!("D2D copy B failed: {e}"))?;
                 }
 
+                stage_d2d_ns += t.elapsed().as_nanos() as u64;
+
                 frame_fill += copy_count;
                 batch_offset += copy_count;
 
@@ -591,6 +598,7 @@ async fn main() -> VortexResult<()> {
                     let _span = tracing::info_span!("produce_frame", frame = frame_idx).entered();
 
                     // Launch RGB→NV12 kernel into current double buffer
+                    let t = std::time::Instant::now();
                     nv12::rgb_to_nv12_launch(
                         cuda_ctx.stream(),
                         &nv12_kernel,
@@ -601,20 +609,25 @@ async fn main() -> VortexResult<()> {
                         width,
                         height,
                     )?;
+                    stage_nv12_ns += t.elapsed().as_nanos() as u64;
 
                     // Wait for NV12 kernel to finish before encoder reads the buffer
+                    let t = std::time::Instant::now();
                     cuda_ctx
                         .stream()
                         .synchronize()
                         .map_err(|e| vortex_err!("CUDA stream sync failed: {e}"))?;
+                    stage_sync_ns += t.elapsed().as_nanos() as u64;
 
                     // Collect the PREVIOUS frame's encoded output before sending the
                     // new one. While we were scanning+accumulating this frame, the
                     // encoder was processing the previous one in parallel.
                     if frame_idx > 0 {
+                        let t = std::time::Instant::now();
                         let encoded = encoded_rx
                             .recv()
                             .map_err(|e| vortex_err!("Recv encoded frame failed: {e}"))?;
+                        stage_recv_ns += t.elapsed().as_nanos() as u64;
 
                         if encoded.frame_idx < 5 {
                             let nal_types = parse_nal_types(&encoded.h264_nals);
@@ -626,12 +639,14 @@ async fn main() -> VortexResult<()> {
                             );
                         }
 
+                        let t = std::time::Instant::now();
                         let ts_packets =
                             mux.write_access_unit(&encoded.h264_nals, encoded.frame_idx);
                         if encoded.frame_idx < 300 {
                             debug_file.write_all(&ts_packets)?;
                         }
                         sender.send(ts_packets).await?;
+                        stage_mux_send_ns += t.elapsed().as_nanos() as u64;
 
                         let target = stream_start + frame_duration * (encoded.frame_idx + 1) as u32;
                         sleep_until(target).await;
@@ -679,11 +694,36 @@ async fn main() -> VortexResult<()> {
 
     let elapsed = stream_start.elapsed();
     let avg_fps = frame_idx as f64 / elapsed.as_secs_f64();
+    let bc = batch_count.max(1) as f64;
+    let fc = (frame_idx.max(1)) as f64;
     tracing::info!(
         frames = frame_idx,
+        batches = batch_count,
         elapsed_secs = format!("{:.2}", elapsed.as_secs_f64()),
         avg_fps = format!("{:.1}", avg_fps),
         "streaming complete"
+    );
+    tracing::info!(
+        scan_ms = format!("{:.1}", stage_scan_ns as f64 / 1e6),
+        cuda_ms = format!("{:.1}", stage_cuda_ns as f64 / 1e6),
+        extract_ms = format!("{:.1}", stage_extract_ns as f64 / 1e6),
+        d2d_ms = format!("{:.1}", stage_d2d_ns as f64 / 1e6),
+        nv12_ms = format!("{:.1}", stage_nv12_ns as f64 / 1e6),
+        sync_ms = format!("{:.1}", stage_sync_ns as f64 / 1e6),
+        recv_ms = format!("{:.1}", stage_recv_ns as f64 / 1e6),
+        mux_send_ms = format!("{:.1}", stage_mux_send_ns as f64 / 1e6),
+        "total stage time (ms)"
+    );
+    tracing::info!(
+        scan_per_batch_us = format!("{:.0}", stage_scan_ns as f64 / 1e3 / bc),
+        cuda_per_batch_us = format!("{:.0}", stage_cuda_ns as f64 / 1e3 / bc),
+        extract_per_batch_us = format!("{:.0}", stage_extract_ns as f64 / 1e3 / bc),
+        d2d_per_frame_us = format!("{:.0}", stage_d2d_ns as f64 / 1e3 / fc),
+        nv12_per_frame_us = format!("{:.0}", stage_nv12_ns as f64 / 1e3 / fc),
+        sync_per_frame_us = format!("{:.0}", stage_sync_ns as f64 / 1e3 / fc),
+        recv_per_frame_us = format!("{:.0}", stage_recv_ns as f64 / 1e3 / fc),
+        mux_send_per_frame_us = format!("{:.0}", stage_mux_send_ns as f64 / 1e3 / fc),
+        "per-unit stage time (us)"
     );
     Ok(())
 }
