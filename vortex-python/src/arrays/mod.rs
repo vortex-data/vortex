@@ -23,6 +23,7 @@ use pyo3::types::PyRangeMethods;
 use pyo3_bytes::PyBytes;
 use vortex::array::Array;
 use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::ChunkedVTable;
 use vortex::array::arrow::IntoArrowArray;
