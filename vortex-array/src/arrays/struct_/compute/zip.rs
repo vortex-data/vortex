@@ -6,7 +6,6 @@ use std::ops::BitOr;
 use std::ops::Not;
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;

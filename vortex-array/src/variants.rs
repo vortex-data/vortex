@@ -12,7 +12,6 @@ use vortex_mask::Mask;
 
 use crate::Array;
 use crate::ExecutionCtx;
-use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::sum;
