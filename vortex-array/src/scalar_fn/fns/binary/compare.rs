@@ -220,6 +220,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::operators::CompareOperator;
     use crate::scalar_fn::fns::operators::Operator;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;

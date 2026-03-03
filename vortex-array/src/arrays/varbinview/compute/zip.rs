@@ -206,11 +206,11 @@ fn push_view(
 mod tests {
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewArray;
+    use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
-    #[expect(deprecated)]
-    use crate::compute::zip;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 
@@ -242,8 +242,9 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, false, true]);
 
-        #[expect(deprecated)]
-        let zipped = zip(&a.to_array(), &b.to_array(), &mask)
+        let zipped = a
+            .to_array()
+            .zip(b.to_array(), mask.clone().into_array())
             .unwrap()
             .to_varbinview();
 

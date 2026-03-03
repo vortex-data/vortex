@@ -79,8 +79,7 @@ mod tests {
     use crate::ToCanonical;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ChunkedVTable;
-    #[expect(deprecated)]
-    use crate::compute::zip;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -109,8 +108,10 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, true]);
 
-        #[expect(deprecated)]
-        let zipped = zip(&if_true.to_array(), &if_false.to_array(), &mask).unwrap();
+        let zipped = &if_true
+            .to_array()
+            .zip(if_false.to_array(), mask.into_array())
+            .unwrap();
         let zipped = zipped
             .as_opt::<ChunkedVTable>()
             .expect("zip should keep chunked encoding");
