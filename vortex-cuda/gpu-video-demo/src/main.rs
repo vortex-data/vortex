@@ -592,43 +592,44 @@ async fn main() -> VortexResult<()> {
                         .synchronize()
                         .map_err(|e| vortex_err!("CUDA stream sync failed: {e}"))?;
 
-                    // Send to encoder thread (blocks if encoder is still busy with previous frame)
+                    // Collect the PREVIOUS frame's encoded output before sending the
+                    // new one. While we were scanning+accumulating this frame, the
+                    // encoder was processing the previous one in parallel.
+                    if frame_idx > 0 {
+                        let encoded = encoded_rx
+                            .recv()
+                            .map_err(|e| vortex_err!("Recv encoded frame failed: {e}"))?;
+
+                        if encoded.frame_idx < 5 {
+                            let nal_types = parse_nal_types(&encoded.h264_nals);
+                            tracing::info!(
+                                frame = encoded.frame_idx,
+                                h264_bytes = encoded.h264_nals.len(),
+                                ?nal_types,
+                                "encoded frame"
+                            );
+                        }
+
+                        let ts_packets =
+                            mux.write_access_unit(&encoded.h264_nals, encoded.frame_idx);
+                        if encoded.frame_idx < 300 {
+                            debug_file.write_all(&ts_packets)?;
+                        }
+                        sender.send(ts_packets).await?;
+
+                        let target = stream_start + frame_duration * (encoded.frame_idx + 1) as u32;
+                        sleep_until(target).await;
+                    }
+
+                    // Send current frame to encoder (non-blocking: encoder just finished)
                     frame_tx
                         .send(EncoderMsg::Frame(Nv12ReadyFrame { buf_idx, frame_idx }))
                         .map_err(|e| vortex_err!("Send to encoder failed: {e}"))?;
 
                     // Flip to the other NV12 buffer for the next frame
                     buf_idx = 1 - buf_idx;
-
-                    // Receive the encoded frame from encoder thread
-                    let encoded = encoded_rx
-                        .recv()
-                        .map_err(|e| vortex_err!("Recv encoded frame failed: {e}"))?;
-
-                    if encoded.frame_idx < 5 {
-                        let nal_types = parse_nal_types(&encoded.h264_nals);
-                        tracing::info!(
-                            frame = encoded.frame_idx,
-                            h264_bytes = encoded.h264_nals.len(),
-                            ?nal_types,
-                            "encoded frame"
-                        );
-                    }
-
-                    // Mux to MPEG-TS
-                    let ts_packets = mux.write_access_unit(&encoded.h264_nals, encoded.frame_idx);
-
-                    if encoded.frame_idx < 300 {
-                        debug_file.write_all(&ts_packets)?;
-                    }
-
-                    // Send over TCP
-                    sender.send(ts_packets).await?;
-
                     frame_fill = 0;
                     frame_idx += 1;
-                    let target = stream_start + frame_duration * frame_idx as u32;
-                    sleep_until(target).await;
                 }
             }
         }
@@ -637,6 +638,15 @@ async fn main() -> VortexResult<()> {
             break;
         }
         tracing::info!("Looping back to start of file");
+    }
+
+    // Drain the last encoded frame (was submitted but not yet collected)
+    if frame_idx > 0 {
+        let encoded = encoded_rx
+            .recv()
+            .map_err(|e| vortex_err!("Recv final encoded frame failed: {e}"))?;
+        let ts_packets = mux.write_access_unit(&encoded.h264_nals, encoded.frame_idx);
+        sender.send(ts_packets).await?;
     }
 
     // Signal encoder thread to shut down and wait for it
