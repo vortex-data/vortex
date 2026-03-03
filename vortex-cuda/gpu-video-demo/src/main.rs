@@ -209,14 +209,32 @@ async fn main() -> VortexResult<()> {
     let cuda_context = cuda_ctx.stream().context().clone();
 
     // Allocate NV12 buffer on GPU (width * height * 3/2 for Y + UV planes)
-    let nv12_size = (width as usize) * (height as usize) * 3 / 2;
+    let pixels_per_frame = (width as usize) * (height as usize);
+    let nv12_size = pixels_per_frame * 3 / 2;
     let nv12_device: CudaSlice<u8> = cuda_ctx.device_alloc(nv12_size)?;
-    // Extract the raw device pointer and immediately drop the SyncOnDrop guard
-    // so it doesn't hold an immutable borrow on cuda_ctx.
     let nv12_ptr = {
         let (ptr, _sync) = nv12_device.device_ptr(cuda_ctx.stream());
         ptr
     };
+
+    // Allocate RGB frame buffers on GPU for accumulating pixels across scan batches.
+    // Scan batches may not align to frame boundaries (width * height pixels).
+    let r_frame: CudaSlice<u8> = cuda_ctx.device_alloc(pixels_per_frame)?;
+    let g_frame: CudaSlice<u8> = cuda_ctx.device_alloc(pixels_per_frame)?;
+    let b_frame: CudaSlice<u8> = cuda_ctx.device_alloc(pixels_per_frame)?;
+    let r_frame_ptr = {
+        let (ptr, _sync) = r_frame.device_ptr(cuda_ctx.stream());
+        ptr
+    };
+    let g_frame_ptr = {
+        let (ptr, _sync) = g_frame.device_ptr(cuda_ctx.stream());
+        ptr
+    };
+    let b_frame_ptr = {
+        let (ptr, _sync) = b_frame.device_ptr(cuda_ctx.stream());
+        ptr
+    };
+    let cu_stream = cuda_ctx.stream().cu_stream();
 
     // Create NVENC encoder.
     // NVENC internally pushes/pops the CUDA context, so we rebind it afterward
@@ -293,130 +311,179 @@ async fn main() -> VortexResult<()> {
     let frame_duration = Duration::from_secs_f64(1.0 / f64::from(fps));
     let stream_start = tokio::time::Instant::now();
     let mut frame_idx: u64 = 0;
+    let mut frame_fill: usize = 0;
 
     loop {
         let gpu_file = session.open_options().open(Arc::clone(&reader)).await?;
         let mut batches = gpu_file.scan()?.into_array_stream()?;
 
         while let Some(batch) = batches.next().await.transpose()? {
-            let span = tracing::info_span!("frame", frame = frame_idx);
+            // Execute on GPU to get canonical form
+            let canonical = batch.execute_cuda(&mut cuda_ctx).await?;
+            let struct_arr = canonical.into_struct();
 
-            async {
-                // Execute on GPU to get canonical form
-                let canonical = batch.execute_cuda(&mut cuda_ctx).await?;
-                let struct_arr = canonical.into_struct();
+            // Extract R, G, B device pointers — flat u8 columns, no list wrapping.
+            let r_prim = struct_arr
+                .unmasked_field_by_name("R")?
+                .to_canonical()?
+                .into_primitive();
+            let r_ptr = r_prim.buffer_handle().cuda_device_ptr()?;
 
-                // Extract R, G, B device pointers — flat u8 columns, no list wrapping.
-                let r_prim = struct_arr
-                    .unmasked_field_by_name("R")?
-                    .to_canonical()?
-                    .into_primitive();
-                let r_ptr = r_prim.buffer_handle().cuda_device_ptr()?;
+            let g_prim = struct_arr
+                .unmasked_field_by_name("G")?
+                .to_canonical()?
+                .into_primitive();
+            let g_ptr = g_prim.buffer_handle().cuda_device_ptr()?;
 
-                let g_prim = struct_arr
-                    .unmasked_field_by_name("G")?
-                    .to_canonical()?
-                    .into_primitive();
-                let g_ptr = g_prim.buffer_handle().cuda_device_ptr()?;
+            let b_prim = struct_arr
+                .unmasked_field_by_name("B")?
+                .to_canonical()?
+                .into_primitive();
+            let b_ptr = b_prim.buffer_handle().cuda_device_ptr()?;
 
-                let b_prim = struct_arr
-                    .unmasked_field_by_name("B")?
-                    .to_canonical()?
-                    .into_primitive();
-                let b_ptr = b_prim.buffer_handle().cuda_device_ptr()?;
-
-                // Launch RGB→NV12 kernel
-                nv12::rgb_to_nv12_launch(
-                    cuda_ctx.stream(),
-                    &nv12_kernel,
-                    r_ptr,
-                    g_ptr,
-                    b_ptr,
-                    nv12_ptr,
-                    width,
-                    height,
-                )?;
-
-                // Sync stream, then copy NV12 from GPU to NVENC input buffer
-                cuda_ctx
-                    .stream()
-                    .synchronize()
-                    .map_err(|e| vortex_err!("CUDA stream sync failed: {e}"))?;
-
-                // Download NV12 data from GPU to host
-                let nv12_host: Vec<u8> = cuda_ctx
-                    .stream()
-                    .clone_dtoh(&nv12_device)
-                    .map_err(|e| vortex_err!("NV12 dtoh copy failed: {e}"))?;
-
-                // Save raw NV12 frame for inspection:
-                //   ffplay -f rawvideo -pixel_format nv12 -video_size 3840x2160 /tmp/frame0.nv12
-                if frame_idx == 0 {
-                    std::fs::write("/tmp/frame0.nv12", &nv12_host)?;
-                    tracing::info!(nv12_bytes = nv12_host.len(), "saved raw NV12 frame 0");
-                }
-
-                // Write to NVENC input buffer (pitch-aware for NV12)
-                unsafe {
-                    let mut lock = input_buffer
-                        .lock()
-                        .map_err(|e| vortex_err!("NVENC lock input failed: {e}"))?;
-                    if frame_idx == 0 {
-                        tracing::info!(pitch = lock.pitch(), width, "NVENC input buffer pitch");
-                    }
-                    lock.write_nv12(&nv12_host, width, height);
-                }
-                nvenc_session
-                    .encode_picture(
-                        &mut input_buffer,
-                        &mut output_bitstream,
-                        nvidia_video_codec_sdk::EncodePictureParams {
-                            input_timestamp: frame_idx,
-                            ..Default::default()
-                        },
-                    )
-                    .map_err(|e| vortex_err!("NVENC encode failed: {e}"))?;
-                let lock = output_bitstream
-                    .lock()
-                    .map_err(|e| vortex_err!("NVENC lock bitstream failed: {e}"))?;
-                let h264_nals = lock.data().to_vec();
-                drop(lock);
-
-                // Log first frame's H.264 NAL types for debugging
-                if frame_idx < 5 {
-                    let nal_types = parse_nal_types(&h264_nals);
-                    tracing::info!(
-                        frame = frame_idx,
-                        h264_bytes = h264_nals.len(),
-                        ?nal_types,
-                        "encoded frame"
-                    );
-                }
-
-                // Mux to MPEG-TS
-                let ts_packets = mux.write_access_unit(&h264_nals, frame_idx);
-
-                // Save first 5 seconds to file for debugging with ffprobe
-                if frame_idx < 300 {
-                    debug_file.write_all(&ts_packets)?;
-                    if frame_idx == 0 {
-                        // Also save raw H.264 for testing with ffplay
-                        std::fs::write("/tmp/gpu-video-frame0.h264", &h264_nals)?;
-                    }
-                }
-
-                // Send over TCP
-                sender.send(ts_packets).await?;
-
-                VortexResult::Ok(())
+            let batch_pixels = r_prim.len();
+            if frame_idx < 3 {
+                tracing::info!(
+                    frame = frame_idx,
+                    batch_pixels,
+                    pixels_per_frame,
+                    frame_fill,
+                    "batch received"
+                );
             }
-            .instrument(span)
-            .await?;
 
-            // Pace to target FPS
-            frame_idx += 1;
-            let target = stream_start + frame_duration * frame_idx as u32;
-            sleep_until(target).await;
+            // Copy batch pixels into frame accumulation buffers, processing
+            // complete frames as they fill up.
+            let mut batch_offset: usize = 0;
+            while batch_offset < batch_pixels {
+                let needed = pixels_per_frame - frame_fill;
+                let available = batch_pixels - batch_offset;
+                let copy_count = needed.min(available);
+
+                // D2D copy from batch into frame accumulation buffers
+                unsafe {
+                    cudarc::driver::sys::cuMemcpyDtoDAsync_v2(
+                        r_frame_ptr + frame_fill as u64,
+                        r_ptr + batch_offset as u64,
+                        copy_count,
+                        cu_stream,
+                    )
+                    .result()
+                    .map_err(|e| vortex_err!("D2D copy R failed: {e}"))?;
+                    cudarc::driver::sys::cuMemcpyDtoDAsync_v2(
+                        g_frame_ptr + frame_fill as u64,
+                        g_ptr + batch_offset as u64,
+                        copy_count,
+                        cu_stream,
+                    )
+                    .result()
+                    .map_err(|e| vortex_err!("D2D copy G failed: {e}"))?;
+                    cudarc::driver::sys::cuMemcpyDtoDAsync_v2(
+                        b_frame_ptr + frame_fill as u64,
+                        b_ptr + batch_offset as u64,
+                        copy_count,
+                        cu_stream,
+                    )
+                    .result()
+                    .map_err(|e| vortex_err!("D2D copy B failed: {e}"))?;
+                }
+
+                frame_fill += copy_count;
+                batch_offset += copy_count;
+
+                if frame_fill == pixels_per_frame {
+                    // Full frame accumulated — convert, encode, and send.
+                    let _span =
+                        tracing::info_span!("encode_frame", frame = frame_idx).entered();
+
+                    // Launch RGB→NV12 kernel on the complete frame
+                    nv12::rgb_to_nv12_launch(
+                        cuda_ctx.stream(),
+                        &nv12_kernel,
+                        r_frame_ptr,
+                        g_frame_ptr,
+                        b_frame_ptr,
+                        nv12_ptr,
+                        width,
+                        height,
+                    )?;
+
+                    cuda_ctx
+                        .stream()
+                        .synchronize()
+                        .map_err(|e| vortex_err!("CUDA stream sync failed: {e}"))?;
+
+                    // Download NV12 data from GPU to host
+                    let nv12_host: Vec<u8> = cuda_ctx
+                        .stream()
+                        .clone_dtoh(&nv12_device)
+                        .map_err(|e| vortex_err!("NV12 dtoh copy failed: {e}"))?;
+
+                    // Debug dumps for first frame
+                    if frame_idx == 0 {
+                        std::fs::write("/tmp/frame0.nv12", &nv12_host)?;
+                        tracing::info!(
+                            nv12_bytes = nv12_host.len(),
+                            "saved raw NV12 frame 0"
+                        );
+                    }
+
+                    // Write to NVENC input buffer (pitch-aware for NV12)
+                    unsafe {
+                        let mut lock = input_buffer
+                            .lock()
+                            .map_err(|e| vortex_err!("NVENC lock input failed: {e}"))?;
+                        if frame_idx == 0 {
+                            tracing::info!(
+                                pitch = lock.pitch(),
+                                width,
+                                "NVENC input buffer pitch"
+                            );
+                        }
+                        lock.write_nv12(&nv12_host, width, height);
+                    }
+                    nvenc_session
+                        .encode_picture(
+                            &mut input_buffer,
+                            &mut output_bitstream,
+                            nvidia_video_codec_sdk::EncodePictureParams {
+                                input_timestamp: frame_idx,
+                                ..Default::default()
+                            },
+                        )
+                        .map_err(|e| vortex_err!("NVENC encode failed: {e}"))?;
+                    let lock = output_bitstream
+                        .lock()
+                        .map_err(|e| vortex_err!("NVENC lock bitstream failed: {e}"))?;
+                    let h264_nals = lock.data().to_vec();
+                    drop(lock);
+
+                    if frame_idx < 5 {
+                        let nal_types = parse_nal_types(&h264_nals);
+                        tracing::info!(
+                            frame = frame_idx,
+                            h264_bytes = h264_nals.len(),
+                            ?nal_types,
+                            "encoded frame"
+                        );
+                    }
+
+                    // Mux to MPEG-TS
+                    let ts_packets = mux.write_access_unit(&h264_nals, frame_idx);
+
+                    if frame_idx < 300 {
+                        debug_file.write_all(&ts_packets)?;
+                    }
+
+                    // Send over TCP
+                    sender.send(ts_packets).await?;
+
+                    frame_fill = 0;
+                    frame_idx += 1;
+                    let target = stream_start + frame_duration * frame_idx as u32;
+                    sleep_until(target).await;
+                }
+            }
         }
 
         if !cli.loop_playback {
