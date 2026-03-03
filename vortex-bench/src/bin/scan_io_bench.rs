@@ -199,6 +199,9 @@ async fn main() -> Result<()> {
     } else {
         args.mode.clone()
     };
+    // `vortex-cuda` datasets require this layout decoder even when running
+    // CPU decode/full scans (i.e. without `--gpu` data movement).
+    vortex_cuda::layout::register_cuda_layout(&SESSION);
 
     let (projection, filter) = build_scan_exprs(&args)?;
     let metrics: std::sync::Arc<dyn MetricsRegistry> =
@@ -206,7 +209,6 @@ async fn main() -> Result<()> {
     #[allow(clippy::if_then_some_else_none)]
     let (gpu_allocator, pinned_pool) = if args.gpu {
         let cuda_session = SESSION.cuda_session();
-        vortex_cuda::layout::register_cuda_layout(&SESSION);
         let pool = std::sync::Arc::new(PinnedByteBufferPool::new(cuda_session.context().clone()));
         let allocator = std::sync::Arc::new(PinnedDeviceAllocator::from_session_with_streams(
             pool.clone(),
