@@ -510,6 +510,7 @@ async fn main() -> VortexResult<()> {
     let mut stage_mux_ns: u64 = 0;
     let mut stage_send_ns: u64 = 0;
     let mut batch_count: u64 = 0;
+    let mut dropped_frames: u64 = 0;
 
     loop {
         let gpu_file = session.open_options().open(Arc::clone(&reader)).await?;
@@ -659,10 +660,15 @@ async fn main() -> VortexResult<()> {
                         stage_mux_ns += t.elapsed().as_nanos() as u64;
 
                         let t = std::time::Instant::now();
-                        ts_tx
-                            .send(ts_packets)
-                            .await
-                            .map_err(|_| vortex_err!("Sender task died"))?;
+                        match ts_tx.try_send(ts_packets) {
+                            Ok(()) => {}
+                            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                                dropped_frames += 1;
+                            }
+                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                                return Err(vortex_err!("Sender task died"));
+                            }
+                        }
                         stage_send_ns += t.elapsed().as_nanos() as u64;
 
                         let target = stream_start + frame_duration * (encoded.frame_idx + 1) as u32;
@@ -723,6 +729,7 @@ async fn main() -> VortexResult<()> {
     tracing::info!(
         frames = frame_idx,
         batches = batch_count,
+        dropped_frames,
         elapsed_secs = format!("{:.2}", elapsed.as_secs_f64()),
         avg_fps = format!("{:.1}", avg_fps),
         "streaming complete"
