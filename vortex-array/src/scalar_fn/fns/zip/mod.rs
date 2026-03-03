@@ -234,7 +234,6 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
-    use crate::arrays::VarBinViewVTable;
     use crate::arrow::IntoArrowArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
