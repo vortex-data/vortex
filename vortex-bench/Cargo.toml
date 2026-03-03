@@ -34,7 +34,7 @@ itertools = { workspace = true }
 mimalloc = { workspace = true }
 noodles-bgzf = { workspace = true, features = ["async"] }
 noodles-vcf = { workspace = true, features = ["async"] }
-object_store = { workspace = true }
+object_store = { workspace = true, features = ["aws", "http", "cloud"] }
 parking_lot = { workspace = true }
 parquet = { workspace = true, features = ["async"] }
 rand = { workspace = true }
