@@ -47,6 +47,7 @@ pub mod output;
 pub mod polarsignals;
 pub mod public_bi;
 pub mod random_access;
+pub mod rdma_proto;
 pub mod realnest;
 pub mod runner;
 pub mod statpopgen;

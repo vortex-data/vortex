@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
-#[cfg(target_os = "linux")]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 #[cfg(target_os = "linux")]
@@ -40,15 +39,10 @@ use rustls::ClientConfig;
 use rustls::RootCertStore;
 #[cfg(target_os = "linux")]
 use rustls::pki_types::ServerName;
-#[cfg(target_os = "linux")]
 use tokio::io::AsyncReadExt;
-#[cfg(target_os = "linux")]
 use tokio::io::AsyncWriteExt;
-#[cfg(target_os = "linux")]
 use tokio::net::TcpStream;
-#[cfg(target_os = "linux")]
 use tokio::sync::Mutex as TokioMutex;
-#[cfg(target_os = "linux")]
 use tokio::sync::Notify;
 #[cfg(target_os = "linux")]
 use tokio_rustls::TlsConnector;
@@ -56,7 +50,6 @@ use tracing_subscriber::EnvFilter;
 use url::Url;
 use vortex::array::Array;
 use vortex::array::MaskFuture;
-#[cfg(target_os = "linux")]
 use vortex::array::buffer::BufferHandle;
 use vortex::array::expr::Expression;
 use vortex::array::expr::col;
@@ -69,9 +62,7 @@ use vortex::array::expr::lt_eq;
 use vortex::array::expr::not_eq;
 use vortex::array::expr::root;
 use vortex::array::expr::select;
-#[cfg(target_os = "linux")]
 use vortex::buffer::Alignment;
-#[cfg(target_os = "linux")]
 use vortex::buffer::ByteBufferMut;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
@@ -80,11 +71,8 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::segments::io_request_stats;
 use vortex::file::segments::reset_io_request_stats;
 use vortex::io::BufferAllocator;
-#[cfg(target_os = "linux")]
 use vortex::io::CoalesceConfig;
-#[cfg(target_os = "linux")]
 use vortex::io::VortexReadAt;
-#[cfg(target_os = "linux")]
 use vortex::io::WriteTarget;
 use vortex::io::copy_stats;
 use vortex::io::default_alloc_stats;
@@ -95,6 +83,13 @@ use vortex::mask::Mask;
 use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
 use vortex_bench::SESSION;
+use vortex_bench::rdma_proto::DEFAULT_RDMA_PORT;
+use vortex_bench::rdma_proto::OP_LIST;
+use vortex_bench::rdma_proto::OP_READ;
+use vortex_bench::rdma_proto::OP_SIZE;
+use vortex_bench::rdma_proto::read_status;
+use vortex_bench::rdma_proto::read_string;
+use vortex_bench::rdma_proto::write_string;
 use vortex_cuda::CudaSessionExt;
 use vortex_cuda::PinnedByteBufferPool;
 use vortex_cuda::PinnedDeviceAllocator;
@@ -106,7 +101,7 @@ use vortex_scan::ScanBuilder;
     about = "Benchmark Vortex scans over local files vs object stores"
 )]
 struct Args {
-    /// File path, directory, or object store URL (e.g. file:/..., s3://bucket/path, https://host/path)
+    /// File path, directory, or URL (e.g. file:/..., s3://bucket/path, rdma://host:9900/path)
     #[arg(long)]
     source: String,
     /// Use object_store even for file: URLs
@@ -213,13 +208,11 @@ async fn main() -> Result<()> {
         let cuda_session = SESSION.cuda_session();
         vortex_cuda::layout::register_cuda_layout(&SESSION);
         let pool = std::sync::Arc::new(PinnedByteBufferPool::new(cuda_session.context().clone()));
-        let allocator = std::sync::Arc::new(
-            PinnedDeviceAllocator::from_session_with_streams(
-                pool.clone(),
-                &SESSION,
-                args.gpu_streams,
-            )?,
-        );
+        let allocator = std::sync::Arc::new(PinnedDeviceAllocator::from_session_with_streams(
+            pool.clone(),
+            &SESSION,
+            args.gpu_streams,
+        )?);
         (Some(allocator), Some(pool))
     } else {
         (None, None)
@@ -312,6 +305,9 @@ async fn main() -> Result<()> {
                                 .await?;
                             }
                             ScanTarget::Local(_) => {
+                                read_all_segments(&file, args.concurrency).await?;
+                            }
+                            ScanTarget::Rdma { .. } => {
                                 read_all_segments(&file, args.concurrency).await?;
                             }
                         }
@@ -487,6 +483,10 @@ fn apply_filter_op(op: FilterOp, lhs: Expression, rhs: Expression) -> Expression
 #[derive(Clone)]
 enum ScanTarget {
     Local(PathBuf),
+    Rdma {
+        endpoint: std::sync::Arc<str>,
+        key: std::sync::Arc<str>,
+    },
     AmazonS3 {
         store: std::sync::Arc<AmazonS3>,
         path: ObjectStorePath,
@@ -507,6 +507,35 @@ async fn resolve_targets(args: &Args) -> Result<Vec<ScanTarget>> {
     let source = &args.source;
 
     if let Ok(url) = Url::parse(source) {
+        if url.scheme() == "rdma" {
+            let (endpoint, key_or_prefix) = rdma_endpoint_and_path(&url)?;
+            if is_prefix(source) {
+                let objects = rdma_list(&endpoint, &key_or_prefix).await?;
+                let mut targets = objects
+                    .into_iter()
+                    .map(|obj| ScanTarget::Rdma {
+                        endpoint: std::sync::Arc::from(endpoint.clone()),
+                        key: std::sync::Arc::from(obj.key),
+                    })
+                    .collect::<Vec<_>>();
+                targets.sort_by(|a, b| {
+                    let ScanTarget::Rdma { key: ka, .. } = a else {
+                        unreachable!("Rdma-only target list expected")
+                    };
+                    let ScanTarget::Rdma { key: kb, .. } = b else {
+                        unreachable!("Rdma-only target list expected")
+                    };
+                    ka.cmp(kb)
+                });
+                return Ok(targets);
+            }
+
+            return Ok(vec![ScanTarget::Rdma {
+                endpoint: std::sync::Arc::from(endpoint),
+                key: std::sync::Arc::from(key_or_prefix),
+            }]);
+        }
+
         if url.scheme() == "file" && !args.force_object_store {
             let path = url
                 .to_file_path()
@@ -589,6 +618,18 @@ async fn open_vortex_file_for_target(
                 options = options.with_allocator(allocator);
             }
             Ok(options.open_path(path).await?)
+        }
+        ScanTarget::Rdma { endpoint, key } => {
+            let mut options = session.open_options().with_metrics_registry(metrics);
+            if let Some(allocator) = allocator {
+                options = options.with_allocator(allocator);
+            }
+            let source = std::sync::Arc::new(
+                RdmaReadSource::new(endpoint.clone(), key.clone())
+                    .await
+                    .map_err(|e| anyhow::anyhow!("failed to create rdma source: {e}"))?,
+            );
+            Ok(options.open(source).await?)
         }
         ScanTarget::AmazonS3 { store, path } => {
             let mut options = session.open_options().with_metrics_registry(metrics);
@@ -678,6 +719,53 @@ fn object_store_from_url(
     Ok((scheme, store, path))
 }
 
+#[derive(Clone, Debug)]
+struct RdmaListedObject {
+    key: String,
+}
+
+fn rdma_endpoint_and_path(url: &Url) -> Result<(String, String)> {
+    anyhow::ensure!(url.scheme() == "rdma", "URL scheme must be rdma://");
+    anyhow::ensure!(
+        url.query().is_none() && url.fragment().is_none(),
+        "rdma:// URLs do not support query or fragment"
+    );
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("rdma:// URL must include a host"))?;
+    let port = url.port().unwrap_or(DEFAULT_RDMA_PORT);
+    let key = url.path().trim_start_matches('/').to_string();
+    anyhow::ensure!(!key.is_empty(), "rdma:// URL path must not be empty");
+    Ok((format!("{host}:{port}"), key))
+}
+
+async fn rdma_list(endpoint: &str, prefix: &str) -> Result<Vec<RdmaListedObject>> {
+    let mut stream = TcpStream::connect(endpoint)
+        .await
+        .map_err(|e| anyhow::anyhow!("rdma connect to {endpoint} failed: {e}"))?;
+    stream.write_u8(OP_LIST).await?;
+    write_string(&mut stream, prefix).await?;
+    read_status(&mut stream).await?;
+    let count = stream.read_u32_le().await? as usize;
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        let key = read_string(&mut stream).await?;
+        let _size = stream.read_u64_le().await?;
+        out.push(RdmaListedObject { key });
+    }
+    Ok(out)
+}
+
+async fn rdma_size(endpoint: &str, key: &str) -> Result<u64> {
+    let mut stream = TcpStream::connect(endpoint)
+        .await
+        .map_err(|e| anyhow::anyhow!("rdma connect to {endpoint} failed: {e}"))?;
+    stream.write_u8(OP_SIZE).await?;
+    write_string(&mut stream, key).await?;
+    read_status(&mut stream).await?;
+    Ok(stream.read_u64_le().await?)
+}
+
 async fn read_all_segments(file: &vortex::file::VortexFile, concurrency: usize) -> Result<()> {
     let segment_count = file.footer().segment_map().len();
     let segment_source = file.segment_source();
@@ -723,12 +811,10 @@ fn read_env_u64(key: &str) -> Option<u64> {
     std::env::var(key).ok()?.parse::<u64>().ok()
 }
 
-#[cfg(target_os = "linux")]
 fn read_env_usize(key: &str) -> Option<usize> {
     std::env::var(key).ok()?.parse::<usize>().ok()
 }
 
-#[cfg(target_os = "linux")]
 fn read_env_bool(key: &str, default: bool) -> bool {
     std::env::var(key)
         .ok()
@@ -844,6 +930,241 @@ async fn read_all_segments_object_store_no_copy(
         expected
     );
     Ok(read)
+}
+
+const DEFAULT_RDMA_COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
+    distance: 1024 * 1024,      // 1 MB
+    max_size: 16 * 1024 * 1024, // 16 MB
+};
+const DEFAULT_RDMA_CONCURRENCY: usize = 192;
+const RDMA_READ_CONCURRENCY_ENV: &str = "VORTEX_RDMA_READ_CONCURRENCY";
+const RDMA_COALESCE_DISTANCE_ENV: &str = "VORTEX_RDMA_COALESCE_DISTANCE";
+const RDMA_COALESCE_MAX_SIZE_ENV: &str = "VORTEX_RDMA_COALESCE_MAX_SIZE";
+const RDMA_COALESCE_DISABLE_ENV: &str = "VORTEX_RDMA_COALESCE_DISABLE";
+const RDMA_POOL_SIZE_ENV: &str = "VORTEX_BENCH_RDMA_POOL_SIZE";
+const RDMA_PREWARM_ENV: &str = "VORTEX_BENCH_RDMA_PREWARM";
+
+struct RdmaConnection {
+    stream: TcpStream,
+}
+
+#[derive(Clone)]
+struct RdmaReadSource {
+    endpoint: std::sync::Arc<str>,
+    key: std::sync::Arc<str>,
+    uri: std::sync::Arc<str>,
+    size: u64,
+    concurrency: usize,
+    coalesce_config: Option<CoalesceConfig>,
+    max_connections: usize,
+    live_connections: std::sync::Arc<AtomicUsize>,
+    idle_connections: std::sync::Arc<TokioMutex<Vec<RdmaConnection>>>,
+    connection_available: std::sync::Arc<Notify>,
+}
+
+impl RdmaReadSource {
+    async fn new(endpoint: std::sync::Arc<str>, key: std::sync::Arc<str>) -> Result<Self> {
+        let size = rdma_size(endpoint.as_ref(), key.as_ref()).await?;
+
+        let mut coalesce_config = Some(DEFAULT_RDMA_COALESCING_CONFIG);
+        if read_env_bool(RDMA_COALESCE_DISABLE_ENV, false) {
+            coalesce_config = None;
+        } else if let Some(defaults) = coalesce_config.as_mut() {
+            if let Some(distance) = read_env_u64(RDMA_COALESCE_DISTANCE_ENV) {
+                defaults.distance = distance;
+            }
+            if let Some(max_size) = read_env_u64(RDMA_COALESCE_MAX_SIZE_ENV) {
+                defaults.max_size = max_size;
+            }
+        }
+
+        let concurrency =
+            read_env_usize(RDMA_READ_CONCURRENCY_ENV).unwrap_or(DEFAULT_RDMA_CONCURRENCY);
+        let max_connections = read_env_usize(RDMA_POOL_SIZE_ENV)
+            .unwrap_or(concurrency)
+            .max(1);
+
+        let source = Self {
+            uri: std::sync::Arc::from(format!("rdma://{endpoint}/{key}")),
+            endpoint,
+            key,
+            size,
+            concurrency,
+            coalesce_config,
+            max_connections,
+            live_connections: std::sync::Arc::new(AtomicUsize::new(0)),
+            idle_connections: std::sync::Arc::new(TokioMutex::new(Vec::new())),
+            connection_available: std::sync::Arc::new(Notify::new()),
+        };
+
+        if read_env_bool(RDMA_PREWARM_ENV, false) {
+            source.prewarm_connections().await?;
+        }
+        Ok(source)
+    }
+
+    async fn open_connection(&self) -> Result<RdmaConnection> {
+        let stream = TcpStream::connect(self.endpoint.as_ref()).await?;
+        stream.set_nodelay(true)?;
+        Ok(RdmaConnection { stream })
+    }
+
+    async fn prewarm_connections(&self) -> Result<()> {
+        for _ in 0..self.max_connections {
+            let conn = self.open_connection().await?;
+            self.live_connections.fetch_add(1, Ordering::AcqRel);
+            self.idle_connections.lock().await.push(conn);
+        }
+        self.connection_available.notify_waiters();
+        Ok(())
+    }
+
+    async fn acquire_connection(&self) -> Result<RdmaConnection> {
+        loop {
+            if let Some(conn) = self.idle_connections.lock().await.pop() {
+                return Ok(conn);
+            }
+
+            let current = self.live_connections.load(Ordering::Acquire);
+            if current < self.max_connections
+                && self
+                    .live_connections
+                    .compare_exchange(current, current + 1, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+            {
+                match self.open_connection().await {
+                    Ok(conn) => return Ok(conn),
+                    Err(err) => {
+                        self.live_connections.fetch_sub(1, Ordering::AcqRel);
+                        self.connection_available.notify_one();
+                        return Err(err);
+                    }
+                }
+            }
+
+            self.connection_available.notified().await;
+        }
+    }
+
+    async fn release_connection(&self, connection: RdmaConnection) {
+        self.idle_connections.lock().await.push(connection);
+        self.connection_available.notify_one();
+    }
+
+    fn discard_connection(&self) {
+        let live = self.live_connections.fetch_sub(1, Ordering::AcqRel);
+        debug_assert!(live > 0, "live_connections underflow");
+        self.connection_available.notify_one();
+    }
+
+    async fn read_range_over_connection(
+        &self,
+        connection: &mut RdmaConnection,
+        offset: u64,
+        target: &mut [u8],
+    ) -> Result<()> {
+        let req_len = u32::try_from(target.len())
+            .map_err(|_| anyhow::anyhow!("request length {} exceeds u32", target.len()))?;
+
+        connection.stream.write_u8(OP_READ).await?;
+        write_string(&mut connection.stream, self.key.as_ref()).await?;
+        connection.stream.write_u64_le(offset).await?;
+        connection.stream.write_u32_le(req_len).await?;
+
+        read_status(&mut connection.stream).await?;
+        let response_len = connection.stream.read_u32_le().await? as usize;
+        anyhow::ensure!(
+            response_len == target.len(),
+            "rdma response length mismatch: expected {}, got {}",
+            target.len(),
+            response_len
+        );
+        connection.stream.read_exact(target).await?;
+        Ok(())
+    }
+
+    async fn read_range_into(&self, offset: u64, target: &mut [u8]) -> Result<()> {
+        if target.is_empty() {
+            return Ok(());
+        }
+
+        let mut connection = self.acquire_connection().await?;
+        let request_result = self
+            .read_range_over_connection(&mut connection, offset, target)
+            .await;
+        match request_result {
+            Ok(()) => {
+                self.release_connection(connection).await;
+                Ok(())
+            }
+            Err(_) => {
+                // Retry once with a fresh connection in case the peer closed idle TCP.
+                self.discard_connection();
+                let mut fresh = self.acquire_connection().await?;
+                match self
+                    .read_range_over_connection(&mut fresh, offset, target)
+                    .await
+                {
+                    Ok(()) => {
+                        self.release_connection(fresh).await;
+                        Ok(())
+                    }
+                    Err(err) => {
+                        self.discard_connection();
+                        Err(err)
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl VortexReadAt for RdmaReadSource {
+    fn uri(&self) -> Option<&std::sync::Arc<str>> {
+        Some(&self.uri)
+    }
+
+    fn coalesce_config(&self) -> Option<CoalesceConfig> {
+        self.coalesce_config
+    }
+
+    fn concurrency(&self) -> usize {
+        self.concurrency
+    }
+
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        let size = self.size;
+        Box::pin(async move { Ok(size) })
+    }
+
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
+        // SAFETY: we fill the entire target before returning.
+        unsafe { buffer.set_len(length) };
+        let target: Box<dyn WriteTarget> = Box::new(buffer);
+        self.read_at_into(offset, target)
+    }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let source = self.clone();
+        Box::pin(async move {
+            let mut target = target;
+            source
+                .read_range_into(offset, target.as_mut_slice())
+                .await
+                .map_err(|e| vortex_err!("rdma read failed at offset {offset}: {e}"))?;
+            target.into_handle()
+        })
+    }
 }
 
 #[cfg(target_os = "linux")]
