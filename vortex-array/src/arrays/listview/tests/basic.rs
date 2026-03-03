@@ -57,7 +57,7 @@ fn test_basic_listview_comprehensive() {
     let first_scalar = listview.scalar_at(0).unwrap();
     assert_eq!(
         first_scalar,
-        Scalar::list(
+        Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![1i32.into(), 2i32.into(), 3i32.into()],
             Nullability::NonNullable,

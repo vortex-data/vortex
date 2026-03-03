@@ -76,7 +76,7 @@ mod tests {
             Nullability::Nullable,
         );
 
-        xs.append_scalar(&Scalar::list(
+        xs.append_scalar(&Scalar::list_from_scalars(
             xs.element_dtype().clone(),
             vec![1i32.into(), 2i32.into(), 3i32.into()],
             Nullability::Nullable,

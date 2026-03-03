@@ -14,6 +14,7 @@ use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 
+use crate::builders::build_array_from_scalars;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::NativeDecimalType;
@@ -66,35 +67,39 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
         .vortex_expect("unable to construct random `Scalar`_"),
         DType::Struct(sdt, _) => Scalar::try_new(
             dtype.clone(),
-            Some(ScalarValue::List(
+            Some(ScalarValue::Struct(
                 sdt.fields()
                     .map(|d| random_scalar(u, &d).map(|s| s.into_value()))
                     .collect::<Result<Vec<_>>>()?,
             )),
         )
         .vortex_expect("unable to construct random `Scalar`_"),
-        DType::List(edt, _) => Scalar::try_new(
-            dtype.clone(),
-            Some(ScalarValue::List(
-                iter::from_fn(|| {
-                    // Generate elements with 1/4 probability.
-                    u.arbitrary()
-                        .unwrap_or(false)
-                        .then(|| random_scalar(u, edt).map(|s| s.into_value()))
-                })
-                .collect::<Result<Vec<_>>>()?,
-            )),
-        )
-        .vortex_expect("unable to construct random `Scalar`_"),
-        DType::FixedSizeList(edt, size, _) => Scalar::try_new(
-            dtype.clone(),
-            Some(ScalarValue::List(
-                (0..*size)
-                    .map(|_| random_scalar(u, edt).map(|s| s.into_value()))
-                    .collect::<Result<Vec<_>>>()?,
-            )),
-        )
-        .vortex_expect("unable to construct random `Scalar`_"),
+        DType::List(edt, _) => {
+            let elements: Vec<Scalar> = iter::from_fn(|| {
+                // Generate elements with 1/4 probability.
+                u.arbitrary()
+                    .unwrap_or(false)
+                    .then(|| random_scalar(u, edt))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+            Scalar::try_new(
+                dtype.clone(),
+                Some(ScalarValue::Array(build_array_from_scalars(edt, &elements))),
+            )
+            .vortex_expect("unable to construct random `Scalar`_")
+        }
+        DType::FixedSizeList(edt, size, _) => {
+            let elements: Vec<Scalar> = (0..*size)
+                .map(|_| random_scalar(u, edt))
+                .collect::<Result<Vec<_>>>()?;
+
+            Scalar::try_new(
+                dtype.clone(),
+                Some(ScalarValue::Array(build_array_from_scalars(edt, &elements))),
+            )
+            .vortex_expect("unable to construct random `Scalar`_")
+        }
         DType::Extension(..) => {
             unreachable!("Can't yet generate arbitrary scalars for ext dtype")
         }

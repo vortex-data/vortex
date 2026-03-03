@@ -420,7 +420,7 @@ mod tests {
         )
         .unwrap();
 
-        let list_scalar = Scalar::list(
+        let list_scalar = Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![3i32.into(), 4i32.into()],
             Nullability::NonNullable,

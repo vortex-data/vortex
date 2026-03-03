@@ -49,7 +49,7 @@ fn test_nullable_listview_comprehensive() {
     assert!(!first.is_null());
     assert_eq!(
         first,
-        Scalar::list(
+        Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![1i32.into(), 2i32.into()],
             Nullability::Nullable,
@@ -63,7 +63,7 @@ fn test_nullable_listview_comprehensive() {
     assert!(!third.is_null());
     assert_eq!(
         third,
-        Scalar::list(
+        Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![5i32.into(), 6i32.into()],
             Nullability::Nullable,

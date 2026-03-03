@@ -186,9 +186,11 @@ impl Scalar {
             DType::Decimal(..) => value.as_decimal().is_zero(),
             DType::Utf8(_) => value.as_utf8().is_empty(),
             DType::Binary(_) => value.as_binary().is_empty(),
-            DType::List(..) => value.as_list().is_empty(),
-            DType::FixedSizeList(_, list_size, _) => value.as_list().len() == *list_size as usize,
-            DType::Struct(struct_fields, _) => value.as_list().len() == struct_fields.nfields(),
+            DType::List(..) => self.as_list().is_empty(),
+            DType::FixedSizeList(_, list_size, _) => self.as_list().len() == *list_size as usize,
+            DType::Struct(struct_fields, _) => {
+                value.as_struct_fields().len() == struct_fields.nfields()
+            }
             DType::Extension(_) => self.as_extension().to_storage_scalar().is_zero()?,
             DType::Variant(_) => self.as_variant().is_zero()?,
         };

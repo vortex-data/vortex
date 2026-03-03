@@ -156,7 +156,8 @@ mod tests {
             Scalar::primitive(2i32, Nullability::NonNullable),
             Scalar::primitive(3i32, Nullability::NonNullable),
         ];
-        let list_scalar = Scalar::list(element_dtype, children.clone(), Nullability::NonNullable);
+        let list_scalar =
+            Scalar::list_from_scalars(element_dtype, children.clone(), Nullability::NonNullable);
 
         // Extract as ListScalar
         let list_specialized = list_scalar.as_list();
@@ -209,7 +210,7 @@ mod tests {
     #[test]
     fn test_protobuf_edge_cases() {
         // Test empty list
-        let empty_list = Scalar::list(
+        let empty_list = Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![],
             Nullability::NonNullable,
@@ -222,7 +223,7 @@ mod tests {
         let inner_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
         let outer_dtype = Arc::new(DType::List(inner_dtype.clone(), Nullability::NonNullable));
 
-        let inner_list1 = Scalar::list(
+        let inner_list1 = Scalar::list_from_scalars(
             inner_dtype,
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -231,7 +232,8 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let nested_list = Scalar::list(outer_dtype, vec![inner_list1], Nullability::NonNullable);
+        let nested_list =
+            Scalar::list_from_scalars(outer_dtype, vec![inner_list1], Nullability::NonNullable);
 
         let pb_nested = pb::Scalar::from(&nested_list);
         let round_tripped_nested = Scalar::from_proto(&pb_nested, &SESSION).unwrap();

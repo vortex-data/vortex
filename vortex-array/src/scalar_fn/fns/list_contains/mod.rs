@@ -615,7 +615,7 @@ mod tests {
     #[test]
     pub fn list_falsification() {
         let expr = list_contains(
-            lit(Scalar::list(
+            lit(Scalar::list_from_scalars(
                 Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
                 vec![1.into(), 2.into(), 3.into()],
                 Nullability::NonNullable,
@@ -666,7 +666,7 @@ mod tests {
         let arr = test_array();
 
         // Both list and needle are constants - should use scalar optimization
-        let list_scalar = Scalar::list(
+        let list_scalar = Scalar::list_from_scalars(
             Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
             vec![1.into(), 2.into(), 3.into()],
             Nullability::NonNullable,
@@ -789,7 +789,7 @@ mod tests {
     #[test]
     fn test_constant_list() {
         let list_array = ConstantArray::new(
-            Scalar::list(
+            Scalar::list_from_scalars(
                 Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
                 vec![1i32.into(), 2i32.into(), 3i32.into()],
                 Nullability::NonNullable,
@@ -829,7 +829,7 @@ mod tests {
 
     #[test]
     fn test_list_array_element() {
-        let list_scalar = Scalar::list(
+        let list_scalar = Scalar::list_from_scalars(
             Arc::new(DType::Primitive(I32, Nullability::NonNullable)),
             vec![1.into(), 3.into(), 6.into()],
             Nullability::NonNullable,

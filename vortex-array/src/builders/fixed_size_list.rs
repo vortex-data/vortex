@@ -108,8 +108,7 @@ impl FixedSizeListBuilder {
     ///
     /// [`ListArray`]: crate::arrays::ListArray
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
-        let Some(elements) = value.elements() else {
-            // If `elements` is `None`, then the `value` is a null value.
+        let Some(array) = value.as_array() else {
             self.append_null();
             return Ok(());
         };
@@ -123,14 +122,7 @@ impl FixedSizeListBuilder {
             );
         }
 
-        for scalar in elements {
-            // TODO(connor): This is slow, we should be able to append multiple values at once, or
-            // the list scalar should hold an Array
-            self.elements_builder.append_scalar(&scalar)?;
-        }
-        self.nulls.append_non_null();
-
-        Ok(())
+        self.append_array_as_list(array)
     }
 
     /// Finishes the builder directly into a [`FixedSizeListArray`].
@@ -305,7 +297,7 @@ mod tests {
 
         builder
             .append_value(
-                Scalar::fixed_size_list(
+                Scalar::fixed_size_list_from_scalars(
                     dtype.clone(),
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
                     NonNullable,
@@ -316,7 +308,7 @@ mod tests {
 
         builder
             .append_value(
-                Scalar::fixed_size_list(
+                Scalar::fixed_size_list_from_scalars(
                     dtype,
                     vec![4i32.into(), 5i32.into(), 6i32.into()],
                     NonNullable,
@@ -342,7 +334,10 @@ mod tests {
         // Append multiple "empty" lists.
         for _ in 0..100 {
             builder
-                .append_value(Scalar::fixed_size_list(dtype.clone(), vec![], NonNullable).as_list())
+                .append_value(
+                    Scalar::fixed_size_list_from_scalars(dtype.clone(), vec![], NonNullable)
+                        .as_list(),
+                )
                 .unwrap();
         }
 
@@ -366,7 +361,8 @@ mod tests {
             if i % 2 == 0 {
                 builder
                     .append_value(
-                        Scalar::fixed_size_list(dtype.clone(), vec![], Nullable).as_list(),
+                        Scalar::fixed_size_list_from_scalars(dtype.clone(), vec![], Nullable)
+                            .as_list(),
                     )
                     .unwrap();
             } else {
@@ -392,7 +388,7 @@ mod tests {
         for i in 0..5 {
             builder
                 .append_value(
-                    Scalar::fixed_size_list(
+                    Scalar::fixed_size_list_from_scalars(
                         dtype.clone(),
                         vec![(i * 2).into(), (i * 2 + 1).into()],
                         NonNullable,
@@ -430,8 +426,12 @@ mod tests {
 
         builder
             .append_value(
-                Scalar::fixed_size_list(dtype.clone(), vec![1i32.into(), 2i32.into()], Nullable)
-                    .as_list(),
+                Scalar::fixed_size_list_from_scalars(
+                    dtype.clone(),
+                    vec![1i32.into(), 2i32.into()],
+                    Nullable,
+                )
+                .as_list(),
             )
             .unwrap();
 
@@ -439,7 +439,12 @@ mod tests {
 
         builder
             .append_value(
-                Scalar::fixed_size_list(dtype, vec![3i32.into(), 4i32.into()], Nullable).as_list(),
+                Scalar::fixed_size_list_from_scalars(
+                    dtype,
+                    vec![3i32.into(), 4i32.into()],
+                    Nullable,
+                )
+                .as_list(),
             )
             .unwrap();
 
@@ -477,7 +482,7 @@ mod tests {
 
         builder
             .append_value(
-                Scalar::fixed_size_list(
+                Scalar::fixed_size_list_from_scalars(
                     dtype.clone(),
                     vec![
                         Scalar::primitive(1i32, Nullable),
@@ -492,7 +497,7 @@ mod tests {
 
         builder
             .append_value(
-                Scalar::fixed_size_list(
+                Scalar::fixed_size_list_from_scalars(
                     dtype,
                     vec![
                         Scalar::primitive(4i32, Nullable),
@@ -612,7 +617,7 @@ mod tests {
 
         // Try to append a list with wrong size.
         let result = builder.append_value(
-            Scalar::fixed_size_list(
+            Scalar::fixed_size_list_from_scalars(
                 dtype,
                 vec![1i32.into(), 2i32.into()], // Only 2 elements, not 3.
                 NonNullable,
@@ -784,7 +789,7 @@ mod tests {
         // Add some initial data.
         builder
             .append_value(
-                Scalar::fixed_size_list(
+                Scalar::fixed_size_list_from_scalars(
                     dtype,
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
                     NonNullable,
@@ -809,7 +814,7 @@ mod tests {
         // Mix of operations.
         builder
             .append_value(
-                Scalar::fixed_size_list(
+                Scalar::fixed_size_list_from_scalars(
                     dtype,
                     vec![
                         Scalar::primitive(1i32, Nullable),
@@ -890,13 +895,19 @@ mod tests {
         let mut builder = FixedSizeListBuilder::with_capacity(dtype.clone(), 2, Nullable, 10);
 
         // Test appending a valid fixed-size list.
-        let list_scalar1 =
-            Scalar::fixed_size_list(dtype.clone(), vec![1i32.into(), 2i32.into()], Nullable);
+        let list_scalar1 = Scalar::fixed_size_list_from_scalars(
+            dtype.clone(),
+            vec![1i32.into(), 2i32.into()],
+            Nullable,
+        );
         builder.append_scalar(&list_scalar1).unwrap();
 
         // Test appending another list.
-        let list_scalar2 =
-            Scalar::fixed_size_list(dtype.clone(), vec![3i32.into(), 4i32.into()], Nullable);
+        let list_scalar2 = Scalar::fixed_size_list_from_scalars(
+            dtype.clone(),
+            vec![3i32.into(), 4i32.into()],
+            Nullable,
+        );
         builder.append_scalar(&list_scalar2).unwrap();
 
         // Test appending null via builder method (since fixed-size list null handling is special).
@@ -964,7 +975,7 @@ mod tests {
         // Interleave with a list scalar.
         builder
             .append_value(
-                Scalar::fixed_size_list(
+                Scalar::fixed_size_list_from_scalars(
                     dtype.clone(),
                     vec![10i32.into(), 11i32.into(), 12i32.into()],
                     NonNullable,
@@ -980,7 +991,7 @@ mod tests {
         // Interleave with another list scalar.
         builder
             .append_value(
-                Scalar::fixed_size_list(
+                Scalar::fixed_size_list_from_scalars(
                     dtype.clone(),
                     vec![20i32.into(), 21i32.into(), 22i32.into()],
                     NonNullable,

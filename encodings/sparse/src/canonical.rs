@@ -1244,7 +1244,7 @@ mod test {
             .into_array();
 
         let indices = buffer![0u8, 2u8, 4u8].into_array();
-        let fill_value = Scalar::fixed_size_list(
+        let fill_value = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, NonNullable)),
             vec![
                 Scalar::primitive(99i32, NonNullable),
@@ -1282,7 +1282,7 @@ mod test {
         .into_array();
 
         let indices = buffer![1u16, 3u16, 4u16].into_array();
-        let fill_value = Scalar::fixed_size_list(
+        let fill_value = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, NonNullable)),
             vec![
                 Scalar::primitive(7i32, NonNullable),
@@ -1329,7 +1329,7 @@ mod test {
         let indices = buffer![5u32, 50, 95].into_array();
 
         // Fill value [99, 99] will appear 97 times but stored only once.
-        let fill_value = Scalar::fixed_size_list(
+        let fill_value = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, NonNullable)),
             vec![
                 Scalar::primitive(99i32, NonNullable),
@@ -1387,7 +1387,7 @@ mod test {
             .into_array();
 
         let indices = buffer![0u32].into_array();
-        let fill_value = Scalar::fixed_size_list(
+        let fill_value = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, NonNullable)),
             vec![
                 Scalar::primitive(1i32, NonNullable),

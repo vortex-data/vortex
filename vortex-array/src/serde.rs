@@ -637,6 +637,31 @@ impl ArrayChildren for SerializedArrayChildren<'_> {
     }
 }
 
+// TODO(connor): Do we need this?
+impl TryFrom<&[u8]> for SerializedArray {
+    type Error = VortexError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        // The final 4 bytes contain the length of the flatbuffer.
+        if value.len() < 4 {
+            vortex_bail!("ArrayParts buffer is too short");
+        }
+
+        // TODO(connor): Do we care about alignment here?
+
+        let fb_length = u32::try_from_le_bytes(&value[value.len() - 4..])? as usize;
+        if value.len() < 4 + fb_length {
+            vortex_bail!("ArrayParts buffer is too short for flatbuffer");
+        }
+
+        let fb_offset = value.len() - 4 - fb_length;
+        let array_tree = ByteBuffer::copy_from(&value[fb_offset..fb_offset + fb_length]);
+        let segment = BufferHandle::new_host(ByteBuffer::copy_from(&value[0..fb_offset]));
+
+        Self::from_flatbuffer_and_segment(array_tree, segment)
+    }
+}
+
 impl TryFrom<ByteBuffer> for SerializedArray {
     type Error = VortexError;
 

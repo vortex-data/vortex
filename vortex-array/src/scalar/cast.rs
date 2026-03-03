@@ -24,10 +24,11 @@ impl Scalar {
             return Ok(self.clone());
         }
 
-        // Check for solely nullability casting.
-        if self.dtype().eq_ignore_nullability(target_dtype) {
-            // Cast from non-nullable to nullable or vice versa.
-            // The `try_new` will handle nullability checks.
+        // TODO(connor): Is this correct?
+        // Check for solely top-level nullability casting. We compare after adjusting only the
+        // top-level nullability (not recursive) so that nested types like List/FSL/Struct still
+        // go through the full cast path when their element or field nullability differs.
+        if self.dtype().with_nullability(target_dtype.nullability()) == *target_dtype {
             return Scalar::try_new(target_dtype.clone(), self.value().cloned());
         }
 

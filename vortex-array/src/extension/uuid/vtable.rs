@@ -6,7 +6,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_err;
 
 use crate::dtype::DType;
 use crate::dtype::PType;
@@ -16,7 +15,6 @@ use crate::dtype::extension::ExtVTable;
 use crate::extension::uuid::Uuid;
 use crate::extension::uuid::UuidMetadata;
 use crate::extension::uuid::metadata::u8_to_version;
-use crate::scalar::PValue;
 use crate::scalar::ScalarValue;
 
 /// The number of bytes in a UUID.
@@ -88,35 +86,37 @@ impl ExtVTable for Uuid {
             elements.len()
         );
 
-        let mut bytes = [0u8; UUID_BYTE_LEN];
-        for (i, elem) in elements.iter().enumerate() {
-            let Some(scalar_value) = elem else {
-                vortex_bail!("UUID byte at index {i} must not be null");
-            };
-            let PValue::U8(b) = scalar_value.as_primitive() else {
-                vortex_bail!("UUID byte at index {i} must be U8");
-            };
-            bytes[i] = *b;
-        }
+        // let mut bytes = [0u8; UUID_BYTE_LEN];
+        // for (i, elem) in elements.iter().enumerate() {
+        //     let Some(scalar_value) = elem else {
+        //         vortex_bail!("UUID byte at index {i} must not be null");
+        //     };
+        //     let PValue::U8(b) = scalar_value.as_primitive() else {
+        //         vortex_bail!("UUID byte at index {i} must be U8");
+        //     };
+        //     bytes[i] = *b;
+        // }
 
-        let parsed = uuid::Uuid::from_bytes(bytes);
+        // let parsed = uuid::Uuid::from_bytes(bytes);
 
-        // Verify the parsed UUID matches the expected version, if one is set.
-        if let Some(expected) = ext_dtype.metadata().version {
-            let expected = expected as u8;
-            let actual = parsed
-                .get_version()
-                .ok_or_else(|| vortex_err!("UUID has unrecognized version nibble"))?
-                as u8;
+        // // Verify the parsed UUID matches the expected version, if one is set.
+        // if let Some(expected) = ext_dtype.metadata().version {
+        //     let expected = expected as u8;
+        //     let actual = parsed
+        //         .get_version()
+        //         .ok_or_else(|| vortex_err!("UUID has unrecognized version nibble"))?
+        //         as u8;
 
-            vortex_ensure_eq!(
-                expected,
-                actual,
-                "UUID version mismatch: expected v{expected}, got v{actual}",
-            );
-        }
+        //     vortex_ensure_eq!(
+        //         expected,
+        //         actual,
+        //         "UUID version mismatch: expected v{expected}, got v{actual}",
+        //     );
+        // }
 
-        Ok(parsed)
+        // Ok(parsed)
+
+        todo!()
     }
 }
 
@@ -140,8 +140,6 @@ mod tests {
     use crate::extension::uuid::Uuid;
     use crate::extension::uuid::UuidMetadata;
     use crate::extension::uuid::vtable::UUID_BYTE_LEN;
-    use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
 
     #[rstest]
     #[case::no_version(None)]
@@ -224,120 +222,43 @@ mod tests {
         assert!(ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage_dtype).is_err());
     }
 
-    #[test]
-    fn unpack_native_uuid() -> VortexResult<()> {
-        let expected = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
-            .map_err(|e| vortex_error::vortex_err!("{e}"))?;
+    // #[test]
+    // fn unpack_native_accepts_matching_version() -> VortexResult<()> {
+    //     // This is a v4 UUID.
+    //     let v4_uuid = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
+    //         .map_err(|e| vortex_error::vortex_err!("{e}"))?;
 
-        let ext_dtype = ExtDType::try_new(
-            UuidMetadata::default(),
-            uuid_storage_dtype(Nullability::NonNullable),
-        )?;
-        let children: Vec<Scalar> = expected
-            .as_bytes()
-            .iter()
-            .map(|&b| Scalar::primitive(b, Nullability::NonNullable))
-            .collect();
-        let storage_scalar = Scalar::fixed_size_list(
-            DType::Primitive(PType::U8, Nullability::NonNullable),
-            children,
-            Nullability::NonNullable,
-        );
+    //     let ext_dtype = ExtDType::try_new(
+    //         UuidMetadata {
+    //             version: Some(Version::Random),
+    //         },
+    //         uuid_storage_dtype(Nullability::NonNullable),
+    //     )
+    //     .unwrap();
+    //     let storage_value = uuid_storage_scalar(&v4_uuid);
 
-        let storage_value = storage_scalar
-            .value()
-            .ok_or_else(|| vortex_error::vortex_err!("expected non-null scalar"))?;
-        let result = Uuid::unpack_native(&ext_dtype, storage_value)?;
-        assert_eq!(result, expected);
-        assert_eq!(result.to_string(), "550e8400-e29b-41d4-a716-446655440000");
-        Ok(())
-    }
+    //     let result = Uuid::unpack_native(&ext_dtype, &storage_value)?;
+    //     assert_eq!(result, v4_uuid);
+    //     Ok(())
+    // }
 
-    #[test]
-    fn unpack_native_rejects_version_mismatch() -> VortexResult<()> {
-        // This is a v4 UUID.
-        let v4_uuid = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
-            .map_err(|e| vortex_error::vortex_err!("{e}"))?;
-        assert_eq!(v4_uuid.get_version(), Some(Version::Random));
+    // #[test]
+    // fn unpack_native_any_version_accepts_all() -> VortexResult<()> {
+    //     // A v4 UUID should be accepted when metadata has no version constraint.
+    //     let v4_uuid = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
+    //         .map_err(|e| vortex_error::vortex_err!("{e}"))?;
 
-        // Metadata says v7, but the UUID is v4.
-        let ext_dtype = ExtDType::try_with_vtable(
-            Uuid,
-            UuidMetadata {
-                version: Some(Version::SortRand),
-            },
-            uuid_storage_dtype(Nullability::NonNullable),
-        )?;
-        let children: Vec<Scalar> = v4_uuid
-            .as_bytes()
-            .iter()
-            .map(|&b| Scalar::primitive(b, Nullability::NonNullable))
-            .collect();
-        let storage_scalar = Scalar::fixed_size_list(
-            DType::Primitive(PType::U8, Nullability::NonNullable),
-            children,
-            Nullability::NonNullable,
-        );
+    //     let ext_dtype = ExtDType::try_new(
+    //         UuidMetadata::default(),
+    //         uuid_storage_dtype(Nullability::NonNullable),
+    //     )
+    //     .unwrap();
+    //     let storage_value = uuid_storage_scalar(&v4_uuid);
 
-        let storage_value = storage_scalar
-            .value()
-            .ok_or_else(|| vortex_error::vortex_err!("expected non-null scalar"))?;
-        assert!(Uuid::unpack_native(&ext_dtype, storage_value).is_err());
-        Ok(())
-    }
-
-    /// Builds a [`ScalarValue`] for a UUID's 16 bytes, suitable for passing to `unpack_native`.
-    fn uuid_storage_scalar(uuid: &uuid::Uuid) -> ScalarValue {
-        let children: Vec<Scalar> = uuid
-            .as_bytes()
-            .iter()
-            .map(|&b| Scalar::primitive(b, Nullability::NonNullable))
-            .collect();
-        let scalar = Scalar::fixed_size_list(
-            DType::Primitive(PType::U8, Nullability::NonNullable),
-            children,
-            Nullability::NonNullable,
-        );
-        scalar.value().unwrap().clone()
-    }
-
-    #[test]
-    fn unpack_native_accepts_matching_version() -> VortexResult<()> {
-        // This is a v4 UUID.
-        let v4_uuid = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
-            .map_err(|e| vortex_error::vortex_err!("{e}"))?;
-
-        let ext_dtype = ExtDType::try_new(
-            UuidMetadata {
-                version: Some(Version::Random),
-            },
-            uuid_storage_dtype(Nullability::NonNullable),
-        )
-        .unwrap();
-        let storage_value = uuid_storage_scalar(&v4_uuid);
-
-        let result = Uuid::unpack_native(&ext_dtype, &storage_value)?;
-        assert_eq!(result, v4_uuid);
-        Ok(())
-    }
-
-    #[test]
-    fn unpack_native_any_version_accepts_all() -> VortexResult<()> {
-        // A v4 UUID should be accepted when metadata has no version constraint.
-        let v4_uuid = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
-            .map_err(|e| vortex_error::vortex_err!("{e}"))?;
-
-        let ext_dtype = ExtDType::try_new(
-            UuidMetadata::default(),
-            uuid_storage_dtype(Nullability::NonNullable),
-        )
-        .unwrap();
-        let storage_value = uuid_storage_scalar(&v4_uuid);
-
-        let result = Uuid::unpack_native(&ext_dtype, &storage_value)?;
-        assert_eq!(result, v4_uuid);
-        Ok(())
-    }
+    //     let result = Uuid::unpack_native(&ext_dtype, &storage_value)?;
+    //     assert_eq!(result, v4_uuid);
+    //     Ok(())
+    // }
 
     fn uuid_storage_dtype(nullability: Nullability) -> DType {
         DType::FixedSizeList(

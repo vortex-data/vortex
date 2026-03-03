@@ -46,7 +46,7 @@ fn test_simple_list_array() {
     let list = ListArray::try_new(elements, offsets, validity).unwrap();
 
     assert_eq!(
-        Scalar::list(
+        Scalar::list_from_scalars(
             Arc::new(I32.into()),
             vec![1.into(), 2.into()],
             Nullability::Nullable
@@ -54,7 +54,7 @@ fn test_simple_list_array() {
         list.scalar_at(0).unwrap()
     );
     assert_eq!(
-        Scalar::list(
+        Scalar::list_from_scalars(
             Arc::new(I32.into()),
             vec![3.into(), 4.into()],
             Nullability::Nullable
@@ -62,7 +62,7 @@ fn test_simple_list_array() {
         list.scalar_at(1).unwrap()
     );
     assert_eq!(
-        Scalar::list(Arc::new(I32.into()), vec![5.into()], Nullability::Nullable),
+        Scalar::list_from_scalars(Arc::new(I32.into()), vec![5.into()], Nullability::Nullable),
         list.scalar_at(2).unwrap()
     );
 }
@@ -375,7 +375,7 @@ fn test_offset_to_0() {
         ListBuilder::<u32>::with_capacity(Arc::new(I32.into()), Nullability::NonNullable, 10, 5);
     builder
         .append_value(
-            Scalar::list(
+            Scalar::list_from_scalars(
                 Arc::new(I32.into()),
                 vec![1.into(), 2.into(), 3.into()],
                 Nullability::NonNullable,
@@ -385,7 +385,7 @@ fn test_offset_to_0() {
         .vortex_expect("operation should succeed in test");
     builder
         .append_value(
-            Scalar::list(
+            Scalar::list_from_scalars(
                 Arc::new(I32.into()),
                 vec![4.into(), 5.into(), 6.into()],
                 Nullability::NonNullable,
@@ -395,7 +395,7 @@ fn test_offset_to_0() {
         .vortex_expect("operation should succeed in test");
     builder
         .append_value(
-            Scalar::list(
+            Scalar::list_from_scalars(
                 Arc::new(I32.into()),
                 vec![7.into(), 8.into(), 9.into()],
                 Nullability::NonNullable,
@@ -405,7 +405,7 @@ fn test_offset_to_0() {
         .vortex_expect("operation should succeed in test");
     builder
         .append_value(
-            Scalar::list(
+            Scalar::list_from_scalars(
                 Arc::new(I32.into()),
                 vec![10.into(), 11.into(), 12.into()],
                 Nullability::NonNullable,
@@ -415,7 +415,7 @@ fn test_offset_to_0() {
         .vortex_expect("operation should succeed in test");
     builder
         .append_value(
-            Scalar::list(
+            Scalar::list_from_scalars(
                 Arc::new(I32.into()),
                 vec![13.into(), 14.into(), 15.into()],
                 Nullability::NonNullable,

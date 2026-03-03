@@ -138,7 +138,7 @@ pub fn try_from_bound_expression(
                 else {
                     return Ok(None);
                 };
-                let list = Scalar::list(
+                let list = Scalar::list_from_scalars(
                     Arc::new(list_elements[0].dtype().clone()),
                     list_elements,
                     Nullability::Nullable,

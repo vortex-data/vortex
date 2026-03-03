@@ -74,35 +74,35 @@ impl Scalar {
                 );
             }
             DType::List(elem_dtype, _) => {
-                let ScalarValue::List(elements) = value else {
-                    vortex_bail!("list dtype expected List value, got {value}");
+                let ScalarValue::Array(array) = value else {
+                    vortex_bail!("list dtype expected Array value, got {value}");
                 };
-
-                for (i, element) in elements.iter().enumerate() {
-                    Self::validate(elem_dtype.as_ref(), element.as_ref())
-                        .map_err(|e| vortex_error::vortex_err!("list element at index {i}: {e}"))?;
-                }
+                vortex_ensure_eq!(
+                    elem_dtype.as_ref(),
+                    array.dtype(),
+                    "list element dtype {elem_dtype} is not compatible with array dtype {}",
+                    array.dtype()
+                );
             }
             DType::FixedSizeList(elem_dtype, size, _) => {
-                let ScalarValue::List(elements) = value else {
-                    vortex_bail!("fixed-size list dtype expected List value, got {value}",);
+                let ScalarValue::Array(array) = value else {
+                    vortex_bail!("fixed-size list dtype expected Array value, got {value}");
                 };
-
-                let len = elements.len();
                 vortex_ensure_eq!(
-                    len,
-                    *size as usize,
-                    "fixed-size list dtype expected {size} elements, got {len}",
+                    elem_dtype.as_ref(),
+                    array.dtype(),
+                    "FSL element dtype {elem_dtype} is not compatible with array dtype {}",
+                    array.dtype()
                 );
-
-                for (i, element) in elements.iter().enumerate() {
-                    Self::validate(elem_dtype.as_ref(), element.as_ref()).map_err(|e| {
-                        vortex_error::vortex_err!("fixed-size list element at index {i}: {e}",)
-                    })?;
-                }
+                vortex_ensure_eq!(
+                    array.len(),
+                    *size as usize,
+                    "fixed-size list expected {size} elements, got {}",
+                    array.len()
+                );
             }
             DType::Struct(fields, _) => {
-                let ScalarValue::List(values) = value else {
+                let ScalarValue::Struct(values) = value else {
                     vortex_bail!("struct dtype expected List value, got {value}");
                 };
 

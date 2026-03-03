@@ -327,7 +327,7 @@ impl<'a> TryFrom<&'a ValueRef> for Scalar {
                 Nullable,
             )),
             ExtractedValue::List(vs) => match dtype {
-                DType::List(c, _) => Ok(Scalar::list(
+                DType::List(c, _) => Ok(Scalar::list_from_scalars(
                     c,
                     vs.into_iter()
                         .map(Scalar::try_from)

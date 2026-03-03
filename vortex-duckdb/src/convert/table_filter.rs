@@ -81,7 +81,8 @@ pub fn try_from_table_filter(
                 "IN filter must have at least one value"
             );
             let dtype = scalars[0].dtype().clone();
-            let list_scalar = Scalar::list(Arc::new(dtype), scalars, Nullability::Nullable);
+            let list_scalar =
+                Scalar::list_from_scalars(Arc::new(dtype), scalars, Nullability::Nullable);
             list_contains(lit(list_scalar), col.clone())
         }
         TableFilterClass::Dynamic(dynamic) => {

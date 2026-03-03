@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
@@ -11,6 +9,7 @@ use crate::array::OperationsVTable;
 use crate::arrays::List;
 use crate::arrays::list::ListArrayExt;
 use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 
 impl OperationsVTable<List> for List {
     fn scalar_at(
@@ -19,15 +18,8 @@ impl OperationsVTable<List> for List {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // By the preconditions we know that the list scalar is not null.
-        let elems = array.list_elements_at(index)?;
-        let scalars: Vec<Scalar> = (0..elems.len())
-            .map(|i| elems.scalar_at(i))
-            .collect::<VortexResult<_>>()?;
-
-        Ok(Scalar::list(
-            Arc::new(elems.dtype().clone()),
-            scalars,
-            array.dtype().nullability(),
-        ))
+        let list = array.list_elements_at(index)?;
+        let scalar_value = ScalarValue::Array(list);
+        Scalar::try_new(array.dtype().clone(), Some(scalar_value))
     }
 }

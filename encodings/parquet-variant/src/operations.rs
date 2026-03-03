@@ -109,21 +109,7 @@ fn scalar_from_typed_value_scalar(
 ) -> VortexResult<Scalar> {
     match typed_value.dtype() {
         DType::List(..) => {
-            let list = typed_value.as_list();
-            let children = list
-                .elements()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|element| {
-                    let nested = scalar_from_shredded_field_scalar(metadata, element)?;
-                    Ok(Scalar::variant(nested))
-                })
-                .collect::<VortexResult<Vec<_>>>()?;
-            Ok(Scalar::list(
-                DType::Variant(Nullability::NonNullable),
-                children,
-                Nullability::NonNullable,
-            ))
+            todo!()
         }
         DType::Struct(..) => scalar_from_shredded_object_scalar(metadata, value, typed_value),
         _ => Ok(typed_value),
@@ -207,7 +193,7 @@ fn scalar_from_shredded_object_scalar(
     let fields = StructFields::new(FieldNames::from(names), dtypes);
     Scalar::try_new(
         DType::Struct(fields, Nullability::NonNullable),
-        Some(ScalarValue::List(field_values)),
+        Some(ScalarValue::Struct(field_values)),
     )
 }
 
@@ -303,11 +289,7 @@ fn parquet_variant_to_scalar(variant: PqVariant<'_, '_>) -> VortexResult<Scalar>
         // TODO: Should this depend on the new UUID-extension type? leaving this for now.
         PqVariant::Uuid(v) => Scalar::utf8(v.to_string(), nn),
         PqVariant::List(values) => {
-            let children = values
-                .iter()
-                .map(|v| parquet_variant_to_scalar(v).map(Scalar::variant))
-                .collect::<VortexResult<Vec<_>>>()?;
-            Scalar::list(DType::Variant(nn), children, nn)
+            todo!()
         }
         PqVariant::Object(values) => {
             let mut names = Vec::new();
@@ -323,7 +305,7 @@ fn parquet_variant_to_scalar(variant: PqVariant<'_, '_>) -> VortexResult<Scalar>
             let fields = StructFields::new(FieldNames::from(names), dtypes);
             Scalar::try_new(
                 DType::Struct(fields, nn),
-                Some(ScalarValue::List(field_values)),
+                Some(ScalarValue::Struct(field_values)),
             )?
         }
     })

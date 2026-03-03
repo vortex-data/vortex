@@ -58,7 +58,7 @@ fn test_fsl_size_0_length_1_non_nullable() {
     assert!(!scalar.is_null());
     assert_eq!(
         scalar,
-        Scalar::fixed_size_list(
+        Scalar::fixed_size_list_from_scalars(
             Arc::new(PType::I16.into()),
             vec![],
             Nullability::NonNullable,
@@ -84,7 +84,7 @@ fn test_fsl_size_0_huge_length_non_nullable() {
     assert!(!scalar_first.is_null());
     assert_eq!(
         scalar_first,
-        Scalar::fixed_size_list(
+        Scalar::fixed_size_list_from_scalars(
             Arc::new(PType::I64.into()),
             vec![],
             Nullability::NonNullable,
@@ -95,7 +95,7 @@ fn test_fsl_size_0_huge_length_non_nullable() {
     assert!(!scalar_middle.is_null());
     assert_eq!(
         scalar_middle,
-        Scalar::fixed_size_list(
+        Scalar::fixed_size_list_from_scalars(
             Arc::new(PType::I64.into()),
             vec![],
             Nullability::NonNullable,
@@ -106,7 +106,7 @@ fn test_fsl_size_0_huge_length_non_nullable() {
     assert!(!scalar_end.is_null());
     assert_eq!(
         scalar_end,
-        Scalar::fixed_size_list(
+        Scalar::fixed_size_list_from_scalars(
             Arc::new(PType::I64.into()),
             vec![],
             Nullability::NonNullable,
@@ -156,7 +156,11 @@ fn test_fsl_size_0_length_1_nullable_valid() {
     assert!(!scalar.is_null());
     assert_eq!(
         scalar,
-        Scalar::fixed_size_list(Arc::new(PType::U16.into()), vec![], Nullability::Nullable,)
+        Scalar::fixed_size_list_from_scalars(
+            Arc::new(PType::U16.into()),
+            vec![],
+            Nullability::Nullable,
+        )
     );
 }
 
@@ -205,7 +209,11 @@ fn test_fsl_size_0_length_10_nullable_mixed() {
             assert!(!scalar.is_null());
             assert_eq!(
                 scalar,
-                Scalar::fixed_size_list(Arc::new(PType::F32.into()), vec![], Nullability::Nullable,)
+                Scalar::fixed_size_list_from_scalars(
+                    Arc::new(PType::F32.into()),
+                    vec![],
+                    Nullability::Nullable,
+                )
             );
         } else {
             assert!(scalar.is_null());

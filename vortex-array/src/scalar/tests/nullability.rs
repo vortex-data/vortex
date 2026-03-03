@@ -15,9 +15,7 @@ mod tests {
     use crate::extension::datetime::Date;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
-    use crate::scalar::PValue;
     use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
 
     #[rstest]
     fn null_can_cast_to_anything_nullable(
@@ -49,14 +47,10 @@ mod tests {
 
     #[test]
     fn test_list_cast_nullability_changes() {
-        let list = Scalar::new(
-            DType::List(
-                Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
-                Nullability::Nullable,
-            ),
-            Some(ScalarValue::List(vec![Some(ScalarValue::Primitive(
-                PValue::U16(6),
-            ))])),
+        let list = Scalar::list_from_scalars(
+            Arc::new(DType::Primitive(PType::U16, Nullability::Nullable)),
+            vec![Scalar::primitive(6u16, Nullability::Nullable)],
+            Nullability::Nullable,
         );
 
         // Change element nullability from Nullable to NonNullable.
@@ -92,19 +86,17 @@ mod tests {
 
     #[test]
     fn test_list_cast_with_null_elements() {
-        let list_with_null = Scalar::new(
-            DType::List(
-                Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
-                Nullability::Nullable,
-            ),
-            Some(ScalarValue::List(vec![
-                Some(ScalarValue::Primitive(PValue::U16(6))),
-                None,
-                Some(ScalarValue::Primitive(PValue::U16(10))),
-            ])),
+        let list_with_null = Scalar::list_from_scalars(
+            Arc::new(DType::Primitive(PType::U16, Nullability::Nullable)),
+            vec![
+                Scalar::primitive(6u16, Nullability::Nullable),
+                Scalar::null(DType::Primitive(PType::U16, Nullability::Nullable)),
+                Scalar::primitive(10u16, Nullability::Nullable),
+            ],
+            Nullability::Nullable,
         );
 
-        // Cast to different element type with nullable elements - should succeed.
+        // Cast to different element type with nullable elements — should succeed.
         let target_u8_nullable = DType::List(
             Arc::from(DType::Primitive(PType::U8, Nullability::Nullable)),
             Nullability::Nullable,
@@ -154,7 +146,7 @@ mod tests {
         assert_eq!(struct_with_null.approx_nbytes(), 4 + 8);
 
         // Test list with null elements
-        let list_with_null = Scalar::list(
+        let list_with_null = Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::Nullable),
@@ -195,15 +187,13 @@ mod tests {
 
     #[test]
     fn test_list_cast_null_to_nonnull_error() {
-        let list_with_null = Scalar::new(
-            DType::List(
-                Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
-                Nullability::Nullable,
-            ),
-            Some(ScalarValue::List(vec![
-                Some(ScalarValue::Primitive(PValue::U16(6))),
-                None,
-            ])),
+        let list_with_null = Scalar::list_from_scalars(
+            Arc::new(DType::Primitive(PType::U16, Nullability::Nullable)),
+            vec![
+                Scalar::primitive(6u16, Nullability::Nullable),
+                Scalar::null(DType::Primitive(PType::U16, Nullability::Nullable)),
+            ],
+            Nullability::Nullable,
         );
 
         // Casting to non-nullable element type should fail.
@@ -218,7 +208,7 @@ mod tests {
     fn test_fixed_size_list_null_elements() {
         // Create FixedSizeList with null elements.
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
-        let fixed_list = Scalar::fixed_size_list(
+        let fixed_list = Scalar::fixed_size_list_from_scalars(
             element_dtype,
             vec![
                 Scalar::primitive(10i32, Nullability::Nullable),
@@ -259,7 +249,7 @@ mod tests {
         ));
 
         // First inner list: non-null container with one null element.
-        let inner_list1 = Scalar::fixed_size_list(
+        let inner_list1 = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::Nullable),
@@ -276,7 +266,7 @@ mod tests {
         ));
 
         // Third inner list: non-null container with non-null elements.
-        let inner_list3 = Scalar::fixed_size_list(
+        let inner_list3 = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
             vec![
                 Scalar::primitive(3i32, Nullability::Nullable),
@@ -285,7 +275,7 @@ mod tests {
             Nullability::Nullable,
         );
 
-        let outer_list = Scalar::list(
+        let outer_list = Scalar::list_from_scalars(
             inner_dtype,
             vec![inner_list1, inner_list2, inner_list3],
             Nullability::NonNullable,
@@ -351,7 +341,7 @@ mod tests {
         assert!(!struct_view.field("name").unwrap().is_null());
 
         // Create struct with non-null FixedSizeList containing null elements.
-        let fixed_list_with_nulls = Scalar::fixed_size_list(
+        let fixed_list_with_nulls = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
             vec![
                 Scalar::primitive(100i64, Nullability::Nullable),
@@ -380,7 +370,7 @@ mod tests {
     fn test_list_partial_null_elements() {
         // Test List with mixture of null and non-null elements.
         let element_dtype = Arc::new(DType::Primitive(PType::F32, Nullability::Nullable));
-        let list_with_nulls = Scalar::list(
+        let list_with_nulls = Scalar::list_from_scalars(
             element_dtype,
             vec![
                 Scalar::primitive(1.5f32, Nullability::Nullable),
@@ -409,7 +399,7 @@ mod tests {
         // Test that casting null elements to non-nullable fails.
 
         // FixedSizeList with null elements can't cast to non-nullable elements.
-        let fixed_list_with_nulls = Scalar::fixed_size_list(
+        let fixed_list_with_nulls = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::Nullable),
@@ -447,7 +437,7 @@ mod tests {
     #[test]
     fn test_nullable_to_nonnullable_valid_cast() {
         // Test that casting nullable types to non-nullable succeeds when no nulls present.
-        let fixed_list_no_nulls = Scalar::fixed_size_list(
+        let fixed_list_no_nulls = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
             vec![
                 Scalar::primitive(10i32, Nullability::Nullable),
@@ -486,7 +476,7 @@ mod tests {
         assert!(null_list.is_null());
 
         // Case 2: Non-null FixedSizeList with all null elements.
-        let list_all_nulls = Scalar::fixed_size_list(
+        let list_all_nulls = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
             vec![
                 Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
@@ -501,7 +491,7 @@ mod tests {
         assert!(list_all_nulls.as_list().element(2).unwrap().is_null());
 
         // Case 3: Non-null FixedSizeList with some null elements.
-        let list_some_nulls = Scalar::fixed_size_list(
+        let list_some_nulls = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::Nullable),
@@ -592,7 +582,7 @@ mod tests {
         let middle_dtype = Arc::new(DType::List(innermost_dtype.clone(), Nullability::Nullable));
 
         // Create innermost FixedSizeLists with different null patterns.
-        let inner1 = Scalar::fixed_size_list(
+        let inner1 = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::Nullable),
@@ -607,7 +597,7 @@ mod tests {
             Nullability::Nullable,
         ));
 
-        let _inner3 = Scalar::fixed_size_list(
+        let _inner3 = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
             vec![
                 Scalar::primitive(3i32, Nullability::Nullable),
@@ -617,7 +607,7 @@ mod tests {
         );
 
         // Create middle Lists.
-        let middle1 = Scalar::list(
+        let middle1 = Scalar::list_from_scalars(
             innermost_dtype.clone(),
             vec![inner1, inner2],
             Nullability::Nullable,
@@ -626,7 +616,7 @@ mod tests {
         let middle2 = Scalar::null(DType::List(innermost_dtype, Nullability::Nullable));
 
         // Create outer FixedSizeList.
-        let outer = Scalar::fixed_size_list(
+        let outer = Scalar::fixed_size_list_from_scalars(
             middle_dtype,
             vec![middle1, middle2],
             Nullability::NonNullable,
@@ -674,7 +664,7 @@ mod tests {
         assert_ne!(null_list1, null_list3);
 
         // Non-null list with null elements vs null list.
-        let list_with_nulls = Scalar::fixed_size_list(
+        let list_with_nulls = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
             vec![
                 Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
@@ -723,7 +713,7 @@ mod tests {
         );
 
         // Create struct with mixed null patterns.
-        let fixed_list_field = Scalar::fixed_size_list(
+        let fixed_list_field = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
             vec![
                 Scalar::primitive(10i32, Nullability::Nullable),
@@ -737,7 +727,7 @@ mod tests {
             Nullability::Nullable,
         ));
 
-        let inner_fixed1 = Scalar::fixed_size_list(
+        let inner_fixed1 = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::U8, Nullability::Nullable)),
             vec![
                 Scalar::primitive(1u8, Nullability::Nullable),
@@ -752,7 +742,7 @@ mod tests {
             Nullability::Nullable,
         ));
 
-        let nested_fixed_field = Scalar::fixed_size_list(
+        let nested_fixed_field = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::FixedSizeList(
                 Arc::new(DType::Primitive(PType::U8, Nullability::Nullable)),
                 2,
@@ -786,7 +776,7 @@ mod tests {
     #[test]
     fn test_casting_preserves_null_positions() {
         // Ensure that casting preserves the positions of null elements.
-        let fixed_list = Scalar::fixed_size_list(
+        let fixed_list = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::Nullable),

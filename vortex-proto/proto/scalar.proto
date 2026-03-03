@@ -5,17 +5,37 @@ syntax = "proto3";
 
 package vortex.scalar;
 
-option java_package = "dev.vortex.proto";
-option java_outer_classname = "ScalarProtos";
-
 import "dtype.proto";
 import "google/protobuf/struct.proto";
 
+option java_outer_classname = "ScalarProtos";
+option java_package = "dev.vortex.proto";
+
 message Scalar {
+  // The logical data type of this scalar.
   vortex.dtype.DType dtype = 1;
+  // The value payload, or absent if the scalar is null (only possible when the dtype is
+  // nullable).
   ScalarValue value = 2;
 }
 
+// The value payload of a `Scalar`.
+//
+// Each variant corresponds to a physical representation. The correct interpretation depends on the
+// accompanying `DType` in the parent `Scalar` message. For example, an `int64_value` may represent
+// an i8, i16, i32, or i64 depending on the dtype's `PType`. Deserialization of a `ScalarValue`
+// only makes sense when paired with a `DType`.
+//
+// Primitive integer types are widened to 64-bit (`sint64` for signed, `uint64` for unsigned) since
+// protobuf does not have narrower integer fields. The original width is recovered using the dtype
+// during deserialization.
+//
+// The order of this enum is the order in which these types were added. We must maintain it to
+// preserve backwards compatibility.
+//
+// Finally, note that this `ScalarValue` in **not** 1-to-1 with the Vortex `ScalarValue` enum, as
+// this protobuf type internally tracks if the value is null. The Vortex `ScalarValue` enum in
+// non-nullable, and we reperent a nullable Vortex scalar value as `Option<ScalarValue>` instead.
 message ScalarValue {
   oneof kind {
     google.protobuf.NullValue null_value = 1;
@@ -26,14 +46,40 @@ message ScalarValue {
     double f64_value = 6;
     string string_value = 7;
     bytes bytes_value = 8;
-    ListValue list_value = 9;
+    StructValue struct_value = 9;
     uint64 f16_value = 10;
     // Variant scalars carry a row-specific nested scalar.
     // See RFC 0015: https://github.com/vortex-data/rfcs/blob/develop/accepted/0015-variant-type.md
     Scalar variant_value = 11;
+    ArrayValue array_value = 12;
   }
 }
 
-message ListValue {
-  repeated ScalarValue values = 1;
+// A struct scalar value that packs several heterogeneous field values together.
+//
+// Each entry in `fields` corresponds to a field of the parent struct dtype, in order.
+//
+// NB: This message was previously called `ListValue` and was used for both struct and list /
+// fixed-size list scalars. It has since been renamed, and list scalars are now serialized using
+// `ArrayValue` instead.
+// However, old files may still contain `StructValue` (tag 9) payloads for list dtypes. To maintain
+// backwards compatibility, deserializers must check the accompanying dtype and, if it is a list or
+// fixed-size list, reconstruct an array from the individual scalar elements.
+message StructValue {
+  // The field values, one per struct field, in dtype field order.
+  repeated ScalarValue fields = 1;
+}
+
+// A serialized Vortex array, used to represent a single list or fixed-size list scalar.
+//
+// The array is serialized using `Array::serialize()` and can be reconstructed with
+// `ArrayParts::decode()`. The `encoding_ids` list provides the encoding table needed for
+// deserialization, and `data` contains the concatenated array buffers.
+message ArrayValue {
+  // The number of elements (rows) in the serialized array.
+  uint64 row_count = 1;
+  // Encoding IDs that form the encoding table for deserialization.
+  repeated string encoding_ids = 2;
+  // The concatenated serialized array buffers.
+  bytes data = 3;
 }

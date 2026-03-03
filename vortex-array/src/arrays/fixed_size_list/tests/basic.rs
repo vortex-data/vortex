@@ -68,7 +68,7 @@ fn test_scalar_at() {
     let first = fsl.scalar_at(0).unwrap();
     assert_eq!(
         first,
-        Scalar::fixed_size_list(
+        Scalar::fixed_size_list_from_scalars(
             Arc::new(PType::I32.into()),
             vec![1i32.into(), 2i32.into(), 3i32.into()],
             Nullability::NonNullable,
@@ -85,7 +85,7 @@ fn test_scalar_at() {
     let second = fsl.scalar_at(1).unwrap();
     assert_eq!(
         second,
-        Scalar::fixed_size_list(
+        Scalar::fixed_size_list_from_scalars(
             Arc::new(PType::I32.into()),
             vec![4i32.into(), 5i32.into(), 6i32.into()],
             Nullability::NonNullable,

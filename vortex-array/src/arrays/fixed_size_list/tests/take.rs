@@ -200,7 +200,7 @@ fn test_take_nullable_arrays_fsl_specific(
                 let scalars: Vec<Scalar> = list.into_iter().map(|v| v.into()).collect();
                 builder
                     .append_value(
-                        Scalar::list(
+                        Scalar::list_from_scalars(
                             DType::Primitive(PType::I32, Nullability::NonNullable),
                             scalars,
                             Nullability::NonNullable,

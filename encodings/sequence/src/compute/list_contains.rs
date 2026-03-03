@@ -67,7 +67,7 @@ mod tests {
 
     #[test]
     fn test_list_contains_seq() {
-        let list_scalar = Scalar::list(
+        let list_scalar = Scalar::list_from_scalars(
             Arc::new(I32.into()),
             vec![1.into(), 3.into()],
             Nullability::Nullable,

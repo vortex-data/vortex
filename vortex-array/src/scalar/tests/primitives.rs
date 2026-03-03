@@ -116,7 +116,7 @@ mod tests {
         assert_eq!(struct_scalar.approx_nbytes(), 4 + 8); // i32 + i64
 
         // Test list scalar
-        let list_scalar = Scalar::list(
+        let list_scalar = Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -245,7 +245,7 @@ mod tests {
         assert_eq!(struct_with_null.approx_nbytes(), 4 + 8);
 
         // Test list with null elements
-        let list_with_null = Scalar::list(
+        let list_with_null = Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::Nullable),

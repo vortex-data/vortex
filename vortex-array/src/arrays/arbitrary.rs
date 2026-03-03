@@ -26,6 +26,7 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DecimalBuilder;
 use crate::builders::FixedSizeListBuilder;
 use crate::builders::ListViewBuilder;
+use crate::builders::build_array_from_scalars;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
@@ -33,6 +34,7 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_decimal_value_type;
 use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 use crate::scalar::arbitrary::random_scalar;
 use crate::validity::Validity;
 
@@ -250,12 +252,18 @@ fn random_list_scalar(
     u: &mut Unstructured,
     elem_dtype: &Arc<DType>,
     list_size: u32,
-    null: Nullability,
+    nullability: Nullability,
 ) -> Result<Scalar> {
     let elems = (0..list_size)
         .map(|_| random_scalar(u, elem_dtype))
         .collect::<Result<Vec<_>>>()?;
-    Ok(Scalar::list(elem_dtype.clone(), elems, null))
+    let array = build_array_from_scalars(elem_dtype, &elems);
+
+    Scalar::try_new(
+        DType::List(elem_dtype.clone(), nullability),
+        Some(ScalarValue::Array(array)),
+    )
+    .map_err(|_| arbitrary::Error::IncorrectFormat)
 }
 
 fn random_string(

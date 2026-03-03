@@ -282,21 +282,21 @@ fn test_fsl_of_list() {
     // Add 6 lists (2 FSL * 3 lists each).
     // First FSL: [[1,2], [3], [4,5,6]].
     list_builder
-        .append_scalar(&Scalar::list(
+        .append_scalar(&Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![1i32.into(), 2i32.into()],
             Nullability::NonNullable,
         ))
         .unwrap();
     list_builder
-        .append_scalar(&Scalar::list(
+        .append_scalar(&Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![3i32.into()],
             Nullability::NonNullable,
         ))
         .unwrap();
     list_builder
-        .append_scalar(&Scalar::list(
+        .append_scalar(&Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![4i32.into(), 5i32.into(), 6i32.into()],
             Nullability::NonNullable,
@@ -305,21 +305,21 @@ fn test_fsl_of_list() {
 
     // Second FSL: [[7], [8,9], []].
     list_builder
-        .append_scalar(&Scalar::list(
+        .append_scalar(&Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![7i32.into()],
             Nullability::NonNullable,
         ))
         .unwrap();
     list_builder
-        .append_scalar(&Scalar::list(
+        .append_scalar(&Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![8i32.into(), 9i32.into()],
             Nullability::NonNullable,
         ))
         .unwrap();
     list_builder
-        .append_scalar(&Scalar::list(
+        .append_scalar(&Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![],
             Nullability::NonNullable,
@@ -363,7 +363,7 @@ fn test_fsl_of_nullable_list() {
     // Add 4 lists (2 FSL * 2 lists each).
     // First FSL: [[1,2], null].
     list_builder
-        .append_scalar(&Scalar::list(
+        .append_scalar(&Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::U16, Nullability::NonNullable)),
             vec![1u16.into(), 2u16.into()],
             Nullability::Nullable,
@@ -373,14 +373,14 @@ fn test_fsl_of_nullable_list() {
 
     // Second FSL: [[3], [4,5]].
     list_builder
-        .append_scalar(&Scalar::list(
+        .append_scalar(&Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::U16, Nullability::NonNullable)),
             vec![3u16.into()],
             Nullability::Nullable,
         ))
         .unwrap();
     list_builder
-        .append_scalar(&Scalar::list(
+        .append_scalar(&Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::U16, Nullability::NonNullable)),
             vec![4u16.into(), 5u16.into()],
             Nullability::Nullable,

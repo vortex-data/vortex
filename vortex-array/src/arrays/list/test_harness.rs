@@ -35,7 +35,7 @@ impl ListArray {
         );
 
         for v in iter {
-            let elem = Scalar::list(
+            let elem = Scalar::list_from_scalars(
                 dtype.clone(),
                 v.into_iter().map(|x| x.into()).collect_vec(),
                 dtype.nullability(),
@@ -63,7 +63,7 @@ impl ListArray {
 
         for v in iter {
             if let Some(v) = v {
-                let elem = Scalar::list(
+                let elem = Scalar::list_from_scalars(
                     dtype.clone(),
                     v.into_iter().map(|x| x.into()).collect_vec(),
                     dtype.nullability(),

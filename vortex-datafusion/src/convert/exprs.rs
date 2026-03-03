@@ -261,7 +261,7 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                 })
                 .try_collect()?;
 
-            let list = Scalar::list(
+            let list = Scalar::list_from_scalars(
                 list_elements[0].dtype().clone(),
                 list_elements,
                 Nullability::Nullable,

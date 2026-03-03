@@ -30,6 +30,7 @@
 
 use std::any::Any;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
@@ -284,4 +285,17 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             unimplemented!()
         }
     }
+}
+
+/// Build an [`ArrayRef`] from a slice of [`Scalar`]s, all of which must have the given [`DType`].
+pub fn build_array_from_scalars(dtype: &DType, scalars: &[Scalar]) -> ArrayRef {
+    let mut builder = builder_with_capacity(dtype, scalars.len());
+
+    for scalar in scalars {
+        builder
+            .append_scalar(scalar)
+            .vortex_expect("failed to append scalar to array builder");
+    }
+
+    builder.finish()
 }

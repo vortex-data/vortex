@@ -34,7 +34,7 @@ fn test_nullable_fsl_with_nulls() {
     assert!(!first.is_null());
     assert_eq!(
         first,
-        Scalar::fixed_size_list(
+        Scalar::fixed_size_list_from_scalars(
             Arc::new(PType::I32.into()),
             vec![1i32.into(), 2i32.into()],
             Nullability::Nullable,
@@ -55,7 +55,7 @@ fn test_nullable_fsl_with_nulls() {
     assert!(!third.is_null());
     assert_eq!(
         third,
-        Scalar::fixed_size_list(
+        Scalar::fixed_size_list_from_scalars(
             Arc::new(PType::I32.into()),
             vec![5i32.into(), 6i32.into()],
             Nullability::Nullable,
@@ -96,7 +96,7 @@ fn test_nullable_elements_non_nullable_lists() {
     assert!(!first.is_null());
     assert_eq!(
         first,
-        Scalar::fixed_size_list(
+        Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
             vec![Some(1i32).into(), None::<i32>.into(), Some(3i32).into(),],
             Nullability::NonNullable,
@@ -108,7 +108,7 @@ fn test_nullable_elements_non_nullable_lists() {
     assert!(!second.is_null());
     assert_eq!(
         second,
-        Scalar::fixed_size_list(
+        Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
             vec![Some(4i32).into(), Some(5i32).into(), None::<i32>.into(),],
             Nullability::NonNullable,
@@ -134,7 +134,7 @@ fn test_nullable_elements_and_nullable_lists() {
     assert!(!first.is_null());
     assert_eq!(
         first,
-        Scalar::fixed_size_list(
+        Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::U16, Nullability::Nullable)),
             vec![Some(10u16).into(), None::<u16>.into()],
             Nullability::Nullable,
@@ -155,7 +155,7 @@ fn test_nullable_elements_and_nullable_lists() {
     assert!(!third.is_null());
     assert_eq!(
         third,
-        Scalar::fixed_size_list(
+        Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::U16, Nullability::Nullable)),
             vec![None::<u16>.into(), None::<u16>.into()],
             Nullability::Nullable,
@@ -188,7 +188,7 @@ fn test_alternating_nulls() {
             let expected_value = u8::try_from(i + 1).unwrap();
             assert_eq!(
                 scalar,
-                Scalar::fixed_size_list(
+                Scalar::fixed_size_list_from_scalars(
                     Arc::new(PType::U8.into()),
                     vec![expected_value.into()],
                     Nullability::Nullable,

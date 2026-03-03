@@ -1198,6 +1198,8 @@ pub mod vortex_proto::scalar::scalar_value
 
 pub enum vortex_proto::scalar::scalar_value::Kind
 
+pub vortex_proto::scalar::scalar_value::Kind::ArrayValue(vortex_proto::scalar::ArrayValue)
+
 pub vortex_proto::scalar::scalar_value::Kind::BoolValue(bool)
 
 pub vortex_proto::scalar::scalar_value::Kind::BytesValue(alloc::vec::Vec<u8>)
@@ -1210,11 +1212,11 @@ pub vortex_proto::scalar::scalar_value::Kind::F64Value(f64)
 
 pub vortex_proto::scalar::scalar_value::Kind::Int64Value(i64)
 
-pub vortex_proto::scalar::scalar_value::Kind::ListValue(vortex_proto::scalar::ListValue)
-
 pub vortex_proto::scalar::scalar_value::Kind::NullValue(i32)
 
 pub vortex_proto::scalar::scalar_value::Kind::StringValue(alloc::string::String)
+
+pub vortex_proto::scalar::scalar_value::Kind::StructValue(vortex_proto::scalar::StructValue)
 
 pub vortex_proto::scalar::scalar_value::Kind::Uint64Value(u64)
 
@@ -1242,33 +1244,43 @@ pub fn vortex_proto::scalar::scalar_value::Kind::fmt(&self, f: &mut core::fmt::F
 
 impl core::marker::StructuralPartialEq for vortex_proto::scalar::scalar_value::Kind
 
-pub struct vortex_proto::scalar::ListValue
+pub struct vortex_proto::scalar::ArrayValue
 
-pub vortex_proto::scalar::ListValue::values: alloc::vec::Vec<vortex_proto::scalar::ScalarValue>
+pub vortex_proto::scalar::ArrayValue::data: alloc::vec::Vec<u8>
 
-impl core::clone::Clone for vortex_proto::scalar::ListValue
+pub vortex_proto::scalar::ArrayValue::encoding_ids: alloc::vec::Vec<alloc::string::String>
 
-pub fn vortex_proto::scalar::ListValue::clone(&self) -> vortex_proto::scalar::ListValue
+pub vortex_proto::scalar::ArrayValue::row_count: u64
 
-impl core::cmp::PartialEq for vortex_proto::scalar::ListValue
+impl core::clone::Clone for vortex_proto::scalar::ArrayValue
 
-pub fn vortex_proto::scalar::ListValue::eq(&self, other: &vortex_proto::scalar::ListValue) -> bool
+pub fn vortex_proto::scalar::ArrayValue::clone(&self) -> vortex_proto::scalar::ArrayValue
 
-impl core::default::Default for vortex_proto::scalar::ListValue
+impl core::cmp::Eq for vortex_proto::scalar::ArrayValue
 
-pub fn vortex_proto::scalar::ListValue::default() -> Self
+impl core::cmp::PartialEq for vortex_proto::scalar::ArrayValue
 
-impl core::fmt::Debug for vortex_proto::scalar::ListValue
+pub fn vortex_proto::scalar::ArrayValue::eq(&self, other: &vortex_proto::scalar::ArrayValue) -> bool
 
-pub fn vortex_proto::scalar::ListValue::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::default::Default for vortex_proto::scalar::ArrayValue
 
-impl core::marker::StructuralPartialEq for vortex_proto::scalar::ListValue
+pub fn vortex_proto::scalar::ArrayValue::default() -> Self
 
-impl prost::message::Message for vortex_proto::scalar::ListValue
+impl core::fmt::Debug for vortex_proto::scalar::ArrayValue
 
-pub fn vortex_proto::scalar::ListValue::clear(&mut self)
+pub fn vortex_proto::scalar::ArrayValue::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_proto::scalar::ListValue::encoded_len(&self) -> usize
+impl core::hash::Hash for vortex_proto::scalar::ArrayValue
+
+pub fn vortex_proto::scalar::ArrayValue::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_proto::scalar::ArrayValue
+
+impl prost::message::Message for vortex_proto::scalar::ArrayValue
+
+pub fn vortex_proto::scalar::ArrayValue::clear(&mut self)
+
+pub fn vortex_proto::scalar::ArrayValue::encoded_len(&self) -> usize
 
 pub struct vortex_proto::scalar::Scalar
 
@@ -1327,3 +1339,31 @@ impl prost::message::Message for vortex_proto::scalar::ScalarValue
 pub fn vortex_proto::scalar::ScalarValue::clear(&mut self)
 
 pub fn vortex_proto::scalar::ScalarValue::encoded_len(&self) -> usize
+
+pub struct vortex_proto::scalar::StructValue
+
+pub vortex_proto::scalar::StructValue::fields: alloc::vec::Vec<vortex_proto::scalar::ScalarValue>
+
+impl core::clone::Clone for vortex_proto::scalar::StructValue
+
+pub fn vortex_proto::scalar::StructValue::clone(&self) -> vortex_proto::scalar::StructValue
+
+impl core::cmp::PartialEq for vortex_proto::scalar::StructValue
+
+pub fn vortex_proto::scalar::StructValue::eq(&self, other: &vortex_proto::scalar::StructValue) -> bool
+
+impl core::default::Default for vortex_proto::scalar::StructValue
+
+pub fn vortex_proto::scalar::StructValue::default() -> Self
+
+impl core::fmt::Debug for vortex_proto::scalar::StructValue
+
+pub fn vortex_proto::scalar::StructValue::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_proto::scalar::StructValue
+
+impl prost::message::Message for vortex_proto::scalar::StructValue
+
+pub fn vortex_proto::scalar::StructValue::clear(&mut self)
+
+pub fn vortex_proto::scalar::StructValue::encoded_len(&self) -> usize

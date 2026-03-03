@@ -433,7 +433,7 @@ mod tests {
     #[should_panic(expected = "list scalar conversion")]
     fn test_list_scalar_to_arrow_todo() {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
-        let list_scalar = Scalar::list(
+        let list_scalar = Scalar::list_from_scalars(
             element_dtype,
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),

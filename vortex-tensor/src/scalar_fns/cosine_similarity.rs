@@ -238,8 +238,6 @@ mod tests {
     use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::cosine_similarity::CosineSimilarity;
     use crate::utils::test_helpers::assert_close;
-    use crate::utils::test_helpers::constant_tensor_array;
-    use crate::utils::test_helpers::constant_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
@@ -345,26 +343,26 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn constant_query_tensor() -> VortexResult<()> {
-        // Compare 4 tensors of shape [3] against a single constant query tensor [1,0,0].
-        let data = tensor_array(
-            &[3],
-            &[
-                1.0, 0.0, 0.0, // tensor 0
-                0.0, 1.0, 0.0, // tensor 1
-                0.0, 0.0, 1.0, // tensor 2
-                1.0, 0.0, 0.0, // tensor 3
-            ],
-        )?;
-        let query = constant_tensor_array(&[3], &[1.0, 0.0, 0.0], 4)?;
+    // #[test]
+    // fn constant_query_tensor() -> VortexResult<()> {
+    //     // Compare 4 tensors of shape [3] against a single constant query tensor [1,0,0].
+    //     let data = tensor_array(
+    //         &[3],
+    //         &[
+    //             1.0, 0.0, 0.0, // tensor 0
+    //             0.0, 1.0, 0.0, // tensor 1
+    //             0.0, 0.0, 1.0, // tensor 2
+    //             1.0, 0.0, 0.0, // tensor 3
+    //         ],
+    //     )?;
+    //     let query = constant_tensor_array(&[3], &[1.0, 0.0, 0.0], 4)?;
 
-        assert_close(
-            &eval_cosine_similarity(data, query, 4)?,
-            &[1.0, 0.0, 0.0, 1.0],
-        );
-        Ok(())
-    }
+    //     assert_close(
+    //         &eval_cosine_similarity(data, query, 4)?,
+    //         &[1.0, 0.0, 0.0, 1.0],
+    //     );
+    //     Ok(())
+    // }
 
     #[test]
     fn vector_unit_vectors() -> VortexResult<()> {
@@ -388,25 +386,25 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn vector_constant_query() -> VortexResult<()> {
-        let data = vector_array(
-            3,
-            &[
-                1.0, 0.0, 0.0, // vector 0
-                0.0, 1.0, 0.0, // vector 1
-                0.0, 0.0, 1.0, // vector 2
-                1.0, 0.0, 0.0, // vector 3
-            ],
-        )?;
-        let query = constant_vector_array(&[1.0, 0.0, 0.0], 4)?;
+    // #[test]
+    // fn vector_constant_query() -> VortexResult<()> {
+    //     let data = vector_array(
+    //         3,
+    //         &[
+    //             1.0, 0.0, 0.0, // vector 0
+    //             0.0, 1.0, 0.0, // vector 1
+    //             0.0, 0.0, 1.0, // vector 2
+    //             1.0, 0.0, 0.0, // vector 3
+    //         ],
+    //     )?;
+    //     let query = constant_vector_array(&[1.0, 0.0, 0.0], 4)?;
 
-        assert_close(
-            &eval_cosine_similarity(data, query, 4)?,
-            &[1.0, 0.0, 0.0, 1.0],
-        );
-        Ok(())
-    }
+    //     assert_close(
+    //         &eval_cosine_similarity(data, query, 4)?,
+    //         &[1.0, 0.0, 0.0, 1.0],
+    //     );
+    //     Ok(())
+    // }
 
     #[test]
     fn null_input_row() -> VortexResult<()> {

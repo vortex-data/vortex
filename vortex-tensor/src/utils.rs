@@ -116,15 +116,10 @@ pub fn extract_flat_elements(
 pub mod test_helpers {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::FixedSizeListArray;
-    use vortex_array::dtype::DType;
-    use vortex_array::dtype::Nullability;
-    use vortex_array::dtype::PType;
     use vortex_array::dtype::extension::ExtDType;
     use vortex_array::extension::EmptyMetadata;
-    use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
@@ -163,50 +158,50 @@ pub mod test_helpers {
         Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
     }
 
-    /// Builds a [`FixedShapeTensor`] extension array whose storage is a [`ConstantArray`],
-    /// representing a single query tensor broadcast to `len` rows.
-    pub fn constant_tensor_array(
-        shape: &[usize],
-        elements: &[f64],
-        len: usize,
-    ) -> VortexResult<ArrayRef> {
-        let element_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+    // /// Builds a [`FixedShapeTensor`] extension array whose storage is a [`ConstantArray`],
+    // /// representing a single query tensor broadcast to `len` rows.
+    // pub fn constant_tensor_array(
+    //     shape: &[usize],
+    //     elements: &[f64],
+    //     len: usize,
+    // ) -> VortexResult<ArrayRef> {
+    //     let element_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
 
-        let children: Vec<Scalar> = elements
-            .iter()
-            .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
-            .collect();
-        let storage_scalar =
-            Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
+    //     let children: Vec<Scalar> = elements
+    //         .iter()
+    //         .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
+    //         .collect();
+    //     let storage_scalar =
+    //         Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
 
-        let storage = ConstantArray::new(storage_scalar, len).into_array();
+    //     let storage = ConstantArray::new(storage_scalar, len).into_array();
 
-        let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
-        let ext_dtype =
-            ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().clone())?.erased();
+    //     let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
+    //     let ext_dtype =
+    //         ExtDType::<FixedShapeTensor>::try_new(metadata, storage.dtype().clone())?.erased();
 
-        Ok(ExtensionArray::new(ext_dtype, storage).into_array())
-    }
+    //     Ok(ExtensionArray::new(ext_dtype, storage).into_array())
+    // }
 
-    /// Builds a [`Vector`] extension array whose storage is a [`ConstantArray`], representing a
-    /// single query vector broadcast to `len` rows.
-    pub fn constant_vector_array(elements: &[f64], len: usize) -> VortexResult<ArrayRef> {
-        let element_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
+    // /// Builds a [`Vector`] extension array whose storage is a [`ConstantArray`], representing a
+    // /// single query vector broadcast to `len` rows.
+    // pub fn constant_vector_array(elements: &[f64], len: usize) -> VortexResult<ArrayRef> {
+    //     let element_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
 
-        let children: Vec<Scalar> = elements
-            .iter()
-            .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
-            .collect();
-        let storage_scalar =
-            Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
+    //     let children: Vec<Scalar> = elements
+    //         .iter()
+    //         .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
+    //         .collect();
+    //     let storage_scalar =
+    //         Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
 
-        let storage = ConstantArray::new(storage_scalar, len).into_array();
+    //     let storage = ConstantArray::new(storage_scalar, len).into_array();
 
-        let ext_dtype =
-            ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
+    //     let ext_dtype =
+    //         ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
 
-        Ok(ExtensionArray::new(ext_dtype, storage).into_array())
-    }
+    //     Ok(ExtensionArray::new(ext_dtype, storage).into_array())
+    // }
 
     /// Asserts that each element in `actual` is within `1e-10` of the corresponding `expected`
     /// value, with support for NaN (NaN == NaN is considered equal).

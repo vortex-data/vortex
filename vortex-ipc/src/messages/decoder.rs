@@ -44,7 +44,7 @@ pub enum PollRead {
     Some(DecoderMessage),
     /// The decoder needs more data to make progress.
     ///
-    /// The inner value is the **total*k number of bytes the buffer should contain, not the
+    /// The inner value is the **total** number of bytes the buffer should contain, not the
     /// incremental amount needed. Callers should:
     ///
     /// 1. Resize the buffer to this length.

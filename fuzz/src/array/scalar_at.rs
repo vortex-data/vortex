@@ -60,7 +60,7 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
                     .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
                 })
                 .collect();
-            Scalar::list(
+            Scalar::list_from_scalars(
                 Arc::new(list.dtype().clone()),
                 children,
                 array.dtype().nullability(),
@@ -78,7 +78,11 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
                     .vortex_expect("scalar_at_canonical_array should succeed in fuzz test")
                 })
                 .collect();
-            Scalar::fixed_size_list(list.dtype().clone(), children, array.dtype().nullability())
+            Scalar::fixed_size_list_from_scalars(
+                list.dtype().clone(),
+                children,
+                array.dtype().nullability(),
+            )
         }
         Canonical::Struct(array) => {
             let field_scalars: Vec<Scalar> = array

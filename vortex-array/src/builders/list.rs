@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
@@ -112,29 +111,13 @@ impl<O: IntegerPType> ListBuilder<O> {
 
     /// Appends a list `value` to the builder.
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
-        match value.elements() {
+        match value.as_array() {
+            Some(array) => self.append_array_as_list(array),
             None => {
-                if self.dtype.nullability() == NonNullable {
-                    vortex_bail!("Cannot append null value to non-nullable list");
-                }
                 self.append_null();
-            }
-            Some(elements) => {
-                for scalar in elements {
-                    // TODO(connor): This is slow, we should be able to append multiple values at
-                    // once, or the list scalar should hold an Array
-                    self.elements_builder.append_scalar(&scalar)?;
-                }
-
-                self.nulls.append_non_null();
-                self.offsets_builder.append_value(
-                    O::from_usize(self.elements_builder.len())
-                        .vortex_expect("Failed to convert from usize to O"),
-                );
+                Ok(())
             }
         }
-
-        Ok(())
     }
 
     /// Finishes the builder directly into a [`ListArray`].
@@ -349,7 +332,7 @@ mod tests {
 
         builder
             .append_value(
-                Scalar::list(
+                Scalar::list_from_scalars(
                     dtype.clone(),
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
                     NonNullable,
@@ -360,7 +343,7 @@ mod tests {
 
         builder
             .append_value(
-                Scalar::list(
+                Scalar::list_from_scalars(
                     dtype,
                     vec![4i32.into(), 5i32.into(), 6i32.into()],
                     NonNullable,
@@ -397,7 +380,7 @@ mod tests {
 
         builder
             .append_value(
-                Scalar::list(
+                Scalar::list_from_scalars(
                     dtype.clone(),
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
                     NonNullable,
@@ -412,7 +395,7 @@ mod tests {
 
         builder
             .append_value(
-                Scalar::list(
+                Scalar::list_from_scalars(
                     dtype,
                     vec![4i32.into(), 5i32.into(), 6i32.into()],
                     NonNullable,
@@ -538,11 +521,12 @@ mod tests {
         let mut builder = ListBuilder::<u64>::with_capacity(dtype.clone(), Nullable, 20, 10);
 
         // Test appending a valid list.
-        let list_scalar1 = Scalar::list(dtype.clone(), vec![1i32.into(), 2i32.into()], Nullable);
+        let list_scalar1 =
+            Scalar::list_from_scalars(dtype.clone(), vec![1i32.into(), 2i32.into()], Nullable);
         builder.append_scalar(&list_scalar1).unwrap();
 
         // Test appending another list.
-        let list_scalar2 = Scalar::list(
+        let list_scalar2 = Scalar::list_from_scalars(
             dtype.clone(),
             vec![3i32.into(), 4i32.into(), 5i32.into()],
             Nullable,
@@ -620,8 +604,12 @@ mod tests {
         // Interleave with a list scalar.
         builder
             .append_value(
-                Scalar::list(dtype.clone(), vec![10i32.into(), 11i32.into()], NonNullable)
-                    .as_list(),
+                Scalar::list_from_scalars(
+                    dtype.clone(),
+                    vec![10i32.into(), 11i32.into()],
+                    NonNullable,
+                )
+                .as_list(),
             )
             .unwrap();
 

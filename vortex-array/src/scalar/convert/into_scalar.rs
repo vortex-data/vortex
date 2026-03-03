@@ -9,6 +9,7 @@ use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 
+use crate::builders::build_array_from_scalars;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::NativeDType;
@@ -82,11 +83,9 @@ where
     Scalar: From<T>,
 {
     fn from(vec: Vec<T>) -> Self {
-        ScalarValue::List(
-            vec.into_iter()
-                .map(|elem| Scalar::from(elem).into_value())
-                .collect(),
-        )
+        let dtype = T::dtype();
+        let scalars: Vec<Scalar> = vec.into_iter().map(Scalar::from).collect();
+        ScalarValue::Array(build_array_from_scalars(&dtype, &scalars))
     }
 }
 

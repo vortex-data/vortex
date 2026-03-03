@@ -152,7 +152,7 @@ mod tests {
             Some(ScalarValue::Primitive(PValue::F32(f32_value))),
         ];
 
-        let scalar = Scalar::new(struct_dtype, Some(ScalarValue::List(field_values)));
+        let scalar = Scalar::new(struct_dtype, Some(ScalarValue::Struct(field_values)));
 
         let struct_scalar = scalar.as_struct();
         let fields: Vec<_> = (0..3)
@@ -195,21 +195,16 @@ mod tests {
         let f16_value1 = f16::from_f32(1.0);
         let f16_value2 = f16::from_f32(2.0);
 
-        let list_dtype = DType::List(
-            Arc::new(DType::Primitive(PType::F16, Nullability::NonNullable)),
+        let element_dtype = Arc::new(DType::Primitive(PType::F16, Nullability::NonNullable));
+
+        let scalar = Scalar::list_from_scalars(
+            element_dtype,
+            vec![
+                Scalar::primitive(f16_value1, Nullability::NonNullable),
+                Scalar::primitive(f16_value2, Nullability::NonNullable),
+            ],
             Nullability::NonNullable,
         );
-
-        let elements = vec![
-            Some(ScalarValue::Primitive(PValue::U64(
-                f16_value1.to_bits() as u64
-            ))),
-            Some(ScalarValue::Primitive(PValue::U64(
-                f16_value2.to_bits() as u64
-            ))),
-        ];
-
-        let scalar = Scalar::new(list_dtype, Some(ScalarValue::List(elements)));
 
         let list_scalar = scalar.as_list();
         let elements = list_scalar.elements().unwrap();
@@ -353,7 +348,7 @@ mod tests {
 
         let scalar = Scalar::new(
             DType::Extension(ext_dtype.erased()),
-            Some(ScalarValue::List(field_values)),
+            Some(ScalarValue::Struct(field_values)),
         );
 
         // Verify the struct field was coerced

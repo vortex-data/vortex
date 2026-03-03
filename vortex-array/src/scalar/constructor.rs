@@ -10,6 +10,8 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
+use crate::ArrayRef;
+use crate::builders::build_array_from_scalars;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::NativePType;
@@ -101,41 +103,73 @@ impl Scalar {
         .vortex_expect("unable to construct a binary `Scalar`")
     }
 
+    /// Creates a new list scalar using the [`DType`] of the parent array and a child array
+    /// representing the list as an array.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the parent dtype is not a `List` or `FixedSixeList` with an `elem_dtype` equal to
+    /// the `elem_list`'s [`DType`].
+    ///
+    /// Also panics if the parent dtype is a `FixedSizedList` but the `list_size` is not equal to
+    /// the array length.
+    pub fn list_array(parent_dtype: DType, elem_list: ArrayRef) -> Self {
+        match &parent_dtype {
+            DType::List(elem_dtype, _) => {
+                assert_eq!(elem_dtype.as_ref(), elem_list.dtype());
+            }
+            DType::FixedSizeList(elem_dtype, list_size, _) => {
+                assert_eq!(elem_dtype.as_ref(), elem_list.dtype());
+                assert_eq!(elem_list.len(), *list_size as usize);
+            }
+            _ => vortex_panic!("expected List or FixedSizeList dtype, got {parent_dtype}"),
+        };
+
+        let scalar_value = ScalarValue::Array(elem_list);
+
+        // SAFETY: We just checked that the scalar value is valid for this dtype.
+        unsafe { Scalar::new_unchecked(parent_dtype, Some(scalar_value)) }
+    }
+
     /// Creates a new list scalar with the given element type and children.
+    ///
+    /// Callers should prefer to use the faster `Scalar::list_array` constructor when possible.
     ///
     /// # Panics
     ///
     /// Panics if any child scalar has a different type than the element type, or if there are too
     /// many children.
-    pub fn list(
+    pub fn list_from_scalars(
         element_dtype: impl Into<Arc<DType>>,
         children: Vec<Scalar>,
         nullability: Nullability,
     ) -> Self {
-        Self::create_list(element_dtype, children, nullability, ListKind::Variable)
+        Self::create_list_from_scalars(element_dtype, children, nullability, ListKind::Variable)
     }
 
     /// Creates a new empty list scalar with the given element type.
     pub fn list_empty(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
-        Self::create_list(element_dtype, vec![], nullability, ListKind::Variable)
+        Self::create_list_from_scalars(element_dtype, vec![], nullability, ListKind::Variable)
     }
 
     /// Creates a new fixed-size list scalar with the given element type and children.
+    ///
+    /// Callers should prefer to use the faster `Scalar::list_array` constructor when possible.
     ///
     /// # Panics
     ///
     /// Panics if any child scalar has a different type than the element type, or if there are too
     /// many children.
-    pub fn fixed_size_list(
+    pub fn fixed_size_list_from_scalars(
         element_dtype: impl Into<Arc<DType>>,
         children: Vec<Scalar>,
         nullability: Nullability,
     ) -> Self {
-        Self::create_list(element_dtype, children, nullability, ListKind::FixedSize)
+        Self::create_list_from_scalars(element_dtype, children, nullability, ListKind::FixedSize)
     }
 
     /// Creates a list [`Scalar`] from an element dtype, children, nullability, and list kind.
-    fn create_list(
+    fn create_list_from_scalars(
         element_dtype: impl Into<Arc<DType>>,
         children: Vec<Scalar>,
         nullability: Nullability,
@@ -143,30 +177,30 @@ impl Scalar {
     ) -> Self {
         let element_dtype = element_dtype.into();
 
-        let children: Vec<Option<ScalarValue>> = children
-            .into_iter()
-            .map(|child| {
-                if child.dtype() != &*element_dtype {
-                    vortex_panic!(
-                        "tried to create list of {} with values of type {}",
-                        element_dtype,
-                        child.dtype()
-                    );
-                }
-                child.into_value()
-            })
-            .collect();
+        // Validate all children have the correct dtype.
+        for child in &children {
+            if child.dtype() != &*element_dtype {
+                vortex_panic!(
+                    "tried to create list of {} with values of type {}",
+                    element_dtype,
+                    child.dtype()
+                );
+            }
+        }
+
         let size: u32 = children
             .len()
             .try_into()
             .vortex_expect("tried to create a list that was too large");
+
+        let array = build_array_from_scalars(&element_dtype, &children);
 
         let dtype = match list_kind {
             ListKind::Variable => DType::List(element_dtype, nullability),
             ListKind::FixedSize => DType::FixedSizeList(element_dtype, size, nullability),
         };
 
-        Self::try_new(dtype, Some(ScalarValue::List(children)))
+        Self::try_new(dtype, Some(ScalarValue::Array(array)))
             .vortex_expect("unable to construct a list `Scalar`")
     }
 

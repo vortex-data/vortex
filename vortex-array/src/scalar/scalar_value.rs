@@ -4,37 +4,62 @@
 //! Core [`ScalarValue`] type definition.
 
 use std::cmp::Ordering;
-use std::fmt::Display;
-use std::fmt::Formatter;
+use std::fmt;
+use std::hash::Hash;
+use std::hash::Hasher;
 
 use itertools::Itertools;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
+use crate::ArrayRef;
+use crate::builders::build_array_from_scalars;
 use crate::dtype::DType;
 use crate::scalar::DecimalValue;
 use crate::scalar::PValue;
 use crate::scalar::Scalar;
 
-/// The value stored in a [`Scalar`][crate::scalar::Scalar].
+/// The value stored in a [`Scalar`](crate::scalar::Scalar).
 ///
 /// This enum represents the possible non-null values that can be stored in a scalar. When the
 /// scalar is null, the value is represented as `None` in the `Option<ScalarValue>` field.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// We can think of this type loosely (heavy emphasis on "loosely") as the serialization / physical
+/// type of scalars.
+#[derive(Debug, Clone)]
 pub enum ScalarValue {
     /// A boolean value.
     Bool(bool),
+
     /// A primitive numeric value.
     Primitive(PValue),
+
     /// A decimal value.
     Decimal(DecimalValue),
+
     /// A UTF-8 encoded string value.
     Utf8(BufferString),
+
     /// A binary (byte array) value.
     Binary(ByteBuffer),
+
     /// A list of potentially null scalar values.
-    List(Vec<Option<ScalarValue>>),
+    ///
+    /// Previously, we used this to represent all of struct, list, and fixed-size list scalars, but
+    /// with the recent addition of the `ScalarValue::Array` variant below, this only stores struct
+    /// scalars (and any other list scalars written to files in the past for backcompat).
+    Struct(Vec<Option<ScalarValue>>),
+
+    /// An [`ArrayRef`] representing a single list scalar of a `List` or `FixedSizeList` array.
+    ///
+    /// We serialize this by using `Array::serialize()` (see vortex-array/src/serde.rs) into
+    /// protobuf bytes. Note that because we require passing the length of the array to deserialize
+    /// with [`ArrayParts::decode()`](crate::serde::ArrayParts::decode), we store the array length
+    /// in the first 8 bytes.
+    Array(ArrayRef),
+
     /// A row-specific scalar wrapped by `DType::Variant`.
     Variant(Box<Scalar>),
 }
@@ -49,17 +74,22 @@ impl ScalarValue {
             DType::Decimal(dt, ..) => Self::Decimal(DecimalValue::zero(dt)),
             DType::Utf8(_) => Self::Utf8(BufferString::empty()),
             DType::Binary(_) => Self::Binary(ByteBuffer::empty()),
-            DType::List(..) => Self::List(vec![]),
+            DType::List(edt, _) => Self::Array(build_array_from_scalars(edt, &[])),
             DType::FixedSizeList(edt, size, _) => {
-                let elements = (0..*size).map(|_| Some(Self::zero_value(edt))).collect();
-                Self::List(elements)
+                let elements: Vec<Scalar> = (0..*size)
+                    .map(|_| {
+                        Scalar::try_new(edt.as_ref().clone(), Some(Self::zero_value(edt)))
+                            .vortex_expect("failed to create zero scalar")
+                    })
+                    .collect();
+                Self::Array(build_array_from_scalars(edt, &elements))
             }
             DType::Struct(fields, _) => {
                 let field_values = fields
                     .fields()
                     .map(|f| Some(Self::zero_value(&f)))
                     .collect();
-                Self::List(field_values)
+                Self::Struct(field_values)
             }
             DType::Extension(ext_dtype) => {
                 // Since we have no way to define a "zero" extension value (since we have no idea
@@ -89,14 +119,19 @@ impl ScalarValue {
             DType::Decimal(dt, ..) => Self::Decimal(DecimalValue::zero(dt)),
             DType::Utf8(_) => Self::Utf8(BufferString::empty()),
             DType::Binary(_) => Self::Binary(ByteBuffer::empty()),
-            DType::List(..) => Self::List(vec![]),
+            DType::List(edt, _) => Self::Array(build_array_from_scalars(edt, &[])),
             DType::FixedSizeList(edt, size, _) => {
-                let elements = (0..*size).map(|_| Self::default_value(edt)).collect();
-                Self::List(elements)
+                let elements: Vec<Scalar> = (0..*size)
+                    .map(|_| {
+                        Scalar::try_new(edt.as_ref().clone(), Self::default_value(edt))
+                            .vortex_expect("failed to create default scalar")
+                    })
+                    .collect();
+                Self::Array(build_array_from_scalars(edt, &elements))
             }
             DType::Struct(fields, _) => {
                 let field_values = fields.fields().map(|f| Self::default_value(&f)).collect();
-                Self::List(field_values)
+                Self::Struct(field_values)
             }
             DType::Extension(ext_dtype) => {
                 // Since we have no way to define a "default" extension value (since we have no idea
@@ -109,24 +144,8 @@ impl ScalarValue {
     }
 }
 
-impl PartialOrd for ScalarValue {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (self, other) {
-            (ScalarValue::Bool(a), ScalarValue::Bool(b)) => a.partial_cmp(b),
-            (ScalarValue::Primitive(a), ScalarValue::Primitive(b)) => a.partial_cmp(b),
-            (ScalarValue::Decimal(a), ScalarValue::Decimal(b)) => a.partial_cmp(b),
-            (ScalarValue::Utf8(a), ScalarValue::Utf8(b)) => a.partial_cmp(b),
-            (ScalarValue::Binary(a), ScalarValue::Binary(b)) => a.partial_cmp(b),
-            (ScalarValue::List(a), ScalarValue::List(b)) => a.partial_cmp(b),
-            (ScalarValue::Variant(a), ScalarValue::Variant(b)) => a.partial_cmp(b),
-            // (ScalarValue::Extension(a), ScalarValue::Extension(b)) => a.partial_cmp(b),
-            _ => None,
-        }
-    }
-}
-
-impl Display for ScalarValue {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ScalarValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ScalarValue::Bool(b) => write!(f, "{b}"),
             ScalarValue::Primitive(p) => write!(f, "{p}"),
@@ -156,7 +175,7 @@ impl Display for ScalarValue {
                     write!(f, "{}", to_hex(b))
                 }
             }
-            ScalarValue::List(elements) => {
+            ScalarValue::Struct(elements) => {
                 write!(f, "[")?;
                 for (i, element) in elements.iter().enumerate() {
                     if i > 0 {
@@ -169,7 +188,100 @@ impl Display for ScalarValue {
                 }
                 write!(f, "]")
             }
+            ScalarValue::Array(array) => {
+                write!(f, "[")?;
+                for i in 0..array.len() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    match array.scalar_at(i) {
+                        Ok(scalar) => write!(f, "{scalar}")?,
+                        Err(_) => write!(f, "<error>")?,
+                    }
+                }
+                write!(f, "]")
+            }
             ScalarValue::Variant(value) => write!(f, "{value}"),
+        }
+    }
+}
+
+impl PartialEq for ScalarValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ScalarValue::Bool(a), ScalarValue::Bool(b)) => a == b,
+            (ScalarValue::Primitive(a), ScalarValue::Primitive(b)) => a == b,
+            (ScalarValue::Decimal(a), ScalarValue::Decimal(b)) => a == b,
+            (ScalarValue::Utf8(a), ScalarValue::Utf8(b)) => a == b,
+            (ScalarValue::Binary(a), ScalarValue::Binary(b)) => a == b,
+            (ScalarValue::Struct(a), ScalarValue::Struct(b)) => a == b,
+            (ScalarValue::Array(a), ScalarValue::Array(b)) => {
+                // Compare element-by-element.
+                a.len() == b.len()
+                    && a.dtype().eq_ignore_nullability(b.dtype())
+                    && (0..a.len()).all(|i| a.scalar_at(i).ok() == b.scalar_at(i).ok())
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for ScalarValue {}
+
+impl PartialOrd for ScalarValue {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (ScalarValue::Bool(a), ScalarValue::Bool(b)) => a.partial_cmp(b),
+            (ScalarValue::Primitive(a), ScalarValue::Primitive(b)) => a.partial_cmp(b),
+            (ScalarValue::Decimal(a), ScalarValue::Decimal(b)) => a.partial_cmp(b),
+            (ScalarValue::Utf8(a), ScalarValue::Utf8(b)) => a.partial_cmp(b),
+            (ScalarValue::Binary(a), ScalarValue::Binary(b)) => a.partial_cmp(b),
+            (ScalarValue::Struct(a), ScalarValue::Struct(b)) => a.partial_cmp(b),
+            // Two arrays: lexicographic element-by-element comparison.
+            (ScalarValue::Array(a), ScalarValue::Array(b)) => {
+                let min_len = a.len().min(b.len());
+
+                // Compute the lexicographic ordering.
+                for i in 0..min_len {
+                    let a_scalar = a.scalar_at(i).vortex_expect(
+                        "something happened with scalar_at in `PartialOrd` of `ListScalar`",
+                    );
+                    let b_scalar = b.scalar_at(i).vortex_expect(
+                        "something happened with scalar_at in `PartialOrd` of `ListScalar`",
+                    );
+
+                    match a_scalar.partial_cmp(&b_scalar)? {
+                        Ordering::Equal => continue,
+                        ord => return Some(ord),
+                    }
+                }
+
+                a.len().partial_cmp(&b.len())
+            }
+            _ => None,
+        }
+    }
+}
+
+impl Hash for ScalarValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            ScalarValue::Bool(b) => b.hash(state),
+            ScalarValue::Primitive(p) => p.hash(state),
+            ScalarValue::Decimal(d) => d.hash(state),
+            ScalarValue::Utf8(s) => s.hash(state),
+            ScalarValue::Binary(b) => b.hash(state),
+            ScalarValue::Struct(l) => l.hash(state),
+            ScalarValue::Variant(scalar) => scalar.hash(state),
+            ScalarValue::Array(array) => {
+                array.len().hash(state);
+                for i in 0..array.len() {
+                    let scalar = array.scalar_at(i).vortex_expect(
+                        "something happened with `scalar_at` in `Hash` of `ScalarValue::Array`",
+                    );
+                    scalar.hash(state);
+                }
+            }
         }
     }
 }

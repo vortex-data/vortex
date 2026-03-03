@@ -10,9 +10,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::scalar::PValue;
     use crate::scalar::Scalar;
-    use crate::scalar::ScalarValue;
 
     #[test]
     fn test_fixed_size_list_of_fixed_size_list() {
@@ -25,7 +23,7 @@ mod tests {
         ));
 
         // Create inner FixedSizeLists.
-        let inner_list1 = Scalar::fixed_size_list(
+        let inner_list1 = Scalar::fixed_size_list_from_scalars(
             inner_element_dtype.clone(),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -35,7 +33,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let inner_list2 = Scalar::fixed_size_list(
+        let inner_list2 = Scalar::fixed_size_list_from_scalars(
             inner_element_dtype,
             vec![
                 Scalar::primitive(4i32, Nullability::NonNullable),
@@ -46,7 +44,7 @@ mod tests {
         );
 
         // Create outer FixedSizeList.
-        let outer_list = Scalar::fixed_size_list(
+        let outer_list = Scalar::fixed_size_list_from_scalars(
             inner_dtype,
             vec![inner_list1, inner_list2],
             Nullability::NonNullable,
@@ -91,7 +89,7 @@ mod tests {
             Nullability::NonNullable,
         ));
 
-        let inner_list1 = Scalar::list(
+        let inner_list1 = Scalar::list_from_scalars(
             inner_element_dtype.clone(),
             vec![
                 Scalar::primitive(10i32, Nullability::NonNullable),
@@ -100,7 +98,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let inner_list2 = Scalar::list(
+        let inner_list2 = Scalar::list_from_scalars(
             inner_element_dtype,
             vec![
                 Scalar::primitive(30i32, Nullability::NonNullable),
@@ -110,7 +108,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let outer_fixed_list = Scalar::fixed_size_list(
+        let outer_fixed_list = Scalar::fixed_size_list_from_scalars(
             inner_dtype,
             vec![inner_list1, inner_list2],
             Nullability::NonNullable,
@@ -138,7 +136,7 @@ mod tests {
             Nullability::NonNullable,
         ));
 
-        let fixed_list1 = Scalar::fixed_size_list(
+        let fixed_list1 = Scalar::fixed_size_list_from_scalars(
             inner_element_dtype.clone(),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -148,7 +146,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let fixed_list2 = Scalar::fixed_size_list(
+        let fixed_list2 = Scalar::fixed_size_list_from_scalars(
             inner_element_dtype,
             vec![
                 Scalar::primitive(4i32, Nullability::NonNullable),
@@ -158,7 +156,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let outer_list = Scalar::list(
+        let outer_list = Scalar::list_from_scalars(
             inner_dtype,
             vec![fixed_list1, fixed_list2],
             Nullability::NonNullable,
@@ -202,7 +200,7 @@ mod tests {
             ],
         );
 
-        let fixed_list_of_structs = Scalar::fixed_size_list(
+        let fixed_list_of_structs = Scalar::fixed_size_list_from_scalars(
             Arc::new(struct_dtype),
             vec![struct1, struct2],
             Nullability::NonNullable,
@@ -255,7 +253,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let fixed_list_field = Scalar::fixed_size_list(
+        let fixed_list_field = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(10i64, Nullability::NonNullable),
@@ -306,15 +304,13 @@ mod tests {
     #[test]
     fn test_list_cast_element_types() {
         // Test casting list elements between different primitive types.
-        let list = Scalar::new(
-            DType::List(
-                Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
-                Nullability::Nullable,
-            ),
-            Some(ScalarValue::List(vec![
-                Some(ScalarValue::Primitive(PValue::U16(6))),
-                Some(ScalarValue::Primitive(PValue::U16(100))),
-            ])),
+        let list = Scalar::list_from_scalars(
+            Arc::new(DType::Primitive(PType::U16, Nullability::Nullable)),
+            vec![
+                Scalar::primitive(6u16, Nullability::Nullable),
+                Scalar::primitive(100u16, Nullability::Nullable),
+            ],
+            Nullability::Nullable,
         );
 
         // Cast U16 -> U32.
@@ -345,16 +341,14 @@ mod tests {
     #[test]
     fn test_list_cast_element_overflow() {
         // Test that casting U16 values too large for U8 fails.
-        let list_with_large_values = Scalar::new(
-            DType::List(
-                Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
-                Nullability::Nullable,
-            ),
-            Some(ScalarValue::List(vec![
-                Some(ScalarValue::Primitive(PValue::U16(100))),
-                Some(ScalarValue::Primitive(PValue::U16(256))), // Too large for U8
-                Some(ScalarValue::Primitive(PValue::U16(1000))), // Too large for U8
-            ])),
+        let list_with_large_values = Scalar::list_from_scalars(
+            Arc::new(DType::Primitive(PType::U16, Nullability::Nullable)),
+            vec![
+                Scalar::primitive(100u16, Nullability::Nullable),
+                Scalar::primitive(256u16, Nullability::Nullable), // Too large for U8.
+                Scalar::primitive(1000u16, Nullability::Nullable), // Too large for U8.
+            ],
+            Nullability::Nullable,
         );
 
         let target_u8 = DType::List(
@@ -375,7 +369,7 @@ mod tests {
     #[test]
     fn test_list_cast_nested_lists() {
         // Create a list of lists.
-        let inner_list1 = Scalar::list(
+        let inner_list1 = Scalar::list_from_scalars(
             Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -383,7 +377,7 @@ mod tests {
             ],
             Nullability::NonNullable,
         );
-        let inner_list2 = Scalar::list(
+        let inner_list2 = Scalar::list_from_scalars(
             Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(3i32, Nullability::NonNullable),
@@ -391,7 +385,7 @@ mod tests {
             ],
             Nullability::NonNullable,
         );
-        let nested_list = Scalar::list(
+        let nested_list = Scalar::list_from_scalars(
             Arc::from(DType::List(
                 Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
                 Nullability::NonNullable,
@@ -415,7 +409,7 @@ mod tests {
     #[test]
     fn test_list_cast_empty_list() {
         // Test casting empty list.
-        let empty_list = Scalar::list(
+        let empty_list = Scalar::list_from_scalars(
             Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![],
             Nullability::NonNullable,
@@ -443,7 +437,7 @@ mod tests {
     #[test]
     fn test_list_cast_string_elements() {
         // Create a list of strings.
-        let string_list = Scalar::list(
+        let string_list = Scalar::list_from_scalars(
             Arc::from(DType::Utf8(Nullability::NonNullable)),
             vec![
                 Scalar::utf8("hello", Nullability::NonNullable),
@@ -485,7 +479,7 @@ mod tests {
                 Scalar::primitive(20i64, Nullability::NonNullable),
             ],
         );
-        let struct_list = Scalar::list(
+        let struct_list = Scalar::list_from_scalars(
             Arc::from(struct_dtype),
             vec![struct1, struct2],
             Nullability::NonNullable,
@@ -507,7 +501,7 @@ mod tests {
     #[test]
     fn test_list_cast_incompatible_element_types() {
         // Create a list of integers.
-        let int_list = Scalar::list(
+        let int_list = Scalar::list_from_scalars(
             Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![Scalar::primitive(1i32, Nullability::NonNullable)],
             Nullability::NonNullable,
@@ -524,7 +518,7 @@ mod tests {
     #[test]
     fn test_list_to_fixed_size_list_cast() {
         // Create a list with 3 elements.
-        let list = Scalar::list(
+        let list = Scalar::list_from_scalars(
             Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -548,7 +542,7 @@ mod tests {
     #[test]
     fn test_fixed_size_list_to_list_cast() {
         // Create a FixedSizeList with 2 elements.
-        let fixed_list = Scalar::fixed_size_list(
+        let fixed_list = Scalar::fixed_size_list_from_scalars(
             Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(10i32, Nullability::NonNullable),
@@ -570,7 +564,7 @@ mod tests {
     #[test]
     fn test_fixed_size_list_to_fixed_size_list_cast() {
         // Create a FixedSizeList[4] with I32 elements.
-        let fixed_list = Scalar::fixed_size_list(
+        let fixed_list = Scalar::fixed_size_list_from_scalars(
             Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -594,7 +588,7 @@ mod tests {
     #[test]
     fn test_fixed_size_list_size_mismatch_error() {
         // Create a list with 2 elements.
-        let list = Scalar::list(
+        let list = Scalar::list_from_scalars(
             Arc::from(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -645,7 +639,7 @@ mod tests {
         ));
 
         // Create inner FixedSizeList for struct field.
-        let inner_list1 = Scalar::fixed_size_list(
+        let inner_list1 = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(100i64, Nullability::NonNullable),
@@ -654,7 +648,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let inner_list2 = Scalar::fixed_size_list(
+        let inner_list2 = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(300i64, Nullability::NonNullable),
@@ -681,14 +675,14 @@ mod tests {
         );
 
         // Create middle FixedSizeList[2] of structs.
-        let middle_list = Scalar::fixed_size_list(
+        let middle_list = Scalar::fixed_size_list_from_scalars(
             struct_dtype,
             vec![struct1, struct2],
             Nullability::NonNullable,
         );
 
         // Create outer List.
-        let outer_list = Scalar::list(
+        let outer_list = Scalar::list_from_scalars(
             middle_fixed_list_dtype,
             vec![middle_list.clone(), middle_list],
             Nullability::NonNullable,
@@ -737,7 +731,7 @@ mod tests {
             Nullability::NonNullable,
         ));
 
-        let inner_list1 = Scalar::fixed_size_list(
+        let inner_list1 = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -746,7 +740,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let inner_list2 = Scalar::fixed_size_list(
+        let inner_list2 = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(3i32, Nullability::NonNullable),
@@ -755,7 +749,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let outer_list = Scalar::list(
+        let outer_list = Scalar::list_from_scalars(
             inner_dtype,
             vec![inner_list1, inner_list2],
             Nullability::NonNullable,
@@ -804,7 +798,7 @@ mod tests {
         ));
 
         // Create innermost FixedSizeLists.
-        let inner_fixed1 = Scalar::fixed_size_list(
+        let inner_fixed1 = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -813,7 +807,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let inner_fixed2 = Scalar::fixed_size_list(
+        let inner_fixed2 = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(3i32, Nullability::NonNullable),
@@ -823,20 +817,20 @@ mod tests {
         );
 
         // Create middle Lists.
-        let middle_list1 = Scalar::list(
+        let middle_list1 = Scalar::list_from_scalars(
             innermost_dtype.clone(),
             vec![inner_fixed1.clone()],
             Nullability::NonNullable,
         );
 
-        let middle_list2 = Scalar::list(
+        let middle_list2 = Scalar::list_from_scalars(
             innermost_dtype,
             vec![inner_fixed2, inner_fixed1],
             Nullability::NonNullable,
         );
 
         // Create outer FixedSizeList.
-        let outer = Scalar::fixed_size_list(
+        let outer = Scalar::fixed_size_list_from_scalars(
             middle_dtype,
             vec![middle_list1, middle_list2],
             Nullability::NonNullable,
@@ -861,7 +855,7 @@ mod tests {
             Nullability::NonNullable,
         ));
 
-        let inner_list1 = Scalar::fixed_size_list(
+        let inner_list1 = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -870,7 +864,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let inner_list2 = Scalar::fixed_size_list(
+        let inner_list2 = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(3i32, Nullability::NonNullable),
@@ -879,7 +873,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let outer = Scalar::fixed_size_list(
+        let outer = Scalar::fixed_size_list_from_scalars(
             inner_dtype,
             vec![inner_list1, inner_list2],
             Nullability::NonNullable,
@@ -899,7 +893,8 @@ mod tests {
             Scalar::primitive(20i32, Nullability::NonNullable),
             Scalar::primitive(30i32, Nullability::NonNullable),
         ];
-        let fixed_list = Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
+        let fixed_list =
+            Scalar::fixed_size_list_from_scalars(element_dtype, children, Nullability::NonNullable);
 
         assert!(matches!(fixed_list.dtype(), DType::FixedSizeList(_, 3, _)));
 
@@ -926,8 +921,11 @@ mod tests {
     fn test_fixed_size_list_size_zero() {
         // Test FixedSizeList[0] behavior.
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
-        let empty_fixed_list =
-            Scalar::fixed_size_list(element_dtype.clone(), vec![], Nullability::NonNullable);
+        let empty_fixed_list = Scalar::fixed_size_list_from_scalars(
+            element_dtype.clone(),
+            vec![],
+            Nullability::NonNullable,
+        );
 
         assert!(matches!(
             empty_fixed_list.dtype(),
@@ -948,7 +946,7 @@ mod tests {
     #[test]
     fn test_fixed_size_list_cast_to_list() {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
-        let fixed_list = Scalar::fixed_size_list(
+        let fixed_list = Scalar::fixed_size_list_from_scalars(
             element_dtype.clone(),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -984,7 +982,7 @@ mod tests {
     #[test]
     fn test_list_cast_to_fixed_size_list() {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
-        let list = Scalar::list(
+        let list = Scalar::list_from_scalars(
             element_dtype.clone(),
             vec![
                 Scalar::primitive(10i32, Nullability::NonNullable),
@@ -1021,7 +1019,7 @@ mod tests {
     #[test]
     fn test_fixed_size_list_size_validation() {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
-        let list = Scalar::list(
+        let list = Scalar::list_from_scalars(
             element_dtype.clone(),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -1051,7 +1049,7 @@ mod tests {
     #[test]
     fn test_fixed_size_list_display() {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
-        let fixed_list = Scalar::fixed_size_list(
+        let fixed_list = Scalar::fixed_size_list_from_scalars(
             element_dtype,
             vec![
                 Scalar::primitive(100i32, Nullability::NonNullable),
@@ -1071,7 +1069,7 @@ mod tests {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
 
         // Create two equal fixed size lists.
-        let list1 = Scalar::fixed_size_list(
+        let list1 = Scalar::fixed_size_list_from_scalars(
             element_dtype.clone(),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -1080,7 +1078,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let list2 = Scalar::fixed_size_list(
+        let list2 = Scalar::fixed_size_list_from_scalars(
             element_dtype.clone(),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -1092,7 +1090,7 @@ mod tests {
         assert_eq!(list1, list2);
 
         // Create a different list.
-        let list3 = Scalar::fixed_size_list(
+        let list3 = Scalar::fixed_size_list_from_scalars(
             element_dtype,
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -1112,7 +1110,7 @@ mod tests {
     fn test_fixed_size_list_single_element() {
         // Test FixedSizeList[1].
         let element_dtype = Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable));
-        let single_element = Scalar::fixed_size_list(
+        let single_element = Scalar::fixed_size_list_from_scalars(
             element_dtype.clone(),
             vec![Scalar::primitive(42i64, Nullability::NonNullable)],
             Nullability::NonNullable,
@@ -1139,7 +1137,7 @@ mod tests {
     #[test]
     fn test_fixed_size_list_with_strings() {
         let element_dtype = Arc::new(DType::Utf8(Nullability::NonNullable));
-        let string_list = Scalar::fixed_size_list(
+        let string_list = Scalar::fixed_size_list_from_scalars(
             element_dtype,
             vec![
                 Scalar::utf8("hello", Nullability::NonNullable),
@@ -1171,7 +1169,7 @@ mod tests {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
 
         // FixedSizeList[3] of i32 = 3 * 4 bytes = 12 bytes.
-        let fixed_list = Scalar::fixed_size_list(
+        let fixed_list = Scalar::fixed_size_list_from_scalars(
             element_dtype.clone(),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -1183,11 +1181,12 @@ mod tests {
         assert_eq!(fixed_list.approx_nbytes(), 12);
 
         // Empty FixedSizeList[0] = 0 bytes.
-        let empty_list = Scalar::fixed_size_list(element_dtype, vec![], Nullability::NonNullable);
+        let empty_list =
+            Scalar::fixed_size_list_from_scalars(element_dtype, vec![], Nullability::NonNullable);
         assert_eq!(empty_list.approx_nbytes(), 0);
 
         // FixedSizeList with strings.
-        let string_list = Scalar::fixed_size_list(
+        let string_list = Scalar::fixed_size_list_from_scalars(
             Arc::new(DType::Utf8(Nullability::NonNullable)),
             vec![
                 Scalar::utf8("ab", Nullability::NonNullable),  // 2 bytes
@@ -1201,7 +1200,7 @@ mod tests {
     #[test]
     fn test_fixed_size_list_casting_with_nullability() {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
-        let fixed_list = Scalar::fixed_size_list(
+        let fixed_list = Scalar::fixed_size_list_from_scalars(
             element_dtype,
             vec![
                 Scalar::primitive(1i32, Nullability::Nullable),
@@ -1239,7 +1238,7 @@ mod tests {
     #[test]
     fn test_list_basic_operations() {
         // Create a simple list.
-        let list = Scalar::list(
+        let list = Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -1257,7 +1256,7 @@ mod tests {
     #[test]
     fn test_list_of_lists() {
         // Create nested lists without FixedSizeList.
-        let inner_list1 = Scalar::list(
+        let inner_list1 = Scalar::list_from_scalars(
             Arc::new(DType::Utf8(Nullability::NonNullable)),
             vec![
                 Scalar::utf8("a", Nullability::NonNullable),
@@ -1266,7 +1265,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let inner_list2 = Scalar::list(
+        let inner_list2 = Scalar::list_from_scalars(
             Arc::new(DType::Utf8(Nullability::NonNullable)),
             vec![
                 Scalar::utf8("c", Nullability::NonNullable),
@@ -1276,7 +1275,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let outer_list = Scalar::list(
+        let outer_list = Scalar::list_from_scalars(
             Arc::new(DType::List(
                 Arc::new(DType::Utf8(Nullability::NonNullable)),
                 Nullability::NonNullable,
@@ -1387,7 +1386,7 @@ mod tests {
             ],
         );
 
-        let list_of_structs = Scalar::list(
+        let list_of_structs = Scalar::list_from_scalars(
             Arc::new(struct_dtype),
             vec![struct1, struct2, struct3],
             Nullability::NonNullable,
@@ -1427,7 +1426,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let tags_list = Scalar::list(
+        let tags_list = Scalar::list_from_scalars(
             Arc::new(DType::Utf8(Nullability::NonNullable)),
             vec![
                 Scalar::utf8("rust", Nullability::NonNullable),
@@ -1474,7 +1473,7 @@ mod tests {
     #[test]
     fn test_deeply_nested_lists_only() {
         // Create a 3-level nested list structure without any FixedSizeList.
-        let level3 = Scalar::list(
+        let level3 = Scalar::list_from_scalars(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
@@ -1483,7 +1482,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let level2 = Scalar::list(
+        let level2 = Scalar::list_from_scalars(
             Arc::new(DType::List(
                 Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
                 Nullability::NonNullable,
@@ -1492,7 +1491,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let level1 = Scalar::list(
+        let level1 = Scalar::list_from_scalars(
             Arc::new(DType::List(
                 Arc::new(DType::List(
                     Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
