@@ -349,6 +349,13 @@ async fn main() -> VortexResult<()> {
                     .clone_dtoh(&nv12_device)
                     .map_err(|e| vortex_err!("NV12 dtoh copy failed: {e}"))?;
 
+                // Save raw NV12 frame for inspection:
+                //   ffplay -f rawvideo -pixel_format nv12 -video_size 3840x2160 /tmp/frame0.nv12
+                if frame_idx == 0 {
+                    std::fs::write("/tmp/frame0.nv12", &nv12_host)?;
+                    tracing::info!(nv12_bytes = nv12_host.len(), "saved raw NV12 frame 0");
+                }
+
                 // Write to NVENC input buffer (pitch-aware for NV12)
                 unsafe {
                     let mut lock = input_buffer

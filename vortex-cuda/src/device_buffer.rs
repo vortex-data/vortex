@@ -153,15 +153,15 @@ impl CudaBufferExt for BufferHandle {
     }
 
     fn cuda_device_ptr(&self) -> VortexResult<sys::CUdeviceptr> {
-        let ptr = self
+        let buf = self
             .as_device_opt()
             .ok_or_else(|| vortex_err!("Buffer is not on device"))?
             .as_any()
             .downcast_ref::<CudaDeviceBuffer>()
-            .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer"))?
-            .device_ptr;
+            .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer"))?;
 
-        Ok(ptr)
+        // Add offset to base pointer to account for sliced buffers.
+        Ok(buf.device_ptr + buf.offset as u64)
     }
 }
 
