@@ -36,6 +36,7 @@ use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sequence::SequenceVTable;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::mask::Mask;
 
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::LogicalType;
@@ -78,25 +79,27 @@ impl ArrayExporter {
             return Ok(false);
         }
 
-        if self.fields.is_empty() {
-            // In the case of a projection pushdown with zero columns duckdb will ask us for the
-            // `EMPTY_COLUMN_IDX`, which we define as a bool column, we can leave the vector as
-            // uninitialized and just return a DataChunk with the correct length.
-            // One place no fields can occur is in count(*) queries.
-            let chunk_len = duckdb_vector_size().min(self.remaining);
-            chunk.set_len(chunk_len);
-            self.remaining -= chunk_len;
-
-            return Ok(true);
-        }
-
         let chunk_len = duckdb_vector_size().min(self.remaining);
         let position = self.array_len - self.remaining;
         self.remaining -= chunk_len;
         chunk.set_len(chunk_len);
 
+        // Write projected Vortex fields into the first N chunk columns.
         for (i, field) in self.fields.iter_mut().enumerate() {
             field.export(position, chunk_len, chunk.get_vector_mut(i), &mut self.ctx)?;
+        }
+
+        // The chunk may have more columns than we project into (e.g.
+        // zero-projection scans like `COUNT(*)`). NULL-fill remaining
+        // columns so DuckDB doesn't read uninitialised memory.
+        let n_chunk_cols = chunk.column_count();
+        for i in self.fields.len()..n_chunk_cols {
+            let vec = chunk.get_vector_mut(i);
+            // Converting the vector to a constant null reference marks every
+            // row as NULL, which is safe regardless of the vector's logical type.
+            unsafe {
+                vec.set_validity(&Mask::AllFalse(chunk_len), 0, chunk_len);
+            }
         }
 
         Ok(true)
