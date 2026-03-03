@@ -120,6 +120,12 @@ impl DecimalBuilder {
         self.nulls.append_non_null();
     }
 
+    /// Appends `n` copies of `value` as non-null entries, directly writing into the buffer.
+    pub fn append_n_values<V: NativeDecimalType>(&mut self, value: V, n: usize) {
+        self.values.push_n(value, n);
+        self.nulls.append_n_non_nulls(n);
+    }
+
     /// Finishes the builder directly into a [`DecimalArray`].
     pub fn finish_into_decimal(&mut self) -> DecimalArray {
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());

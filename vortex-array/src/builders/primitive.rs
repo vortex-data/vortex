@@ -52,7 +52,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     }
 
     /// Appends `n` copies of `value` as non-null entries, directly writing into the buffer.
-    pub fn append_value_n(&mut self, value: T, n: usize) {
+    pub fn append_n_values(&mut self, value: T, n: usize) {
         self.values.push_n(value, n);
         self.nulls.append_n_non_nulls(n);
     }

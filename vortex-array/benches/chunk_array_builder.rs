@@ -134,6 +134,40 @@ fn chunked_constant_i32_append_to_builder(bencher: Bencher, (len, chunk_count): 
     })
 }
 
+const CONSTANT_UTF8_BENCH_ARGS: &[(&str, usize, usize)] = &[
+    // value, length, chunk_count
+    ("hi", 1000, 10),            // inline (≤12 bytes)
+    ("hello world!!", 1000, 10), // non-inline (>12 bytes)
+];
+
+#[divan::bench(args = CONSTANT_UTF8_BENCH_ARGS)]
+fn chunked_constant_utf8_append_to_builder(
+    bencher: Bencher,
+    (value, len, chunk_count): (&str, usize, usize),
+) {
+    let chunk = make_constant_utf8_chunks(value, len, chunk_count);
+
+    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
+        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
+        chunk
+            .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
+            .vortex_expect("append failed");
+        builder.finish()
+    })
+}
+
+fn make_constant_utf8_chunks(value: &str, len: usize, chunk_count: usize) -> ArrayRef {
+    use vortex_array::dtype::Nullability;
+    use vortex_array::scalar::Scalar;
+
+    (0..chunk_count)
+        .map(|_| {
+            ConstantArray::new(Scalar::utf8(value, Nullability::NonNullable), len).into_array()
+        })
+        .collect::<ChunkedArray>()
+        .into_array()
+}
+
 fn make_constant_i32_chunks(len: usize, chunk_count: usize) -> ArrayRef {
     // Each chunk is a ConstantArray of i32; dtype is I32/NonNullable via From<i32> for Scalar.
     (0..chunk_count)

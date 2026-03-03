@@ -107,6 +107,22 @@ impl VarBinViewBuilder {
         self.nulls.append_non_null();
     }
 
+    /// Appends `n` copies of `value` as non-null entries.
+    pub fn append_n_values<S: AsRef<[u8]>>(&mut self, value: S, n: usize) {
+        if n == 0 {
+            return;
+        }
+        let bytes = value.as_ref();
+        let view = if bytes.len() <= BinaryView::MAX_INLINED_SIZE {
+            BinaryView::make_view(bytes, 0, 0)
+        } else {
+            let (buffer_idx, offset) = self.append_value_to_buffer(bytes);
+            BinaryView::make_view(bytes, buffer_idx, offset)
+        };
+        self.views_builder.push_n(view, n);
+        self.nulls.append_n_non_nulls(n);
+    }
+
     fn flush_in_progress(&mut self) {
         if self.in_progress.is_empty() {
             return;
@@ -126,7 +142,10 @@ impl VarBinViewBuilder {
 
     /// append a non inlined value to self.in_progress.
     fn append_value_to_buffer(&mut self, value: &[u8]) -> (u32, u32) {
-        assert!(value.len() > 12, "must inline small strings");
+        assert!(
+            value.len() > BinaryView::MAX_INLINED_SIZE,
+            "must inline small strings"
+        );
         let required_cap = self.in_progress.len() + value.len();
         if self.in_progress.capacity() < required_cap {
             self.flush_in_progress();
