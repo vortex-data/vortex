@@ -45,11 +45,16 @@ impl ObjectCacheRef {
             .vortex_expect("object cache key should be valid C string");
         let opaque_ptr = Box::into_raw(Box::new(entry));
 
+        // Pass 0 to allow eviction by DuckDB, u64::MAX to prevent eviction, otherwise provide an
+        // estimate of the size of the object in bytes.
+        let estimated_size: u64 = 0;
+
         unsafe {
             cpp::duckdb_vx_object_cache_put(
                 self.as_ptr(),
                 key_cstr.as_ptr(),
-                opaque_ptr.cast(),
+                opaque_ptr as *mut c_void,
+                estimated_size,
                 Some(rust_box_deleter::<T>),
             );
         }
