@@ -36,7 +36,7 @@ impl ZipKernel for StructVTable {
             .unmasked_fields()
             .iter()
             .zip(if_false.unmasked_fields().iter())
-            .map(|(t, f)| ArrayBuiltins::zip(t, f.clone(), mask.clone()))
+            .map(|(t, f)| ArrayBuiltins::zip(mask, t.clone(), f.clone()))
             .collect::<VortexResult<Vec<_>>>()?;
 
         let validity = match (if_true.validity(), if_false.validity()) {
@@ -96,9 +96,9 @@ mod tests {
 
         let mask = Mask::from_iter([false, false, true, false]);
 
-        let result = if_true
-            .clone()
-            .zip(if_false.clone(), mask.into_array())
+        let result = mask
+            .into_array()
+            .zip(if_true.clone(), if_false.clone())
             .unwrap();
 
         insta::assert_snapshot!(result.display_table(), @r"
@@ -136,9 +136,9 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, false, false]);
 
-        let result = if_true
-            .clone()
-            .zip(if_false.clone(), mask.into_array())
+        let result = mask
+            .into_array()
+            .zip(if_true.clone(), if_false.clone())
             .unwrap();
 
         insta::assert_snapshot!(result.display_table(), @r"
