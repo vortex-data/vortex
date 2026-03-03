@@ -10,11 +10,8 @@
 //! the equivalent Arrow compute function.
 
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DynArray;
-use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArrayExt;
@@ -63,8 +60,8 @@ pub trait ExprBuiltins: Sized {
     /// Check if a list contains a value.
     fn list_contains(&self, value: Expression) -> VortexResult<Expression>;
 
-    /// Conditional selection: `result[i] = if mask[i] then self[i] else if_false[i]`.
-    fn zip(&self, if_false: Expression, mask: Expression) -> VortexResult<Expression>;
+    /// Conditional selection: `result[i] = if mask[i] then if_true[i] else if_false[i]`.
+    fn zip(&self, if_true: Expression, if_false: Expression) -> VortexResult<Expression>;
 
     /// Apply a binary operator to this expression and another.
     fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression>;
@@ -99,8 +96,8 @@ impl ExprBuiltins for Expression {
         ListContains.try_new_expr(EmptyOptions, [self.clone(), value])
     }
 
-    fn zip(&self, if_false: Expression, mask: Expression) -> VortexResult<Expression> {
-        Zip.try_new_expr(EmptyOptions, [self.clone(), if_false, mask])
+    fn zip(&self, if_true: Expression, if_false: Expression) -> VortexResult<Expression> {
+        Zip.try_new_expr(EmptyOptions, [if_true, if_false, self.clone()])
     }
 
     fn binary(&self, rhs: Expression, op: Operator) -> VortexResult<Expression> {
@@ -129,8 +126,8 @@ pub trait ArrayBuiltins: Sized {
     /// Boolean negation.
     fn not(&self) -> VortexResult<ArrayRef>;
 
-    /// Conditional selection: `result[i] = if mask[i] then self[i] else if_false[i]`.
-    fn zip(&self, if_false: ArrayRef, mask: ArrayRef) -> VortexResult<ArrayRef>;
+    /// Conditional selection: `result[i] = if mask[i] then if_true[i] else if_false[i]`.
+    fn zip(&self, if_true: ArrayRef, if_false: ArrayRef) -> VortexResult<ArrayRef>;
 
     /// Check if a list contains a value.
     fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef>;
@@ -157,13 +154,17 @@ impl ArrayBuiltins for ArrayRef {
     }
 
     fn fill_null(&self, fill_value: impl Into<Scalar>) -> VortexResult<ArrayRef> {
+        let fill_value = fill_value.into();
+        if !self.dtype().is_nullable() {
+            return self.cast(fill_value.dtype().clone());
+        }
         FillNull
             .try_new_array(
                 self.len(),
                 EmptyOptions,
                 [
                     self.clone(),
-                    ConstantArray::new(fill_value.into(), self.len()).into_array(),
+                    ConstantArray::new(fill_value, self.len()).into_array(),
                 ],
             )?
             .optimize()
@@ -191,11 +192,8 @@ impl ArrayBuiltins for ArrayRef {
             .optimize()
     }
 
-    fn zip(&self, if_false: ArrayRef, mask: ArrayRef) -> VortexResult<ArrayRef> {
-        let scalar_fn =
-            Zip.try_new_array(self.len(), EmptyOptions, [self.clone(), if_false, mask])?;
-        let mut ctx = ExecutionCtx::new(VortexSession::empty());
-        scalar_fn.execute::<ArrayRef>(&mut ctx)
+    fn zip(&self, if_true: ArrayRef, if_false: ArrayRef) -> VortexResult<ArrayRef> {
+        Zip.try_new_array(self.len(), EmptyOptions, [if_true, if_false, self.clone()])
     }
 
     fn list_contains(&self, value: ArrayRef) -> VortexResult<ArrayRef> {

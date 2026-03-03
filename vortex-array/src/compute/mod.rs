@@ -15,23 +15,11 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 
 use arcref::ArcRef;
-pub use boolean::*;
-#[expect(deprecated)]
-pub use cast::cast;
-pub use fill_null::*;
-pub use filter::*;
-#[expect(deprecated)]
-pub use invert::invert;
 pub use is_constant::*;
 pub use is_sorted::*;
 use itertools::Itertools;
-#[expect(deprecated)]
-pub use list_contains::list_contains;
-pub use mask::*;
 pub use min_max::*;
 pub use nan_count::*;
-#[allow(deprecated)]
-pub use numeric::*;
 use parking_lot::RwLock;
 pub use sum::*;
 use vortex_error::VortexError;
@@ -39,7 +27,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
-pub use zip::*;
 
 use crate::ArrayRef;
 use crate::DynArray;
@@ -49,22 +36,13 @@ use crate::scalar::Scalar;
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
-mod boolean;
-mod cast;
 #[cfg(feature = "_test-harness")]
 pub mod conformance;
-mod fill_null;
-mod filter;
-mod invert;
 mod is_constant;
 mod is_sorted;
-mod list_contains;
-mod mask;
 mod min_max;
 mod nan_count;
-mod numeric;
 mod sum;
-mod zip;
 
 /// An instance of a compute function holding the implementation vtable and a set of registered
 /// compute kernels.

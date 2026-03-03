@@ -174,10 +174,6 @@ pub fn vortex_buffer::BitBuffer::into_mut(self) -> vortex_buffer::BitBufferMut
 
 pub fn vortex_buffer::BitBuffer::try_into_mut(self) -> core::result::Result<vortex_buffer::BitBufferMut, Self>
 
-impl vortex_buffer::BitBuffer
-
-pub fn vortex_buffer::BitBuffer::iter_bit_views<const NB: usize>(&self) -> impl core::iter::traits::iterator::Iterator<Item = vortex_buffer::BitView<'_, NB>> + '_
-
 impl core::clone::Clone for vortex_buffer::BitBuffer
 
 pub fn vortex_buffer::BitBuffer::clone(&self) -> vortex_buffer::BitBuffer
@@ -372,10 +368,6 @@ pub unsafe fn vortex_buffer::BitBufferMut::value_unchecked(&self, index: usize) 
 
 pub fn vortex_buffer::BitBufferMut::with_capacity(capacity: usize) -> Self
 
-impl vortex_buffer::BitBufferMut
-
-pub fn vortex_buffer::BitBufferMut::iter_bit_views<const NB: usize>(&self) -> impl core::iter::traits::iterator::Iterator<Item = vortex_buffer::BitView<'_, NB>> + '_
-
 impl core::clone::Clone for vortex_buffer::BitBufferMut
 
 pub fn vortex_buffer::BitBufferMut::clone(&self) -> vortex_buffer::BitBufferMut
@@ -411,52 +403,6 @@ impl core::ops::bit::Not for vortex_buffer::BitBufferMut
 pub type vortex_buffer::BitBufferMut::Output = vortex_buffer::BitBufferMut
 
 pub fn vortex_buffer::BitBufferMut::not(self) -> Self::Output
-
-pub struct vortex_buffer::BitSlice
-
-pub vortex_buffer::BitSlice::len: usize
-
-pub vortex_buffer::BitSlice::start: usize
-
-pub struct vortex_buffer::BitView<'a, const NB: usize>
-
-impl<'a, const NB: usize> vortex_buffer::BitView<'a, NB>
-
-pub const vortex_buffer::BitView<'a, NB>::N: usize
-
-pub const vortex_buffer::BitView<'a, NB>::N_WORDS: usize
-
-pub fn vortex_buffer::BitView<'a, NB>::as_raw(&self) -> &[u8; NB]
-
-pub fn vortex_buffer::BitView<'a, NB>::from_slice(bits: &'a [u8]) -> Self
-
-pub fn vortex_buffer::BitView<'a, NB>::iter_ones<F>(&self, f: F) where F: core::ops::function::FnMut(usize)
-
-pub fn vortex_buffer::BitView<'a, NB>::iter_slices<F>(&self, f: F) where F: core::ops::function::FnMut(vortex_buffer::BitSlice)
-
-pub fn vortex_buffer::BitView<'a, NB>::iter_words(&self) -> impl core::iter::traits::iterator::Iterator<Item = usize> + '_
-
-pub fn vortex_buffer::BitView<'a, NB>::iter_zeros<F>(&self, f: F) where F: core::ops::function::FnMut(usize)
-
-pub fn vortex_buffer::BitView<'a, NB>::new(bits: &'a [u8; NB]) -> Self
-
-pub fn vortex_buffer::BitView<'a, NB>::new_owned(bits: [u8; NB]) -> Self
-
-pub fn vortex_buffer::BitView<'a, NB>::true_count(&self) -> usize
-
-pub fn vortex_buffer::BitView<'a, NB>::try_iter_ones<F>(&self, f: F) -> vortex_error::VortexResult<()> where F: core::ops::function::FnMut(usize) -> vortex_error::VortexResult<()>
-
-pub fn vortex_buffer::BitView<'a, NB>::with_prefix(n_true: usize) -> Self
-
-impl<const NB: usize> vortex_buffer::BitView<'static, NB>
-
-pub const fn vortex_buffer::BitView<'static, NB>::all_false() -> Self
-
-pub const fn vortex_buffer::BitView<'static, NB>::all_true() -> Self
-
-impl<const NB: usize> core::fmt::Debug for vortex_buffer::BitView<'_, NB>
-
-pub fn vortex_buffer::BitView<'_, NB>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_buffer::Buffer<T>
 

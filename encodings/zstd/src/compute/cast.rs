@@ -82,16 +82,13 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
-    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
 
     use crate::ZstdArray;
 
     #[test]
     fn test_cast_zstd_i32_to_i64() {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![1i32, 2, 3, 4, 5]),
-            Validity::NonNullable,
-        );
+        let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
 
         let casted = zstd
@@ -109,10 +106,7 @@ mod tests {
 
     #[test]
     fn test_cast_zstd_nullability_change() {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![10u32, 20, 30, 40]),
-            Validity::NonNullable,
-        );
+        let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]);
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
 
         let casted = zstd
@@ -128,7 +122,7 @@ mod tests {
     #[test]
     fn test_cast_sliced_zstd_nullable_to_nonnullable() {
         let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![10u32, 20, 30, 40, 50, 60]),
+            buffer![10u32, 20, 30, 40, 50, 60],
             Validity::from_iter([true, true, true, true, true, true]),
         );
         let zstd = ZstdArray::from_primitive(&values, 0, 128).unwrap();
@@ -171,19 +165,19 @@ mod tests {
 
     #[rstest]
     #[case::i32(PrimitiveArray::new(
-        Buffer::copy_from(vec![100i32, 200, 300, 400, 500]),
+        buffer![100i32, 200, 300, 400, 500],
         Validity::NonNullable,
     ))]
     #[case::f64(PrimitiveArray::new(
-        Buffer::copy_from(vec![1.1f64, 2.2, 3.3, 4.4, 5.5]),
+        buffer![1.1f64, 2.2, 3.3, 4.4, 5.5],
         Validity::NonNullable,
     ))]
     #[case::single(PrimitiveArray::new(
-        Buffer::copy_from(vec![42i64]),
+        buffer![42i64],
         Validity::NonNullable,
     ))]
     #[case::large(PrimitiveArray::new(
-        Buffer::copy_from((0..1000).map(|i| i as u32).collect::<Vec<_>>()),
+        buffer![0u32..1000],
         Validity::NonNullable,
     ))]
     fn test_cast_zstd_conformance(#[case] values: PrimitiveArray) {

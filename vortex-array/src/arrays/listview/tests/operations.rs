@@ -22,8 +22,6 @@ use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::is_constant;
-#[expect(deprecated)]
-use crate::compute::mask;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -511,13 +509,12 @@ fn test_mask_preserves_structure() {
 
     // Mask sets elements to null where true.
     let selection = Mask::from_iter([true, false, true, true]);
-    #[expect(deprecated)]
-    let result = mask(&listview, &selection).unwrap();
+    let result = listview.clone().mask((!&selection).into_array()).unwrap();
 
     assert_eq!(result.len(), 4); // Length is preserved.
     let result_list = result.to_listview();
 
-    // Check validity: true in mask means null.
+    // Check validity: true in selection means null.
     assert!(!result_list.is_valid(0).unwrap()); // Masked.
     assert!(result_list.is_valid(1).unwrap()); // Not masked.
     assert!(!result_list.is_valid(2).unwrap()); // Masked.
@@ -551,8 +548,7 @@ fn test_mask_with_existing_nulls() {
 
     // Mask additional elements.
     let selection = Mask::from_iter([false, true, true]);
-    #[expect(deprecated)]
-    let result = mask(&listview, &selection).unwrap();
+    let result = listview.clone().mask((!&selection).into_array()).unwrap();
     let result_list = result.to_listview();
 
     // Check combined validity:
@@ -572,8 +568,7 @@ fn test_mask_with_gaps() {
     let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
 
     let selection = Mask::from_iter([true, false, false]);
-    #[expect(deprecated)]
-    let result = mask(&listview, &selection).unwrap();
+    let result = listview.clone().mask((!&selection).into_array()).unwrap();
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 3);
@@ -605,8 +600,7 @@ fn test_mask_constant_arrays() {
     .to_array();
 
     let selection = Mask::from_iter([false, true, false]);
-    #[expect(deprecated)]
-    let result = mask(&const_list, &selection).unwrap();
+    let result = const_list.clone().mask((!&selection).into_array()).unwrap();
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 3);

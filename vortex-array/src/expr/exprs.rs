@@ -577,9 +577,9 @@ pub fn merge_opts(
 ///
 /// ```rust
 /// # use vortex_array::expr::{zip_expr, root, lit};
-/// let expr = zip_expr(root(), lit(0i32), lit(true));
+/// let expr = zip_expr(lit(true), root(), lit(0i32));
 /// ```
-pub fn zip_expr(if_true: Expression, if_false: Expression, mask: Expression) -> Expression {
+pub fn zip_expr(mask: Expression, if_true: Expression, if_false: Expression) -> Expression {
     Zip.new_expr(EmptyOptions, [if_true, if_false, mask])
 }
 

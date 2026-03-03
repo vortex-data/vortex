@@ -29,6 +29,7 @@ use crate::DynArrayEq;
 use crate::DynArrayHash;
 use crate::ExecutionCtx;
 use crate::LEGACY_SESSION;
+use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantVTable;
@@ -603,7 +604,7 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(Mask::new_true(self.len())),
             Validity::AllInvalid => Ok(Mask::new_false(self.len())),
-            Validity::Array(a) => a.try_to_mask_fill_null_false(),
+            Validity::Array(a) => Ok(a.to_bool().to_mask()),
         }
     }
 

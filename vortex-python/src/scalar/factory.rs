@@ -151,12 +151,14 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
                 )));
             }
 
+            let children: Vec<Scalar> = dict
+                .values()
+                .into_iter()
+                .map(|item| scalar_helper_inner(&item, None))
+                .try_collect()?;
             return Ok(Scalar::struct_(
                 DType::Struct(dtype.clone(), *nullability),
-                dict.values()
-                    .into_iter()
-                    .map(|item| scalar_helper_inner(&item, None))
-                    .try_collect()?,
+                children,
             ));
         } else {
             let values: Vec<Scalar> = dict
