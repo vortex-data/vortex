@@ -9,9 +9,7 @@ use anyhow::Context;
 use anyhow::Result;
 use clap::Parser;
 use cudarc::driver::CudaContext;
-use cudarc::driver::CudaSlice;
-use cudarc::driver::CudaStream;
-use cudarc::driver::DevicePtr;
+use cudarc::driver::result;
 use cudarc::driver::sys;
 use futures::StreamExt;
 use futures::TryStreamExt;
@@ -68,9 +66,24 @@ struct CachedObject {
 }
 
 struct GpuCachedObject {
-    _device: CudaSlice<u8>,
+    context: Arc<CudaContext>,
+    ptr: sys::CUdeviceptr,
     size: u64,
     ipc_handle: [u8; 64],
+}
+
+impl Drop for GpuCachedObject {
+    fn drop(&mut self) {
+        if self.ptr == 0 {
+            return;
+        }
+        if self.context.bind_to_thread().is_err() {
+            return;
+        }
+        unsafe {
+            let _ = result::free_sync(self.ptr);
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -215,42 +228,42 @@ fn build_gpu_cache(
     context
         .bind_to_thread()
         .context("failed to bind CUDA context to thread")?;
-    let stream = context.default_stream();
     let mut out = HashMap::with_capacity(objects.len());
 
     for (key, object) in objects {
-        let mut device = copy_to_device(&stream, object.data.as_ref())
+        let ptr = copy_to_device(&context, object.data.as_ref())
             .with_context(|| format!("failed to cache {key} on GPU"))?;
         let ipc_handle =
-            ipc_handle_for_slice(&mut device).with_context(|| format!("failed to export {key}"))?;
+            ipc_handle_for_ptr(ptr).with_context(|| format!("failed to export {key}"))?;
         out.insert(
             key.clone(),
             Arc::new(GpuCachedObject {
-                _device: device,
+                context: context.clone(),
+                ptr,
                 size: object.size,
                 ipc_handle,
             }),
         );
     }
 
-    stream
-        .synchronize()
-        .context("failed to synchronize GPU preload stream")?;
     info!(gpu_ordinal, objects = out.len(), "gpu cache ready");
     Ok(out)
 }
 
-fn copy_to_device(stream: &Arc<CudaStream>, data: &[u8]) -> Result<CudaSlice<u8>> {
-    let mut device = unsafe { stream.alloc::<u8>(data.len()) }
+fn copy_to_device(context: &Arc<CudaContext>, data: &[u8]) -> Result<sys::CUdeviceptr> {
+    anyhow::ensure!(!data.is_empty(), "cannot cache empty object to GPU");
+    context
+        .bind_to_thread()
+        .context("failed to bind CUDA context before alloc")?;
+    let ptr = unsafe { result::malloc_sync(data.len()) }
         .context("failed to allocate device memory for object")?;
-    stream
-        .memcpy_htod(data, &mut device)
-        .context("failed to copy object to device")?;
-    Ok(device)
+    unsafe {
+        result::memcpy_htod_sync(ptr, data).context("failed to copy object to device")?;
+    }
+    Ok(ptr)
 }
 
-fn ipc_handle_for_slice(slice: &mut CudaSlice<u8>) -> Result<[u8; 64]> {
-    let (ptr, _) = slice.device_ptr(slice.stream());
+fn ipc_handle_for_ptr(ptr: sys::CUdeviceptr) -> Result<[u8; 64]> {
     let mut handle = MaybeUninit::<sys::CUipcMemHandle>::uninit();
     unsafe {
         sys::cuIpcGetMemHandle(handle.as_mut_ptr(), ptr)
@@ -272,80 +285,96 @@ async fn handle_client(mut stream: TcpStream, cache: CachedStore) -> Result<()> 
             Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
             Err(err) => return Err(err.into()),
         };
+        handle_client_op(&mut stream, &cache, op).await?;
+    }
+}
 
-        match op {
-            OP_LIST => {
-                let prefix = read_string(&mut stream).await?;
-                stream.write_u8(STATUS_OK).await?;
-                let matching: Vec<_> = cache
-                    .keys
-                    .iter()
-                    .filter(|(key, _)| key.starts_with(prefix.as_str()))
-                    .collect();
-                stream
-                    .write_u32_le(u32::try_from(matching.len()).context("too many list results")?)
-                    .await?;
-                for (key, size) in matching {
-                    write_string(&mut stream, key).await?;
-                    stream.write_u64_le(*size).await?;
-                }
-            }
-            OP_SIZE => {
-                let key = read_string(&mut stream).await?;
-                if let Some(obj) = cache.objects.get(key.as_str()) {
-                    stream.write_u8(STATUS_OK).await?;
-                    stream.write_u64_le(obj.size).await?;
-                } else {
-                    write_error(&mut stream, &format!("object not found: {key}")).await?;
-                }
-            }
-            OP_READ => {
-                let key = read_string(&mut stream).await?;
-                let offset = stream.read_u64_le().await?;
-                let length_u32 = stream.read_u32_le().await?;
-                let length = usize::try_from(length_u32).context("request length exceeds usize")?;
-                let Some(obj) = cache.objects.get(key.as_str()) else {
-                    write_error(&mut stream, &format!("object not found: {key}")).await?;
-                    continue;
-                };
-                let start = usize::try_from(offset).context("offset exceeds usize")?;
-                let end = start.saturating_add(length);
-                if end > obj.data.len() {
-                    write_error(
-                        &mut stream,
-                        &format!(
-                            "range {}..{} out of bounds for object {} size {}",
-                            start,
-                            end,
-                            key,
-                            obj.data.len()
-                        ),
-                    )
-                    .await?;
-                    continue;
-                }
-
-                stream.write_u8(STATUS_OK).await?;
-                stream.write_u32_le(length_u32).await?;
-                stream.write_all(&obj.data[start..end]).await?;
-            }
-            OP_IPC_HANDLE => {
-                let key = read_string(&mut stream).await?;
-                if let Some(obj) = cache.gpu_objects.get(key.as_str()) {
-                    stream.write_u8(STATUS_OK).await?;
-                    stream.write_u64_le(obj.size).await?;
-                    stream.write_all(&obj.ipc_handle).await?;
-                } else {
-                    write_error(
-                        &mut stream,
-                        &format!("gpu object not found (did you start with --gpu-cache?): {key}"),
-                    )
-                    .await?;
-                }
-            }
-            other => {
-                write_error(&mut stream, &format!("unknown opcode: {other}")).await?;
-            }
+async fn handle_client_op(stream: &mut TcpStream, cache: &CachedStore, op: u8) -> Result<()> {
+    match op {
+        OP_LIST => handle_list_op(stream, cache).await,
+        OP_SIZE => handle_size_op(stream, cache).await,
+        OP_READ => handle_read_op(stream, cache).await,
+        OP_IPC_HANDLE => handle_ipc_handle_op(stream, cache).await,
+        other => {
+            write_error(stream, &format!("unknown opcode: {other}")).await?;
+            Ok(())
         }
     }
+}
+
+async fn handle_list_op(stream: &mut TcpStream, cache: &CachedStore) -> Result<()> {
+    let prefix = read_string(stream).await?;
+    stream.write_u8(STATUS_OK).await?;
+    let matching: Vec<_> = cache
+        .keys
+        .iter()
+        .filter(|(key, _)| key.starts_with(prefix.as_str()))
+        .collect();
+    stream
+        .write_u32_le(u32::try_from(matching.len()).context("too many list results")?)
+        .await?;
+    for (key, size) in matching {
+        write_string(stream, key).await?;
+        stream.write_u64_le(*size).await?;
+    }
+    Ok(())
+}
+
+async fn handle_size_op(stream: &mut TcpStream, cache: &CachedStore) -> Result<()> {
+    let key = read_string(stream).await?;
+    if let Some(obj) = cache.objects.get(key.as_str()) {
+        stream.write_u8(STATUS_OK).await?;
+        stream.write_u64_le(obj.size).await?;
+    } else {
+        write_error(stream, &format!("object not found: {key}")).await?;
+    }
+    Ok(())
+}
+
+async fn handle_read_op(stream: &mut TcpStream, cache: &CachedStore) -> Result<()> {
+    let key = read_string(stream).await?;
+    let offset = stream.read_u64_le().await?;
+    let length_u32 = stream.read_u32_le().await?;
+    let length = usize::try_from(length_u32).context("request length exceeds usize")?;
+    let Some(obj) = cache.objects.get(key.as_str()) else {
+        write_error(stream, &format!("object not found: {key}")).await?;
+        return Ok(());
+    };
+    let start = usize::try_from(offset).context("offset exceeds usize")?;
+    let end = start.saturating_add(length);
+    if end > obj.data.len() {
+        write_error(
+            stream,
+            &format!(
+                "range {}..{} out of bounds for object {} size {}",
+                start,
+                end,
+                key,
+                obj.data.len()
+            ),
+        )
+        .await?;
+        return Ok(());
+    }
+
+    stream.write_u8(STATUS_OK).await?;
+    stream.write_u32_le(length_u32).await?;
+    stream.write_all(&obj.data[start..end]).await?;
+    Ok(())
+}
+
+async fn handle_ipc_handle_op(stream: &mut TcpStream, cache: &CachedStore) -> Result<()> {
+    let key = read_string(stream).await?;
+    if let Some(obj) = cache.gpu_objects.get(key.as_str()) {
+        stream.write_u8(STATUS_OK).await?;
+        stream.write_u64_le(obj.size).await?;
+        stream.write_all(&obj.ipc_handle).await?;
+    } else {
+        write_error(
+            stream,
+            &format!("gpu object not found (did you start with --gpu-cache?): {key}"),
+        )
+        .await?;
+    }
+    Ok(())
 }

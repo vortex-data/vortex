@@ -902,13 +902,12 @@ fn read_env_bool(key: &str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
-static P2P_STREAM_REGISTRY: OnceLock<
-    std::sync::Mutex<Vec<std::sync::Arc<cudarc::driver::CudaStream>>>,
-> = OnceLock::new();
+static P2P_STREAM_REGISTRY: OnceLock<Mutex<Vec<std::sync::Arc<cudarc::driver::CudaStream>>>> =
+    OnceLock::new();
 
 fn register_p2p_stream(stream: &std::sync::Arc<cudarc::driver::CudaStream>) {
-    let registry = P2P_STREAM_REGISTRY.get_or_init(|| std::sync::Mutex::new(Vec::new()));
-    let mut guard = registry.lock().expect("p2p stream registry mutex poisoned");
+    let registry = P2P_STREAM_REGISTRY.get_or_init(|| Mutex::new(Vec::new()));
+    let mut guard = registry.lock();
     if !guard
         .iter()
         .any(|existing| std::sync::Arc::ptr_eq(existing, stream))
@@ -921,10 +920,7 @@ fn synchronize_registered_p2p_streams() -> Result<f64> {
     let Some(registry) = P2P_STREAM_REGISTRY.get() else {
         return Ok(0.0);
     };
-    let streams = registry
-        .lock()
-        .expect("p2p stream registry mutex poisoned")
-        .clone();
+    let streams = registry.lock().clone();
     if streams.is_empty() {
         return Ok(0.0);
     }
@@ -1387,7 +1383,7 @@ impl P2pReadSource {
         }
 
         let stream = self.next_stream();
-        let mut device = unsafe { stream.alloc::<u8>(length) }
+        let device = unsafe { stream.alloc::<u8>(length) }
             .map_err(|e| vortex_err!("failed to allocate device buffer for p2p read: {e}"))?;
         let (dst_ptr, _) = device.device_ptr(device.stream());
         let src_ptr = self.mapped.base_ptr + offset;
@@ -1412,7 +1408,7 @@ fn open_ipc_mem_handle(
     let mut ptr: sys::CUdeviceptr = 0;
     unsafe {
         sys::cuIpcOpenMemHandle_v2(
-            &mut ptr,
+            &raw mut ptr,
             handle,
             sys::CUipcMem_flags_enum::CU_IPC_MEM_LAZY_ENABLE_PEER_ACCESS as u32,
         )
