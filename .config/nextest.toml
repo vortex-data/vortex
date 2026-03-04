@@ -1,0 +1,3 @@
+[[profile.default.overrides]]
+filter = 'test(compress_large_int)'
+priority = 100
