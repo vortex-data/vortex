@@ -14,6 +14,7 @@ use crate::arrays::ListViewArray;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::compute;
+use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
@@ -293,11 +294,24 @@ impl ListViewArray {
             let last_size = self.size_at(self.len() - 1);
             last_offset + last_size
         } else {
+            // Offsets and sizes can have different primitive types.
+            // Cast both to a common type as required by `Operator::Add`.
+            let offsets_ptype = self.offsets().dtype().as_ptype();
+            let sizes_ptype = self.sizes().dtype().as_ptype();
+            let common = DType::Primitive(
+                if offsets_ptype.byte_width() >= sizes_ptype.byte_width() {
+                    offsets_ptype
+                } else {
+                    sizes_ptype
+                },
+                Nullability::NonNullable,
+            );
+            let offsets_for_add = self.offsets().cast(common.clone())?;
+            let sizes_for_add = self.sizes().cast(common)?;
+
             let min_max = compute::min_max(
-                &self
-                    .offsets()
-                    .clone()
-                    .binary(self.sizes().clone(), Operator::Add)
+                &offsets_for_add
+                    .binary(sizes_for_add, Operator::Add)
                     .vortex_expect("`offsets + sizes` somehow overflowed"),
             )
             .vortex_expect("Something went wrong while computing min and max")
@@ -537,6 +551,29 @@ mod tests {
         assert_arrays_eq!(
             exact.list_elements_at(1).unwrap(),
             PrimitiveArray::from_iter([3i32, 4])
+        );
+        Ok(())
+    }
+
+    /// Regression test for <https://github.com/vortex-data/vortex/issues/6773>.
+    #[test]
+    fn test_rebuild_trim_elements_mismatched_ptypes() -> VortexResult<()> {
+        let elements = PrimitiveArray::from_iter(vec![99i32, 10, 20, 30, 40, 98]).into_array();
+        let offsets = PrimitiveArray::from_iter(vec![1u32, 3]).into_array();
+        let sizes = PrimitiveArray::from_iter(vec![2u16, 2]).into_array();
+
+        let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+
+        let trimmed = listview.rebuild(ListViewRebuildMode::TrimElements)?;
+        assert_eq!(trimmed.elements().len(), 4);
+
+        assert_arrays_eq!(
+            trimmed.list_elements_at(0).unwrap(),
+            PrimitiveArray::from_iter([10i32, 20])
+        );
+        assert_arrays_eq!(
+            trimmed.list_elements_at(1).unwrap(),
+            PrimitiveArray::from_iter([30i32, 40])
         );
         Ok(())
     }
