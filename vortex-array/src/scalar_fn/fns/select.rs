@@ -138,6 +138,8 @@ impl ScalarFnVTable for Select {
         Ok(DType::Struct(projected, child_dtype.nullability()))
     }
 
+    // TODO(DK): append_to_builder: downcast the builder and append_to_builder each field
+
     fn execute(
         &self,
         selection: &FieldSelection,

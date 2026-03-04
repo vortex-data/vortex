@@ -130,6 +130,8 @@ impl ScalarFnVTable for Pack {
         Ok(Some(lit(true)))
     }
 
+    // TODO(DK): append_to_builder: split the builder into its parts and append_to_builder each child
+
     fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
         let len = args.row_count;
         let value_arrays = args.inputs;

@@ -15,6 +15,7 @@ use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 
 use crate::ArrayRef;
+use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -106,6 +107,15 @@ impl ScalarFnRef {
                 [IsNull.new_expr(EmptyOptions, [expr.clone()])],
             )
         }))
+    }
+
+    /// Execute the expression given the input arguments.
+    pub fn append_to_builder(
+        &self,
+        ctx: ExecutionArgs,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        self.0.append_to_builder(ctx, builder)
     }
 
     /// Execute the expression given the input arguments.

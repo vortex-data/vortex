@@ -19,6 +19,7 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -44,6 +45,11 @@ pub(super) trait DynScalarFn: 'static + Send + Sync + super::sealed::Sealed {
     fn options_any(&self) -> &dyn Any;
 
     // Bound methods — options accessed from self
+    fn append_to_builder(
+        &self,
+        ctx: ExecutionArgs,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()>;
     fn execute(&self, args: ExecutionArgs) -> VortexResult<ArrayRef>;
     fn return_dtype(&self, arg_types: &[DType]) -> VortexResult<DType>;
     fn reduce(
@@ -107,6 +113,47 @@ impl<V: ScalarFnVTable> DynScalarFn for ScalarFnInner<V> {
 
     fn options_any(&self) -> &dyn Any {
         &self.options
+    }
+
+    fn append_to_builder(
+        &self,
+        args: ExecutionArgs,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        // let expected_row_count = args.row_count;
+        // #[cfg(debug_assertions)]
+        // let expected_dtype = {
+        //     let args_dtypes: Vec<DType> = args
+        //         .inputs
+        //         .iter()
+        //         .map(|array| array.dtype().clone())
+        //         .collect();
+        //     V::return_dtype(&self.vtable, &self.options, &args_dtypes)
+        // }?;
+
+        V::append_to_builder(&self.vtable, &self.options, args, builder)?;
+
+        // assert_eq!(
+        //     result.len(),
+        //     expected_row_count,
+        //     "Expression execution {} returned vector of length {}, but expected {}",
+        //     self.vtable.id(),
+        //     result.len(),
+        //     expected_row_count,
+        // );
+
+        // #[cfg(debug_assertions)]
+        // {
+        //     vortex_error::vortex_ensure!(
+        //         result.dtype() == &expected_dtype,
+        //         "Expression execution {} returned vector of invalid dtype. Expected {}, got {}",
+        //         self.vtable.id(),
+        //         expected_dtype,
+        //         result.dtype(),
+        //     );
+        // }
+
+        Ok(())
     }
 
     fn execute(&self, args: ExecutionArgs) -> VortexResult<ArrayRef> {

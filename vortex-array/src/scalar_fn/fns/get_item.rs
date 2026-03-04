@@ -12,6 +12,7 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::arrays::StructArray;
+use crate::builders::ArrayBuilder;
 use crate::builtins::ArrayBuiltins;
 use crate::builtins::ExprBuiltins;
 use crate::dtype::DType;
@@ -103,6 +104,30 @@ impl ScalarFnVTable for GetItem {
         }
 
         Ok(field_dtype)
+    }
+
+    fn append_to_builder(
+        &self,
+        field_name: &FieldName,
+        mut args: ExecutionArgs,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        let input = args
+            .inputs
+            .pop()
+            .vortex_expect("missing input for GetItem expression")
+            .execute::<StructArray>(args.ctx)?;
+        let field = input.unmasked_field_by_name(field_name).cloned()?;
+
+        match input.dtype().nullability() {
+            Nullability::NonNullable => builder.extend_from_array(&field),
+            Nullability::Nullable => {
+                // TODO(DK): use extend_from_array and then mutate the validity with input.validity().
+                builder.extend_from_array(&field.mask(input.validity()?.to_array(input.len()))?)
+            }
+        }
+
+        Ok(())
     }
 
     fn execute(&self, field_name: &FieldName, mut args: ExecutionArgs) -> VortexResult<ArrayRef> {

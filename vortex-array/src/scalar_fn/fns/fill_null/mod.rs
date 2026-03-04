@@ -92,6 +92,8 @@ impl ScalarFnVTable for FillNull {
             .with_nullability(arg_dtypes[1].nullability()))
     }
 
+    // TODO(DK): append_to_builder and then mutate in-place.
+
     fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
         let [input, fill_value]: [ArrayRef; _] = args
             .inputs

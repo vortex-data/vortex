@@ -28,6 +28,7 @@ use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::expr::Expression;
@@ -193,6 +194,20 @@ impl VTable for ScalarFnVTable {
         Ok(())
     }
 
+    fn append_to_builder(
+        array: &Self::Array,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
+        let args = ExecutionArgs {
+            inputs: array.children.clone(),
+            row_count: array.len,
+            ctx,
+        };
+        array.scalar_fn.append_to_builder(args, builder)
+    }
+
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
         let args = ExecutionArgs {
@@ -356,6 +371,15 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
 
     fn return_dtype(&self, options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
         Ok(options.0.dtype().clone())
+    }
+
+    fn append_to_builder(
+        &self,
+        options: &Self::Options,
+        args: ExecutionArgs,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        options.0.append_to_builder(builder, args.ctx)
     }
 
     fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {

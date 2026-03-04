@@ -17,6 +17,7 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -80,6 +81,16 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
 
     /// Compute the return [`DType`] of the expression if evaluated over the given input types.
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType>;
+
+    fn append_to_builder(
+        &self,
+        options: &Self::Options,
+        args: ExecutionArgs,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        self.execute(options, args)
+            .map(|a| builder.extend_from_array(&a))
+    }
 
     /// Execute the expression over the input arguments.
     ///
