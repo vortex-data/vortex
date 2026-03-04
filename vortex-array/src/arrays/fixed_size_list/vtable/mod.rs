@@ -217,6 +217,14 @@ impl VTable for FixedSizeListVTable {
         Ok(())
     }
 
+    fn append_to_builder(
+        array: &Self::Array,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        array.append_to_builder(builder, ctx)
+    }
+
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         Ok(array.to_array())
     }
