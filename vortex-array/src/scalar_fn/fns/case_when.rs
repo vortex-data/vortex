@@ -11,7 +11,6 @@ use std::sync::Arc;
 use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_panic;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
@@ -28,7 +27,6 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::zip::zip_impl;
 
 /// Options for the n-ary CaseWhen expression.
@@ -39,6 +37,13 @@ pub struct CaseWhenOptions {
     /// Whether an ELSE clause is present.
     /// If false, unmatched rows return NULL.
     pub has_else: bool,
+}
+
+impl CaseWhenOptions {
+    /// Total number of child expressions: 2 per WHEN/THEN pair, plus 1 if ELSE is present.
+    pub fn num_children(&self) -> usize {
+        self.num_when_then_pairs as usize * 2 + usize::from(self.has_else)
+    }
 }
 
 impl fmt::Display for CaseWhenOptions {
@@ -88,20 +93,19 @@ impl ScalarFnVTable for CaseWhen {
     }
 
     fn arity(&self, options: &Self::Options) -> Arity {
-        let num_children = options.num_when_then_pairs as usize * 2 + usize::from(options.has_else);
-        Arity::Exact(num_children)
+        Arity::Exact(options.num_children())
     }
 
     fn child_name(&self, options: &Self::Options, child_idx: usize) -> ChildName {
-        let num_when_then_children = options.num_when_then_pairs as usize * 2;
-        if child_idx < num_when_then_children {
+        let num_pair_children = options.num_when_then_pairs as usize * 2;
+        if child_idx < num_pair_children {
             let pair_idx = child_idx / 2;
             if child_idx.is_multiple_of(2) {
-                ChildName::from(Arc::from(format!("when_{}", pair_idx)))
+                ChildName::from(Arc::from(format!("when_{pair_idx}")))
             } else {
-                ChildName::from(Arc::from(format!("then_{}", pair_idx)))
+                ChildName::from(Arc::from(format!("then_{pair_idx}")))
             }
-        } else if options.has_else && child_idx == num_when_then_children {
+        } else if options.has_else && child_idx == num_pair_children {
             ChildName::from("else")
         } else {
             unreachable!("Invalid child index {} for CaseWhen", child_idx)
@@ -124,11 +128,8 @@ impl ScalarFnVTable for CaseWhen {
             )?;
         }
         if options.has_else {
-            write!(
-                f,
-                " ELSE {}",
-                expr.child(options.num_when_then_pairs as usize * 2)
-            )?;
+            let else_idx = options.num_when_then_pairs as usize * 2;
+            write!(f, " ELSE {}", expr.child(else_idx))?;
         }
         write!(f, " END")
     }
@@ -138,7 +139,7 @@ impl ScalarFnVTable for CaseWhen {
             vortex_bail!("CaseWhen must have at least one WHEN/THEN pair");
         }
 
-        let expected_len = options.num_when_then_pairs as usize * 2 + usize::from(options.has_else);
+        let expected_len = options.num_children();
         if arg_dtypes.len() != expected_len {
             vortex_bail!(
                 "CaseWhen expects {expected_len} argument dtypes, got {}",
@@ -146,41 +147,36 @@ impl ScalarFnVTable for CaseWhen {
             );
         }
 
-        // The return dtype is based on the THEN expression (index 1)
-        let then_dtype = &arg_dtypes[1];
+        // The return dtype is based on the first THEN expression (index 1).
+        // Validate all other THEN branches match and union their nullability.
+        let first_then = &arg_dtypes[1];
+        let mut result_dtype = first_then.clone();
 
         for i in 1..options.num_when_then_pairs as usize {
-            let current_then_dtype = &arg_dtypes[i * 2 + 1];
-            if !then_dtype.eq_ignore_nullability(current_then_dtype) {
+            let then_i = &arg_dtypes[i * 2 + 1];
+            if !first_then.eq_ignore_nullability(then_i) {
                 vortex_bail!(
                     "CaseWhen THEN dtypes must match (ignoring nullability), got {} and {}",
-                    then_dtype,
-                    current_then_dtype
+                    first_then,
+                    then_i
                 );
             }
+            result_dtype = result_dtype.union_nullability(then_i.nullability());
         }
 
-        let mut result_dtype = then_dtype.clone();
-
-        // Union nullability across all THEN branches
-        for i in 1..options.num_when_then_pairs as usize {
-            result_dtype = result_dtype.union_nullability(arg_dtypes[i * 2 + 1].nullability());
-        }
-
-        // If there's no ELSE, the result is always nullable (unmatched rows are NULL)
-        if !options.has_else {
-            result_dtype = result_dtype.as_nullable();
-        } else {
+        if options.has_else {
             let else_dtype = &arg_dtypes[options.num_when_then_pairs as usize * 2];
-            if !then_dtype.eq_ignore_nullability(else_dtype) {
+            if !first_then.eq_ignore_nullability(else_dtype) {
                 vortex_bail!(
                     "CaseWhen THEN and ELSE dtypes must match (ignoring nullability), got {} and {}",
-                    then_dtype,
+                    first_then,
                     else_dtype
                 );
             }
-
             result_dtype = result_dtype.union_nullability(else_dtype.nullability());
+        } else {
+            // No ELSE means unmatched rows are NULL
+            result_dtype = result_dtype.as_nullable();
         }
 
         Ok(result_dtype)
@@ -234,99 +230,6 @@ impl ScalarFnVTable for CaseWhen {
     }
 }
 
-/// Creates a binary CASE WHEN expression with an ELSE clause.
-///
-/// # Arguments
-/// - `condition`: Boolean expression for the WHEN clause
-/// - `then_value`: Value to return when condition is true
-/// - `else_value`: Value to return when condition is false
-///
-/// # Example
-/// ```ignore
-/// // CASE WHEN x > 0 THEN 'positive' ELSE 'non-positive' END
-/// case_when(gt(col("x"), lit(0)), lit("positive"), lit("non-positive"))
-/// ```
-pub fn case_when(
-    condition: Expression,
-    then_value: Expression,
-    else_value: Expression,
-) -> Expression {
-    let options = CaseWhenOptions {
-        num_when_then_pairs: 1,
-        has_else: true,
-    };
-    CaseWhen.new_expr(options, [condition, then_value, else_value])
-}
-
-/// Creates a binary CASE WHEN expression without an ELSE clause.
-///
-/// Returns NULL when the condition is false.
-///
-/// # Arguments
-/// - `condition`: Boolean expression for the WHEN clause
-/// - `then_value`: Value to return when condition is true
-///
-/// # Example
-/// ```ignore
-/// // CASE WHEN x > 0 THEN 'positive' END
-/// case_when_no_else(gt(col("x"), lit(0)), lit("positive"))
-/// ```
-pub fn case_when_no_else(condition: Expression, then_value: Expression) -> Expression {
-    let options = CaseWhenOptions {
-        num_when_then_pairs: 1,
-        has_else: false,
-    };
-    CaseWhen.new_expr(options, [condition, then_value])
-}
-
-/// Creates a nested CASE WHEN expression from multiple WHEN/THEN pairs.
-///
-/// This constructs a single n-ary CASE WHEN expression.
-///
-/// # Arguments
-/// - `when_then_pairs`: Vec of (condition, value) pairs
-/// - `else_value`: Optional else expression (if None, unmatched rows return NULL)
-///
-/// # Example
-/// ```ignore
-/// // CASE WHEN x > 10 THEN 'high' WHEN x > 5 THEN 'medium' ELSE 'low' END
-/// nested_case_when(
-///     vec![
-///         (gt(col("x"), lit(10)), lit("high")),
-///         (gt(col("x"), lit(5)), lit("medium")),
-///     ],
-///     Some(lit("low")),
-/// )
-/// ```
-pub fn nested_case_when(
-    when_then_pairs: Vec<(Expression, Expression)>,
-    else_value: Option<Expression>,
-) -> Expression {
-    assert!(
-        !when_then_pairs.is_empty(),
-        "nested_case_when requires at least one when/then pair"
-    );
-
-    let mut children =
-        Vec::with_capacity(when_then_pairs.len() * 2 + usize::from(else_value.is_some()));
-    for (condition, then_value) in when_then_pairs {
-        children.push(condition);
-        children.push(then_value);
-    }
-    if let Some(else_expr) = else_value {
-        children.push(else_expr);
-    }
-
-    let Ok(num_when_then_pairs) = u32::try_from(children.len() / 2) else {
-        vortex_panic!("nested_case_when has too many children");
-    };
-    let options = CaseWhenOptions {
-        num_when_then_pairs,
-        has_else: children.len() % 2 == 1,
-    };
-    CaseWhen.new_expr(options, children)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -346,11 +249,14 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::case_when;
+    use crate::expr::case_when_no_else;
     use crate::expr::col;
     use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::gt;
     use crate::expr::lit;
+    use crate::expr::nested_case_when;
     use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
