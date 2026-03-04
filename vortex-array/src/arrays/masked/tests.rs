@@ -5,7 +5,7 @@ use rstest::rstest;
 use vortex_error::VortexResult;
 
 use super::*;
-use crate::Array;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::ToCanonical as _;
 use crate::arrays::PrimitiveArray;

@@ -26,7 +26,7 @@ impl OperationsVTable<DecimalVTable> for DecimalVTable {
 mod tests {
     use vortex_buffer::buffer;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::arrays::DecimalArray;
     use crate::arrays::DecimalVTable;
     use crate::dtype::DecimalDType;

@@ -19,9 +19,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
@@ -39,16 +39,16 @@ use crate::validity::Validity;
 /// The logic is split across several "VTable" traits to enable easier code organization than
 /// simply lumping everything into a single trait.
 ///
-/// From this [`VTable`] trait, we derive implementations for the sealed [`Array`] and [`DynVTable`]
+/// From this [`VTable`] trait, we derive implementations for the sealed [`DynArray`] and [`DynVTable`]
 /// traits.
 ///
 /// The functions defined in these vtable traits will typically document their pre- and
-/// post-conditions. The pre-conditions are validated inside the [`Array`] and [`DynVTable`]
+/// post-conditions. The pre-conditions are validated inside the [`DynArray`] and [`DynVTable`]
 /// implementations so do not need to be checked in the vtable implementations (for example, index
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
-    type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Array> + IntoArray;
+    type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn DynArray> + IntoArray;
     type Metadata: Debug;
 
     type OperationsVTable: OperationsVTable<Self>;
@@ -310,15 +310,15 @@ pub fn patches_child_name(idx: usize) -> &'static str {
 macro_rules! vtable {
     ($V:ident) => {
         $crate::aliases::paste::paste! {
-            impl AsRef<dyn $crate::Array> for [<$V Array>] {
-                fn as_ref(&self) -> &dyn $crate::Array {
+            impl AsRef<dyn $crate::DynArray> for [<$V Array>] {
+                fn as_ref(&self) -> &dyn $crate::DynArray {
                     // We can unsafe cast ourselves to an ArrayAdapter.
                     unsafe { &*(self as *const [<$V Array>] as *const $crate::ArrayAdapter<[<$V VTable>]>) }
                 }
             }
 
             impl std::ops::Deref for [<$V Array>] {
-                type Target = dyn $crate::Array;
+                type Target = dyn $crate::DynArray;
 
                 fn deref(&self) -> &Self::Target {
                     // We can unsafe cast ourselves to an ArrayAdapter.

@@ -241,8 +241,8 @@ mod test {
     use vortex_error::vortex_panic;
     use vortex_mask::AllOr;
 
-    use crate::Array;
     use crate::ArrayRef;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::ToCanonical;

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use cudarc::driver::CudaFunction;
@@ -16,13 +15,11 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBufferExt;
 use vortex::array::match_each_integer_ptype;
-use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::dtype::NativePType;
 use vortex::encodings::fastlanes::BitPackedArray;
 use vortex::encodings::fastlanes::BitPackedArrayParts;
 use vortex::encodings::fastlanes::BitPackedVTable;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
@@ -32,7 +29,8 @@ use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::kernel::patches::execute_patches;
+use crate::kernel::patches::gpu::GPUPatches;
+use crate::kernel::patches::types::transpose_patches;
 
 /// CUDA decoder for bit-packed arrays.
 #[derive(Debug)]
@@ -87,6 +85,8 @@ pub fn bitpacked_cuda_launch_config(output_width: usize, len: usize) -> VortexRe
     })
 }
 
+unsafe impl DeviceRepr for GPUPatches {}
+
 #[instrument(skip_all)]
 pub(crate) async fn decode_bitpacked<A>(
     array: BitPackedArray,
@@ -123,27 +123,40 @@ where
     let cuda_function = bitpacked_cuda_kernel(bit_width, output_width, ctx)?;
     let config = bitpacked_cuda_launch_config(output_width, len)?;
 
-    ctx.launch_kernel_config(&cuda_function, config, len, |args| {
-        args.arg(&input_view).arg(&output_view).arg(&reference);
-    })?;
+    // We hold this here to keep the device buffers alive.
+    let device_patches = if let Some(patches) = patches {
+        Some(transpose_patches(&patches, ctx).await?)
+    } else {
+        None
+    };
 
-    let output_handle = match patches {
-        None => BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len))),
-        Some(p) => {
-            let output_buf = output_buf.slice_typed::<A>(offset..(offset + len));
-            let buf = output_buf
-                .as_any()
-                .downcast_ref::<CudaDeviceBuffer>()
-                .vortex_expect("we created this as CudaDeviceBuffer")
-                .clone();
-
-            let patched_buf = match_each_unsigned_integer_ptype!(p.indices_ptype()?, |I| {
-                execute_patches::<A, I>(p, buf, ctx).await?
-            });
-
-            BufferHandle::new_device(Arc::new(patched_buf))
+    let patches_arg = if let Some(p) = &device_patches {
+        GPUPatches {
+            lane_offsets: p.lane_offsets.cuda_device_ptr()? as _,
+            indices: p.indices.cuda_device_ptr()? as _,
+            values: p.values.cuda_device_ptr()? as _,
+        }
+    } else {
+        // NULL lane_offsets signals no patches to the kernel
+        GPUPatches {
+            lane_offsets: std::ptr::null_mut(),
+            indices: std::ptr::null_mut(),
+            values: std::ptr::null_mut(),
         }
     };
+
+    ctx.launch_kernel_config(&cuda_function, config, len, |args| {
+        args.arg(&input_view)
+            .arg(&output_view)
+            .arg(&reference)
+            .arg(&patches_arg);
+    })?;
+
+    // NOTE: we must synchronize here, as the device patches are only alive for this call.
+    ctx.synchronize_stream()?;
+
+    let output_handle =
+        BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len)));
 
     // Build result with newly allocated buffer
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
@@ -161,6 +174,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
+    use vortex::array::dtype::NativePType;
     use vortex::array::session::ArraySession;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::array::vtable::VTable;
@@ -172,12 +186,50 @@ mod tests {
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
+    #[rstest]
+    #[case::u8((0u8..128u8).cycle().take(2048), 6)]
+    #[case::u32((0u16..128u16).cycle().take(2048), 6)]
+    #[case::u16((0u32..128u32).cycle().take(2048), 6)]
+    #[case::u16((0u64..128u64).cycle().take(2048), 6)]
+    fn test_patched<T: NativePType>(
+        #[case] iter: impl Iterator<Item = T>,
+        #[case] bw: u8,
+    ) -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = PrimitiveArray::new(iter.collect::<Buffer<_>>(), NonNullable);
+
+        // Last two items should be patched
+        let bp_with_patches = BitPackedArray::encode(&array.to_array(), bw)?;
+        assert!(bp_with_patches.patches().is_some());
+
+        let cpu_result = bp_with_patches.to_canonical()?.into_array();
+
+        let gpu_result = block_on(async {
+            BitPackedExecutor
+                .execute(bp_with_patches.to_array(), &mut cuda_ctx)
+                .await
+                .vortex_expect("GPU decompression failed")
+                .into_host()
+                .await
+                .map(|a| a.into_array())
+        })?;
+
+        assert_arrays_eq!(cpu_result, gpu_result);
+
+        Ok(())
+    }
+
     #[test]
     fn test_patches() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let array = PrimitiveArray::new((0u16..=513).collect::<Buffer<_>>(), NonNullable);
+        let array = PrimitiveArray::new(
+            (0u16..=513).cycle().take(3072).collect::<Buffer<_>>(),
+            NonNullable,
+        );
 
         // Last two items should be patched
         let bp_with_patches = BitPackedArray::encode(&array.to_array(), 9)?;

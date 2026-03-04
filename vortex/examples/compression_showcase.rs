@@ -8,8 +8,8 @@
 //!
 //! Run with: cargo run --example compression_showcase
 
-use vortex::array::Array;
 use vortex::array::ArrayRef;
+use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;

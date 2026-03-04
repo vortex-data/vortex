@@ -288,8 +288,8 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_error::vortex_bail;
 
-    use crate::Array;
     use crate::ArrayRef;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;

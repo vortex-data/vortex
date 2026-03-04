@@ -4,7 +4,7 @@
 use vortex_buffer::buffer;
 
 use super::DictArray;
-use crate::Array;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ListArray;

@@ -9,10 +9,10 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 
 use crate::AnyCanonical;
-use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::CanonicalView;
+use crate::DynArray;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -115,8 +115,8 @@ pub enum ColumnarView<'a> {
     Constant(&'a ConstantArray),
 }
 
-impl<'a> AsRef<dyn Array> for ColumnarView<'a> {
-    fn as_ref(&self) -> &dyn Array {
+impl<'a> AsRef<dyn DynArray> for ColumnarView<'a> {
+    fn as_ref(&self) -> &dyn DynArray {
         match self {
             ColumnarView::Canonical(canonical) => canonical.as_ref(),
             ColumnarView::Constant(constant) => constant.as_ref(),
@@ -128,7 +128,7 @@ pub struct AnyColumnar;
 impl Matcher for AnyColumnar {
     type Match<'a> = ColumnarView<'a>;
 
-    fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
+    fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
         if let Some(constant) = array.as_opt::<ConstantVTable>() {
             Some(ColumnarView::Constant(constant))
         } else {

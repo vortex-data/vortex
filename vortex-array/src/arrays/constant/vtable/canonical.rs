@@ -314,7 +314,7 @@ mod tests {
     use itertools::Itertools;
     use vortex_error::VortexResult;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::ListViewRebuildMode;

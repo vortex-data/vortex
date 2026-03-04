@@ -4,7 +4,7 @@
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::Array;
+use crate::DynArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::compute::IsConstantKernel;
@@ -58,7 +58,7 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::ChunkedArray;
     use crate::dtype::DType;

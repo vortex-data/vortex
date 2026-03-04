@@ -5,9 +5,9 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
@@ -58,7 +58,7 @@ pub(super) fn _canonicalize(
     })
 }
 
-/// Packs many [`StructArray`]s to instead be a single [`StructArray`], where the [`Array`] for each
+/// Packs many [`StructArray`]s to instead be a single [`StructArray`], where the [`DynArray`] for each
 /// field is a [`ChunkedArray`].
 ///
 /// The caller guarantees there are at least 2 chunks.

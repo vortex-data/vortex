@@ -5,7 +5,7 @@
 
 use divan::Bencher;
 use itertools::repeat_n;
-use vortex_array::Array;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;

@@ -167,8 +167,8 @@ impl MessageDecoder {
 #[cfg(test)]
 mod test {
     use bytes::BytesMut;
-    use vortex_array::Array;
     use vortex_array::ArrayRef;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_buffer::buffer;

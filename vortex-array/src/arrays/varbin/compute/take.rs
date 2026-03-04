@@ -250,7 +250,7 @@ mod tests {
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;

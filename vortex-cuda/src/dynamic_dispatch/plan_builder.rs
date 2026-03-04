@@ -8,8 +8,8 @@
 //! dynamic dispatch kernel can execute in a single launch.
 
 use futures::executor::block_on;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
+use vortex::array::DynArray;
 use vortex::array::arrays::DictVTable;
 use vortex::array::arrays::PrimitiveArrayParts;
 use vortex::array::arrays::PrimitiveVTable;

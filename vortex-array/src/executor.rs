@@ -11,9 +11,9 @@ use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
-use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::DynArray;
 use crate::IntoArray;
 
 /// Marker trait for types that an [`ArrayRef`] can be executed into.
@@ -27,7 +27,7 @@ pub trait Executable: Sized {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self>;
 }
 
-impl dyn Array + '_ {
+impl dyn DynArray + '_ {
     /// Execute this array to produce an instance of `E`.
     ///
     /// See the [`Executable`] implementation for details on how this execution is performed.

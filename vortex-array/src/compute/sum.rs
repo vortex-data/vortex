@@ -13,8 +13,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray as _;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
@@ -71,7 +71,7 @@ pub fn sum(array: &ArrayRef) -> VortexResult<Scalar> {
 
 /// For unary compute functions, it's useful to just have this short-cut.
 pub struct SumArgs<'a> {
-    pub array: &'a dyn Array,
+    pub array: &'a dyn DynArray,
     pub accumulator: &'a Scalar,
 }
 

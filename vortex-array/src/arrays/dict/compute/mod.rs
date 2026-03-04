@@ -18,8 +18,8 @@ use vortex_mask::Mask;
 use super::DictArray;
 use super::DictVTable;
 use super::TakeExecute;
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::filter::FilterReduce;
@@ -57,8 +57,8 @@ mod test {
     use itertools::Itertools;
     use vortex_buffer::buffer;
 
-    use crate::Array;
     use crate::ArrayRef;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;

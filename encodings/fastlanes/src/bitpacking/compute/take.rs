@@ -5,8 +5,8 @@ use std::mem;
 use std::mem::MaybeUninit;
 
 use fastlanes::BitPacking;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
@@ -151,7 +151,7 @@ mod test {
     use rand::distr::Uniform;
     use rand::rng;
     use rstest::rstest;
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;

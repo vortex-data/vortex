@@ -9,8 +9,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
@@ -40,7 +40,7 @@ impl Datum {
         }
     }
 
-    /// Create a new [`Datum`] from an [`Array`], which can then be passed to Arrow compute.
+    /// Create a new [`Datum`] from an [`DynArray`], which can then be passed to Arrow compute.
     /// This not try and convert the array to a scalar if it is constant.
     pub fn try_new_array(array: &ArrayRef) -> VortexResult<Self> {
         Ok(Self {

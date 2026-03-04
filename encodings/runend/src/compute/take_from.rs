@@ -52,7 +52,7 @@ impl ExecuteParentKernel<RunEndVTable> for RunEndVTableTakeFrom {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::arrays::DictArray;

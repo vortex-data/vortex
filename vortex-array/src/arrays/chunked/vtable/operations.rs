@@ -3,7 +3,7 @@
 
 use vortex_error::VortexResult;
 
-use crate::Array;
+use crate::DynArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::scalar::Scalar;

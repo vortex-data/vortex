@@ -4,7 +4,6 @@
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;

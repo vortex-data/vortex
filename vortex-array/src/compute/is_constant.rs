@@ -10,8 +10,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray as _;
 use crate::arrays::ConstantVTable;
 use crate::arrays::NullVTable;
@@ -238,7 +238,7 @@ impl<V: VTable + IsConstantKernel> Kernel for IsConstantKernelAdapter<V> {
 }
 
 struct IsConstantArgs<'a> {
-    array: &'a dyn Array,
+    array: &'a dyn DynArray,
     options: &'a IsConstantOpts,
 }
 

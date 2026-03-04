@@ -16,9 +16,9 @@ impl core::clone::Clone for vortex_pco::PcoArray
 
 pub fn vortex_pco::PcoArray::clone(&self) -> vortex_pco::PcoArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_pco::PcoArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_pco::PcoArray
 
-pub fn vortex_pco::PcoArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_pco::PcoArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_pco::PcoArray> for vortex_array::array::ArrayRef
 
@@ -30,7 +30,7 @@ pub fn vortex_pco::PcoArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> cor
 
 impl core::ops::deref::Deref for vortex_pco::PcoArray
 
-pub type vortex_pco::PcoArray::Target = dyn vortex_array::array::Array
+pub type vortex_pco::PcoArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_pco::PcoArray::deref(&self) -> &Self::Target
 

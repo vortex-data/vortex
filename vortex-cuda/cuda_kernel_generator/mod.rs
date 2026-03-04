@@ -129,7 +129,7 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
     let func_name = format!("bit_unpack_{bits}_{bit_width}bw_{thread_count}t");
 
     let local_func_params = format!(
-        "(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, int thread_idx)"
+        "(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, uint{bits}_t reference, int thread_idx, GPUPatches& patches)"
     );
 
     writeln!(output, "__device__ void _{func_name}{local_func_params} {{")?;
@@ -141,12 +141,22 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
             writeln!(output, "_bit_unpack_{bits}_{bit_width}bw_lane(in, shared_out, reference, thread_idx * {per_thread_loop_count} + {thread_lane});")?;
         }
 
-        writeln!(output, "for (int i = 0; i < {shared_copy_ncount}; i++) {{")?;
         output.indent(|output| {
-            writeln!(output, "auto idx = i * {thread_count} + thread_idx;")?;
-            writeln!(output, "out[idx] = shared_out[idx];")
-        })?;
-        writeln!(output, "}}")
+            writeln!(output, "__syncwarp();")?;
+            writeln!(output, "PatchesCursor<uint{bits}_t> cursor(patches, blockIdx.x, thread_idx, {thread_count});")?;
+            writeln!(output, "auto patch = cursor.next();")?;
+            writeln!(output, "for (int i = 0; i < {shared_copy_ncount}; i++) {{")?;
+            output.indent(|output| {
+                writeln!(output, "auto idx = i * {thread_count} + thread_idx;")?;
+                writeln!(output, "if (idx == patch.index) {{")?;
+                writeln!(output, "    out[idx] = patch.value;")?;
+                writeln!(output, "    patch = cursor.next();")?;
+                writeln!(output, "}} else {{")?;
+                writeln!(output, "    out[idx] = shared_out[idx];")?;
+                writeln!(output, "}}")
+            })?;
+            writeln!(output, "}}")
+        })
     })?;
 
     writeln!(output, "}}")
@@ -161,7 +171,7 @@ fn generate_global_kernel_for_width<T: FastLanes, W: Write>(
 
     let func_name = format!("bit_unpack_{bits}_{bit_width}bw_{thread_count}t");
     let func_params = format!(
-        "(const uint{bits}_t *__restrict full_in, uint{bits}_t *__restrict full_out, uint{bits}_t reference)"
+        "(const uint{bits}_t *__restrict full_in, uint{bits}_t *__restrict full_out, uint{bits}_t reference, GPUPatches patches)"
     );
 
     writeln!(
@@ -170,6 +180,7 @@ fn generate_global_kernel_for_width<T: FastLanes, W: Write>(
     )?;
 
     output.indent(|output| {
+        // Create a new set of patches
         writeln!(output, "int thread_idx = threadIdx.x;")?;
         writeln!(
             output,
@@ -177,7 +188,10 @@ fn generate_global_kernel_for_width<T: FastLanes, W: Write>(
         )?;
         writeln!(output, "auto out = full_out + (blockIdx.x * 1024);")?;
 
-        writeln!(output, "_{func_name}(in, out, reference, thread_idx);")
+        writeln!(
+            output,
+            "_{func_name}(in, out, reference, thread_idx, patches);"
+        )
     })?;
 
     writeln!(output, "}}")
@@ -195,6 +209,7 @@ pub fn generate_cuda_unpack_for_width<T: FastLanes, W: Write>(
     writeln!(output, "#include <cuda_runtime.h>")?;
     writeln!(output, "#include <stdint.h>")?;
     writeln!(output, "#include \"fastlanes_common.cuh\"")?;
+    writeln!(output, "#include \"patches.cuh\"")?;
     writeln!(output)?;
 
     // First, emit all lane decoders.

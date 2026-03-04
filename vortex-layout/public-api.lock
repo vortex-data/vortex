@@ -1186,7 +1186,7 @@ impl<'__pin, S> core::marker::Unpin for vortex_layout::sequence::SequentialStrea
 
 impl<S> futures_core::stream::Stream for vortex_layout::sequence::SequentialStreamAdapter<S> where S: futures_core::stream::Stream<Item = vortex_error::VortexResult<(vortex_layout::sequence::SequenceId, vortex_array::array::ArrayRef)>>
 
-pub type vortex_layout::sequence::SequentialStreamAdapter<S>::Item = core::result::Result<(vortex_layout::sequence::SequenceId, alloc::sync::Arc<dyn vortex_array::array::Array>), vortex_error::VortexError>
+pub type vortex_layout::sequence::SequentialStreamAdapter<S>::Item = core::result::Result<(vortex_layout::sequence::SequenceId, alloc::sync::Arc<dyn vortex_array::array::DynArray>), vortex_error::VortexError>
 
 pub fn vortex_layout::sequence::SequentialStreamAdapter<S>::poll_next(self: core::pin::Pin<&mut Self>, cx: &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<core::option::Option<Self::Item>>
 

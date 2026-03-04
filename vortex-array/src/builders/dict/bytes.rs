@@ -17,8 +17,8 @@ use vortex_utils::aliases::hash_map::RandomState;
 
 use super::DictConstraints;
 use super::DictEncoder;
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::BinaryView;

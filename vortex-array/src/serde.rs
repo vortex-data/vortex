@@ -26,11 +26,11 @@ use vortex_flatbuffers::array::Compression;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::Array;
 use crate::ArrayContext;
 use crate::ArrayRef;
 use crate::ArrayVisitor;
 use crate::ArrayVisitorExt;
+use crate::DynArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::TryFromBytes;
@@ -47,7 +47,7 @@ pub struct SerializeOptions {
     pub include_padding: bool,
 }
 
-impl dyn Array + '_ {
+impl dyn DynArray + '_ {
     /// Serialize the array into a sequence of byte buffers that should be written contiguously.
     /// This function returns a vec to avoid copying data buffers.
     ///
@@ -159,12 +159,12 @@ impl dyn Array + '_ {
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
 pub struct ArrayNodeFlatBuffer<'a> {
     ctx: &'a ArrayContext,
-    array: &'a dyn Array,
+    array: &'a dyn DynArray,
     buffer_idx: u16,
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
-    pub fn try_new(ctx: &'a ArrayContext, array: &'a dyn Array) -> VortexResult<Self> {
+    pub fn try_new(ctx: &'a ArrayContext, array: &'a dyn DynArray) -> VortexResult<Self> {
         // Depth-first traversal of the array to ensure it supports serialization.
         for child in array.depth_first_traversal() {
             if child.metadata()?.is_none() {
@@ -283,7 +283,7 @@ impl ArrayChildren for &[ArrayRef] {
     }
 }
 
-/// [`ArrayParts`] represents a parsed but not-yet-decoded deserialized [`Array`].
+/// [`ArrayParts`] represents a parsed but not-yet-decoded deserialized [`DynArray`].
 /// It contains all the information from the serialized form, without anything extra. i.e.
 /// it is missing a [`DType`] and `len`, and the `encoding_id` is not yet resolved to a concrete
 /// vtable.

@@ -13,8 +13,8 @@ use vortex_error::vortex_bail;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;

@@ -21,9 +21,9 @@ use vortex_mask::Mask;
 use vortex_mask::MaskMut;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::ArrayVisitor;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;

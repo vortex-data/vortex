@@ -9,8 +9,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray as _;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;

@@ -78,8 +78,8 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
-    use crate::Array;
     use crate::ArrayRef;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::RecursiveCanonical;

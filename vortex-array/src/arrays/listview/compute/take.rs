@@ -4,8 +4,8 @@
 use num_traits::Zero;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;

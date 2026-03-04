@@ -12,9 +12,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::Columnar;
+use crate::DynArray;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -51,7 +51,7 @@ use crate::matcher::Matcher;
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
 ///
-/// Any array can be decoded into canonical form via the [`to_canonical`](Array::to_canonical)
+/// Any array can be decoded into canonical form via the [`to_canonical`](DynArray::to_canonical)
 /// trait method. This is the simplest encoding for a type, and will not be compressed but may
 /// contain compressed child arrays.
 ///
@@ -325,8 +325,8 @@ impl Canonical {
     }
 }
 
-impl AsRef<dyn Array> for Canonical {
-    fn as_ref(&self) -> &(dyn Array + 'static) {
+impl AsRef<dyn DynArray> for Canonical {
+    fn as_ref(&self) -> &(dyn DynArray + 'static) {
         match_each_canonical!(self, |arr| arr.as_ref())
     }
 }
@@ -377,7 +377,7 @@ pub trait ToCanonical {
 }
 
 // Blanket impl for all Array encodings.
-impl<A: Array + ?Sized> ToCanonical for A {
+impl<A: DynArray + ?Sized> ToCanonical for A {
     fn to_null(&self) -> NullArray {
         self.to_canonical()
             .vortex_expect("to_canonical failed")
@@ -868,8 +868,8 @@ impl From<CanonicalView<'_>> for Canonical {
     }
 }
 
-impl AsRef<dyn Array> for CanonicalView<'_> {
-    fn as_ref(&self) -> &dyn Array {
+impl AsRef<dyn DynArray> for CanonicalView<'_> {
+    fn as_ref(&self) -> &dyn DynArray {
         match self {
             CanonicalView::Null(a) => a.as_ref(),
             CanonicalView::Bool(a) => a.as_ref(),
@@ -889,7 +889,7 @@ pub struct AnyCanonical;
 impl Matcher for AnyCanonical {
     type Match<'a> = CanonicalView<'a>;
 
-    fn matches(array: &dyn Array) -> bool {
+    fn matches(array: &dyn DynArray) -> bool {
         array.is::<NullVTable>()
             || array.is::<BoolVTable>()
             || array.is::<PrimitiveVTable>()
@@ -901,7 +901,7 @@ impl Matcher for AnyCanonical {
             || array.is::<ExtensionVTable>()
     }
 
-    fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
+    fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
         if let Some(a) = array.as_opt::<NullVTable>() {
             Some(CanonicalView::Null(a))
         } else if let Some(a) = array.as_opt::<BoolVTable>() {

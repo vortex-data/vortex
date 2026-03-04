@@ -40,9 +40,9 @@ impl core::clone::Clone for vortex_runend::RunEndArray
 
 pub fn vortex_runend::RunEndArray::clone(&self) -> vortex_runend::RunEndArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_runend::RunEndArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_runend::RunEndArray
 
-pub fn vortex_runend::RunEndArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_runend::RunEndArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_runend::RunEndArray> for vortex_array::array::ArrayRef
 
@@ -54,7 +54,7 @@ pub fn vortex_runend::RunEndArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) 
 
 impl core::ops::deref::Deref for vortex_runend::RunEndArray
 
-pub type vortex_runend::RunEndArray::Target = dyn vortex_array::array::Array
+pub type vortex_runend::RunEndArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_runend::RunEndArray::deref(&self) -> &Self::Target
 

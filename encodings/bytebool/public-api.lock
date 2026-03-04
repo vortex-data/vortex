@@ -16,9 +16,9 @@ impl core::clone::Clone for vortex_bytebool::ByteBoolArray
 
 pub fn vortex_bytebool::ByteBoolArray::clone(&self) -> vortex_bytebool::ByteBoolArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_bytebool::ByteBoolArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_bytebool::ByteBoolArray
 
-pub fn vortex_bytebool::ByteBoolArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_bytebool::ByteBoolArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<alloc::vec::Vec<bool>> for vortex_bytebool::ByteBoolArray
 
@@ -38,7 +38,7 @@ pub fn vortex_bytebool::ByteBoolArray::fmt(&self, f: &mut core::fmt::Formatter<'
 
 impl core::ops::deref::Deref for vortex_bytebool::ByteBoolArray
 
-pub type vortex_bytebool::ByteBoolArray::Target = dyn vortex_array::array::Array
+pub type vortex_bytebool::ByteBoolArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_bytebool::ByteBoolArray::deref(&self) -> &Self::Target
 

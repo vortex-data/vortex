@@ -28,7 +28,7 @@ mod test {
     use std::ops::Range;
     use std::sync::LazyLock;
 
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;

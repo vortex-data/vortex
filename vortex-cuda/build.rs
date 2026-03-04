@@ -56,6 +56,7 @@ fn main() {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
     generate_dynamic_dispatch_bindings(&kernels_src, &out_dir);
+    generate_patches_bindings(&kernels_src, &out_dir);
 
     if !is_cuda_available() {
         return;
@@ -200,6 +201,23 @@ fn generate_dynamic_dispatch_bindings(kernels_src: &Path, out_dir: &Path) {
     bindings
         .write_to_file(out_dir.join("dynamic_dispatch.rs"))
         .expect("Failed to write dynamic_dispatch.rs");
+}
+
+/// Generate bindings for patches shared header.
+fn generate_patches_bindings(kernels_src: &Path, out_dir: &Path) {
+    let header = kernels_src.join("patches.h");
+    println!("cargo:rerun-if-changed={}", header.display());
+
+    let bindings = bindgen::Builder::default()
+        .header(header.to_string_lossy())
+        .derive_copy(true)
+        .derive_debug(true)
+        .generate()
+        .expect("Failed to generate dynamic_dispatch bindings");
+
+    bindings
+        .write_to_file(out_dir.join("patches.rs"))
+        .expect("Failed to write patches.rs");
 }
 
 /// Check if CUDA is available based on nvcc.

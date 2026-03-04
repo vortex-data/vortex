@@ -8,8 +8,8 @@ use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::arrays::filter::execute::values_to_mask;

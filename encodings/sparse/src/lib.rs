@@ -6,15 +6,13 @@ use std::hash::Hash;
 
 use kernel::PARENT_KERNELS;
 use prost::Message as _;
-use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::DeserializeMetadata;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::ProstMetadata;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::buffer::BufferHandle;
@@ -165,8 +163,7 @@ impl VTable for SparseVTable {
         buffers: &[BufferHandle],
         session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        let prost_patches =
-            <ProstMetadata<ProstPatchesMetadata> as DeserializeMetadata>::deserialize(bytes)?;
+        let prost_patches = ProstPatchesMetadata::decode(bytes)?;
 
         // Once we have the patches metadata, we need to get the fill value from the buffers.
 
@@ -494,6 +491,7 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;

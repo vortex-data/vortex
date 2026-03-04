@@ -15,9 +15,9 @@ use cudarc::driver::LaunchConfig;
 use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::StructArray;
@@ -77,6 +77,11 @@ impl CudaExecutionCtx {
             cuda_session,
             strategy: Arc::new(DefaultLaunchStrategy),
         }
+    }
+
+    /// Get a mutable handle to the CPU execution context.
+    pub fn execution_ctx(&mut self) -> &mut ExecutionCtx {
+        &mut self.ctx
     }
 
     /// Set the launch strategy for the execution context.
@@ -264,6 +269,12 @@ impl CudaExecutionCtx {
     pub fn exporter(&self) -> &Arc<dyn ExportDeviceArray> {
         self.cuda_session.export_device_array()
     }
+
+    pub fn synchronize_stream(&self) -> VortexResult<()> {
+        self.stream
+            .synchronize()
+            .map_err(|e| vortex_err!("cuda error: {e}"))
+    }
 }
 
 /// Support trait for CUDA-accelerated decompression of arrays.
@@ -310,7 +321,7 @@ pub trait CudaExecute: 'static + Send + Sync + Debug {
 
 /// Extension trait for executing arrays on CUDA.
 #[async_trait]
-pub trait CudaArrayExt: Array {
+pub trait CudaArrayExt: DynArray {
     /// Recursively walks the encoding tree, dispatching each layer to its
     /// registered [`CudaExecute`] implementation and returning a canonical array
     /// on the device.
@@ -367,14 +378,5 @@ impl CudaArrayExt for ArrayRef {
         );
 
         support.execute(self, ctx).await
-    }
-}
-
-#[cfg(feature = "_test-harness")]
-impl CudaExecutionCtx {
-    pub fn synchronize_stream(&self) -> VortexResult<()> {
-        self.stream
-            .synchronize()
-            .map_err(|e| vortex_err!("cuda error: {e}"))
     }
 }

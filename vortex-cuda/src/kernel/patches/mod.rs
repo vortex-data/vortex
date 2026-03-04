@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub mod types;
+
+#[rustfmt::skip]
+#[allow(warnings, clippy::all, clippy::pedantic, clippy::nursery)]
+pub mod gpu {
+    include!(concat!(env!("OUT_DIR"), "/patches.rs"));
+}
+
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;

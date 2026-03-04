@@ -24,9 +24,9 @@ impl core::clone::Clone for vortex_alp::ALPArray
 
 pub fn vortex_alp::ALPArray::clone(&self) -> vortex_alp::ALPArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_alp::ALPArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_alp::ALPArray
 
-pub fn vortex_alp::ALPArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_alp::ALPArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_alp::ALPArray> for vortex_array::array::ArrayRef
 
@@ -38,7 +38,7 @@ pub fn vortex_alp::ALPArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> cor
 
 impl core::ops::deref::Deref for vortex_alp::ALPArray
 
-pub type vortex_alp::ALPArray::Target = dyn vortex_array::array::Array
+pub type vortex_alp::ALPArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_alp::ALPArray::deref(&self) -> &Self::Target
 
@@ -90,9 +90,9 @@ impl core::clone::Clone for vortex_alp::ALPRDArray
 
 pub fn vortex_alp::ALPRDArray::clone(&self) -> vortex_alp::ALPRDArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_alp::ALPRDArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_alp::ALPRDArray
 
-pub fn vortex_alp::ALPRDArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_alp::ALPRDArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_alp::ALPRDArray> for vortex_array::array::ArrayRef
 
@@ -104,7 +104,7 @@ pub fn vortex_alp::ALPRDArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> c
 
 impl core::ops::deref::Deref for vortex_alp::ALPRDArray
 
-pub type vortex_alp::ALPRDArray::Target = dyn vortex_array::array::Array
+pub type vortex_alp::ALPRDArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_alp::ALPRDArray::deref(&self) -> &Self::Target
 

@@ -10,7 +10,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::Array;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::builtins::ArrayBuiltins;
@@ -23,7 +23,7 @@ use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::search_sorted::IndexOrd;
 
-impl dyn Array + '_ {
+impl dyn DynArray + '_ {
     /// Downcasts the array for null-specific behavior.
     pub fn as_null_typed(&self) -> NullTyped<'_> {
         matches!(self.dtype(), DType::Null)
@@ -102,9 +102,9 @@ impl dyn Array + '_ {
 }
 
 #[expect(dead_code)]
-pub struct NullTyped<'a>(&'a dyn Array);
+pub struct NullTyped<'a>(&'a dyn DynArray);
 
-pub struct BoolTyped<'a>(&'a dyn Array);
+pub struct BoolTyped<'a>(&'a dyn DynArray);
 
 impl BoolTyped<'_> {
     pub fn true_count(&self) -> VortexResult<usize> {
@@ -116,7 +116,7 @@ impl BoolTyped<'_> {
     }
 }
 
-pub struct PrimitiveTyped<'a>(&'a dyn Array);
+pub struct PrimitiveTyped<'a>(&'a dyn DynArray);
 
 impl PrimitiveTyped<'_> {
     pub fn ptype(&self) -> PType {
@@ -170,15 +170,15 @@ impl IndexOrd<PValue> for PrimitiveTyped<'_> {
 }
 
 #[expect(dead_code)]
-pub struct Utf8Typed<'a>(&'a dyn Array);
+pub struct Utf8Typed<'a>(&'a dyn DynArray);
 
 #[expect(dead_code)]
-pub struct BinaryTyped<'a>(&'a dyn Array);
+pub struct BinaryTyped<'a>(&'a dyn DynArray);
 
 #[expect(dead_code)]
-pub struct DecimalTyped<'a>(&'a dyn Array);
+pub struct DecimalTyped<'a>(&'a dyn DynArray);
 
-pub struct StructTyped<'a>(&'a dyn Array);
+pub struct StructTyped<'a>(&'a dyn DynArray);
 
 impl StructTyped<'_> {
     pub fn names(&self) -> &FieldNames {
@@ -201,9 +201,9 @@ impl StructTyped<'_> {
 }
 
 #[expect(dead_code)]
-pub struct ListTyped<'a>(&'a dyn Array);
+pub struct ListTyped<'a>(&'a dyn DynArray);
 
-pub struct ExtensionTyped<'a>(&'a dyn Array);
+pub struct ExtensionTyped<'a>(&'a dyn DynArray);
 
 impl ExtensionTyped<'_> {
     /// Returns the extension logical [`DType`].

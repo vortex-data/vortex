@@ -9,7 +9,7 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand::distr::Uniform;
 use rand::prelude::StdRng;
-use vortex_array::Array;
+use vortex_array::DynArray;
 use vortex_array::IntoArray as _;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;

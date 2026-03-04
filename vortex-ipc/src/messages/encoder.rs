@@ -4,8 +4,8 @@
 use bytes::Bytes;
 use bytes::BytesMut;
 use flatbuffers::FlatBufferBuilder;
-use vortex_array::Array;
 use vortex_array::ArrayContext;
+use vortex_array::DynArray;
 use vortex_array::dtype::DType;
 use vortex_array::serde::SerializeOptions;
 use vortex_buffer::ByteBuffer;
@@ -17,7 +17,7 @@ use vortex_flatbuffers::message as fb;
 
 /// An IPC message ready to be passed to the encoder.
 pub enum EncoderMessage<'a> {
-    Array(&'a dyn Array),
+    Array(&'a dyn DynArray),
     Buffer(&'a ByteBuffer),
     DType(&'a DType),
 }

@@ -16,9 +16,9 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;

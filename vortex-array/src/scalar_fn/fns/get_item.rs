@@ -218,7 +218,7 @@ impl ScalarFnVTable for GetItem {
 mod tests {
     use vortex_buffer::buffer;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::StructArray;
     use crate::dtype::DType;
