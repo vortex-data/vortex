@@ -6,6 +6,7 @@ use std::ops::Not;
 use std::ops::Range;
 use std::sync::Arc;
 
+use futures::future::try_join_all;
 use futures::try_join;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
@@ -17,6 +18,7 @@ use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
 use vortex_array::expr::Merge;
 use vortex_array::expr::Pack;
+use vortex_array::expr::Root;
 use vortex_array::expr::col;
 use vortex_array::expr::make_free_field_annotator;
 use vortex_array::expr::root;
@@ -24,6 +26,7 @@ use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
 use vortex_array::expr::transform::replace;
 use vortex_array::expr::transform::replace_root_fields;
+use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
@@ -148,6 +151,64 @@ impl StructReader {
             .is_nullable()
             .then(|| self.lazy_children.get(0))
             .transpose()
+    }
+
+    /// Fast path for `root()` projection: read all fields directly and assemble a StructArray
+    /// without going through the expression partitioning machinery.
+    fn root_projection_evaluation(
+        &self,
+        row_range: &Range<u64>,
+        mask_fut: MaskFuture,
+    ) -> VortexResult<ArrayFuture> {
+        let struct_fields = self.struct_fields();
+        let names = struct_fields.names().clone();
+        let nfields = struct_fields.nfields();
+
+        // Eagerly create projection futures for each field — this registers segment reads
+        // with the IO driver for prefetching.
+        let mut field_futs = Vec::with_capacity(nfields);
+        for idx in 0..nfields {
+            let field_fut = self.field_reader_by_index(idx)?.projection_evaluation(
+                row_range,
+                &root(),
+                mask_fut.clone(),
+            )?;
+            field_futs.push(field_fut);
+        }
+
+        let validity_fut = self
+            .validity()?
+            .map(|reader| reader.projection_evaluation(row_range, &root(), mask_fut))
+            .transpose()?;
+
+        Ok(Box::pin(async move {
+            let field_arrays: Vec<ArrayRef> = try_join_all(field_futs).await?;
+
+            if let Some(validity_fut) = validity_fut {
+                let validity = validity_fut.await?;
+                let validity_mask = Mask::from_buffer(validity.to_bool().to_bit_buffer().not());
+
+                // Apply struct-level validity to each field.
+                let masked_fields: Vec<ArrayRef> = field_arrays
+                    .iter()
+                    .map(|a| vortex_array::compute::mask(a.as_ref(), &validity_mask))
+                    .try_collect()?;
+
+                let len = masked_fields.first().map(|a| a.len()).unwrap_or(0);
+
+                Ok(
+                    StructArray::try_new(names, masked_fields, len, Validity::NonNullable)?
+                        .into_array(),
+                )
+            } else {
+                let len = field_arrays.first().map(|a| a.len()).unwrap_or(0);
+
+                Ok(
+                    StructArray::try_new(names, field_arrays, len, Validity::NonNullable)?
+                        .into_array(),
+                )
+            }
+        }))
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
@@ -308,6 +369,13 @@ impl LayoutReader for StructReader {
         expr: &Expression,
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
+        // Fast path for root() projection: read all fields directly without expression
+        // partitioning. This avoids expensive expression hashing and DashMap lookups that
+        // dominate CPU time for wide structs.
+        if expr.is::<Root>() {
+            return self.root_projection_evaluation(row_range, mask_fut);
+        }
+
         let validity_fut = self
             .validity()?
             .map(|reader| reader.projection_evaluation(row_range, &root(), mask_fut.clone()))
