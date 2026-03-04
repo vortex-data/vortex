@@ -55,7 +55,7 @@ members = [
     "benchmarks/random-access-bench",
     "vortex-sqllogictest",
 ]
-exclude = ["java/testfiles", "wasm-test"]
+exclude = ["java/testfiles", "wasm-test", "lints/prefer_into_array"]
 resolver = "2"
 
 [workspace.package]
@@ -365,3 +365,6 @@ lto = false
 [profile.bench_assert]
 debug-assertions = true
 inherits = "bench"
+
+[workspace.metadata.dylint]
+libraries = [{ path = "lints/prefer_into_array" }]

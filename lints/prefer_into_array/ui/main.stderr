@@ -1,0 +1,19 @@
+warning: calling `.to_array()` on an owned value clones unnecessarily
+  --> $DIR/main.rs:46:5
+   |
+LL |     owned.to_array()
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = help: use `.into_array()` instead, which consumes the owned value without cloning
+   = note: `#[warn(prefer_into_array)]` on by default
+
+warning: calling `.to_array()` on an owned value clones unnecessarily
+  --> $DIR/main.rs:51:5
+   |
+LL |     MyArray.to_array()
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = help: use `.into_array()` instead, which consumes the owned value without cloning
+
+warning: 2 warnings emitted
+

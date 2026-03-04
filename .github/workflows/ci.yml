@@ -285,8 +285,8 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install nightly for fmt
-        run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
+      - name: Install nightly for fmt and dylint
+        run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt rustc-dev llvm-tools-preview
       - name: Rust Lint - Format
         run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
       - name: Rustc check
@@ -297,6 +297,12 @@ jobs:
         run: cargo clippy --locked --all-features --all-targets -- -D warnings
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Install cargo-dylint
+        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        with:
+          tool: cargo-dylint,dylint-link
+      - name: Rust Lint - Dylint
+        run: cargo +$NIGHTLY_TOOLCHAIN dylint --all -- -D warnings
 
   cpp-lint:
     name: "C/C++ (lint)"
