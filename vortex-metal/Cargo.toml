@@ -1,0 +1,45 @@
+[package]
+name = "vortex-metal"
+authors.workspace = true
+description = "Metal compute for Vortex"
+edition = { workspace = true }
+homepage = { workspace = true }
+categories = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+default = []
+_test-harness = []
+
+[dependencies]
+block2 = "0.6"
+futures = { workspace = true, features = ["executor"] }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSError", "NSString", "NSArray"] }
+objc2-metal = "0.3"
+parking_lot = { workspace = true }
+tracing = { workspace = true, features = ["std", "attributes"] }
+vortex = { workspace = true }
+vortex-array = { workspace = true }
+vortex-error = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Metal is only available on macOS/iOS
+
+[dev-dependencies]
+criterion = { package = "codspeed-criterion-compat-walltime", version = "4.3.0" }
+futures = { workspace = true, features = ["executor"] }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-metal = { path = ".", features = ["_test-harness"] }
