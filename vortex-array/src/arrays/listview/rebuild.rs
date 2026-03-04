@@ -8,7 +8,9 @@ use vortex_error::VortexResult;
 
 use crate::DynArray;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::builders::builder_with_capacity;
@@ -19,7 +21,6 @@ use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::vtable::ValidityHelper;
 
 /// Modes for rebuilding a [`ListViewArray`].
 pub enum ListViewRebuildMode {
@@ -179,11 +180,16 @@ impl ListViewArray {
         let offsets = new_offsets.into_array();
         let sizes = new_sizes.into_array();
 
+        let validity = self
+            .validity
+            .clone()
+            .execute(&mut LEGACY_SESSION.create_execution_ctx())?;
+
         // SAFETY: same invariants as `rebuild_list_by_list` — offsets are sequential and
         // non-overlapping, all (offset, size) pairs reference valid elements, and the validity
         // array is preserved from the original.
         Ok(unsafe {
-            ListViewArray::new_unchecked(elements, offsets, sizes, self.validity.clone())
+            ListViewArray::new_unchecked(elements, offsets, sizes, validity)
                 .with_zero_copy_to_list(true)
         })
     }
@@ -265,8 +271,12 @@ impl ListViewArray {
         // - The validity array is preserved from the original array unchanged
         // - The array satisfies the zero-copy-to-list property by having sorted offsets, no gaps,
         //   and no overlaps.
+        let validity = self
+            .validity
+            .clone()
+            .execute(&mut LEGACY_SESSION.create_execution_ctx())?;
         Ok(unsafe {
-            ListViewArray::new_unchecked(elements, offsets, sizes, self.validity.clone())
+            ListViewArray::new_unchecked(elements, offsets, sizes, validity)
                 .with_zero_copy_to_list(true)
         })
     }
@@ -340,6 +350,10 @@ impl ListViewArray {
 
         let sliced_elements = self.elements().slice(start..end)?;
 
+        let validity = self
+            .validity
+            .clone()
+            .execute(&mut LEGACY_SESSION.create_execution_ctx())?;
         // SAFETY: The only thing we changed was the elements (which we verify through mins and
         // maxes that all adjusted offsets + sizes are within the correct bounds), so the parameters
         // are valid. And if the original array was zero-copyable to list, trimming elements doesn't
@@ -349,7 +363,7 @@ impl ListViewArray {
                 sliced_elements,
                 adjusted_offsets,
                 self.sizes().clone(),
-                self.validity().clone(),
+                validity,
             )
             .with_zero_copy_to_list(self.is_zero_copy_to_list())
         })
