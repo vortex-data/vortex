@@ -181,7 +181,7 @@ impl DefaultExpressionConvertor {
             .map(|e| self.convert(e.as_ref()))
             .transpose()?;
 
-        // Use nested_case_when which converts to nested binary case_when expressions
+        // Build a single n-ary CASE WHEN expression from DataFusion WHEN/THEN pairs
         Ok(nested_case_when(pairs, else_value))
     }
 }

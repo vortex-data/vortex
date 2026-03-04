@@ -20,6 +20,7 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::case_when as scalar_case_when;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::dynamic::DynamicComparison;
 use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
@@ -107,6 +108,30 @@ pub fn col(field: impl Into<FieldName>) -> Expression {
 /// ```
 pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
     GetItem.new_expr(field.into(), vec![child])
+}
+
+// ---- CaseWhen ----
+
+/// Creates a CASE WHEN expression with one WHEN/THEN pair and an ELSE value.
+pub fn case_when(
+    condition: Expression,
+    then_value: Expression,
+    else_value: Expression,
+) -> Expression {
+    scalar_case_when::case_when(condition, then_value, else_value)
+}
+
+/// Creates a CASE WHEN expression with one WHEN/THEN pair and no ELSE value.
+pub fn case_when_no_else(condition: Expression, then_value: Expression) -> Expression {
+    scalar_case_when::case_when_no_else(condition, then_value)
+}
+
+/// Creates an n-ary CASE WHEN expression from WHEN/THEN pairs and an optional ELSE value.
+pub fn nested_case_when(
+    when_then_pairs: Vec<(Expression, Expression)>,
+    else_value: Option<Expression>,
+) -> Expression {
+    scalar_case_when::nested_case_when(when_then_pairs, else_value)
 }
 
 // ---- Binary operators ----
