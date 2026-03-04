@@ -5,48 +5,22 @@
 #include "fastlanes_common.cuh"
 #include "patches.cuh"
 
-__device__ void _bit_unpack_32_0bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 32;
-    
-    out[INDEX(0, lane)] = reference;
-    out[INDEX(1, lane)] = reference;
-    out[INDEX(2, lane)] = reference;
-    out[INDEX(3, lane)] = reference;
-    out[INDEX(4, lane)] = reference;
-    out[INDEX(5, lane)] = reference;
-    out[INDEX(6, lane)] = reference;
-    out[INDEX(7, lane)] = reference;
-    out[INDEX(8, lane)] = reference;
-    out[INDEX(9, lane)] = reference;
-    out[INDEX(10, lane)] = reference;
-    out[INDEX(11, lane)] = reference;
-    out[INDEX(12, lane)] = reference;
-    out[INDEX(13, lane)] = reference;
-    out[INDEX(14, lane)] = reference;
-    out[INDEX(15, lane)] = reference;
-    out[INDEX(16, lane)] = reference;
-    out[INDEX(17, lane)] = reference;
-    out[INDEX(18, lane)] = reference;
-    out[INDEX(19, lane)] = reference;
-    out[INDEX(20, lane)] = reference;
-    out[INDEX(21, lane)] = reference;
-    out[INDEX(22, lane)] = reference;
-    out[INDEX(23, lane)] = reference;
-    out[INDEX(24, lane)] = reference;
-    out[INDEX(25, lane)] = reference;
-    out[INDEX(26, lane)] = reference;
-    out[INDEX(27, lane)] = reference;
-    out[INDEX(28, lane)] = reference;
-    out[INDEX(29, lane)] = reference;
-    out[INDEX(30, lane)] = reference;
-    out[INDEX(31, lane)] = reference;
+template <int BW>
+__device__ void _bit_unpack_32_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane);
+
+template <>
+__device__ void _bit_unpack_32_lane<0>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+    #pragma unroll
+    for (int row = 0; row < 32; row++) {
+        out[INDEX(row, lane)] = reference;
+    }
 }
 
-__device__ void _bit_unpack_32_1bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<1>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 1);
     out[INDEX(0, lane)] = tmp + reference;
@@ -114,11 +88,11 @@ __device__ void _bit_unpack_32_1bw_lane(const uint32_t *__restrict in, uint32_t 
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_2bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<2>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 2);
     out[INDEX(0, lane)] = tmp + reference;
@@ -188,11 +162,11 @@ __device__ void _bit_unpack_32_2bw_lane(const uint32_t *__restrict in, uint32_t 
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_3bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<3>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 3);
     out[INDEX(0, lane)] = tmp + reference;
@@ -264,11 +238,11 @@ __device__ void _bit_unpack_32_3bw_lane(const uint32_t *__restrict in, uint32_t 
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_4bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<4>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 4);
     out[INDEX(0, lane)] = tmp + reference;
@@ -342,11 +316,11 @@ __device__ void _bit_unpack_32_4bw_lane(const uint32_t *__restrict in, uint32_t 
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_5bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<5>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 5);
     out[INDEX(0, lane)] = tmp + reference;
@@ -422,11 +396,11 @@ __device__ void _bit_unpack_32_5bw_lane(const uint32_t *__restrict in, uint32_t 
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_6bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<6>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 6);
     out[INDEX(0, lane)] = tmp + reference;
@@ -504,11 +478,11 @@ __device__ void _bit_unpack_32_6bw_lane(const uint32_t *__restrict in, uint32_t 
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_7bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<7>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 7);
     out[INDEX(0, lane)] = tmp + reference;
@@ -588,11 +562,11 @@ __device__ void _bit_unpack_32_7bw_lane(const uint32_t *__restrict in, uint32_t 
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_8bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<8>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 8);
     out[INDEX(0, lane)] = tmp + reference;
@@ -674,11 +648,11 @@ __device__ void _bit_unpack_32_8bw_lane(const uint32_t *__restrict in, uint32_t 
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_9bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<9>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 9);
     out[INDEX(0, lane)] = tmp + reference;
@@ -762,11 +736,11 @@ __device__ void _bit_unpack_32_9bw_lane(const uint32_t *__restrict in, uint32_t 
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_10bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<10>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 10);
     out[INDEX(0, lane)] = tmp + reference;
@@ -852,11 +826,11 @@ __device__ void _bit_unpack_32_10bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_11bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<11>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 11);
     out[INDEX(0, lane)] = tmp + reference;
@@ -944,11 +918,11 @@ __device__ void _bit_unpack_32_11bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_12bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<12>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 12);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1038,11 +1012,11 @@ __device__ void _bit_unpack_32_12bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_13bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<13>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 13);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1134,11 +1108,11 @@ __device__ void _bit_unpack_32_13bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_14bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<14>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 14);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1232,11 +1206,11 @@ __device__ void _bit_unpack_32_14bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_15bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<15>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 15);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1332,11 +1306,11 @@ __device__ void _bit_unpack_32_15bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_16bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<16>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 16);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1434,11 +1408,11 @@ __device__ void _bit_unpack_32_16bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_17bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<17>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 17);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1538,11 +1512,11 @@ __device__ void _bit_unpack_32_17bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_18bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<18>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 18);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1644,11 +1618,11 @@ __device__ void _bit_unpack_32_18bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_19bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<19>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 19);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1752,11 +1726,11 @@ __device__ void _bit_unpack_32_19bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_20bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<20>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 20);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1862,11 +1836,11 @@ __device__ void _bit_unpack_32_20bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_21bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<21>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 21);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1974,11 +1948,11 @@ __device__ void _bit_unpack_32_21bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_22bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<22>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 22);
     out[INDEX(0, lane)] = tmp + reference;
@@ -2088,11 +2062,11 @@ __device__ void _bit_unpack_32_22bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_23bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<23>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 23);
     out[INDEX(0, lane)] = tmp + reference;
@@ -2204,11 +2178,11 @@ __device__ void _bit_unpack_32_23bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_24bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<24>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 24);
     out[INDEX(0, lane)] = tmp + reference;
@@ -2322,11 +2296,11 @@ __device__ void _bit_unpack_32_24bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_25bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<25>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 25);
     out[INDEX(0, lane)] = tmp + reference;
@@ -2442,11 +2416,11 @@ __device__ void _bit_unpack_32_25bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_26bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<26>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 26);
     out[INDEX(0, lane)] = tmp + reference;
@@ -2564,11 +2538,11 @@ __device__ void _bit_unpack_32_26bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_27bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<27>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 27);
     out[INDEX(0, lane)] = tmp + reference;
@@ -2688,11 +2662,11 @@ __device__ void _bit_unpack_32_27bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_28bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<28>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 28);
     out[INDEX(0, lane)] = tmp + reference;
@@ -2814,11 +2788,11 @@ __device__ void _bit_unpack_32_28bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_29bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<29>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 29);
     out[INDEX(0, lane)] = tmp + reference;
@@ -2942,11 +2916,11 @@ __device__ void _bit_unpack_32_29bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_30bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<30>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 30);
     out[INDEX(0, lane)] = tmp + reference;
@@ -3072,11 +3046,11 @@ __device__ void _bit_unpack_32_30bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_31bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<31>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
     uint32_t src;
     uint32_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint32_t, 31);
     out[INDEX(0, lane)] = tmp + reference;
@@ -3204,41 +3178,13 @@ __device__ void _bit_unpack_32_31bw_lane(const uint32_t *__restrict in, uint32_t
     out[INDEX(31, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_32_32bw_lane(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_32_lane<32>(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 32;
-    
-    out[INDEX(0, lane)] = in[LANE_COUNT * 0 + lane] + reference;
-    out[INDEX(1, lane)] = in[LANE_COUNT * 1 + lane] + reference;
-    out[INDEX(2, lane)] = in[LANE_COUNT * 2 + lane] + reference;
-    out[INDEX(3, lane)] = in[LANE_COUNT * 3 + lane] + reference;
-    out[INDEX(4, lane)] = in[LANE_COUNT * 4 + lane] + reference;
-    out[INDEX(5, lane)] = in[LANE_COUNT * 5 + lane] + reference;
-    out[INDEX(6, lane)] = in[LANE_COUNT * 6 + lane] + reference;
-    out[INDEX(7, lane)] = in[LANE_COUNT * 7 + lane] + reference;
-    out[INDEX(8, lane)] = in[LANE_COUNT * 8 + lane] + reference;
-    out[INDEX(9, lane)] = in[LANE_COUNT * 9 + lane] + reference;
-    out[INDEX(10, lane)] = in[LANE_COUNT * 10 + lane] + reference;
-    out[INDEX(11, lane)] = in[LANE_COUNT * 11 + lane] + reference;
-    out[INDEX(12, lane)] = in[LANE_COUNT * 12 + lane] + reference;
-    out[INDEX(13, lane)] = in[LANE_COUNT * 13 + lane] + reference;
-    out[INDEX(14, lane)] = in[LANE_COUNT * 14 + lane] + reference;
-    out[INDEX(15, lane)] = in[LANE_COUNT * 15 + lane] + reference;
-    out[INDEX(16, lane)] = in[LANE_COUNT * 16 + lane] + reference;
-    out[INDEX(17, lane)] = in[LANE_COUNT * 17 + lane] + reference;
-    out[INDEX(18, lane)] = in[LANE_COUNT * 18 + lane] + reference;
-    out[INDEX(19, lane)] = in[LANE_COUNT * 19 + lane] + reference;
-    out[INDEX(20, lane)] = in[LANE_COUNT * 20 + lane] + reference;
-    out[INDEX(21, lane)] = in[LANE_COUNT * 21 + lane] + reference;
-    out[INDEX(22, lane)] = in[LANE_COUNT * 22 + lane] + reference;
-    out[INDEX(23, lane)] = in[LANE_COUNT * 23 + lane] + reference;
-    out[INDEX(24, lane)] = in[LANE_COUNT * 24 + lane] + reference;
-    out[INDEX(25, lane)] = in[LANE_COUNT * 25 + lane] + reference;
-    out[INDEX(26, lane)] = in[LANE_COUNT * 26 + lane] + reference;
-    out[INDEX(27, lane)] = in[LANE_COUNT * 27 + lane] + reference;
-    out[INDEX(28, lane)] = in[LANE_COUNT * 28 + lane] + reference;
-    out[INDEX(29, lane)] = in[LANE_COUNT * 29 + lane] + reference;
-    out[INDEX(30, lane)] = in[LANE_COUNT * 30 + lane] + reference;
-    out[INDEX(31, lane)] = in[LANE_COUNT * 31 + lane] + reference;
+    #pragma unroll
+    for (int row = 0; row < 32; row++) {
+        out[INDEX(row, lane)] = in[LANE_COUNT * row + lane] + reference;
+    }
 }
 
 /// Runtime dispatch to the optimized lane decoder for the given bit width.
@@ -3250,831 +3196,291 @@ __device__ inline void bit_unpack_32_lane(
     uint32_t bit_width
 ) {
     switch (bit_width) {
-        case 0: _bit_unpack_32_0bw_lane(in, out, reference, lane); break;
-        case 1: _bit_unpack_32_1bw_lane(in, out, reference, lane); break;
-        case 2: _bit_unpack_32_2bw_lane(in, out, reference, lane); break;
-        case 3: _bit_unpack_32_3bw_lane(in, out, reference, lane); break;
-        case 4: _bit_unpack_32_4bw_lane(in, out, reference, lane); break;
-        case 5: _bit_unpack_32_5bw_lane(in, out, reference, lane); break;
-        case 6: _bit_unpack_32_6bw_lane(in, out, reference, lane); break;
-        case 7: _bit_unpack_32_7bw_lane(in, out, reference, lane); break;
-        case 8: _bit_unpack_32_8bw_lane(in, out, reference, lane); break;
-        case 9: _bit_unpack_32_9bw_lane(in, out, reference, lane); break;
-        case 10: _bit_unpack_32_10bw_lane(in, out, reference, lane); break;
-        case 11: _bit_unpack_32_11bw_lane(in, out, reference, lane); break;
-        case 12: _bit_unpack_32_12bw_lane(in, out, reference, lane); break;
-        case 13: _bit_unpack_32_13bw_lane(in, out, reference, lane); break;
-        case 14: _bit_unpack_32_14bw_lane(in, out, reference, lane); break;
-        case 15: _bit_unpack_32_15bw_lane(in, out, reference, lane); break;
-        case 16: _bit_unpack_32_16bw_lane(in, out, reference, lane); break;
-        case 17: _bit_unpack_32_17bw_lane(in, out, reference, lane); break;
-        case 18: _bit_unpack_32_18bw_lane(in, out, reference, lane); break;
-        case 19: _bit_unpack_32_19bw_lane(in, out, reference, lane); break;
-        case 20: _bit_unpack_32_20bw_lane(in, out, reference, lane); break;
-        case 21: _bit_unpack_32_21bw_lane(in, out, reference, lane); break;
-        case 22: _bit_unpack_32_22bw_lane(in, out, reference, lane); break;
-        case 23: _bit_unpack_32_23bw_lane(in, out, reference, lane); break;
-        case 24: _bit_unpack_32_24bw_lane(in, out, reference, lane); break;
-        case 25: _bit_unpack_32_25bw_lane(in, out, reference, lane); break;
-        case 26: _bit_unpack_32_26bw_lane(in, out, reference, lane); break;
-        case 27: _bit_unpack_32_27bw_lane(in, out, reference, lane); break;
-        case 28: _bit_unpack_32_28bw_lane(in, out, reference, lane); break;
-        case 29: _bit_unpack_32_29bw_lane(in, out, reference, lane); break;
-        case 30: _bit_unpack_32_30bw_lane(in, out, reference, lane); break;
-        case 31: _bit_unpack_32_31bw_lane(in, out, reference, lane); break;
-        case 32: _bit_unpack_32_32bw_lane(in, out, reference, lane); break;
+        case 0: _bit_unpack_32_lane<0>(in, out, reference, lane); break;
+        case 1: _bit_unpack_32_lane<1>(in, out, reference, lane); break;
+        case 2: _bit_unpack_32_lane<2>(in, out, reference, lane); break;
+        case 3: _bit_unpack_32_lane<3>(in, out, reference, lane); break;
+        case 4: _bit_unpack_32_lane<4>(in, out, reference, lane); break;
+        case 5: _bit_unpack_32_lane<5>(in, out, reference, lane); break;
+        case 6: _bit_unpack_32_lane<6>(in, out, reference, lane); break;
+        case 7: _bit_unpack_32_lane<7>(in, out, reference, lane); break;
+        case 8: _bit_unpack_32_lane<8>(in, out, reference, lane); break;
+        case 9: _bit_unpack_32_lane<9>(in, out, reference, lane); break;
+        case 10: _bit_unpack_32_lane<10>(in, out, reference, lane); break;
+        case 11: _bit_unpack_32_lane<11>(in, out, reference, lane); break;
+        case 12: _bit_unpack_32_lane<12>(in, out, reference, lane); break;
+        case 13: _bit_unpack_32_lane<13>(in, out, reference, lane); break;
+        case 14: _bit_unpack_32_lane<14>(in, out, reference, lane); break;
+        case 15: _bit_unpack_32_lane<15>(in, out, reference, lane); break;
+        case 16: _bit_unpack_32_lane<16>(in, out, reference, lane); break;
+        case 17: _bit_unpack_32_lane<17>(in, out, reference, lane); break;
+        case 18: _bit_unpack_32_lane<18>(in, out, reference, lane); break;
+        case 19: _bit_unpack_32_lane<19>(in, out, reference, lane); break;
+        case 20: _bit_unpack_32_lane<20>(in, out, reference, lane); break;
+        case 21: _bit_unpack_32_lane<21>(in, out, reference, lane); break;
+        case 22: _bit_unpack_32_lane<22>(in, out, reference, lane); break;
+        case 23: _bit_unpack_32_lane<23>(in, out, reference, lane); break;
+        case 24: _bit_unpack_32_lane<24>(in, out, reference, lane); break;
+        case 25: _bit_unpack_32_lane<25>(in, out, reference, lane); break;
+        case 26: _bit_unpack_32_lane<26>(in, out, reference, lane); break;
+        case 27: _bit_unpack_32_lane<27>(in, out, reference, lane); break;
+        case 28: _bit_unpack_32_lane<28>(in, out, reference, lane); break;
+        case 29: _bit_unpack_32_lane<29>(in, out, reference, lane); break;
+        case 30: _bit_unpack_32_lane<30>(in, out, reference, lane); break;
+        case 31: _bit_unpack_32_lane<31>(in, out, reference, lane); break;
+        case 32: _bit_unpack_32_lane<32>(in, out, reference, lane); break;
     }
 }
 
-__device__ void _bit_unpack_32_0bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
+template <int BW>
+__device__ void _bit_unpack_32_device(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_0bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
+    #pragma unroll
+    for (int i = 0; i < 1; i++) {
+        _bit_unpack_32_lane<BW>(in, shared_out, reference, thread_idx * 1 + i);
+    }
+    __syncwarp();
+    PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
+    auto patch = cursor.next();
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        if (idx == patch.index) {
+            out[idx] = patch.value;
+            patch = cursor.next();
+        } else {
+            out[idx] = shared_out[idx];
         }
+    }
 }
 
 extern "C" __global__ void bit_unpack_32_0bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 0 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_0bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_1bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_1bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<0>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_1bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 1 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_1bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_2bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_2bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<1>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_2bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 2 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_2bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_3bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_3bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<2>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_3bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 3 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_3bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_4bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_4bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<3>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_4bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 4 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_4bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_5bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_5bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<4>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_5bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 5 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_5bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_6bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_6bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<5>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_6bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 6 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_6bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_7bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_7bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<6>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_7bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 7 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_7bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_8bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_8bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<7>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_8bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 8 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_8bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_9bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_9bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<8>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_9bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 9 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_9bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_10bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_10bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<9>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_10bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 10 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_10bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_11bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_11bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<10>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_11bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 11 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_11bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_12bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_12bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<11>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_12bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 12 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_12bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_13bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_13bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<12>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_13bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 13 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_13bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_14bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_14bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<13>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_14bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 14 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_14bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_15bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_15bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<14>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_15bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 15 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_15bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_16bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_16bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<15>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_16bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 16 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_16bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_17bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_17bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<16>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_17bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 17 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_17bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_18bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_18bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<17>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_18bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 18 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_18bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_19bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_19bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<18>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_19bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 19 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_19bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_20bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_20bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<19>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_20bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 20 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_20bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_21bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_21bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<20>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_21bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 21 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_21bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_22bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_22bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<21>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_22bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 22 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_22bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_23bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_23bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<22>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_23bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 23 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_23bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_24bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_24bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<23>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_24bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 24 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_24bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_25bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_25bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<24>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_25bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 25 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_25bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_26bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_26bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<25>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_26bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 26 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_26bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_27bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_27bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<26>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_27bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 27 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_27bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_28bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_28bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<27>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_28bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 28 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_28bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_29bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_29bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<28>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_29bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 29 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_29bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_30bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_30bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<29>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_30bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 30 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_30bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_31bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_31bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<30>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_31bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 31 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_31bw_32t(in, out, reference, thread_idx, patches);
-}
-
-__device__ void _bit_unpack_32_32bw_32t(const uint32_t *__restrict in, uint32_t *__restrict out, uint32_t reference, int thread_idx, GPUPatches& patches) {
-    __shared__ uint32_t shared_out[1024];
-    _bit_unpack_32_32bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-        __syncwarp();
-        PatchesCursor<uint32_t> cursor(patches, blockIdx.x, thread_idx, 32);
-        auto patch = cursor.next();
-        for (int i = 0; i < 32; i++) {
-            auto idx = i * 32 + thread_idx;
-            if (idx == patch.index) {
-                out[idx] = patch.value;
-                patch = cursor.next();
-            } else {
-                out[idx] = shared_out[idx];
-            }
-        }
+    _bit_unpack_32_device<31>(in, out, reference, thread_idx, patches);
 }
 
 extern "C" __global__ void bit_unpack_32_32bw_32t(const uint32_t *__restrict full_in, uint32_t *__restrict full_out, uint32_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 32 / sizeof(uint32_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_32_32bw_32t(in, out, reference, thread_idx, patches);
+    _bit_unpack_32_device<32>(in, out, reference, thread_idx, patches);
 }
 
