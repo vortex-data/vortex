@@ -82,6 +82,32 @@
         resizeTimer = setTimeout(() => openFile(fileBytes), 150);
     });
 
+    // Translate mouse wheel scroll into arrow key events for the TUI.
+    // Accumulate pixel deltas and emit one arrow key per LINE_HEIGHT crossed,
+    // same approach as xterm.js and other browser-based terminal emulators.
+    const LINE_HEIGHT = 60;
+    let scrollAccumulator = 0;
+    document.addEventListener('wheel', (e) => {
+        if (!fileBytes) return;
+        e.preventDefault();
+        const delta = e.deltaMode === 1 ? e.deltaY * LINE_HEIGHT : e.deltaY;
+        scrollAccumulator += delta;
+        while (Math.abs(scrollAccumulator) >= LINE_HEIGHT) {
+            const key = scrollAccumulator < 0 ? 'ArrowUp' : 'ArrowDown';
+            document.dispatchEvent(new KeyboardEvent('keydown', { key }));
+            scrollAccumulator -= Math.sign(scrollAccumulator) * LINE_HEIGHT;
+        }
+    }, { passive: false });
+
+    // Prevent browser shortcuts that conflict with TUI keybindings (e.g. Firefox
+    // quick-find on '/')
+    document.addEventListener('keydown', (e) => {
+        if (!fileBytes) return;
+        if (e.key === '/' || e.key === "'") {
+            e.preventDefault();
+        }
+    });
+
     dropZone.addEventListener('dragover', (e) => {
         e.preventDefault();
         dropZone.classList.add('drag-over');

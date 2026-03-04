@@ -25,15 +25,11 @@ canvas {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-height: 100vh;
-    border: 2px dashed #333;
-    margin: 24px;
-    border-radius: 12px;
+    height: 100%;
     transition: border-color 0.2s, background-color 0.2s;
 }
 
 #drop-zone.drag-over {
-    border-color: #5971FD;
     background-color: rgba(89, 113, 253, 0.08);
 }
 
