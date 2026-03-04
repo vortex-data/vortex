@@ -10,7 +10,6 @@ use ratatui::widgets::ListState;
 use vortex::array::ArrayRef;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
-use vortex::error::VortexResult;
 use vortex::file::Footer;
 use vortex::file::SegmentSpec;
 use vortex::file::VortexFile;
@@ -40,7 +39,7 @@ pub enum Tab {
     Segments,
 
     /// SQL query interface powered by DataFusion.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "native")]
     Query,
 }
 
@@ -248,11 +247,11 @@ pub struct AppState {
     pub cached_flatbuffer_size: Option<usize>,
 
     /// State for the Query tab.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "native")]
     pub query_state: super::ui::QueryState,
 
     /// File path for use in query execution.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "native")]
     pub file_path: String,
 }
 
@@ -262,11 +261,11 @@ impl AppState {
     /// # Errors
     ///
     /// Returns an error if the file cannot be opened or read.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "native")]
     pub async fn new(
         session: &VortexSession,
         path: impl AsRef<std::path::Path>,
-    ) -> VortexResult<AppState> {
+    ) -> vortex::error::VortexResult<AppState> {
         use vortex::file::OpenOptionsSessionExt;
 
         let session = session.clone();
@@ -308,7 +307,7 @@ impl AppState {
     pub fn from_buffer(
         session: VortexSession,
         buffer: vortex::buffer::ByteBuffer,
-    ) -> VortexResult<AppState> {
+    ) -> vortex::error::VortexResult<AppState> {
         use vortex::file::OpenOptionsSessionExt;
 
         let vxf = session.open_options().open_buffer(buffer)?;
@@ -350,7 +349,7 @@ impl AppState {
     }
 
     /// Asynchronously load and cache the flat layout array data and flatbuffer size.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "native")]
     pub(crate) async fn load_flat_data(&mut self) {
         use vortex::array::MaskFuture;
         use vortex::array::serde::ArrayParts;

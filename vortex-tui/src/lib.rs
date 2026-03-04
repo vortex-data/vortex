@@ -4,7 +4,7 @@
 //! Vortex TUI library for interactively browsing and inspecting Vortex files.
 //!
 //! This crate provides both a CLI tool (`vx`) and a library API for working with Vortex files.
-//! Users can bring their own [`vortex::VortexSession`] to enable custom encodings and extensions.
+//! Users can bring their own `VortexSession` to enable custom encodings and extensions.
 //!
 //! # Example
 //!
@@ -26,26 +26,30 @@
 #![deny(clippy::missing_safety_doc)]
 #![deny(missing_docs)]
 
+#[cfg_attr(
+    all(not(feature = "native"), not(target_arch = "wasm32")),
+    allow(dead_code, unused_imports)
+)]
 pub mod browse;
 pub mod segment_tree;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 pub mod convert;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 pub mod datafusion_helper;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 pub mod inspect;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 pub mod query;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 pub mod segments;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 pub mod tree;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 mod native_cli {
     use std::ffi::OsString;
     use std::path::PathBuf;
@@ -147,7 +151,7 @@ mod native_cli {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 pub use native_cli::launch;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 pub use native_cli::launch_from;

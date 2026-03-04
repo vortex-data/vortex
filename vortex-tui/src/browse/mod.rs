@@ -59,7 +59,7 @@ fn navigate_layout_down(app: &mut AppState, amount: usize) {
 #[allow(clippy::cognitive_complexity)]
 pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> HandleResult {
     // Check if we're in Query tab with SQL input focus - handle text input first
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "native")]
     {
         use ui::QueryFocus;
         use ui::SortDirection;
@@ -109,23 +109,23 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
         (InputKeyCode::Tab, ..) => {
             app.current_tab = match app.current_tab {
                 Tab::Layout => Tab::Segments,
-                #[cfg(not(target_arch = "wasm32"))]
+                #[cfg(feature = "native")]
                 Tab::Segments => Tab::Query,
-                #[cfg(not(target_arch = "wasm32"))]
+                #[cfg(feature = "native")]
                 Tab::Query => Tab::Layout,
-                #[cfg(target_arch = "wasm32")]
+                #[cfg(not(feature = "native"))]
                 Tab::Segments => Tab::Layout,
             };
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(feature = "native")]
         (InputKeyCode::Char('['), false, false, _) => {
             if app.current_tab == Tab::Query {
                 app.query_state.prepare_prev_page();
             }
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(feature = "native")]
         (InputKeyCode::Char(']'), false, false, _) => {
             if app.current_tab == Tab::Query {
                 app.query_state.prepare_next_page();
@@ -137,7 +137,7 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
         | (InputKeyCode::Char('p'), true, ..) => match app.current_tab {
             Tab::Layout => navigate_layout_up(app, SCROLL_LINE),
             Tab::Segments => app.segment_grid_state.scroll_up(SEGMENT_SCROLL_LINE),
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(feature = "native")]
             Tab::Query => {
                 app.query_state.table_state.select_previous();
             }
@@ -147,7 +147,7 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
         | (InputKeyCode::Char('n'), true, ..) => match app.current_tab {
             Tab::Layout => navigate_layout_down(app, SCROLL_LINE),
             Tab::Segments => app.segment_grid_state.scroll_down(SEGMENT_SCROLL_LINE),
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(feature = "native")]
             Tab::Query => {
                 app.query_state.table_state.select_next();
             }
@@ -156,7 +156,7 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
             match app.current_tab {
                 Tab::Layout => navigate_layout_up(app, SCROLL_PAGE),
                 Tab::Segments => app.segment_grid_state.scroll_up(SEGMENT_SCROLL_PAGE),
-                #[cfg(not(target_arch = "wasm32"))]
+                #[cfg(feature = "native")]
                 Tab::Query => {
                     app.query_state.prepare_prev_page();
                 }
@@ -166,7 +166,7 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
             match app.current_tab {
                 Tab::Layout => navigate_layout_down(app, SCROLL_PAGE),
                 Tab::Segments => app.segment_grid_state.scroll_down(SEGMENT_SCROLL_PAGE),
-                #[cfg(not(target_arch = "wasm32"))]
+                #[cfg(feature = "native")]
                 Tab::Query => {
                     app.query_state.prepare_next_page();
                 }
@@ -177,7 +177,7 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
             Tab::Segments => app
                 .segment_grid_state
                 .scroll_left(SEGMENT_SCROLL_HORIZONTAL_JUMP),
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(feature = "native")]
             Tab::Query => {
                 app.query_state.table_state.select_first();
             }
@@ -187,7 +187,7 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
             Tab::Segments => app
                 .segment_grid_state
                 .scroll_right(SEGMENT_SCROLL_HORIZONTAL_JUMP),
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(feature = "native")]
             Tab::Query => {
                 app.query_state.table_state.select_last();
             }
@@ -209,7 +209,7 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
             Tab::Segments => app
                 .segment_grid_state
                 .scroll_left(SEGMENT_SCROLL_HORIZONTAL_STEP),
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(feature = "native")]
             Tab::Query => {
                 app.query_state.horizontal_scroll =
                     app.query_state.horizontal_scroll.saturating_sub(1);
@@ -222,7 +222,7 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
             Tab::Segments => app
                 .segment_grid_state
                 .scroll_right(SEGMENT_SCROLL_HORIZONTAL_STEP),
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(feature = "native")]
             Tab::Query => {
                 let max_col = app.query_state.column_count().saturating_sub(1);
                 if app.query_state.horizontal_scroll < max_col {
@@ -232,19 +232,19 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
         },
 
         (InputKeyCode::Char('/'), ..) | (InputKeyCode::Char('s'), true, ..) => {
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(feature = "native")]
             if app.current_tab == Tab::Query {
                 // Don't enter search mode from query tab
             } else {
                 app.key_mode = KeyMode::Search;
             }
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(not(feature = "native"))]
             {
                 app.key_mode = KeyMode::Search;
             }
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(feature = "native")]
         (InputKeyCode::Char('s'), false, false, _) => {
             if app.current_tab == Tab::Query {
                 let col = app.query_state.selected_column();
@@ -252,7 +252,7 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
             }
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(feature = "native")]
         (InputKeyCode::Esc, ..) => {
             if app.current_tab == Tab::Query {
                 app.query_state.toggle_focus();
@@ -346,7 +346,7 @@ pub(crate) fn handle_search_mode(app: &mut AppState, event: InputEvent) -> Handl
 
 // --- Native-only crossterm event loop ---
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 mod native {
     use crossterm::event::Event;
     use crossterm::event::EventStream;
@@ -445,5 +445,5 @@ mod native {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 pub use native::exec_tui;

@@ -4,18 +4,18 @@
 //! UI rendering components for the TUI browser.
 
 mod layouts;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 mod query;
 mod segments;
 
 use layouts::render_layouts;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 pub use query::QueryFocus;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 pub use query::QueryState;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 pub use query::SortDirection;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 use query::render_query;
 use ratatui::prelude::*;
 use ratatui::widgets::Block;
@@ -72,7 +72,7 @@ pub fn render_app(app: &mut AppState, frame: &mut Frame<'_>) {
     .areas(inner_area);
 
     // Display a tab indicator.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "native")]
     let (selected_tab, tab_names) = {
         let selected = match app.current_tab {
             Tab::Layout => 0,
@@ -82,7 +82,7 @@ pub fn render_app(app: &mut AppState, frame: &mut Frame<'_>) {
         (selected, vec!["File Layout", "Segments", "Query"])
     };
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(not(feature = "native"))]
     let (selected_tab, tab_names) = {
         let selected = match app.current_tab {
             Tab::Layout => 0,
@@ -109,7 +109,7 @@ pub fn render_app(app: &mut AppState, frame: &mut Frame<'_>) {
             render_layouts(app, app_view, frame.buffer_mut());
         }
         Tab::Segments => segments_ui(app, app_view, frame.buffer_mut()),
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(feature = "native")]
         Tab::Query => render_query(app, app_view, frame.buffer_mut()),
     }
 }

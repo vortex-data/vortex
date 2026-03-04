@@ -49,7 +49,7 @@ pub(crate) enum InputKeyCode {
     Other,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "native")]
 impl From<crossterm::event::KeyEvent> for InputEvent {
     fn from(key: crossterm::event::KeyEvent) -> Self {
         use crossterm::event::KeyCode;
