@@ -17,6 +17,7 @@ use object_store::ObjectStore;
 use object_store::ObjectStoreScheme;
 use object_store::aws::AmazonS3;
 use object_store::aws::AmazonS3Builder;
+use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectStorePath;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
@@ -43,7 +44,7 @@ use vortex_bench::rdma_proto::write_string;
     about = "Demo RDMA object server: preload S3 prefix to memory and serve range reads"
 )]
 struct Args {
-    /// S3 prefix to preload (must end with '/'), e.g. s3://bucket/path/to/prefix/
+    /// Source to preload: `s3://bucket/prefix/` or a local directory path.
     #[arg(long)]
     source: String,
     /// TCP bind address for the server.
@@ -101,12 +102,8 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
-    anyhow::ensure!(
-        args.source.ends_with('/'),
-        "--source must be a prefix ending with '/'"
-    );
 
-    let cache = preload_s3_prefix(
+    let cache = preload_source(
         &args.source,
         args.download_concurrency.max(1),
         args.gpu_cache,
@@ -136,30 +133,22 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn preload_s3_prefix(
+async fn preload_source(
     source: &str,
     download_concurrency: usize,
     gpu_cache: bool,
     gpu_ordinal: usize,
 ) -> Result<CachedStore> {
-    let url = Url::parse(source)?;
-    let (scheme, prefix) = ObjectStoreScheme::parse(&url).map_err(object_store::Error::from)?;
-    anyhow::ensure!(
-        scheme == ObjectStoreScheme::AmazonS3,
-        "only s3:// is supported"
-    );
-
-    let store = Arc::new(AmazonS3Builder::from_env().with_url(source).build()?) as Arc<AmazonS3>;
-    let store_dyn: Arc<dyn ObjectStore> = store.clone();
+    let (store_dyn, list_prefix) = open_source_store(source)?;
 
     let mut objects = store_dyn
-        .list(Some(&prefix))
+        .list(list_prefix.as_ref())
         .try_collect::<Vec<_>>()
         .await
-        .with_context(|| format!("failed to list prefix {source}"))?;
+        .with_context(|| format!("failed to list source {source}"))?;
     objects.sort_by(|a, b| a.location.cmp(&b.location));
     anyhow::ensure!(!objects.is_empty(), "no objects found under {source}");
-    info!(count = objects.len(), "found objects in prefix");
+    info!(count = objects.len(), "found objects in source");
 
     let loaded = futures::stream::iter(objects.into_iter())
         .map(|meta| {
@@ -195,6 +184,63 @@ async fn preload_s3_prefix(
         keys: Arc::new(keys),
         total_bytes,
     })
+}
+
+fn open_source_store(source: &str) -> Result<(Arc<dyn ObjectStore>, Option<ObjectStorePath>)> {
+    if source.starts_with("s3://") {
+        anyhow::ensure!(
+            source.ends_with('/'),
+            "s3 source must be a prefix ending with '/'"
+        );
+        let url = Url::parse(source)?;
+        let (scheme, prefix) = ObjectStoreScheme::parse(&url).map_err(object_store::Error::from)?;
+        anyhow::ensure!(
+            scheme == ObjectStoreScheme::AmazonS3,
+            "unsupported object store source scheme: {scheme:?}"
+        );
+        let store =
+            Arc::new(AmazonS3Builder::from_env().with_url(source).build()?) as Arc<AmazonS3>;
+        return Ok((store as Arc<dyn ObjectStore>, Some(prefix)));
+    }
+
+    let local_path = if source.starts_with("file://") {
+        Url::parse(source)
+            .with_context(|| format!("invalid file URL: {source}"))?
+            .to_file_path()
+            .map_err(|_| anyhow::anyhow!("failed to convert file URL to local path: {source}"))?
+    } else {
+        source.into()
+    };
+
+    anyhow::ensure!(
+        local_path.is_dir(),
+        "local source must be a directory, got {}",
+        local_path.display()
+    );
+    let source_name = local_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "local source directory must have a valid UTF-8 name, got {}",
+                local_path.display()
+            )
+        })?;
+    let parent_dir = local_path.parent().ok_or_else(|| {
+        anyhow::anyhow!(
+            "local source directory must have a parent directory, got {}",
+            local_path.display()
+        )
+    })?;
+    let store = Arc::new(
+        LocalFileSystem::new_with_prefix(parent_dir).with_context(|| {
+            format!(
+                "failed to open parent directory as local object store: {}",
+                parent_dir.display()
+            )
+        })?,
+    ) as Arc<dyn ObjectStore>;
+    Ok((store, Some(ObjectStorePath::from(source_name))))
 }
 
 async fn download_object(
