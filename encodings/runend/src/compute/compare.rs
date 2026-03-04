@@ -47,6 +47,8 @@ impl CompareKernel for RunEndVTable {
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -59,6 +61,7 @@ mod test {
     fn ree_array() -> RunEndArray {
         RunEndArray::encode(
             PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap()
     }

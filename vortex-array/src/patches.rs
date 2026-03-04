@@ -26,9 +26,9 @@ use crate::ArrayVisitor;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::is_sorted;
 use crate::dtype::DType;
@@ -399,8 +399,7 @@ impl Patches {
     /// [`SearchResult::Found`] with the position if needle exists, or [`SearchResult::NotFound`]
     /// with the insertion point if not found.
     fn search_index_binary_search(indices: &ArrayRef, needle: usize) -> VortexResult<SearchResult> {
-        if indices.is_canonical() {
-            let primitive = indices.to_primitive();
+        if let Some(primitive) = indices.as_opt::<PrimitiveVTable>() {
             match_each_integer_ptype!(primitive.ptype(), |T| {
                 let Ok(needle) = T::try_from(needle) else {
                     // If the needle is not of type T, then it cannot possibly be in this array.

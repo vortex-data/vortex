@@ -5,9 +5,11 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::DynArray;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
@@ -50,6 +52,7 @@ pub trait CanonicalCompressor {
         array: Canonical,
         ctx: CompressorContext,
         excludes: Excludes,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef>;
 
     /// Returns the enabled integer compression schemes.
@@ -118,7 +121,29 @@ impl BtrBlocksCompressor {
         // Compact it, removing any wasted space before we attempt to compress it
         let compact = canonical.compact()?;
 
-        self.compress_canonical(compact, CompressorContext::default(), Excludes::none())
+        let mut exec_ctx = LEGACY_SESSION.create_execution_ctx();
+        self.compress_canonical(
+            compact,
+            CompressorContext::default(),
+            Excludes::none(),
+            &mut exec_ctx,
+        )
+    }
+
+    /// Compresses an array using an existing execution context.
+    pub(crate) fn compress_with_ctx(
+        &self,
+        array: &ArrayRef,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let canonical = array.to_canonical()?;
+        let compact = canonical.compact()?;
+        self.compress_canonical(
+            compact,
+            CompressorContext::default(),
+            Excludes::none(),
+            exec_ctx,
+        )
     }
 
     pub(crate) fn integer_compressor(&self) -> IntCompressor<'_> {
@@ -144,21 +169,23 @@ impl BtrBlocksCompressor {
         &self,
         list_array: ListArray,
         ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         // Reset the offsets to remove garbage data that might prevent us from narrowing our
         // offsets (there could be a large amount of trailing garbage data that the current
         // views do not reference at all).
         let list_array = list_array.reset_offsets(true)?;
 
-        let compressed_elems = self.compress(list_array.elements())?;
+        let compressed_elems = self.compress_with_ctx(list_array.elements(), exec_ctx)?;
 
         // Note that since the type of our offsets are not encoded in our `DType`, and since
         // we guarantee above that all elements are referenced by offsets, we may narrow the
         // widths.
         let compressed_offsets = self.compress_canonical(
-            Canonical::Primitive(list_array.offsets().to_primitive().narrow()?),
+            Canonical::Primitive(list_array.offsets().to_primitive().narrow(exec_ctx)?),
             ctx,
             Excludes::from(&[IntCode::Dict]),
+            exec_ctx,
         )?;
 
         Ok(ListArray::try_new(
@@ -175,17 +202,20 @@ impl BtrBlocksCompressor {
         &self,
         list_view: ListViewArray,
         ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let compressed_elems = self.compress(list_view.elements())?;
+        let compressed_elems = self.compress_with_ctx(list_view.elements(), exec_ctx)?;
         let compressed_offsets = self.compress_canonical(
-            Canonical::Primitive(list_view.offsets().to_primitive().narrow()?),
+            Canonical::Primitive(list_view.offsets().to_primitive().narrow(exec_ctx)?),
             ctx,
             Excludes::none(),
+            exec_ctx,
         )?;
         let compressed_sizes = self.compress_canonical(
-            Canonical::Primitive(list_view.sizes().to_primitive().narrow()?),
+            Canonical::Primitive(list_view.sizes().to_primitive().narrow(exec_ctx)?),
             ctx,
             Excludes::none(),
+            exec_ctx,
         )?;
         Ok(ListViewArray::try_new(
             compressed_elems,
@@ -206,6 +236,7 @@ impl CanonicalCompressor for BtrBlocksCompressor {
         array: Canonical,
         ctx: CompressorContext,
         excludes: Excludes,
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         match array {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
@@ -213,19 +244,29 @@ impl CanonicalCompressor for BtrBlocksCompressor {
             Canonical::Bool(bool_array) => Ok(bool_array.into_array()),
             Canonical::Primitive(primitive) => {
                 if primitive.ptype().is_int() {
-                    self.integer_compressor()
-                        .compress(self, &primitive, ctx, excludes.int)
+                    self.integer_compressor().compress(
+                        self,
+                        &primitive,
+                        ctx,
+                        excludes.int,
+                        exec_ctx,
+                    )
                 } else {
-                    self.float_compressor()
-                        .compress(self, &primitive, ctx, excludes.float)
+                    self.float_compressor().compress(
+                        self,
+                        &primitive,
+                        ctx,
+                        excludes.float,
+                        exec_ctx,
+                    )
                 }
             }
-            Canonical::Decimal(decimal) => compress_decimal(self, &decimal),
+            Canonical::Decimal(decimal) => compress_decimal(self, &decimal, exec_ctx),
             Canonical::Struct(struct_array) => {
                 let fields = struct_array
                     .unmasked_fields()
                     .iter()
-                    .map(|field| self.compress(field))
+                    .map(|field| self.compress_with_ctx(field, exec_ctx))
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(StructArray::try_new(
@@ -241,13 +282,13 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                     // Offsets are already monotonic and non-overlapping, so we
                     // can drop the sizes array and compress as a ListArray.
                     let list_array = list_from_list_view(list_view_array)?;
-                    self.compress_list_array(list_array, ctx)
+                    self.compress_list_array(list_array, ctx, exec_ctx)
                 } else {
-                    self.compress_list_view_array(list_view_array, ctx)
+                    self.compress_list_view_array(list_view_array, ctx, exec_ctx)
                 }
             }
             Canonical::FixedSizeList(fsl_array) => {
-                let compressed_elems = self.compress(fsl_array.elements())?;
+                let compressed_elems = self.compress_with_ctx(fsl_array.elements(), exec_ctx)?;
 
                 Ok(FixedSizeListArray::try_new(
                     compressed_elems,
@@ -262,8 +303,13 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                     .dtype()
                     .eq_ignore_nullability(&DType::Utf8(Nullability::NonNullable))
                 {
-                    self.string_compressor()
-                        .compress(self, &strings, ctx, excludes.string)
+                    self.string_compressor().compress(
+                        self,
+                        &strings,
+                        ctx,
+                        excludes.string,
+                        exec_ctx,
+                    )
                 } else {
                     // Binary arrays do not compress
                     Ok(strings.into_array())
@@ -288,11 +334,11 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                         )
                         .into_array());
                     }
-                    return compress_temporal(self, temporal_array);
+                    return compress_temporal(self, temporal_array, exec_ctx);
                 }
 
                 // Compress the underlying storage array.
-                let compressed_storage = self.compress(ext_array.storage())?;
+                let compressed_storage = self.compress_with_ctx(ext_array.storage(), exec_ctx)?;
 
                 Ok(
                     ExtensionArray::new(ext_array.ext_dtype().clone(), compressed_storage)

@@ -208,7 +208,7 @@ pub fn vortex_btrblocks::BtrBlocksCompressor::default() -> Self
 
 impl vortex_btrblocks::CanonicalCompressor for vortex_btrblocks::BtrBlocksCompressor
 
-pub fn vortex_btrblocks::BtrBlocksCompressor::compress_canonical(&self, array: vortex_array::canonical::Canonical, ctx: vortex_btrblocks::ctx::CompressorContext, excludes: vortex_btrblocks::ctx::Excludes<'_>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_btrblocks::BtrBlocksCompressor::compress_canonical(&self, array: vortex_array::canonical::Canonical, ctx: vortex_btrblocks::ctx::CompressorContext, excludes: vortex_btrblocks::ctx::Excludes<'_>, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 pub fn vortex_btrblocks::BtrBlocksCompressor::float_schemes(&self) -> &[&'static dyn vortex_btrblocks::compressor::float::FloatScheme]
 
@@ -282,7 +282,7 @@ pub fn vortex_btrblocks::IntegerStats::source(&self) -> &vortex_array::arrays::p
 
 pub trait vortex_btrblocks::CanonicalCompressor
 
-pub fn vortex_btrblocks::CanonicalCompressor::compress_canonical(&self, array: vortex_array::canonical::Canonical, ctx: vortex_btrblocks::ctx::CompressorContext, excludes: vortex_btrblocks::ctx::Excludes<'_>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_btrblocks::CanonicalCompressor::compress_canonical(&self, array: vortex_array::canonical::Canonical, ctx: vortex_btrblocks::ctx::CompressorContext, excludes: vortex_btrblocks::ctx::Excludes<'_>, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 pub fn vortex_btrblocks::CanonicalCompressor::float_schemes(&self) -> &[&'static dyn vortex_btrblocks::compressor::float::FloatScheme]
 
@@ -292,7 +292,7 @@ pub fn vortex_btrblocks::CanonicalCompressor::string_schemes(&self) -> &[&'stati
 
 impl vortex_btrblocks::CanonicalCompressor for vortex_btrblocks::BtrBlocksCompressor
 
-pub fn vortex_btrblocks::BtrBlocksCompressor::compress_canonical(&self, array: vortex_array::canonical::Canonical, ctx: vortex_btrblocks::ctx::CompressorContext, excludes: vortex_btrblocks::ctx::Excludes<'_>) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_btrblocks::BtrBlocksCompressor::compress_canonical(&self, array: vortex_array::canonical::Canonical, ctx: vortex_btrblocks::ctx::CompressorContext, excludes: vortex_btrblocks::ctx::Excludes<'_>, exec_ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 pub fn vortex_btrblocks::BtrBlocksCompressor::float_schemes(&self) -> &[&'static dyn vortex_btrblocks::compressor::float::FloatScheme]
 

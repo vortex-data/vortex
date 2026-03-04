@@ -117,6 +117,8 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 mod tests {
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_error::VortexResult;
@@ -127,6 +129,7 @@ mod tests {
     fn ree_array() -> RunEndArray {
         RunEndArray::encode(
             PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
         )
         .unwrap()
     }

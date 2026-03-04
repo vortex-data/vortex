@@ -7,6 +7,7 @@ use std::marker::PhantomData;
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
@@ -51,6 +52,7 @@ pub trait RLEConfig: Debug + Send + Sync + 'static {
         values: &PrimitiveArray,
         ctx: CompressorContext,
         excludes: &[Self::Code],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef>;
 }
 
@@ -87,6 +89,7 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         excludes: &[C::Code],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<f64> {
         // RLE is only useful when we cascade it with another encoding.
         if ctx.allowed_cascading == 0 {
@@ -104,7 +107,7 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
         }
 
         // Run compression on a sample to see how it performs.
-        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes, exec_ctx)
     }
 
     fn compress(
@@ -113,6 +116,7 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         excludes: &[C::Code],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let rle_array = RLEArray::encode(RLEStats::source(stats))?;
 
@@ -129,18 +133,26 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
             &rle_array.values().to_primitive(),
             ctx.descend(),
             &new_excludes,
+            exec_ctx,
         )?;
 
         let compressed_indices = compressor.compress_canonical(
-            Canonical::Primitive(rle_array.indices().to_primitive().narrow()?),
+            Canonical::Primitive(rle_array.indices().to_primitive().narrow(exec_ctx)?),
             ctx.descend(),
             Excludes::from(&[IntCode::Dict]),
+            exec_ctx,
         )?;
 
         let compressed_offsets = compressor.compress_canonical(
-            Canonical::Primitive(rle_array.values_idx_offsets().to_primitive().narrow()?),
+            Canonical::Primitive(
+                rle_array
+                    .values_idx_offsets()
+                    .to_primitive()
+                    .narrow(exec_ctx)?,
+            ),
             ctx.descend(),
             Excludes::from(&[IntCode::Dict]),
+            exec_ctx,
         )?;
 
         // SAFETY: Recursive compression doesn't affect the invariants.

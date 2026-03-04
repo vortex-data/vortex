@@ -2488,7 +2488,7 @@ impl vortex_array::arrays::PrimitiveArray
 
 pub fn vortex_array::arrays::PrimitiveArray::as_slice<T: vortex_array::dtype::NativePType>(&self) -> &[T]
 
-pub fn vortex_array::arrays::PrimitiveArray::narrow(&self) -> vortex_error::VortexResult<vortex_array::arrays::PrimitiveArray>
+pub fn vortex_array::arrays::PrimitiveArray::narrow(&self, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::PrimitiveArray>
 
 pub fn vortex_array::arrays::PrimitiveArray::reinterpret_cast(&self, ptype: vortex_array::dtype::PType) -> Self
 
@@ -4480,9 +4480,9 @@ pub fn vortex_array::builders::dict::DictEncoder::encode(&mut self, array: &vort
 
 pub fn vortex_array::builders::dict::DictEncoder::reset(&mut self) -> vortex_array::ArrayRef
 
-pub fn vortex_array::builders::dict::dict_encode(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::arrays::DictArray>
+pub fn vortex_array::builders::dict::dict_encode(array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::DictArray>
 
-pub fn vortex_array::builders::dict::dict_encode_with_constraints(array: &vortex_array::ArrayRef, constraints: &vortex_array::builders::dict::DictConstraints) -> vortex_error::VortexResult<vortex_array::arrays::DictArray>
+pub fn vortex_array::builders::dict::dict_encode_with_constraints(array: &vortex_array::ArrayRef, constraints: &vortex_array::builders::dict::DictConstraints, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::DictArray>
 
 pub fn vortex_array::builders::dict::dict_encoder(array: &vortex_array::ArrayRef, constraints: &vortex_array::builders::dict::DictConstraints) -> alloc::boxed::Box<dyn vortex_array::builders::dict::DictEncoder>
 

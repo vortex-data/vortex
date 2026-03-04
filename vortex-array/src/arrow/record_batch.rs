@@ -22,7 +22,9 @@ impl TryFrom<&dyn DynArray> for RecordBatch {
     type Error = VortexError;
 
     fn try_from(value: &dyn DynArray) -> VortexResult<Self> {
-        let Canonical::Struct(struct_array) = value.to_canonical()? else {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let Canonical::Struct(struct_array) = value.to_array().execute::<Canonical>(&mut ctx)?
+        else {
             vortex_bail!("RecordBatch can only be constructed from ")
         };
 
@@ -34,7 +36,7 @@ impl TryFrom<&dyn DynArray> for RecordBatch {
         let data_type = struct_array.dtype().to_arrow_dtype()?;
         let array_ref = struct_array
             .into_array()
-            .execute_arrow(Some(&data_type), &mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute_arrow(Some(&data_type), &mut ctx)?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 }

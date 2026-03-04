@@ -49,6 +49,8 @@ mod tests {
     use super::DictArray;
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::builders::dict::dict_encode;
     use crate::compute::min_max;
@@ -94,7 +96,7 @@ mod tests {
         ).unwrap(),
         (1, 5)
     )]
-    #[case::single(dict_encode(&buffer![42i32].into_array()).unwrap(), (42, 42))]
+    #[case::single(dict_encode(&buffer![42i32].into_array(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap(), (42, 42))]
     #[case::nullable_codes(
         DictArray::try_new(
             PrimitiveArray::from_option_iter([Some(0u32), None, Some(1), Some(2)]).into_array(),
@@ -104,7 +106,8 @@ mod tests {
     )]
     #[case::nullable_values(
         dict_encode(
-            &PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).to_array()
+            &PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).to_array(),
+            &mut LEGACY_SESSION.create_execution_ctx()
         ).unwrap(),
         (1, 2)
     )]
@@ -115,7 +118,11 @@ mod tests {
     #[test]
     fn test_sliced_dict() {
         let reference = PrimitiveArray::from_iter([1, 5, 10, 50, 100]);
-        let dict = dict_encode(&reference.to_array()).unwrap();
+        let dict = dict_encode(
+            &reference.to_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         let sliced = dict.slice(1..3).unwrap();
         assert_min_max(&sliced, Some((5, 10)));
     }

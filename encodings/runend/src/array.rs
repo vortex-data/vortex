@@ -434,9 +434,9 @@ impl RunEndArray {
     }
 
     /// Run the array through run-end encoding.
-    pub fn encode(array: ArrayRef) -> VortexResult<Self> {
+    pub fn encode(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
-            let (ends, values) = runend_encode(parray);
+            let (ends, values) = runend_encode(parray, ctx);
             // SAFETY: runend_encode handles this
             unsafe {
                 Ok(Self::new_unchecked(

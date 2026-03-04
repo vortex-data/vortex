@@ -51,7 +51,9 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::DictVTable;
     use crate::assert_arrays_eq;
@@ -65,7 +67,7 @@ mod tests {
     #[test]
     fn test_cast_dict_to_wider_type() {
         let values = buffer![1i32, 2, 3, 2, 1].into_array();
-        let dict = dict_encode(&values).unwrap();
+        let dict = dict_encode(&values, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         let casted = dict
             .to_array()
@@ -84,7 +86,11 @@ mod tests {
     fn test_cast_dict_nullable() {
         let values =
             PrimitiveArray::from_option_iter([Some(10i32), None, Some(20), Some(10), None]);
-        let dict = dict_encode(&values.to_array()).unwrap();
+        let dict = dict_encode(
+            &values.to_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         let casted = dict
             .to_array()
@@ -100,7 +106,7 @@ mod tests {
     fn test_cast_dict_allvalid_to_nonnullable_and_back() {
         // Create an AllValid dict array (no nulls)
         let values = buffer![10i32, 20, 30, 40].into_array();
-        let dict = dict_encode(&values).unwrap();
+        let dict = dict_encode(&values, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         // Verify initial state - codes should be NonNullable, values should be NonNullable
         assert_eq!(dict.codes().dtype().nullability(), Nullability::NonNullable);
@@ -177,10 +183,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case(dict_encode(&buffer![1i32, 2, 3, 2, 1, 3].into_array()).unwrap().into_array())]
-    #[case(dict_encode(&buffer![100u32, 200, 100, 300, 200].into_array()).unwrap().into_array())]
-    #[case(dict_encode(&PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).into_array()).unwrap().into_array())]
-    #[case(dict_encode(&buffer![1.5f32, 2.5, 1.5, 3.5].into_array()).unwrap().into_array())]
+    #[case(dict_encode(&buffer![1i32, 2, 3, 2, 1, 3].into_array(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap().into_array())]
+    #[case(dict_encode(&buffer![100u32, 200, 100, 300, 200].into_array(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap().into_array())]
+    #[case(dict_encode(&PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).into_array(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap().into_array())]
+    #[case(dict_encode(&buffer![1.5f32, 2.5, 1.5, 3.5].into_array(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap().into_array())]
     fn test_cast_dict_conformance(#[case] array: crate::ArrayRef) {
         test_cast_conformance(&array);
     }

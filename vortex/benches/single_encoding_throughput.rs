@@ -13,7 +13,9 @@ use rand::SeedableRng;
 use rand::prelude::IndexedRandom;
 use rand::rngs::StdRng;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::builders::dict::dict_encode;
@@ -117,13 +119,19 @@ fn bench_runend_compress_u32(bencher: Bencher) {
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| uint_array.clone())
-        .bench_values(|a| RunEndArray::encode(a.into_array()).unwrap());
+        .bench_values(|a| {
+            RunEndArray::encode(a.into_array(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap()
+        });
 }
 
 #[divan::bench(name = "runend_decompress_u32")]
 fn bench_runend_decompress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
-    let compressed = RunEndArray::encode(uint_array.into_array()).unwrap();
+    let compressed = RunEndArray::encode(
+        uint_array.into_array(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )
+    .unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| &compressed)
@@ -180,13 +188,19 @@ fn bench_dict_compress_u32(bencher: Bencher) {
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| &uint_array)
-        .bench_refs(|a| dict_encode(&a.to_array()).unwrap());
+        .bench_refs(|a| {
+            dict_encode(&a.to_array(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap()
+        });
 }
 
 #[divan::bench(name = "dict_decompress_u32")]
 fn bench_dict_decompress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
-    let compressed = dict_encode(&uint_array.to_array()).unwrap();
+    let compressed = dict_encode(
+        &uint_array.to_array(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )
+    .unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| &compressed)
@@ -303,13 +317,19 @@ fn bench_dict_compress_string(bencher: Bencher) {
 
     with_byte_counter(bencher, nbytes)
         .with_inputs(|| &varbinview_arr)
-        .bench_refs(|a| dict_encode(&a.to_array()).unwrap());
+        .bench_refs(|a| {
+            dict_encode(&a.to_array(), &mut LEGACY_SESSION.create_execution_ctx()).unwrap()
+        });
 }
 
 #[divan::bench(name = "dict_decompress_string")]
 fn bench_dict_decompress_string(bencher: Bencher) {
     let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(1_000_000, 0.00005));
-    let dict = dict_encode(&varbinview_arr.to_array()).unwrap();
+    let dict = dict_encode(
+        &varbinview_arr.to_array(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    )
+    .unwrap();
     let nbytes = varbinview_arr.into_array().nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)

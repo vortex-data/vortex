@@ -3,6 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::narrowed_decimal;
@@ -21,6 +22,7 @@ use crate::Excludes;
 pub fn compress_decimal(
     compressor: &BtrBlocksCompressor,
     decimal: &DecimalArray,
+    exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let decimal = narrowed_decimal(decimal.clone());
     let validity = decimal.validity();
@@ -36,6 +38,7 @@ pub fn compress_decimal(
         Canonical::Primitive(prim),
         CompressorContext::default(),
         Excludes::none(),
+        exec_ctx,
     )?;
 
     DecimalBytePartsArray::try_new(compressed, decimal.decimal_dtype()).map(|d| d.to_array())

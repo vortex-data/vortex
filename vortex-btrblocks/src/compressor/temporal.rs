@@ -5,6 +5,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::TemporalArray;
@@ -22,6 +23,7 @@ use crate::Excludes;
 pub fn compress_temporal(
     compressor: &BtrBlocksCompressor,
     array: TemporalArray,
+    exec_ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let dtype = array.dtype().clone();
     let TemporalParts {
@@ -33,19 +35,22 @@ pub fn compress_temporal(
     let ctx = CompressorContext::default().descend();
 
     let days = compressor.compress_canonical(
-        Canonical::Primitive(days.to_primitive().narrow()?),
+        Canonical::Primitive(days.to_primitive().narrow(exec_ctx)?),
         ctx,
         Excludes::none(),
+        exec_ctx,
     )?;
     let seconds = compressor.compress_canonical(
-        Canonical::Primitive(seconds.to_primitive().narrow()?),
+        Canonical::Primitive(seconds.to_primitive().narrow(exec_ctx)?),
         ctx,
         Excludes::none(),
+        exec_ctx,
     )?;
     let subseconds = compressor.compress_canonical(
-        Canonical::Primitive(subseconds.to_primitive().narrow()?),
+        Canonical::Primitive(subseconds.to_primitive().narrow(exec_ctx)?),
         ctx,
         Excludes::none(),
+        exec_ctx,
     )?;
 
     Ok(DateTimePartsArray::try_new(dtype, days, seconds, subseconds)?.into_array())

@@ -55,6 +55,8 @@ mod tests {
     use vortex_array::DynArray;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -73,7 +75,11 @@ mod tests {
     /// Codes:       `[0, 0, 0, 1, 1, 0, 0]`
     /// RunEnd encoded codes: ends=`[3, 5, 7]`, values=`[0, 1, 0]`
     fn make_dict_with_runend_codes() -> (RunEndArray, DictArray) {
-        let codes = RunEndArray::encode(buffer![0u32, 0, 0, 1, 1, 0, 0].into_array()).unwrap();
+        let codes = RunEndArray::encode(
+            buffer![0u32, 0, 0, 1, 1, 0, 0].into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         let values = buffer![2i32, 3].into_array();
         let dict = DictArray::try_new(codes.clone().into_array(), values).unwrap();
         (codes, dict)

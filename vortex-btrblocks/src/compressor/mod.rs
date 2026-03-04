@@ -4,6 +4,7 @@
 //! Compressor traits for type-specific compression.
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::scalar::Scalar;
@@ -69,6 +70,7 @@ where
         stats: &Self::StatsType,
         ctx: CompressorContext,
         excludes: &[<Self::SchemeType as Scheme>::CodeType],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<&'static Self::SchemeType> {
         let mut best_ratio = 1.0;
         let mut best_scheme: Option<&'static Self::SchemeType> = None;
@@ -95,7 +97,8 @@ where
                 "Trying compression scheme"
             );
 
-            let ratio = scheme.expected_compression_ratio(compressor, stats, ctx, excludes)?;
+            let ratio =
+                scheme.expected_compression_ratio(compressor, stats, ctx, excludes, exec_ctx)?;
             tracing::trace!(
                 is_sample = ctx.is_sample,
                 depth,
@@ -135,6 +138,7 @@ where
         array: &<<Self as Compressor>::ArrayVTable as VTable>::Array,
         ctx: CompressorContext,
         excludes: &[<Self::SchemeType as Scheme>::CodeType],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         // Avoid compressing empty arrays.
         if array.is_empty() {
@@ -150,9 +154,11 @@ where
 
         // Generate stats on the array directly.
         let stats = self.gen_stats(array);
-        let best_scheme = self.choose_scheme(btr_blocks_compressor, &stats, ctx, excludes)?;
+        let best_scheme =
+            self.choose_scheme(btr_blocks_compressor, &stats, ctx, excludes, exec_ctx)?;
 
-        let output = best_scheme.compress(btr_blocks_compressor, &stats, ctx, excludes)?;
+        let output =
+            best_scheme.compress(btr_blocks_compressor, &stats, ctx, excludes, exec_ctx)?;
         if output.nbytes() < array.nbytes() {
             Ok(output)
         } else {

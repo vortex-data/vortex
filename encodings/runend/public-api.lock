@@ -10,13 +10,13 @@ pub fn vortex_runend::compress::runend_decode_typed_bool(run_ends: impl core::it
 
 pub fn vortex_runend::compress::runend_decode_typed_primitive<T: vortex_array::dtype::ptype::NativePType>(run_ends: impl core::iter::traits::iterator::Iterator<Item = usize>, values: &[T], values_validity: vortex_mask::Mask, values_nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_array::arrays::primitive::array::PrimitiveArray
 
-pub fn vortex_runend::compress::runend_encode(array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> (vortex_array::arrays::primitive::array::PrimitiveArray, vortex_array::array::ArrayRef)
+pub fn vortex_runend::compress::runend_encode(array: &vortex_array::arrays::primitive::array::PrimitiveArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> (vortex_array::arrays::primitive::array::PrimitiveArray, vortex_array::array::ArrayRef)
 
 pub struct vortex_runend::RunEndArray
 
 impl vortex_runend::RunEndArray
 
-pub fn vortex_runend::RunEndArray::encode(array: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<Self>
+pub fn vortex_runend::RunEndArray::encode(array: vortex_array::array::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_runend::RunEndArray::ends(&self) -> &vortex_array::array::ArrayRef
 
