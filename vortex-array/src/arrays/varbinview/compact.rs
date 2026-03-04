@@ -10,6 +10,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::IntoArray;
 use crate::arrays::Ref;
 use crate::arrays::VarBinViewArray;
 use crate::builders::ArrayBuilder;
@@ -130,7 +131,7 @@ impl VarBinViewArray {
             self.len(),
             buffer_utilization_threshold,
         );
-        builder.extend_from_array(&self.to_array());
+        builder.extend_from_array(&self.clone().into_array());
         Ok(builder.finish_into_varbinview())
     }
 }

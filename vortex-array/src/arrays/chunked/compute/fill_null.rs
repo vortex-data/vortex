@@ -44,14 +44,14 @@ mod tests {
     fn fill_null_chunks() {
         let chunked = ChunkedArray::try_new(
             vec![
-                BoolArray::new(BitBuffer::new_set(5), Validity::AllInvalid).to_array(),
-                BoolArray::new(BitBuffer::new_set(5), Validity::AllValid).to_array(),
+                BoolArray::new(BitBuffer::new_set(5), Validity::AllInvalid).into_array(),
+                BoolArray::new(BitBuffer::new_set(5), Validity::AllValid).into_array(),
             ],
             DType::Bool(Nullability::Nullable),
         )
         .unwrap();
 
-        let filled = chunked.to_array().fill_null(Scalar::from(false)).unwrap();
+        let filled = chunked.into_array().fill_null(Scalar::from(false)).unwrap();
         assert_eq!(*filled.dtype(), DType::Bool(Nullability::NonNullable));
     }
 }

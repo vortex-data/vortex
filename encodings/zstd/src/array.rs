@@ -341,7 +341,7 @@ fn choose_max_dict_size(uncompressed_size: usize) -> usize {
 
 fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
     let mask = parray.validity_mask()?;
-    Ok(parray.to_array().filter(mask)?.to_primitive())
+    Ok(parray.into_array().filter(mask)?.to_primitive())
 }
 
 fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usize>)> {

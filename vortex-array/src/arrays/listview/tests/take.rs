@@ -27,7 +27,7 @@ use crate::validity::Validity;
 #[case::overlapping(create_overlapping_listview())]
 #[case::large(create_large_listview())]
 fn test_take_listview_conformance(#[case] listview: ListViewArray) {
-    test_take_conformance(&listview.to_array());
+    test_take_conformance(&listview.into_array());
 }
 
 // ListView-specific tests that aren't covered by conformance.
@@ -42,7 +42,7 @@ fn test_take_preserves_unreferenced_elements() {
     let sizes = buffer![3u32, 2, 2, 2, 4].into_array();
 
     let listview =
-        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).to_array();
+        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).into_array();
 
     // Take only 2 lists.
     let indices = buffer![1u32, 3].into_array();
@@ -72,7 +72,7 @@ fn test_take_with_gaps() {
     let sizes = buffer![3u32, 3, 2, 2, 2].into_array();
 
     let listview =
-        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).to_array();
+        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).into_array();
 
     let indices = buffer![1u32, 3, 4, 2].into_array();
     let result = listview.take(indices.to_array()).unwrap();
@@ -107,7 +107,7 @@ fn test_take_constant_arrays() {
         varying_sizes,
         Validity::NonNullable,
     )
-    .to_array();
+    .into_array();
 
     let indices = buffer![3u32, 0, 2].into_array();
     let result = const_offset_list.take(indices.to_array()).unwrap();
@@ -131,7 +131,7 @@ fn test_take_constant_arrays() {
         both_constant_sizes,
         Validity::NonNullable,
     )
-    .to_array();
+    .into_array();
 
     let indices2 = buffer![2u32, 0].into_array();
     let result2 = both_const_list.take(indices2.to_array()).unwrap();
@@ -156,7 +156,7 @@ fn test_take_extreme_offsets() {
     let sizes = buffer![5u32, 2, 5, 3, 4].into_array();
 
     let listview =
-        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).to_array();
+        ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).into_array();
 
     // Take only 2 lists, demonstrating we keep all 10000 elements.
     let indices = buffer![1u32, 4].into_array();

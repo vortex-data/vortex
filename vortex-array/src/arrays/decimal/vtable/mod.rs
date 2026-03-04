@@ -13,6 +13,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
@@ -206,7 +207,7 @@ impl VTable for DecimalVTable {
     }
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(array.to_array())
+        Ok(array.clone().into_array())
     }
 
     fn reduce_parent(

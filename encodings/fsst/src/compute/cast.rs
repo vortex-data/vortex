@@ -20,7 +20,7 @@ impl CastReduce for FSSTVTable {
             // Cast codes array to handle nullability
             let new_codes = array
                 .codes()
-                .to_array()
+                .into_array()
                 .cast(array.codes().dtype().with_nullability(dtype.nullability()))?;
 
             Ok(Some(
@@ -63,7 +63,7 @@ mod tests {
 
         // Cast to nullable
         let casted = fsst
-            .to_array()
+            .into_array()
             .cast(DType::Utf8(Nullability::Nullable))
             .unwrap();
         assert_eq!(casted.dtype(), &DType::Utf8(Nullability::Nullable));
@@ -85,6 +85,6 @@ mod tests {
     fn test_cast_fsst_conformance(#[case] array: VarBinArray) {
         let compressor = fsst_train_compressor(&array);
         let fsst = fsst_compress(&array, &compressor);
-        test_cast_conformance(&fsst.to_array());
+        test_cast_conformance(&fsst.into_array());
     }
 }

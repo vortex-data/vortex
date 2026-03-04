@@ -78,7 +78,7 @@ fn compare_fsst_constant(
         return Ok(Some(
             BoolArray::new(
                 buffer,
-                Validity::copy_from_array(&left.to_array())?
+                Validity::copy_from_array(&left.into_array())?
                     .union_nullability(right.dtype().nullability()),
             )
             .into_array(),
@@ -116,7 +116,7 @@ fn compare_fsst_constant(
 
     let rhs = ConstantArray::new(encoded_scalar, left.len());
     left.codes()
-        .to_array()
+        .into_array()
         .binary(rhs.into_array(), Operator::from(operator))
         .map(Some)
 }
@@ -158,8 +158,8 @@ mod tests {
 
         // Ensure fastpath for Eq exists, and returns correct answer
         let equals = lhs
-            .to_array()
-            .binary(rhs.to_array(), Operator::Eq)
+            .into_array()
+            .binary(rhs.into_array(), Operator::Eq)
             .unwrap()
             .to_bool();
 
@@ -172,8 +172,8 @@ mod tests {
 
         // Ensure fastpath for Eq exists, and returns correct answer
         let not_equals = lhs
-            .to_array()
-            .binary(rhs.to_array(), Operator::NotEq)
+            .into_array()
+            .binary(rhs.into_array(), Operator::NotEq)
             .unwrap()
             .to_bool();
 
@@ -187,8 +187,8 @@ mod tests {
         let null_rhs =
             ConstantArray::new(Scalar::null(DType::Utf8(Nullability::Nullable)), lhs.len());
         let equals_null = lhs
-            .to_array()
-            .binary(null_rhs.to_array(), Operator::Eq)
+            .into_array()
+            .binary(null_rhs.into_array(), Operator::Eq)
             .unwrap();
         assert_arrays_eq!(
             &equals_null,
@@ -196,8 +196,8 @@ mod tests {
         );
 
         let noteq_null = lhs
-            .to_array()
-            .binary(null_rhs.to_array(), Operator::NotEq)
+            .into_array()
+            .binary(null_rhs.into_array(), Operator::NotEq)
             .unwrap();
         assert_arrays_eq!(
             &noteq_null,

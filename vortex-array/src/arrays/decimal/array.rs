@@ -12,6 +12,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::BigCast;
@@ -378,7 +379,7 @@ impl DecimalArray {
         let patched_validity = self.validity().clone().patch(
             self.len(),
             offset,
-            &patch_indices.to_array(),
+            &patch_indices.clone().into_array(),
             patch_values.validity(),
             ctx,
         )?;

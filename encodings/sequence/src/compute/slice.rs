@@ -23,7 +23,7 @@ impl SliceReduce for SequenceVTable {
                     range.len(),
                 )
             }
-            .to_array(),
+            .into_array(),
         ))
     }
 }

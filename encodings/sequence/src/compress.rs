@@ -49,7 +49,7 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
     if slice.len() == 1 {
         // The multiplier here can be any value, zero is chosen
         return SequenceArray::try_new_typed(slice[0], P::zero(), nullability, 1)
-            .map(|a| Some(a.to_array()));
+            .map(|a| Some(a.into_array()));
     }
     let base = slice[0];
     let Some(multiplier) = slice[1].checked_sub(&base) else {
@@ -70,7 +70,7 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
         .all(|w| Some(w[1]) == w[0].checked_add(&multiplier))
         .then_some(
             SequenceArray::try_new_typed(base, multiplier, nullability, slice.len())
-                .map(|a| a.to_array()),
+                .map(|a| a.into_array()),
         )
         .transpose()
 }

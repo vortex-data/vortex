@@ -109,7 +109,7 @@ mod tests {
             decimal_dtype,
         );
         let p = arr
-            .to_array()
+            .into_array()
             .fill_null(Scalar::decimal(
                 DecimalValue::I128(4200i128),
                 DecimalDType::new(19, 2),
@@ -138,7 +138,7 @@ mod tests {
         );
 
         let p = arr
-            .to_array()
+            .into_array()
             .fill_null(Scalar::decimal(
                 DecimalValue::I128(25500i128),
                 DecimalDType::new(19, 2),
@@ -159,7 +159,7 @@ mod tests {
         let arr = DecimalArray::from_option_iter([None, Some(10i8), None], decimal_dtype);
         // i8 max is 127, so 200 doesn't fit — the array should be widened to i16.
         let result = arr
-            .to_array()
+            .into_array()
             .fill_null(Scalar::decimal(
                 DecimalValue::I128(200i128),
                 DecimalDType::new(3, 0),
@@ -183,7 +183,7 @@ mod tests {
             Validity::NonNullable,
         );
         let p = arr
-            .to_array()
+            .into_array()
             .fill_null(Scalar::decimal(
                 DecimalValue::I128(25500i128),
                 DecimalDType::new(19, 2),

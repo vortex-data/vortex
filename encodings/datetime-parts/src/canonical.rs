@@ -97,7 +97,7 @@ pub fn decode_to_temporal(
     Ok(TemporalArray::new_timestamp(
         PrimitiveArray::new(
             values.freeze(),
-            Validity::copy_from_array(&array.to_array())?,
+            Validity::copy_from_array(&array.into_array())?,
         )
         .into_array(),
         options.unit,

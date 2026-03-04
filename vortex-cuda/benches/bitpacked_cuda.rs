@@ -56,7 +56,7 @@ where
         .collect();
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable);
-    BitPackedArray::encode(&primitive_array.to_array(), bit_width)
+    BitPackedArray::encode(&primitive_array.into_array(), bit_width)
         .vortex_expect("failed to create BitPacked array")
 }
 
@@ -127,7 +127,7 @@ where
                     .with_launch_strategy(Arc::new(timed));
 
                 for _ in 0..iters {
-                    block_on(array.to_array().execute_cuda(&mut cuda_ctx)).unwrap();
+                    block_on(array.into_array().execute_cuda(&mut cuda_ctx)).unwrap();
                 }
 
                 Duration::from_nanos(timer.load(Ordering::Relaxed))
@@ -173,7 +173,7 @@ where
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {
-                        block_on(array.to_array().execute_cuda(&mut cuda_ctx)).unwrap();
+                        block_on(array.into_array().execute_cuda(&mut cuda_ctx)).unwrap();
                     }
 
                     Duration::from_nanos(timer.load(Ordering::Relaxed))

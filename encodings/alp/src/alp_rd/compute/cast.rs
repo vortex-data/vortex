@@ -66,7 +66,7 @@ mod tests {
         let alprd = encoder.encode(&arr);
 
         let casted = alprd
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::F64, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -91,13 +91,13 @@ mod tests {
 
         // Cast to NonNullable should fail since we have nulls
         let result = alprd
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::F64, Nullability::NonNullable));
         assert!(result.is_err());
 
         // Cast to same type with Nullable should succeed
         let casted = alprd
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::F64, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -138,6 +138,6 @@ mod tests {
         encoder.encode(&arr)
     })]
     fn test_cast_alprd_conformance(#[case] alprd: crate::alp_rd::ALPRDArray) {
-        test_cast_conformance(&alprd.to_array());
+        test_cast_conformance(&alprd.into_array());
     }
 }

@@ -57,10 +57,10 @@ impl CompareKernel for SequenceVTable {
 
         if let Ok(set_idx) = set_idx {
             let buffer = BitBuffer::from_iter((0..lhs.len()).map(|idx| idx == set_idx));
-            Ok(Some(BoolArray::new(buffer, validity).to_array()))
+            Ok(Some(BoolArray::new(buffer, validity).into_array()))
         } else {
             Ok(Some(
-                ConstantArray::new(Scalar::bool(false, nullability), lhs.len()).to_array(),
+                ConstantArray::new(Scalar::bool(false, nullability), lhs.len()).into_array(),
             ))
         }
     }
@@ -149,7 +149,7 @@ mod tests {
     fn test_compare_match() {
         let lhs = SequenceArray::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(4i64, lhs.len());
-        let result = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
+        let result = lhs.into_array().binary(rhs.into_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([false, false, true, false]);
         assert_arrays_eq!(result, expected);
     }
@@ -158,7 +158,7 @@ mod tests {
     fn test_compare_match_scale() {
         let lhs = SequenceArray::try_new_typed(2i64, 3, Nullable, 4).unwrap();
         let rhs = ConstantArray::new(8i64, lhs.len());
-        let result = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
+        let result = lhs.into_array().binary(rhs.into_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(true), Some(false)]);
         assert_arrays_eq!(result, expected);
     }
@@ -167,7 +167,7 @@ mod tests {
     fn test_compare_no_match() {
         let lhs = SequenceArray::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(1i64, lhs.len());
-        let result = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
+        let result = lhs.into_array().binary(rhs.into_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([false, false, false, false]);
         assert_arrays_eq!(result, expected);
     }

@@ -354,19 +354,19 @@ mod tests {
     #[test]
     fn test_cast_conformance_nullable() {
         let array = PrimitiveArray::from_option_iter([Some(1u8), None, Some(255), Some(0), None]);
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 
     #[test]
     fn test_cast_conformance_bool() {
         let array = BoolArray::from_iter(vec![true, false, true, false]);
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 
     #[test]
     fn test_cast_conformance_null() {
         let array = NullArray::new(5);
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 
     #[test]
@@ -375,7 +375,7 @@ mod tests {
             vec![Some("hello"), None, Some("world")],
             DType::Utf8(Nullability::Nullable),
         );
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 
     #[test]
@@ -384,7 +384,7 @@ mod tests {
             vec![Some(b"data".as_slice()), None, Some(b"bytes".as_slice())],
             DType::Binary(Nullability::Nullable),
         );
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 
     #[test]
@@ -401,7 +401,7 @@ mod tests {
         let array =
             StructArray::try_new(names, vec![a, b], 3, crate::validity::Validity::NonNullable)
                 .unwrap();
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 
     #[test]
@@ -411,6 +411,6 @@ mod tests {
 
         let array =
             ListArray::try_new(data, offsets, crate::validity::Validity::NonNullable).unwrap();
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 }

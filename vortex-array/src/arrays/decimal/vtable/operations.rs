@@ -42,7 +42,7 @@ mod tests {
             DecimalDType::new(3, 2),
             Validity::NonNullable,
         )
-        .to_array();
+        .into_array();
 
         let sliced = array.slice(1..3).unwrap();
         assert_eq!(sliced.len(), 2);
@@ -58,7 +58,7 @@ mod tests {
             DecimalDType::new(3, 2),
             Validity::from_iter([false, true, false, true]),
         )
-        .to_array();
+        .into_array();
 
         let sliced = array.slice(1..3).unwrap();
         assert_eq!(sliced.len(), 2);

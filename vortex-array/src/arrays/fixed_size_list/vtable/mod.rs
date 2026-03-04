@@ -13,6 +13,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::fixed_size_list::compute::rules::PARENT_RULES;
@@ -218,6 +219,6 @@ impl VTable for FixedSizeListVTable {
     }
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(array.to_array())
+        Ok(array.clone().into_array())
     }
 }

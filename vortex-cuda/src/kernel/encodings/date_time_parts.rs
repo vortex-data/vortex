@@ -66,7 +66,7 @@ impl CudaExecute for DateTimePartsExecutor {
 
         let time_unit = options.unit;
         let time_zone = options.tz.clone();
-        let validity = Validity::copy_from_array(&array.to_array())?;
+        let validity = Validity::copy_from_array(&array.into_array())?;
 
         if output_len == 0 {
             return Ok(Canonical::empty(array.dtype()));

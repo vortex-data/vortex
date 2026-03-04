@@ -84,7 +84,7 @@ mod tests {
             ],
             Utf8(Nullable),
         );
-        let MinMaxResult { min, max } = min_max(&array.to_array()).unwrap().unwrap();
+        let MinMaxResult { min, max } = min_max(&array.into_array()).unwrap().unwrap();
 
         assert_eq!(
             min,

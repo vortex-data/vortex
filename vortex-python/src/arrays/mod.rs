@@ -107,7 +107,7 @@ impl<'py> FromPyObject<'_, 'py> for PyArrayRef {
         }
 
         // Otherwise, if it's a subclass of `PyArray`, then we can extract the inner array.
-        PythonArray::extract(ob).map(|instance| Self(instance.to_array()))
+        PythonArray::extract(ob).map(|instance| Self(instance.into_array()))
     }
 }
 

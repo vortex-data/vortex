@@ -137,7 +137,7 @@ mod tests {
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             bools
-                .to_array()
+                .into_array()
                 .apply(&not_expr)
                 .unwrap()
                 .to_bool()

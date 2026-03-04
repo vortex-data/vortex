@@ -253,7 +253,7 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::Nullable),
         )
         .vortex_expect("construction")
-        .to_array();
+        .into_array();
 
         let expr = is_null(root());
         array.apply(&expr).vortex_expect("expr evaluation");

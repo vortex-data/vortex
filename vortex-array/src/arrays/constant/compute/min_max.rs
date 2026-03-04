@@ -37,7 +37,7 @@ mod test {
     #[test]
     fn test_min_max_nan() {
         let scalar = Scalar::primitive(f16::NAN, Nullability::NonNullable);
-        let array = ConstantArray::new(scalar, 2).to_array();
+        let array = ConstantArray::new(scalar, 2).into_array();
         let result = min_max(&array).unwrap();
         assert_eq!(result, None);
     }

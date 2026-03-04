@@ -130,7 +130,7 @@ mod tests {
                 null_fill_value,
             )
             .unwrap()
-            .to_array(),
+            .into_array(),
         );
 
         let ten_fill_value = Scalar::from(10i32);
@@ -142,7 +142,7 @@ mod tests {
                 ten_fill_value,
             )
             .unwrap()
-            .to_array(),
+            .into_array(),
         )
     }
 }

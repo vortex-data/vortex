@@ -26,7 +26,7 @@ pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
             parray.ptype()
         ),
     };
-    ZigZagArray::try_new(encoded.to_array())
+    ZigZagArray::try_new(encoded.into_array())
 }
 
 fn zigzag_encode_primitive<T: ExternalZigZag + NativePType>(

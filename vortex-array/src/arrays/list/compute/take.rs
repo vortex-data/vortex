@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::DynArray;
+use crate::IntoArray;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::arrays::PrimitiveArray;
@@ -105,9 +106,9 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     Ok(ListArray::try_new(
         new_elements,
         new_offsets,
-        array.validity().clone().take(&indices_array.to_array())?,
+        array.validity().clone().take(&indices_array.clone().into_array())?,
     )?
-    .to_array())
+    .into_array())
 }
 
 fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
@@ -174,9 +175,9 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
     Ok(ListArray::try_new(
         new_elements,
         new_offsets,
-        array.validity().clone().take(&indices_array.to_array())?,
+        array.validity().clone().take(&indices_array.clone().into_array())?,
     )?
-    .to_array())
+    .into_array())
 }
 
 #[cfg(test)]
@@ -204,13 +205,13 @@ mod test {
         let list = ListArray::try_new(
             buffer![0i32, 5, 3, 4].into_array(),
             buffer![0, 2, 3, 4, 4].into_array(),
-            Validity::Array(BoolArray::from_iter(vec![true, true, false, true]).to_array()),
+            Validity::Array(BoolArray::from_iter(vec![true, true, false, true]).into_array()),
         )
         .unwrap()
-        .to_array();
+        .into_array();
 
         let idx =
-            PrimitiveArray::from_option_iter(vec![Some(0), None, Some(1), Some(3)]).to_array();
+            PrimitiveArray::from_option_iter(vec![Some(0), None, Some(1), Some(3)]).into_array();
 
         let result = list.take(idx.to_array()).unwrap();
 
@@ -265,9 +266,9 @@ mod test {
             Validity::NonNullable,
         )
         .unwrap()
-        .to_array();
+        .into_array();
 
-        let idx = PrimitiveArray::from_option_iter(vec![Some(0), Some(1), None]).to_array();
+        let idx = PrimitiveArray::from_option_iter(vec![Some(0), Some(1), None]).into_array();
         // since idx is nullable, the final list will also be nullable
 
         let result = list.take(idx.to_array()).unwrap();
@@ -288,7 +289,7 @@ mod test {
             Validity::NonNullable,
         )
         .unwrap()
-        .to_array();
+        .into_array();
 
         let idx = buffer![1, 0, 2].into_array();
 
@@ -343,9 +344,9 @@ mod test {
             Validity::NonNullable,
         )
         .unwrap()
-        .to_array();
+        .into_array();
 
-        let idx = PrimitiveArray::empty::<i32>(Nullability::Nullable).to_array();
+        let idx = PrimitiveArray::empty::<i32>(Nullability::Nullable).into_array();
 
         let result = list.take(idx.to_array()).unwrap();
         assert_eq!(
@@ -367,7 +368,7 @@ mod test {
     #[case(ListArray::try_new(
         buffer![10i32, 20, 30, 40, 50].into_array(),
         buffer![0, 2, 3, 4, 5].into_array(),
-        Validity::Array(BoolArray::from_iter(vec![true, false, true, true]).to_array()),
+        Validity::Array(BoolArray::from_iter(vec![true, false, true, true]).into_array()),
     ).unwrap())]
     #[case(ListArray::try_new(
         buffer![1i32, 2, 3].into_array(),
@@ -387,17 +388,17 @@ mod test {
         }
         ListArray::try_new(
             elements,
-            PrimitiveArray::from_iter(offsets).to_array(),
+            PrimitiveArray::from_iter(offsets).into_array(),
             Validity::NonNullable,
         ).unwrap()
     })]
     #[case(ListArray::try_new(
-        PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]).to_array(),
+        PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None]).into_array(),
         buffer![0, 2, 3, 5].into_array(),
         Validity::NonNullable,
     ).unwrap())]
     fn test_take_list_conformance(#[case] list: ListArray) {
-        test_take_conformance(&list.to_array());
+        test_take_conformance(&list.into_array());
     }
 
     #[test]
@@ -406,7 +407,7 @@ mod test {
         let offsets = buffer![0u8, 200].into_array();
         let list = ListArray::try_new(elements, offsets, Validity::NonNullable)
             .unwrap()
-            .to_array();
+            .into_array();
 
         // Take the same large list twice - would overflow u8 but works with u64.
         let idx = buffer![0u8, 0].into_array();
@@ -424,13 +425,13 @@ mod test {
     fn test_u64_offset_accumulation_nullable() {
         let elements = buffer![0i32; 150].into_array();
         let offsets = buffer![0u8, 150, 150].into_array();
-        let validity = BoolArray::from_iter(vec![true, false]).to_array();
+        let validity = BoolArray::from_iter(vec![true, false]).into_array();
         let list = ListArray::try_new(elements, offsets, Validity::Array(validity))
             .unwrap()
-            .to_array();
+            .into_array();
 
         // Take the same large list twice - would overflow u8 but works with u64.
-        let idx = PrimitiveArray::from_option_iter(vec![Some(0u8), None, Some(0u8)]).to_array();
+        let idx = PrimitiveArray::from_option_iter(vec![Some(0u8), None, Some(0u8)]).into_array();
         let result = list.take(idx.to_array()).unwrap();
 
         assert_eq!(result.len(), 3);
@@ -452,10 +453,10 @@ mod test {
         let list = ListArray::try_new(
             buffer![1i32, 2, 3, 4].into_array(),
             buffer![0, 2, 4].into_array(),
-            Validity::Array(BoolArray::from_iter(vec![true, true]).to_array()),
+            Validity::Array(BoolArray::from_iter(vec![true, true]).into_array()),
         )
         .unwrap()
-        .to_array();
+        .into_array();
 
         // Take more indices than source length (4 vs 2) with non-nullable indices.
         let idx = buffer![0u32, 1, 0, 1].into_array();

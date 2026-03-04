@@ -721,10 +721,10 @@ fn test_comparison_inverse_consistency(array: &ArrayRef) {
     if let (Ok(eq_result), Ok(neq_result)) = (
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::Eq),
+            .binary(const_array.clone().into_array(), Operator::Eq),
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::NotEq),
+            .binary(const_array.clone().into_array(), Operator::NotEq),
     ) {
         let inverted_eq = eq_result
             .not()
@@ -755,10 +755,10 @@ fn test_comparison_inverse_consistency(array: &ArrayRef) {
     if let (Ok(gt_result), Ok(lte_result)) = (
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::Gt),
+            .binary(const_array.clone().into_array(), Operator::Gt),
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::Lte),
+            .binary(const_array.clone().into_array(), Operator::Lte),
     ) {
         let inverted_gt = gt_result
             .not()
@@ -783,10 +783,10 @@ fn test_comparison_inverse_consistency(array: &ArrayRef) {
     if let (Ok(lt_result), Ok(gte_result)) = (
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::Lt),
+            .binary(const_array.clone().into_array(), Operator::Lt),
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::Gte),
+            .binary(const_array.clone().into_array(), Operator::Gte),
     ) {
         let inverted_lt = lt_result
             .not()
@@ -851,9 +851,10 @@ fn test_comparison_symmetry_consistency(array: &ArrayRef) {
     if let (Ok(arr_gt_scalar), Ok(scalar_lt_arr)) = (
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::Gt),
+            .binary(const_array.clone().into_array(), Operator::Gt),
         const_array
-            .to_array()
+            .clone()
+            .into_array()
             .binary(array.to_array(), Operator::Lt),
     ) {
         assert_eq!(
@@ -881,9 +882,10 @@ fn test_comparison_symmetry_consistency(array: &ArrayRef) {
     if let (Ok(arr_eq_scalar), Ok(scalar_eq_arr)) = (
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::Eq),
+            .binary(const_array.clone().into_array(), Operator::Eq),
         const_array
-            .to_array()
+            .clone()
+            .into_array()
             .binary(array.to_array(), Operator::Eq),
     ) {
         for i in 0..arr_eq_scalar.len() {
@@ -927,7 +929,7 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef) {
         let mask_pattern: Vec<bool> = (0..array.len()).map(|i| i % 3 == 0).collect();
         BoolArray::from_iter(mask_pattern)
     };
-    let bool_mask = bool_mask.to_array();
+    let bool_mask = bool_mask.into_array();
 
     // Test first De Morgan's law: NOT(A AND B) = (NOT A) OR (NOT B)
     if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) = (

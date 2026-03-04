@@ -60,7 +60,7 @@ impl LayoutStrategy for CollectStrategy {
                 chunks.push(chunk);
             }
 
-            let collected = ChunkedArray::try_new(chunks, _dtype)?.to_array();
+            let collected = ChunkedArray::try_new(chunks, _dtype)?.into_array();
             yield (latest_sequence_id.vortex_expect("must have visited at least one chunk"), collected);
         };
 

@@ -51,7 +51,7 @@ impl CompareKernel for DecimalBytePartsVTable {
                 let encoded_scalar = Scalar::try_new(scalar_type, Some(value))?;
                 let encoded_const = ConstantArray::new(encoded_scalar, rhs.len());
                 lhs.msp
-                    .binary(encoded_const.to_array(), Operator::from(operator))
+                    .binary(encoded_const.into_array(), Operator::from(operator))
                     .map(Some)
             }
 
@@ -67,7 +67,7 @@ impl CompareKernel for DecimalBytePartsVTable {
                             unconvertible_value(sign, operator, nullability),
                             lhs.len(),
                         )
-                        .to_array(),
+                        .into_array(),
                     ))
                 } else {
                     Ok(None)
@@ -164,17 +164,17 @@ mod tests {
         let decimal_dtype = DecimalDType::new(8, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
         let lhs = DecimalBytePartsArray::try_new(
-            PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).to_array(),
+            PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).into_array(),
             decimal_dtype,
         )
         .unwrap()
-        .to_array();
+        .into_array();
         let rhs = ConstantArray::new(
             Scalar::try_new(dtype, Some(DecimalValue::I64(400).into())).unwrap(),
             lhs.len(),
         );
 
-        let res = lhs.binary(rhs.to_array(), Operator::Eq).unwrap();
+        let res = lhs.binary(rhs.into_array(), Operator::Eq).unwrap();
 
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(true)]).into_array();
         assert_arrays_eq!(res, expected);
@@ -202,7 +202,7 @@ mod tests {
         )
         .into_array();
 
-        let res = lhs.to_array().binary(rhs, Operator::Lte)?;
+        let res = lhs.into_array().binary(rhs, Operator::Lte)?;
         let expected =
             BoolArray::from_iter([None, Some(true), Some(true), Some(true)]).into_array();
         assert_arrays_eq!(res, expected);
@@ -215,11 +215,11 @@ mod tests {
         let decimal_dtype = DecimalDType::new(40, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
         let lhs = DecimalBytePartsArray::try_new(
-            PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).to_array(),
+            PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).into_array(),
             decimal_dtype,
         )
         .unwrap()
-        .to_array();
+        .into_array();
         // This cannot be converted to a i32.
         let rhs = ConstantArray::new(
             Scalar::try_new(
@@ -230,15 +230,15 @@ mod tests {
             lhs.len(),
         );
 
-        let res = lhs.binary(rhs.to_array(), Operator::Eq).unwrap();
+        let res = lhs.binary(rhs.into_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected);
 
-        let res = lhs.binary(rhs.to_array(), Operator::Gt).unwrap();
+        let res = lhs.binary(rhs.into_array(), Operator::Gt).unwrap();
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
         assert_arrays_eq!(res, expected);
 
-        let res = lhs.binary(rhs.to_array(), Operator::Lt).unwrap();
+        let res = lhs.binary(rhs.into_array(), Operator::Lt).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected);
 
@@ -248,15 +248,15 @@ mod tests {
             lhs.len(),
         );
 
-        let res = lhs.binary(rhs.to_array(), Operator::Eq).unwrap();
+        let res = lhs.binary(rhs.into_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected);
 
-        let res = lhs.binary(rhs.to_array(), Operator::Gt).unwrap();
+        let res = lhs.binary(rhs.into_array(), Operator::Gt).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected);
 
-        let res = lhs.binary(rhs.to_array(), Operator::Lt).unwrap();
+        let res = lhs.binary(rhs.into_array(), Operator::Lt).unwrap();
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
         assert_arrays_eq!(res, expected);
     }

@@ -162,7 +162,7 @@ mod test {
     ).unwrap())]
     fn test_take_conformance(#[case] sequence: SequenceArray) {
         use vortex_array::compute::conformance::take::test_take_conformance;
-        test_take_conformance(&sequence.to_array());
+        test_take_conformance(&sequence.into_array());
     }
 
     #[test]
@@ -171,7 +171,7 @@ mod test {
         let array = SequenceArray::try_new_typed(0i32, 1i32, Nullability::NonNullable, 10).unwrap();
         let indices = vortex_array::arrays::PrimitiveArray::from_iter([0i32, 20]);
         let _array = array
-            .take(indices.to_array())
+            .take(indices.into_array())
             .unwrap()
             .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();

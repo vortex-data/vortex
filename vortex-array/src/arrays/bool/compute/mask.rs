@@ -40,6 +40,6 @@ mod test {
     #[case(BoolArray::from_iter([false, false]))]
     #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
     fn test_mask_bool_conformance(#[case] array: BoolArray) {
-        test_mask_conformance(&array.to_array());
+        test_mask_conformance(&array.into_array());
     }
 }

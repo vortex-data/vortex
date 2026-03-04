@@ -29,7 +29,7 @@ pub fn compress_decimal(
         DecimalType::I16 => PrimitiveArray::new(decimal.buffer::<i16>(), validity.clone()),
         DecimalType::I32 => PrimitiveArray::new(decimal.buffer::<i32>(), validity.clone()),
         DecimalType::I64 => PrimitiveArray::new(decimal.buffer::<i64>(), validity.clone()),
-        _ => return Ok(decimal.to_array()),
+        _ => return Ok(decimal.into_array()),
     };
 
     let compressed = compressor.compress_canonical(
@@ -38,5 +38,5 @@ pub fn compress_decimal(
         Excludes::none(),
     )?;
 
-    DecimalBytePartsArray::try_new(compressed, decimal.decimal_dtype()).map(|d| d.to_array())
+    DecimalBytePartsArray::try_new(compressed, decimal.decimal_dtype()).map(|d| d.into_array())
 }

@@ -292,7 +292,7 @@ impl LayoutReader for ChunkedReader {
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let dtype = expr.return_dtype(self.dtype())?;
         if row_range.is_empty() {
-            return Ok(async move { Ok(ChunkedArray::try_new(vec![], dtype)?.to_array()) }.boxed());
+            return Ok(async move { Ok(ChunkedArray::try_new(vec![], dtype)?.into_array()) }.boxed());
         }
 
         let mut chunk_evals = vec![];
@@ -317,7 +317,7 @@ impl LayoutReader for ChunkedReader {
             }
 
             // Combine the arrays.
-            Ok(ChunkedArray::try_new(chunks, dtype)?.to_array())
+            Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
         }
         .boxed())
     }

@@ -40,7 +40,7 @@ impl ListContainsElementReduce for SequenceVTable {
         let nullability = list.dtype().nullability() | element.dtype().nullability();
 
         Ok(Some(
-            BoolArray::from_indices(element.len(), set_indices, nullability.into()).to_array(),
+            BoolArray::from_indices(element.len(), set_indices, nullability.into()).into_array(),
         ))
     }
 }

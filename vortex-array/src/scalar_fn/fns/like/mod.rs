@@ -278,7 +278,7 @@ mod tests {
         let not_expr = not(root());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_arrays_eq!(
-            bools.to_array().apply(&not_expr).unwrap(),
+            bools.into_array().apply(&not_expr).unwrap(),
             BoolArray::from_iter([true, false, true, true, false, false])
         );
     }

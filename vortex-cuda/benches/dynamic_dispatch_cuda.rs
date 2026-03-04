@@ -176,10 +176,10 @@ fn bench_for_bitpacked(c: &mut Criterion) {
             .map(|i| (i as u64 % (max_val + 1)) as u32)
             .collect();
         let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
-        let bp = BitPackedArray::encode(&prim.to_array(), bit_width).vortex_expect("bitpack");
+        let bp = BitPackedArray::encode(&prim.into_array(), bit_width).vortex_expect("bitpack");
         let for_arr =
             FoRArray::try_new(bp.into_array(), Scalar::from(reference)).vortex_expect("for");
-        let array = for_arr.to_array();
+        let array = for_arr.into_array();
 
         group.bench_with_input(
             BenchmarkId::new("dynamic_dispatch_u32", len_str),
@@ -220,11 +220,11 @@ fn bench_dict_bp_codes(c: &mut Criterion) {
 
         let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(&codes_prim.to_array(), dict_bit_width)
+        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), dict_bit_width)
             .vortex_expect("bitpack codes");
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values.clone()), NonNullable);
         let dict = DictArray::new(codes_bp.into_array(), values_prim.into_array());
-        let array = dict.to_array();
+        let array = dict.into_array();
 
         group.bench_with_input(
             BenchmarkId::new("dynamic_dispatch_u32", len_str),
@@ -268,7 +268,7 @@ fn bench_runend(c: &mut Criterion) {
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
         let re = RunEndArray::new(ends_arr, values_arr);
-        let array = re.to_array();
+        let array = re.into_array();
 
         group.bench_with_input(
             BenchmarkId::new("dynamic_dispatch_u32", len_str),
@@ -309,7 +309,7 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
     let dict_residuals: Vec<u32> = (0..dict_size as u32).collect();
     let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
     let dict_bp =
-        BitPackedArray::encode(&dict_prim.to_array(), dict_bit_width).vortex_expect("bitpack dict");
+        BitPackedArray::encode(&dict_prim.into_array(), dict_bit_width).vortex_expect("bitpack dict");
     let dict_for = FoRArray::try_new(dict_bp.into_array(), Scalar::from(dict_reference))
         .vortex_expect("for dict");
 
@@ -318,11 +318,11 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
 
         let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(&codes_prim.to_array(), codes_bit_width)
+        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), codes_bit_width)
             .vortex_expect("bitpack codes");
 
-        let dict = DictArray::new(codes_bp.into_array(), dict_for.to_array());
-        let array = dict.to_array();
+        let dict = DictArray::new(codes_bp.into_array(), dict_for.into_array());
+        let array = dict.into_array();
 
         group.bench_with_input(
             BenchmarkId::new("dynamic_dispatch_u32", len_str),
@@ -380,7 +380,7 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
             exponents,
             None,
         );
-        let array = tree.to_array();
+        let array = tree.into_array();
 
         group.bench_with_input(
             BenchmarkId::new("dynamic_dispatch_f32", len_str),

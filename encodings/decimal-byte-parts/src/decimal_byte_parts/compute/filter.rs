@@ -12,7 +12,7 @@ use crate::DecimalBytePartsVTable;
 impl FilterReduce for DecimalBytePartsVTable {
     fn filter(array: &DecimalBytePartsArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         DecimalBytePartsArray::try_new(array.msp.filter(mask.clone())?, *array.decimal_dtype())
-            .map(|d| Some(d.to_array()))
+            .map(|d| Some(d.into_array()))
     }
 }
 
@@ -33,7 +33,7 @@ mod test {
 
         let decimal_dtype = DecimalDType::new(8, 2);
         let array = DecimalBytePartsArray::try_new(msp, decimal_dtype).unwrap();
-        test_filter_conformance(&array.to_array());
+        test_filter_conformance(&array.into_array());
 
         // Test with nullable values
         let msp = PrimitiveArray::from_option_iter([Some(10i64), None, Some(30), Some(40), None])
@@ -41,6 +41,6 @@ mod test {
 
         let decimal_dtype = DecimalDType::new(18, 4);
         let array = DecimalBytePartsArray::try_new(msp, decimal_dtype).unwrap();
-        test_filter_conformance(&array.to_array());
+        test_filter_conformance(&array.into_array());
     }
 }

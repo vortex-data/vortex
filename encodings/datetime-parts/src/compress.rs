@@ -32,7 +32,7 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
 
     // After this operation, timestamps will be a PrimitiveArray<i64>
     let timestamps = temporal_values
-        .to_array()
+        .into_array()
         .cast(DType::Primitive(
             PType::I64,
             temporal_values.dtype().nullability(),

@@ -10,6 +10,7 @@ use vortex_mask::MaskValues;
 
 use crate::ArrayRef;
 use crate::DynArray;
+use crate::IntoArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::arrays::filter::execute::values_to_mask;
@@ -18,7 +19,7 @@ use crate::arrow::IntoArrowArray;
 
 pub fn filter_varbinview(array: &VarBinViewArray, mask: &Arc<MaskValues>) -> VarBinViewArray {
     // Delegate to the Arrow implementation of filter over `VarBinView`.
-    arrow_filter_fn(&array.to_array(), &values_to_mask(mask))
+    arrow_filter_fn(&array.clone().into_array(), &values_to_mask(mask))
         .vortex_expect("VarBinViewArray is Arrow-compatible and supports arrow_filter_fn")
         .as_::<VarBinViewVTable>()
         .clone()
@@ -45,7 +46,7 @@ mod test {
     #[test]
     fn test_filter_varbinview_conformance() {
         test_filter_conformance(
-            &VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).to_array(),
+            &VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).into_array(),
         );
 
         test_filter_conformance(
@@ -56,7 +57,7 @@ mod test {
                 Some("four"),
                 Some("five"),
             ])
-            .to_array(),
+            .into_array(),
         );
     }
 }

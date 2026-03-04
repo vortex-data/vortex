@@ -104,18 +104,18 @@ mod tests {
     )]
     #[case::nullable_values(
         dict_encode(
-            &PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).to_array()
+            &PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).into_array()
         ).unwrap(),
         (1, 2)
     )]
     fn test_min_max(#[case] dict: DictArray, #[case] expected: (i32, i32)) {
-        assert_min_max(&dict.to_array(), Some(expected));
+        assert_min_max(&dict.into_array(), Some(expected));
     }
 
     #[test]
     fn test_sliced_dict() {
         let reference = PrimitiveArray::from_iter([1, 5, 10, 50, 100]);
-        let dict = dict_encode(&reference.to_array()).unwrap();
+        let dict = dict_encode(&reference.into_array()).unwrap();
         let sliced = dict.slice(1..3).unwrap();
         assert_min_max(&sliced, Some((5, 10)));
     }
@@ -134,6 +134,6 @@ mod tests {
         ).unwrap()
     )]
     fn test_min_max_none(#[case] dict: DictArray) {
-        assert_min_max(&dict.to_array(), None);
+        assert_min_max(&dict.into_array(), None);
     }
 }

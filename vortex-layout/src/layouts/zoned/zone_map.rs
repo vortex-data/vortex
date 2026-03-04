@@ -156,7 +156,7 @@ impl ZoneMap {
     pub fn prune(&self, predicate: &Expression, session: &VortexSession) -> VortexResult<Mask> {
         let mut ctx = session.create_execution_ctx();
         self.array
-            .to_array()
+            .into_array()
             .apply(predicate)?
             .execute::<Mask>(&mut ctx)
     }

@@ -42,7 +42,7 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                             .collect::<Buffer<Out>>(),
                         Validity::from_mask(array.validity_mask()?, target.nullability()),
                     )
-                    .to_array()
+                    .into_array()
                 })
             }
         )))
@@ -68,7 +68,7 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                         .collect::<Buffer<f64>>(),
                     Validity::from_mask(array.validity_mask()?, target.nullability()),
                 )
-                .to_array(),
+                .into_array(),
             )),
             (PType::F64, PType::F32) =>
             {
@@ -83,7 +83,7 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                             .collect::<Buffer<f32>>(),
                         Validity::from_mask(array.validity_mask()?, target.nullability()),
                     )
-                    .to_array(),
+                    .into_array(),
                 ))
             }
             _ => Ok(None),

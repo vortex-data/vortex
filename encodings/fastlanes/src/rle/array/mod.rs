@@ -443,7 +443,7 @@ mod tests {
 
         let ctx = ArrayContext::empty();
         let serialized = rle_array
-            .to_array()
+            .into_array()
             .serialize(&ctx, &SerializeOptions::default())
             .unwrap();
 
@@ -485,7 +485,7 @@ mod tests {
 
         let ctx = ArrayContext::empty();
         let serialized = sliced
-            .to_array()
+            .into_array()
             .serialize(&ctx, &SerializeOptions::default())
             .unwrap();
 

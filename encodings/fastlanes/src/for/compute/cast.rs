@@ -53,7 +53,7 @@ mod tests {
         .unwrap();
 
         let casted = for_array
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -74,7 +74,7 @@ mod tests {
         let for_array = FoRArray::try_new(values.into_array(), Scalar::from(50i32)).unwrap();
 
         let casted = for_array
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -101,6 +101,6 @@ mod tests {
         Scalar::from(-100i32)
     ).unwrap())]
     fn test_cast_for_conformance(#[case] array: FoRArray) {
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 }

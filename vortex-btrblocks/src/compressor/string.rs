@@ -111,7 +111,7 @@ impl CompressorStats for StringStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(&self.src.to_array(), sample_size, sample_count).to_varbinview();
+        let sampled = sample(&self.src.into_array(), sample_size, sample_count).to_varbinview();
 
         Self::generate_opts(&sampled, opts)
     }
@@ -267,7 +267,7 @@ impl Scheme for UncompressedScheme {
         _ctx: CompressorContext,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
-        Ok(stats.source().to_array())
+        Ok(stats.source().into_array())
     }
 }
 
@@ -413,7 +413,7 @@ impl Scheme for ConstantScheme {
         }
 
         if stats.estimated_distinct_count > 1
-            || !is_constant(&stats.src.to_array())?.unwrap_or(false)
+            || !is_constant(&stats.src.into_array())?.unwrap_or(false)
         {
             return Ok(0.0);
         }
@@ -495,7 +495,7 @@ impl Scheme for NullDominated {
         assert!(ctx.allowed_cascading > 0);
 
         // We pass None as we only run this pathway for NULL-dominated string arrays
-        let sparse_encoded = SparseArray::encode(&stats.src.to_array(), None)?;
+        let sparse_encoded = SparseArray::encode(&stats.src.into_array(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
             // Compress the indices only (not the values for strings)
@@ -561,7 +561,7 @@ impl Scheme for ZstdBuffersScheme {
         _ctx: CompressorContext,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
-        Ok(vortex_zstd::ZstdBuffersArray::compress(&stats.source().to_array(), 3)?.into_array())
+        Ok(vortex_zstd::ZstdBuffersArray::compress(&stats.source().into_array(), 3)?.into_array())
     }
 }
 

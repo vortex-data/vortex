@@ -76,7 +76,7 @@ impl IsSortedKernel for FoRVTable {
         is_sorted(
             &encoded
                 .reinterpret_cast(encoded.ptype().to_unsigned())
-                .to_array(),
+                .into_array(),
         )
     }
 
@@ -85,7 +85,7 @@ impl IsSortedKernel for FoRVTable {
         is_strict_sorted(
             &encoded
                 .reinterpret_cast(encoded.ptype().to_unsigned())
-                .to_array(),
+                .into_array(),
         )
     }
 }

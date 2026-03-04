@@ -89,7 +89,7 @@ where
                                 .with_launch_strategy(Arc::new(timed));
 
                         for _ in 0..iters {
-                            block_on(runend_array.to_array().execute_cuda(&mut cuda_ctx)).unwrap();
+                            block_on(runend_array.into_array().execute_cuda(&mut cuda_ctx)).unwrap();
                         }
 
                         Duration::from_nanos(timer.load(Ordering::Relaxed))

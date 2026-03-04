@@ -69,7 +69,7 @@ mod tests {
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
 
         let casted = pco
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::F64, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -90,7 +90,7 @@ mod tests {
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
 
         let casted = pco
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap();
         assert_arrays_eq!(
@@ -163,6 +163,6 @@ mod tests {
     ))]
     fn test_cast_pco_conformance(#[case] values: PrimitiveArray) {
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
-        test_cast_conformance(&pco.to_array());
+        test_cast_conformance(&pco.into_array());
     }
 }

@@ -91,7 +91,7 @@ mod tests {
             Validity::from_iter([true, false, true]),
         );
 
-        let min_max = min_max(&decimal.to_array()).unwrap();
+        let min_max = min_max(&decimal.into_array()).unwrap();
 
         let non_nullable_dtype = decimal.dtype().as_nonnullable();
         let expected = MinMaxResult {

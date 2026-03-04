@@ -39,7 +39,7 @@ mod tests {
     #[test]
     fn take_mask_var_bin_view_array() {
         test_mask_conformance(
-            &VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).to_array(),
+            &VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).into_array(),
         );
 
         test_mask_conformance(
@@ -50,7 +50,7 @@ mod tests {
                 Some("four"),
                 Some("five"),
             ])
-            .to_array(),
+            .into_array(),
         );
     }
 }

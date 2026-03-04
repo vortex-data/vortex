@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::builtins::ArrayBuiltins;
@@ -59,7 +60,7 @@ impl ZipKernel for StructVTable {
 
         Ok(Some(
             StructArray::try_new(if_true.names().clone(), fields, if_true.len(), validity)?
-                .to_array(),
+                .into_array(),
         ))
     }
 }

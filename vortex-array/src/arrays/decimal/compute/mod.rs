@@ -56,6 +56,6 @@ mod tests {
         Validity::NonNullable,
     ))]
     fn test_decimal_consistency(#[case] array: DecimalArray) {
-        test_array_consistency(&array.to_array());
+        test_array_consistency(&array.into_array());
     }
 }

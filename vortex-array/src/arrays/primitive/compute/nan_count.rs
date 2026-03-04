@@ -58,6 +58,6 @@ mod tests {
             ],
             Validity::NonNullable,
         );
-        assert_eq!(nan_count(&p.to_array()).unwrap(), 2);
+        assert_eq!(nan_count(&p.into_array()).unwrap(), 2);
     }
 }
