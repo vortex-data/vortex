@@ -47,7 +47,7 @@ futures = { workspace = true }
 fuzzy-matcher = { workspace = true }
 humansize = { workspace = true }
 itertools = { workspace = true }
-ratatui = { version = "0.30", default-features = false }
+ratatui = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 taffy = { workspace = true }
@@ -61,7 +61,7 @@ arrow-schema = { workspace = true, optional = true }
 clap = { workspace = true, features = ["derive"], optional = true }
 crossterm = { workspace = true, features = ["event-stream"], optional = true }
 datafusion = { workspace = true, optional = true }
-env_logger = { version = "0.11", optional = true }
+env_logger = { workspace = true, optional = true }
 indicatif = { workspace = true, features = ["futures"], optional = true }
 parquet = { workspace = true, features = ["arrow", "async"], optional = true }
 tokio = { workspace = true, features = [
@@ -72,12 +72,12 @@ vortex-datafusion = { workspace = true, optional = true }
 
 # WASM-only dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-console_error_panic_hook = "0.1.7"
-js-sys = "0.3"
-ratzilla = "0.3"
-wasm-bindgen = "0.2"
+console_error_panic_hook = { workspace = true }
+js-sys = { workspace = true }
+ratzilla = { workspace = true }
+wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
-web-sys = { version = "0.3.81", features = [
+web-sys = { workspace = true, features = [
     "console",
     "DataTransfer",
     "Document",
