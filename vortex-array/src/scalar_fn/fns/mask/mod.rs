@@ -5,6 +5,7 @@ mod kernel;
 use std::fmt::Formatter;
 
 pub use kernel::*;
+use std::ops::Not;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -18,12 +19,17 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::mask_validity_canonical;
+use crate::builders::ArrayBuilder;
+use crate::builders::BoolBuilder;
+use crate::builders::FixedSizeListBuilder;
+use crate::builders::PrimitiveBuilder;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
 use crate::expr::and;
 use crate::expr::lit;
+use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -92,6 +98,72 @@ impl ScalarFnVTable for Mask {
             arg_dtypes[1]
         );
         Ok(arg_dtypes[0].as_nullable())
+    }
+
+    fn append_to_builder(
+        &self,
+        _options: &Self::Options,
+        args: ExecutionArgs,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        let [input, mask_array]: [ArrayRef; _] = args
+            .inputs
+            .try_into()
+            .map_err(|_| vortex_err!("Wrong arg count"))?;
+
+        if let Some(result) = execute_constant(&input, &mask_array)? {
+            builder.extend_from_array(&result);
+            return Ok(());
+        }
+
+        let cursor = builder.len();
+        builder.extend_from_array(&input);
+
+        let mask_bool = mask_array.execute::<BoolArray>(args.ctx)?;
+        let invalidity_buffer = mask_bool.to_bit_buffer().not();
+
+        match builder.dtype() {
+            DType::Null => {}
+            DType::Bool(..) => {
+                let builder = builder
+                    .as_any_mut()
+                    .downcast_mut::<BoolBuilder>()
+                    .vortex_expect("boolbuilder");
+                let nulls = &mut builder.nulls;
+                for index in invalidity_buffer.set_indices() {
+                    nulls.set_bit(cursor + index, false);
+                }
+            }
+            DType::Primitive(ptype, ..) => {
+                match_each_native_ptype!(ptype, |T| {
+                    let builder = builder
+                        .as_any_mut()
+                        .downcast_mut::<PrimitiveBuilder<T>>()
+                        .vortex_expect("boolbuilder");
+                    let nulls = &mut builder.nulls;
+                    for index in invalidity_buffer.set_indices() {
+                        nulls.set_bit(cursor + index, false);
+                    }
+                })
+            }
+            DType::Decimal(..) => todo!(),
+            DType::Utf8(..) => todo!(),
+            DType::Binary(..) => todo!(),
+            DType::List(..) => todo!(),
+            DType::FixedSizeList(..) => {
+                let builder = builder
+                    .as_any_mut()
+                    .downcast_mut::<FixedSizeListBuilder>()
+                    .vortex_expect("boolbuilder");
+                let nulls = &mut builder.nulls;
+                for index in invalidity_buffer.set_indices() {
+                    nulls.set_bit(cursor + index, false);
+                }
+            }
+            DType::Struct(..) => todo!(),
+            DType::Extension(..) => todo!(),
+        }
+        Ok(())
     }
 
     fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {

@@ -26,7 +26,7 @@ use crate::scalar::Scalar;
 pub struct BoolBuilder {
     dtype: DType,
     inner: BitBufferMut,
-    nulls: LazyBitBufferBuilder,
+    pub nulls: LazyBitBufferBuilder,
 }
 
 impl BoolBuilder {

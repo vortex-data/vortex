@@ -39,7 +39,7 @@ pub struct FixedSizeListBuilder {
     /// The null map builder of the [`FixedSizeListArray`].
     ///
     /// We also use this type to store the length of the final output array.
-    nulls: LazyBitBufferBuilder,
+    pub nulls: LazyBitBufferBuilder,
 }
 
 impl FixedSizeListBuilder {

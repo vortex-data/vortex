@@ -28,7 +28,7 @@ use crate::scalar::Scalar;
 pub struct PrimitiveBuilder<T> {
     dtype: DType,
     values: BufferMut<T>,
-    nulls: LazyBitBufferBuilder,
+    pub nulls: LazyBitBufferBuilder,
 }
 
 impl<T: NativePType> PrimitiveBuilder<T> {
