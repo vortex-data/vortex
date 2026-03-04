@@ -23,8 +23,7 @@ use ratatui::widgets::StatefulWidget;
 use ratatui::widgets::Table;
 use ratatui::widgets::TableState;
 use ratatui::widgets::Widget;
-use tokio::runtime::Handle;
-use tokio::task::block_in_place;
+use tokio::runtime::Runtime;
 
 use crate::browse::app::AppState;
 use crate::datafusion_helper::arrow_value_to_json;
@@ -403,24 +402,23 @@ pub fn execute_query(
     file_path: &str,
     sql: &str,
 ) -> Result<QueryResults, String> {
-    block_in_place(|| {
-        Handle::current().block_on(async {
-            let batches = execute_vortex_query(session, file_path, sql).await?;
+    let rt = Runtime::new().map_err(|e| format!("Failed to create tokio runtime: {e}"))?;
+    rt.block_on(async {
+        let batches = execute_vortex_query(session, file_path, sql).await?;
 
-            let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+        let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
 
-            let column_names = if let Some(batch) = batches.first() {
-                let schema = batch.schema();
-                schema.fields().iter().map(|f| f.name().clone()).collect()
-            } else {
-                vec![]
-            };
+        let column_names = if let Some(batch) = batches.first() {
+            let schema = batch.schema();
+            schema.fields().iter().map(|f| f.name().clone()).collect()
+        } else {
+            vec![]
+        };
 
-            Ok(QueryResults {
-                batches,
-                total_rows,
-                column_names,
-            })
+        Ok(QueryResults {
+            batches,
+            total_rows,
+            column_names,
         })
     })
 }
@@ -431,31 +429,30 @@ pub fn get_row_count(
     file_path: &str,
     base_query: &str,
 ) -> Result<usize, String> {
-    block_in_place(|| {
-        Handle::current().block_on(async {
-            let count_sql = format!("SELECT COUNT(*) as count FROM ({base_query}) AS subquery");
+    let rt = Runtime::new().map_err(|e| format!("Failed to create tokio runtime: {e}"))?;
+    rt.block_on(async {
+        let count_sql = format!("SELECT COUNT(*) as count FROM ({base_query}) AS subquery");
 
-            let batches = execute_vortex_query(session, file_path, &count_sql).await?;
+        let batches = execute_vortex_query(session, file_path, &count_sql).await?;
 
-            // Extract count from result
-            if let Some(batch) = batches.first()
-                && batch.num_rows() > 0
-                && batch.num_columns() > 0
-            {
-                use arrow_array::Int64Array;
-                if let Some(arr) = batch.column(0).as_any().downcast_ref::<Int64Array>() {
-                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                    return Ok(arr.value(0) as usize);
-                }
+        // Extract count from result
+        if let Some(batch) = batches.first()
+            && batch.num_rows() > 0
+            && batch.num_columns() > 0
+        {
+            use arrow_array::Int64Array;
+            if let Some(arr) = batch.column(0).as_any().downcast_ref::<Int64Array>() {
+                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                return Ok(arr.value(0) as usize);
             }
+        }
 
-            Ok(0)
-        })
+        Ok(0)
     })
 }
 
 /// Render the Query tab UI.
-pub fn render_query(app: &mut AppState<'_>, area: Rect, buf: &mut Buffer) {
+pub fn render_query(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     let [input_area, results_area] =
         Layout::vertical([Constraint::Length(5), Constraint::Min(10)]).areas(area);
 
@@ -463,7 +460,7 @@ pub fn render_query(app: &mut AppState<'_>, area: Rect, buf: &mut Buffer) {
     render_results_table(app, results_area, buf);
 }
 
-fn render_sql_input(app: &mut AppState<'_>, area: Rect, buf: &mut Buffer) {
+fn render_sql_input(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     let is_focused = app.query_state.focus == QueryFocus::SqlInput;
 
     let border_color = if is_focused {
@@ -515,7 +512,7 @@ fn render_sql_input(app: &mut AppState<'_>, area: Rect, buf: &mut Buffer) {
     paragraph.render(inner, buf);
 }
 
-fn render_results_table(app: &mut AppState<'_>, area: Rect, buf: &mut Buffer) {
+fn render_results_table(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     let is_focused = app.query_state.focus == QueryFocus::ResultsTable;
 
     let border_color = if is_focused {

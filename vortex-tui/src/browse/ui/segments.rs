@@ -40,11 +40,11 @@ use crate::segment_tree::collect_segment_tree;
 /// This struct manages the layout tree and scroll state for displaying segments in a grid view.
 /// The segment tree is lazily computed on first render and cached for subsequent frames.
 #[derive(Debug, Clone, Default)]
-pub struct SegmentGridState<'a> {
+pub struct SegmentGridState {
     /// The computed layout tree for the segment grid, or `None` if not yet computed.
     ///
     /// Contains the taffy layout tree, root node ID, and a map of node contents.
-    pub segment_tree: Option<(TaffyTree<()>, NodeId, HashMap<NodeId, NodeContents<'a>>)>,
+    pub segment_tree: Option<(TaffyTree<()>, NodeId, HashMap<NodeId, NodeContents>)>,
 
     /// State for the horizontal scrollbar widget.
     pub horizontal_scroll_state: ScrollbarState,
@@ -65,7 +65,7 @@ pub struct SegmentGridState<'a> {
     pub max_vertical_scroll: usize,
 }
 
-impl SegmentGridState<'_> {
+impl SegmentGridState {
     /// Scroll the viewport up by the given amount.
     pub fn scroll_up(&mut self, amount: usize) {
         self.vertical_scroll = self.vertical_scroll.saturating_sub(amount);
@@ -102,9 +102,9 @@ impl SegmentGridState<'_> {
 }
 
 #[derive(Debug, Clone)]
-pub struct NodeContents<'a> {
+pub struct NodeContents {
     title: FieldName,
-    contents: Vec<Line<'a>>,
+    contents: Vec<Line<'static>>,
 }
 
 #[expect(
@@ -277,9 +277,9 @@ fn render_tree(
     Some(r)
 }
 
-fn to_display_segment_tree<'a>(
+fn to_display_segment_tree(
     mut segment_tree: SegmentTree,
-) -> anyhow::Result<(TaffyTree<()>, NodeId, HashMap<NodeId, NodeContents<'a>>)> {
+) -> anyhow::Result<(TaffyTree<()>, NodeId, HashMap<NodeId, NodeContents>)> {
     // Extra node for the parent node of the segment specs, and one parent node as the root
     let mut tree = TaffyTree::with_capacity(
         segment_tree

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vortex Browser</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://unpkg.com/geist@1.3.0/dist/fonts/geist-sans/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/geist@1.3.0/dist/fonts/geist-mono/style.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="drop-zone">
+    <img src="logo.svg" alt="Vortex" class="logo">
+    <p>Drag and drop a <code>.vtx</code> file here to explore it</p>
+    <p>or</p>
+    <label for="file-input" class="file-label">Choose a file</label>
+    <input type="file" id="file-input" accept=".vtx,.vortex">
+</div>
+<div id="loading" style="display: none;">
+    <p>Loading file...</p>
+</div>
+
+<script type="module">
+    import init, {open_vortex_file} from './pkg/vortex_tui.js';
+
+    const dropZone = document.getElementById('drop-zone');
+    const loading = document.getElementById('loading');
+    const fileInput = document.getElementById('file-input');
+    let fileBytes = null;
+    let wasmReady = false;
+
+    function openFile(bytes) {
+        // Remove any existing canvas from a previous open
+        document.querySelectorAll('canvas').forEach(c => c.remove());
+        open_vortex_file(bytes);
+
+        // Scale canvas to physical pixel resolution for crisp high-DPI rendering.
+        // Cell count is already locked in from Rust (based on CSS viewport size).
+        const canvas = document.querySelector('canvas');
+        if (canvas) {
+            const dpr = window.devicePixelRatio || 1;
+            const cssW = canvas.width;
+            const cssH = canvas.height;
+            canvas.width = cssW * dpr;
+            canvas.height = cssH * dpr;
+            canvas.style.width = cssW + 'px';
+            canvas.style.height = cssH + 'px';
+            const ctx = canvas.getContext('2d');
+            ctx.scale(dpr, dpr);
+            ctx.font = '16px monospace';
+            ctx.textBaseline = 'top';
+        }
+    }
+
+    async function loadFile(file) {
+        dropZone.style.display = 'none';
+        loading.style.display = 'flex';
+
+        try {
+            if (!wasmReady) {
+                await init();
+                wasmReady = true;
+            }
+            const buffer = await file.arrayBuffer();
+            fileBytes = new Uint8Array(buffer);
+            openFile(fileBytes);
+            loading.style.display = 'none';
+        } catch (e) {
+            loading.style.display = 'none';
+            dropZone.style.display = 'flex';
+            alert('Failed to open file: ' + e);
+        }
+    }
+
+    // Re-create terminal on resize/zoom so it fills the screen
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+        if (!fileBytes) return;
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => openFile(fileBytes), 150);
+    });
+
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('drag-over');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (file) {
+            loadFile(file);
+        }
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            loadFile(file);
+        }
+    });
+</script>
+</body>
+</html>

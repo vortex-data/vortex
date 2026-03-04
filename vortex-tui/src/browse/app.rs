@@ -3,7 +3,6 @@
 
 //! Application state and data structures for the TUI browser.
 
-use std::path::Path;
 use std::sync::Arc;
 
 use futures::executor::block_on;
@@ -14,7 +13,6 @@ use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::file::Footer;
-use vortex::file::OpenOptionsSessionExt;
 use vortex::file::SegmentSpec;
 use vortex::file::VortexFile;
 use vortex::layout::LayoutRef;
@@ -25,7 +23,6 @@ use vortex::layout::segments::SegmentId;
 use vortex::layout::segments::SegmentSource;
 use vortex::session::VortexSession;
 
-use super::ui::QueryState;
 use super::ui::SegmentGridState;
 
 /// The currently active tab in the TUI browser.
@@ -44,6 +41,7 @@ pub enum Tab {
     Segments,
 
     /// SQL query interface powered by DataFusion.
+    #[cfg(not(target_arch = "wasm32"))]
     Query,
 }
 
@@ -222,9 +220,9 @@ pub enum KeyMode {
 ///
 /// The state is preserved when switching between tabs, allowing users to return to their previous
 /// position.
-pub struct AppState<'a> {
+pub struct AppState {
     /// The Vortex session used to read array data during rendering.
-    pub session: &'a VortexSession,
+    pub session: VortexSession,
 
     /// The current input mode (normal navigation or search).
     pub key_mode: KeyMode,
@@ -251,7 +249,7 @@ pub struct AppState<'a> {
     pub layouts_list_state: ListState,
 
     /// State for the segment grid display.
-    pub segment_grid_state: SegmentGridState<'a>,
+    pub segment_grid_state: SegmentGridState,
 
     /// The size of the last rendered frame.
     pub frame_size: Size,
@@ -259,23 +257,29 @@ pub struct AppState<'a> {
     /// Vertical scroll offset for the encoding tree display in flat layout view.
     pub tree_scroll_offset: u16,
 
-    /// State for the Query tab
-    pub query_state: QueryState,
+    /// State for the Query tab.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub query_state: super::ui::QueryState,
 
-    /// File path for use in query execution
+    /// File path for use in query execution.
+    #[cfg(not(target_arch = "wasm32"))]
     pub file_path: String,
 }
 
-impl<'a> AppState<'a> {
-    /// Create a new application state by opening a Vortex file.
+impl AppState {
+    /// Create a new application state by opening a Vortex file from a path.
     ///
     /// # Errors
     ///
     /// Returns an error if the file cannot be opened or read.
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn new(
-        session: &'a VortexSession,
-        path: impl AsRef<Path>,
-    ) -> VortexResult<AppState<'a>> {
+        session: &VortexSession,
+        path: impl AsRef<std::path::Path>,
+    ) -> VortexResult<AppState> {
+        use vortex::file::OpenOptionsSessionExt;
+
+        let session = session.clone();
         let vxf = session.open_options().open_path(path.as_ref()).await?;
 
         let cursor = LayoutCursor::new(vxf.footer().clone(), vxf.segment_source());
@@ -298,8 +302,38 @@ impl<'a> AppState<'a> {
             segment_grid_state: SegmentGridState::default(),
             frame_size: Size::new(0, 0),
             tree_scroll_offset: 0,
-            query_state: QueryState::default(),
+            query_state: super::ui::QueryState::default(),
             file_path,
+        })
+    }
+
+    /// Create a new application state from an in-memory buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the buffer does not contain a valid Vortex file.
+    #[cfg(target_arch = "wasm32")]
+    pub fn from_buffer(
+        session: VortexSession,
+        buffer: vortex::buffer::ByteBuffer,
+    ) -> VortexResult<AppState> {
+        use vortex::file::OpenOptionsSessionExt;
+
+        let vxf = session.open_options().open_buffer(buffer)?;
+        let cursor = LayoutCursor::new(vxf.footer().clone(), vxf.segment_source());
+
+        Ok(AppState {
+            session,
+            vxf,
+            cursor,
+            key_mode: KeyMode::default(),
+            search_filter: String::new(),
+            filter: None,
+            current_tab: Tab::default(),
+            layouts_list_state: ListState::default().with_selected(Some(0)),
+            segment_grid_state: SegmentGridState::default(),
+            frame_size: Size::new(0, 0),
+            tree_scroll_offset: 0,
         })
     }
 

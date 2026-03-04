@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use futures::executor::block_on;
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use humansize::DECIMAL;
@@ -26,8 +27,6 @@ use ratatui::widgets::StatefulWidget;
 use ratatui::widgets::Table;
 use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
-use tokio::runtime::Handle;
-use tokio::task::block_in_place;
 use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::MaskFuture;
@@ -41,7 +40,7 @@ use crate::browse::app::AppState;
 use crate::browse::app::LayoutCursor;
 
 /// Render the Layouts tab.
-pub fn render_layouts(app_state: &mut AppState<'_>, area: Rect, buf: &mut Buffer) {
+pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
     let [header_area, detail_area] =
         Layout::vertical([Constraint::Length(10), Constraint::Min(1)]).areas(area);
 
@@ -114,28 +113,26 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
 }
 
 /// Render the inner Array for a FlatLayout.
-fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
+fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
     let row_count = app.cursor.layout().row_count();
     let reader = app
         .cursor
         .layout()
-        .new_reader("".into(), app.vxf.segment_source(), app.session)
+        .new_reader("".into(), app.vxf.segment_source(), &app.session)
         .vortex_expect("Failed to create reader");
 
     // FIXME(ngates): our TUI app should never perform I/O in the render loop...
-    let array = block_in_place(|| {
-        Handle::current().block_on(
-            reader
-                .projection_evaluation(
-                    &(0..row_count),
-                    &root(),
-                    MaskFuture::new_true(
-                        usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
-                    ),
-                )
-                .vortex_expect("Failed to construct projection"),
-        )
-    })
+    let array = block_on(
+        reader
+            .projection_evaluation(
+                &(0..row_count),
+                &root(),
+                MaskFuture::new_true(
+                    usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
+                ),
+            )
+            .vortex_expect("Failed to construct projection"),
+    )
     .vortex_expect("Failed to read flat array");
 
     // Show the metadata as JSON. (show count of encoded bytes as well)
@@ -159,7 +156,7 @@ fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table
             .chain(struct_array.names().iter().map(|x| x.as_ref()))
             .map(Cell::from)
             .collect::<Row>()
-            .style(Style::default().fg(Color::Green).bg(Color::DarkGray))
+            .style(Style::default().fg(Color::Rgb(206, 229, 98)).bg(Color::DarkGray))
             .height(1);
 
         assert_eq!(app.cursor.dtype(), array.dtype());
@@ -304,7 +301,7 @@ fn render_child_list_items(
 
     // Render the List view.
     StatefulWidget::render(
-        List::new(list_items).highlight_style(Style::default().black().on_white().bold()),
+        List::new(list_items).highlight_style(Style::default().fg(Color::Rgb(16, 16, 16)).bg(Color::Rgb(89, 113, 253)).bold()),
         inner_area,
         buf,
         &mut app.layouts_list_state,
