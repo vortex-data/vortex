@@ -22,6 +22,9 @@ mod test {
     use crate::arrays::ConstantArray;
     use crate::arrow::IntoArrowArray as _;
     use crate::builtins::ArrayBuiltins;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
     use crate::scalar::Scalar;
 
     #[test]
@@ -70,7 +73,10 @@ mod test {
     fn test_non_nullable_with_nullable() {
         let actual = ConstantArray::new(Scalar::from(1), 3)
             .into_array()
-            .fill_null(Scalar::from(Some(1)))
+            .fill_null(Scalar::new(
+                DType::Primitive(PType::I32, Nullability::Nullable),
+                Some(1.into()),
+            ))
             .unwrap();
         let expected = ConstantArray::new(Scalar::from(1), 3).into_array();
 

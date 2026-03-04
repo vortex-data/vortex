@@ -5614,7 +5614,7 @@ pub fn vortex_array::builtins::ArrayBuiltins::mask(self, mask: vortex_array::Arr
 
 pub fn vortex_array::builtins::ArrayBuiltins::not(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::builtins::ArrayBuiltins::zip(&self, if_false: vortex_array::ArrayRef, mask: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::builtins::ArrayBuiltins::zip(&self, if_true: vortex_array::ArrayRef, if_false: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 impl vortex_array::builtins::ArrayBuiltins for vortex_array::ArrayRef
 
@@ -5636,7 +5636,7 @@ pub fn vortex_array::ArrayRef::mask(self, mask: vortex_array::ArrayRef) -> vorte
 
 pub fn vortex_array::ArrayRef::not(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::ArrayRef::zip(&self, if_false: vortex_array::ArrayRef, mask: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::ArrayRef::zip(&self, if_true: vortex_array::ArrayRef, if_false: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub trait vortex_array::builtins::ExprBuiltins: core::marker::Sized
 
@@ -5656,7 +5656,7 @@ pub fn vortex_array::builtins::ExprBuiltins::mask(&self, mask: vortex_array::exp
 
 pub fn vortex_array::builtins::ExprBuiltins::not(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
-pub fn vortex_array::builtins::ExprBuiltins::zip(&self, if_false: vortex_array::expr::Expression, mask: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+pub fn vortex_array::builtins::ExprBuiltins::zip(&self, if_true: vortex_array::expr::Expression, if_false: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 impl vortex_array::builtins::ExprBuiltins for vortex_array::expr::Expression
 
@@ -5676,7 +5676,7 @@ pub fn vortex_array::expr::Expression::mask(&self, mask: vortex_array::expr::Exp
 
 pub fn vortex_array::expr::Expression::not(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
-pub fn vortex_array::expr::Expression::zip(&self, if_false: vortex_array::expr::Expression, mask: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+pub fn vortex_array::expr::Expression::zip(&self, if_true: vortex_array::expr::Expression, if_false: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 pub mod vortex_array::compute
 
@@ -10044,7 +10044,7 @@ pub fn vortex_array::expr::Expression::mask(&self, mask: vortex_array::expr::Exp
 
 pub fn vortex_array::expr::Expression::not(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
-pub fn vortex_array::expr::Expression::zip(&self, if_false: vortex_array::expr::Expression, mask: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
+pub fn vortex_array::expr::Expression::zip(&self, if_true: vortex_array::expr::Expression, if_false: vortex_array::expr::Expression) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
 impl vortex_array::expr::VortexExprExt for vortex_array::expr::Expression
 
@@ -10176,7 +10176,7 @@ pub fn vortex_array::expr::select_exclude(fields: impl core::convert::Into<vorte
 
 pub fn vortex_array::expr::split_conjunction(expr: &vortex_array::expr::Expression) -> alloc::vec::Vec<vortex_array::expr::Expression>
 
-pub fn vortex_array::expr::zip_expr(if_true: vortex_array::expr::Expression, if_false: vortex_array::expr::Expression, mask: vortex_array::expr::Expression) -> vortex_array::expr::Expression
+pub fn vortex_array::expr::zip_expr(mask: vortex_array::expr::Expression, if_true: vortex_array::expr::Expression, if_false: vortex_array::expr::Expression) -> vortex_array::expr::Expression
 
 pub type vortex_array::expr::Annotations<'a, A> = vortex_utils::aliases::hash_map::HashMap<&'a vortex_array::expr::Expression, vortex_utils::aliases::hash_set::HashSet<A>>
 
@@ -12248,7 +12248,9 @@ pub fn vortex_array::scalar::Scalar::from_proto_value(value: &vortex_proto::scal
 
 impl vortex_array::scalar::Scalar
 
-pub fn vortex_array::scalar::Scalar::struct_(dtype: vortex_array::dtype::DType, children: alloc::vec::Vec<vortex_array::scalar::Scalar>) -> Self
+pub fn vortex_array::scalar::Scalar::struct_(dtype: vortex_array::dtype::DType, children: impl core::iter::traits::collect::IntoIterator<Item = vortex_array::scalar::Scalar>) -> Self
+
+pub unsafe fn vortex_array::scalar::Scalar::struct_unchecked(dtype: vortex_array::dtype::DType, children: impl core::iter::traits::collect::IntoIterator<Item = vortex_array::scalar::Scalar>) -> Self
 
 impl vortex_array::scalar::Scalar
 

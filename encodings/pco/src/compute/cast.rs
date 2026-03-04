@@ -59,16 +59,13 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
-    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
 
     use crate::PcoArray;
 
     #[test]
     fn test_cast_pco_f32_to_f64() {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![1.0f32, 2.0, 3.0, 4.0, 5.0]),
-            Validity::NonNullable,
-        );
+        let values = PrimitiveArray::from_iter([1.0f32, 2.0, 3.0, 4.0, 5.0]);
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
 
         let casted = pco
@@ -89,10 +86,7 @@ mod tests {
     #[test]
     fn test_cast_pco_nullability_change() {
         // Test casting from NonNullable to Nullable
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![10u32, 20, 30, 40]),
-            Validity::NonNullable,
-        );
+        let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]);
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
 
         let casted = pco
@@ -101,14 +95,14 @@ mod tests {
             .unwrap();
         assert_arrays_eq!(
             casted,
-            PrimitiveArray::new(Buffer::from_iter([10u32, 20, 30, 40]), Validity::AllValid,)
+            PrimitiveArray::new(buffer![10u32, 20, 30, 40], Validity::AllValid,)
         );
     }
 
     #[test]
     fn test_cast_sliced_pco_nullable_to_nonnullable() {
         let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![10u32, 20, 30, 40, 50, 60]),
+            buffer![10u32, 20, 30, 40, 50, 60],
             Validity::from_iter([true, true, true, true, true, true]),
         );
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
@@ -148,23 +142,23 @@ mod tests {
 
     #[rstest]
     #[case::f32(PrimitiveArray::new(
-        Buffer::copy_from(vec![1.23f32, 4.56, 7.89, 10.11, 12.13]),
+        buffer![1.23f32, 4.56, 7.89, 10.11, 12.13],
         Validity::NonNullable,
     ))]
     #[case::f64(PrimitiveArray::new(
-        Buffer::copy_from(vec![100.1f64, 200.2, 300.3, 400.4, 500.5]),
+        buffer![100.1f64, 200.2, 300.3, 400.4, 500.5],
         Validity::NonNullable,
     ))]
     #[case::i32(PrimitiveArray::new(
-        Buffer::copy_from(vec![100i32, 200, 300, 400, 500]),
+        buffer![100i32, 200, 300, 400, 500],
         Validity::NonNullable,
     ))]
     #[case::u64(PrimitiveArray::new(
-        Buffer::copy_from(vec![1000u64, 2000, 3000, 4000]),
+        buffer![1000u64, 2000, 3000, 4000],
         Validity::NonNullable,
     ))]
     #[case::single(PrimitiveArray::new(
-        Buffer::copy_from(vec![42.42f64]),
+        buffer![42.42f64],
         Validity::NonNullable,
     ))]
     fn test_cast_pco_conformance(#[case] values: PrimitiveArray) {

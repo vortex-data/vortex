@@ -8,31 +8,22 @@ mod tests {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
 
     use crate::ZstdArray;
 
     fn zstd_i32() -> ZstdArray {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![100i32, 200, 300, 400, 500]),
-            vortex_array::validity::Validity::NonNullable,
-        );
+        let values = PrimitiveArray::from_iter([100i32, 200, 300, 400, 500]);
         ZstdArray::from_primitive(&values, 0, 0).unwrap()
     }
 
     fn zstd_f64() -> ZstdArray {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![1.1f64, 2.2, 3.3, 4.4, 5.5]),
-            vortex_array::validity::Validity::NonNullable,
-        );
+        let values = PrimitiveArray::from_iter([1.1f64, 2.2, 3.3, 4.4, 5.5]);
         ZstdArray::from_primitive(&values, 0, 0).unwrap()
     }
 
     fn zstd_u32() -> ZstdArray {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![10u32, 20, 30, 40, 50]),
-            vortex_array::validity::Validity::NonNullable,
-        );
+        let values = PrimitiveArray::from_iter([10u32, 20, 30, 40, 50]);
         ZstdArray::from_primitive(&values, 0, 0).unwrap()
     }
 
@@ -44,7 +35,7 @@ mod tests {
 
     fn zstd_single() -> ZstdArray {
         let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![42i64]),
+            buffer![42i64],
             vortex_array::validity::Validity::NonNullable,
         );
         ZstdArray::from_primitive(&values, 0, 0).unwrap()
@@ -52,7 +43,7 @@ mod tests {
 
     fn zstd_large() -> ZstdArray {
         let values = PrimitiveArray::new(
-            Buffer::copy_from((0..1000).map(|i| i as u32).collect::<Vec<_>>()),
+            buffer![0u32..1000],
             vortex_array::validity::Validity::NonNullable,
         );
         ZstdArray::from_primitive(&values, 3, 0).unwrap()
@@ -60,17 +51,14 @@ mod tests {
 
     fn zstd_all_same() -> ZstdArray {
         let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![42i32; 100]),
+            buffer![42i32; 100],
             vortex_array::validity::Validity::NonNullable,
         );
         ZstdArray::from_primitive(&values, 0, 0).unwrap()
     }
 
     fn zstd_negative() -> ZstdArray {
-        let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![-100i32, -50, 0, 50, 100]),
-            vortex_array::validity::Validity::NonNullable,
-        );
+        let values = PrimitiveArray::from_iter([-100i32, -50, 0, 50, 100]);
         ZstdArray::from_primitive(&values, 0, 0).unwrap()
     }
 

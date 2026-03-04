@@ -5,6 +5,9 @@
 
 use divan::Bencher;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::RecursiveCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -24,9 +27,19 @@ fn varbinview_zip_fragmented_mask(bencher: Bencher) {
     let mask = alternating_mask(len);
 
     bencher
-        .with_inputs(|| (&if_true, &if_false, &mask))
-        .bench_refs(|(t, f, m)| {
-            t.zip(f.clone(), m.clone().into_array()).unwrap();
+        .with_inputs(|| {
+            (
+                if_true.clone(),
+                if_false.clone(),
+                mask.clone().into_array(),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(t, f, m, ctx)| {
+            m.zip(t.clone(), f.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap();
         });
 }
 
@@ -39,9 +52,19 @@ fn varbinview_zip_block_mask(bencher: Bencher) {
     let mask = block_mask(len, 128);
 
     bencher
-        .with_inputs(|| (&if_true, &if_false, &mask))
-        .bench_refs(|(t, f, m)| {
-            t.zip(f.clone(), m.clone().into_array()).unwrap();
+        .with_inputs(|| {
+            (
+                if_true.clone(),
+                if_false.clone(),
+                mask.clone().into_array(),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(t, f, m, ctx)| {
+            m.zip(t.clone(), f.clone())
+                .unwrap()
+                .execute::<RecursiveCanonical>(ctx)
+                .unwrap();
         });
 }
 

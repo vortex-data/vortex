@@ -48,7 +48,7 @@ impl ZipKernel for ChunkedVTable {
             let lhs_slice = lhs_chunk.slice(lhs_offset..lhs_offset + take_until)?;
             let rhs_slice = rhs_chunk.slice(rhs_offset..rhs_offset + take_until)?;
 
-            out_chunks.push(lhs_slice.zip(rhs_slice, mask_slice)?);
+            out_chunks.push(mask_slice.zip(lhs_slice, rhs_slice)?);
 
             pos += take_until;
             lhs_offset += take_until;
@@ -75,8 +75,11 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ChunkedVTable;
     use crate::builtins::ArrayBuiltins;
@@ -108,9 +111,14 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, true]);
 
-        let zipped = &if_true
-            .to_array()
-            .zip(if_false.to_array(), mask.into_array())
+        let zipped = &mask
+            .into_array()
+            .zip(if_true.to_array(), if_false.to_array())
+            .unwrap();
+        // One step of execution will push down the zip.
+        let zipped = zipped
+            .clone()
+            .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
         let zipped = zipped
             .as_opt::<ChunkedVTable>()
