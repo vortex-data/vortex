@@ -111,16 +111,22 @@ impl ScalarFnVTable for Mask {
             .try_into()
             .map_err(|_| vortex_err!("Wrong arg count"))?;
 
-        if let Some(result) = execute_constant(&input, &mask_array)? {
-            builder.extend_from_array(&result);
+        if let Some(constant_mask) = mask_array.as_opt::<ConstantVTable>() {
+            let mask_value = constant_mask.scalar().as_bool().value().unwrap_or(false);
+            if mask_value {
+                builder.extend_from_array(&input);
+            } else {
+                ConstantArray::new(Scalar::null(input.dtype().as_nullable()), input.len())
+                    .append_to_builder(builder, args.ctx)?;
+            };
             return Ok(());
         }
 
-        let cursor = builder.len();
-        builder.extend_from_array(&input);
-
         let mask_bool = mask_array.execute::<BoolArray>(args.ctx)?;
         let invalidity_buffer = mask_bool.to_bit_buffer().not();
+
+        let cursor = builder.len();
+        builder.extend_from_array(&input);
 
         match builder.dtype() {
             DType::Null => {}
