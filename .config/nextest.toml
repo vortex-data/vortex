@@ -1,6 +1,3 @@
-[test-groups]
-slow = { max-threads = 1 }
-
 [[profile.default.overrides]]
 filter = 'test(compress_large_int)'
-test-group = 'slow'
+priority = 100
