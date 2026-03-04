@@ -35,7 +35,7 @@ on:
               "subcommand": "tpch",
               "name": "TPC-H SF=1 on S3",
               "local_dir": "vortex-bench/data/tpch/1.0",
-              "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
+              "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
               "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
               "scale_factor": "1.0"
             },
@@ -51,7 +51,7 @@ on:
               "subcommand": "tpch",
               "name": "TPC-H SF=10 on S3",
               "local_dir": "vortex-bench/data/tpch/10.0",
-              "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
+              "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
               "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
               "scale_factor": "10.0"
             },
@@ -81,7 +81,7 @@ on:
               "subcommand": "fineweb",
               "name": "FineWeb S3",
               "local_dir": "vortex-bench/data/fineweb",
-              "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/fineweb/",
+              "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/fineweb/",
               "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
               "scale_factor": "100"
             },
@@ -161,14 +161,14 @@ jobs:
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
       - name: Upload data
         if: matrix.remote_storage != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
         shell: bash
         env:
-          AWS_REGION: "eu-west-1"
+          AWS_REGION: "us-east-1"
         run: |
           aws s3 rm --recursive ${{ matrix.remote_storage }}
           aws s3 cp --recursive ${{matrix.local_dir}} ${{ matrix.remote_storage }}
@@ -200,7 +200,7 @@ jobs:
         if: matrix.remote_storage != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
         shell: bash
         env:
-          AWS_REGION: "eu-west-1"
+          AWS_REGION: "us-east-1"
           OTEL_SERVICE_NAME: "vortex-bench"
           OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
           OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
@@ -231,7 +231,7 @@ jobs:
             | jq -r '.workflow_runs[].head_sha' \
           )
 
-          python3 scripts/s3-download.py s3://vortex-benchmark-results-database/data.json.gz data.json.gz --no-sign-request
+          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
           gzip -d -c data.json.gz | grep $base_commit_sha > base.json
 
           echo '# Benchmarks: ${{ matrix.name }}' > comment.md
@@ -264,7 +264,7 @@ jobs:
         if: inputs.mode == 'develop'
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz results.json
+          bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
 
       - name: Alert incident.io
         if: failure() && inputs.mode == 'develop'
