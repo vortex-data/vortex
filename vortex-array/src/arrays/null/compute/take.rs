@@ -6,9 +6,9 @@ use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::NullArray;
 use crate::arrays::NullVTable;
+use crate::arrays::PrimitiveVTable;
 use crate::arrays::TakeReduce;
 use crate::arrays::TakeReduceAdaptor;
 use crate::match_each_integer_ptype;
@@ -17,17 +17,18 @@ use crate::optimizer::rules::ParentRuleSet;
 impl TakeReduce for NullVTable {
     #[allow(clippy::cast_possible_truncation)]
     fn take(array: &NullArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let indices = indices.to_primitive();
-
-        // Enforce all indices are valid
-        match_each_integer_ptype!(indices.ptype(), |T| {
-            for index in indices.as_slice::<T>() {
-                if (*index as usize) >= array.len() {
-                    vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
+        // Bounds-check when indices are already a PrimitiveArray (no execution needed).
+        if let Some(indices) = indices.as_opt::<PrimitiveVTable>() {
+            match_each_integer_ptype!(indices.ptype(), |T| {
+                for index in indices.as_slice::<T>() {
+                    if (*index as usize) >= array.len() {
+                        vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
+                    }
                 }
-            }
-        });
+            });
+        }
 
+        // For NullArray, the result is always null regardless of index values.
         Ok(Some(NullArray::new(indices.len()).into_array()))
     }
 }

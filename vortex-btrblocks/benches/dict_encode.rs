@@ -5,6 +5,8 @@
 
 use divan::Bencher;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::dict::dict_encode;
@@ -32,9 +34,9 @@ fn make_array() -> PrimitiveArray {
 #[divan::bench]
 fn encode_generic(bencher: Bencher) {
     let array = make_array().into_array();
-    bencher
-        .with_inputs(|| &array)
-        .bench_refs(|array| dict_encode(array).unwrap());
+    bencher.with_inputs(|| &array).bench_refs(|array| {
+        dict_encode(array, &mut LEGACY_SESSION.create_execution_ctx()).unwrap()
+    });
 }
 
 #[cfg(not(codspeed))]

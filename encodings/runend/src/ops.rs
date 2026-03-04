@@ -44,6 +44,8 @@ mod tests {
 
     use vortex_array::Array;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::Cost;
@@ -151,10 +153,13 @@ mod tests {
 
     #[test]
     fn ree_scalar_at_end() {
-        let scalar = RunEndArray::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array())
-            .unwrap()
-            .scalar_at(11)
-            .unwrap();
+        let scalar = RunEndArray::encode(
+            buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+        .scalar_at(11)
+        .unwrap();
         assert_eq!(scalar, 5.into());
     }
 

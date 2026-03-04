@@ -6,7 +6,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
-use crate::ToCanonical;
+use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::min_max;
@@ -61,7 +61,7 @@ impl PrimitiveArray {
     }
 
     /// Narrow the array to the smallest possible integer type that can represent all values.
-    pub fn narrow(&self) -> VortexResult<PrimitiveArray> {
+    pub fn narrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
         if !self.ptype().is_int() {
             return Ok(self.clone());
         }
@@ -93,46 +93,46 @@ impl PrimitiveArray {
         if min < 0 || max < 0 {
             // Signed
             if min >= i8::MIN as i64 && max <= i8::MAX as i64 {
-                return Ok(self
+                return self
                     .to_array()
                     .cast(DType::Primitive(PType::I8, self.dtype().nullability()))?
-                    .to_primitive());
+                    .execute::<PrimitiveArray>(ctx);
             }
 
             if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
-                return Ok(self
+                return self
                     .to_array()
                     .cast(DType::Primitive(PType::I16, self.dtype().nullability()))?
-                    .to_primitive());
+                    .execute::<PrimitiveArray>(ctx);
             }
 
             if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
-                return Ok(self
+                return self
                     .to_array()
                     .cast(DType::Primitive(PType::I32, self.dtype().nullability()))?
-                    .to_primitive());
+                    .execute::<PrimitiveArray>(ctx);
             }
         } else {
             // Unsigned
             if max <= u8::MAX as i64 {
-                return Ok(self
+                return self
                     .to_array()
                     .cast(DType::Primitive(PType::U8, self.dtype().nullability()))?
-                    .to_primitive());
+                    .execute::<PrimitiveArray>(ctx);
             }
 
             if max <= u16::MAX as i64 {
-                return Ok(self
+                return self
                     .to_array()
                     .cast(DType::Primitive(PType::U16, self.dtype().nullability()))?
-                    .to_primitive());
+                    .execute::<PrimitiveArray>(ctx);
             }
 
             if max <= u32::MAX as i64 {
-                return Ok(self
+                return self
                     .to_array()
                     .cast(DType::Primitive(PType::U32, self.dtype().nullability()))?
-                    .to_primitive());
+                    .execute::<PrimitiveArray>(ctx);
             }
         }
 
@@ -146,6 +146,8 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
 
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -159,7 +161,9 @@ mod tests {
             Validity::AllInvalid,
         );
 
-        let result = array.narrow().unwrap();
+        let result = array
+            .narrow(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(
             result.dtype(),
             &DType::Primitive(PType::U8, Nullability::Nullable)
@@ -178,7 +182,9 @@ mod tests {
     #[case(vec![i32::MIN as i64, i32::MAX as i64], PType::I32)]
     fn test_downcast_signed(#[case] values: Vec<i64>, #[case] expected_ptype: PType) {
         let array = PrimitiveArray::from_iter(values);
-        let result = array.narrow().unwrap();
+        let result = array
+            .narrow(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(result.ptype(), expected_ptype);
     }
 
@@ -190,21 +196,27 @@ mod tests {
     #[case(vec![0_u64, u32::MAX as u64], PType::U32)]
     fn test_downcast_unsigned(#[case] values: Vec<u64>, #[case] expected_ptype: PType) {
         let array = PrimitiveArray::from_iter(values);
-        let result = array.narrow().unwrap();
+        let result = array
+            .narrow(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(result.ptype(), expected_ptype);
     }
 
     #[test]
     fn test_downcast_keeps_original_if_too_large() {
         let array = PrimitiveArray::from_iter(vec![0_u64, u64::MAX]);
-        let result = array.narrow().unwrap();
+        let result = array
+            .narrow(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(result.ptype(), PType::U64);
     }
 
     #[test]
     fn test_downcast_preserves_nullability() {
         let array = PrimitiveArray::from_option_iter([Some(0_i32), None, Some(127)]);
-        let result = array.narrow().unwrap();
+        let result = array
+            .narrow(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(
             result.dtype(),
             &DType::Primitive(PType::U8, Nullability::Nullable)
@@ -217,7 +229,9 @@ mod tests {
     fn test_downcast_preserves_values() {
         let values = vec![-100_i16, 0, 100];
         let array = PrimitiveArray::from_iter(values);
-        let result = array.narrow().unwrap();
+        let result = array
+            .narrow(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
         assert_eq!(result.ptype(), PType::I8);
         // Check that the values were properly downscaled
@@ -228,24 +242,29 @@ mod tests {
     #[test]
     fn test_downcast_with_mixed_signs_chooses_signed() {
         let array = PrimitiveArray::from_iter(vec![-1_i32, 200]);
-        let result = array.narrow().unwrap();
+        let result = array
+            .narrow(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(result.ptype(), PType::I16);
     }
 
     #[test]
     fn test_downcast_floats() {
         let array = PrimitiveArray::from_iter(vec![1.0_f32, 2.0, 3.0]);
-        let result = array.narrow().unwrap();
+        let result = array
+            .narrow(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         // Floats should remain unchanged since they can't be downscaled to integers
         assert_eq!(result.ptype(), PType::F32);
     }
 
     #[test]
     fn test_downcast_empty_array() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(Buffer::<i32>::empty(), Validity::AllInvalid);
-        let result = array.narrow().unwrap();
+        let result = array.narrow(&mut ctx).unwrap();
         let array2 = PrimitiveArray::new(Buffer::<i64>::empty(), Validity::NonNullable);
-        let result2 = array2.narrow().unwrap();
+        let result2 = array2.narrow(&mut ctx).unwrap();
         // Empty arrays should not have their validity changed
         assert_eq!(result.validity, Validity::AllInvalid);
         assert_eq!(result2.validity, Validity::NonNullable);

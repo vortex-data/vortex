@@ -255,6 +255,7 @@ mod tests {
     fn test_sliced_runend_to_arrow_ree() -> VortexResult<()> {
         let array = RunEndArray::encode(
             PrimitiveArray::from_iter(vec![10i32, 10, 20, 20, 20, 30, 30]).into_array(),
+            &mut SESSION.create_execution_ctx(),
         )?;
         // Slicing from index 1 produces a non-zero offset in the RunEndArray.
         let sliced = array.into_array().slice(1..5)?;

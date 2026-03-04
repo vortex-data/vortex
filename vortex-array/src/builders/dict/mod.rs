@@ -3,14 +3,15 @@
 
 use bytes::bytes_dict_builder;
 use primitive::primitive_dict_builder;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::DictArray;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::VarBinVTable;
@@ -64,9 +65,14 @@ pub fn dict_encoder(array: &ArrayRef, constraints: &DictConstraints) -> Box<dyn 
 pub fn dict_encode_with_constraints(
     array: &ArrayRef,
     constraints: &DictConstraints,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<DictArray> {
     let mut encoder = dict_encoder(array, constraints);
-    let codes = encoder.encode(array).to_primitive().narrow()?;
+    let codes = encoder
+        .encode(array)
+        .as_opt::<PrimitiveVTable>()
+        .vortex_expect("dict codes must be a PrimitiveArray")
+        .narrow(ctx)?;
     // SAFETY: The encoding process will produce a value set of codes and values
     // All values in the dictionary are guaranteed to be referenced by at least one code
     // since we build the dictionary from the codes we observe during encoding
@@ -78,8 +84,8 @@ pub fn dict_encode_with_constraints(
     }
 }
 
-pub fn dict_encode(array: &ArrayRef) -> VortexResult<DictArray> {
-    let dict_array = dict_encode_with_constraints(array, &UNCONSTRAINED)?;
+pub fn dict_encode(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<DictArray> {
+    let dict_array = dict_encode_with_constraints(array, &UNCONSTRAINED, ctx)?;
     if dict_array.len() != array.len() {
         vortex_bail!(
             "must have encoded all {} elements, but only encoded {}",

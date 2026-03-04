@@ -10,8 +10,10 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
+use crate::AnyCanonical;
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListVTable;
@@ -315,8 +317,8 @@ impl ListArray {
     /// referenced by the `offsets`.
     pub fn reset_offsets(&self, recurse: bool) -> VortexResult<Self> {
         let mut elements = self.sliced_elements()?;
-        if recurse && elements.is_canonical() {
-            elements = elements.to_canonical()?.compact()?.into_array();
+        if recurse && let Some(canonical_view) = elements.as_opt::<AnyCanonical>() {
+            elements = Canonical::from(canonical_view).compact()?.into_array();
         } else if recurse && let Some(child_list_array) = elements.as_opt::<ListVTable>() {
             elements = child_list_array.reset_offsets(recurse)?.into_array();
         }

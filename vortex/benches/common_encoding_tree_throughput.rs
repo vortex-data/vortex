@@ -16,7 +16,9 @@ use rand::SeedableRng;
 use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::TemporalArray;
@@ -166,7 +168,11 @@ mod setup {
         }
 
         let prim_array = PrimitiveArray::from_iter(values);
-        let runend = RunEndArray::encode(prim_array.into_array()).unwrap();
+        let runend = RunEndArray::encode(
+            prim_array.into_array(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
 
         // Compress the ends with FoR <- BitPacked
         let ends_prim = runend.ends().to_primitive();

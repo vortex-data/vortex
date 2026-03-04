@@ -17,9 +17,9 @@ use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::Precision;
-use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
 use crate::arrays::chunked::compute::kernel::PARENT_KERNELS;
 use crate::arrays::chunked::compute::rules::PARENT_RULES;
 use crate::arrays::chunked::vtable::canonical::_canonicalize;
@@ -163,7 +163,9 @@ impl VTable for ChunkedVTable {
                 // 1 extra offset for the end of the last chunk
                 nchunks + 1,
             )?
-            .to_primitive();
+            .as_opt::<PrimitiveVTable>()
+            .ok_or_else(|| vortex_err!("chunk offsets must be a PrimitiveArray"))?
+            .clone();
 
         let chunk_offsets_buf = chunk_offsets_array.to_buffer::<u64>();
 
@@ -205,7 +207,10 @@ impl VTable for ChunkedVTable {
         );
 
         let nchunks = children.len() - 1;
-        let chunk_offsets_array = children[0].to_primitive();
+        let chunk_offsets_array = children[0]
+            .as_opt::<PrimitiveVTable>()
+            .ok_or_else(|| vortex_err!("chunk offsets must be a PrimitiveArray"))?
+            .clone();
         let chunk_offsets_buf = chunk_offsets_array.to_buffer::<u64>();
 
         vortex_ensure!(

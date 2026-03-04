@@ -7,6 +7,7 @@ use std::hash::Hasher;
 use enum_iterator::Sequence;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
@@ -256,6 +257,7 @@ impl Scheme for UncompressedScheme {
         _stats: &Self::StatsType,
         _ctx: CompressorContext,
         _excludes: &[StringCode],
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<f64> {
         Ok(1.0)
     }
@@ -266,6 +268,7 @@ impl Scheme for UncompressedScheme {
         stats: &Self::StatsType,
         _ctx: CompressorContext,
         _excludes: &[StringCode],
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         Ok(stats.source().to_array())
     }
@@ -285,6 +288,7 @@ impl Scheme for DictScheme {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         excludes: &[StringCode],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<f64> {
         // If we don't have a sufficiently high number of distinct values, do not attempt Dict.
         if stats.estimated_distinct_count > stats.value_count / 2 {
@@ -296,7 +300,7 @@ impl Scheme for DictScheme {
             return Ok(0.0);
         }
 
-        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes, exec_ctx)
     }
 
     fn compress(
@@ -305,8 +309,9 @@ impl Scheme for DictScheme {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         _excludes: &[StringCode],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let dict = dict_encode(&stats.source().clone().into_array())?;
+        let dict = dict_encode(&stats.source().clone().into_array(), exec_ctx)?;
 
         // If we are not allowed to cascade, do not attempt codes or values compression.
         if ctx.allowed_cascading == 0 {
@@ -318,6 +323,7 @@ impl Scheme for DictScheme {
             Canonical::Primitive(dict.codes().to_primitive()),
             ctx.descend(),
             Excludes::from(&[IntDictScheme.code(), IntSequenceScheme.code()]),
+            exec_ctx,
         )?;
 
         // Attempt to compress the values with non-Dict compression.
@@ -326,6 +332,7 @@ impl Scheme for DictScheme {
             Canonical::VarBinView(dict.values().to_varbinview()),
             ctx.descend(),
             Excludes::from(&[DictScheme.code()]),
+            exec_ctx,
         )?;
 
         // SAFETY: compressing codes or values does not alter the invariants
@@ -353,6 +360,7 @@ impl Scheme for FSSTScheme {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         _excludes: &[StringCode],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let fsst = {
             let compressor = fsst_train_compressor(&stats.src);
@@ -360,15 +368,21 @@ impl Scheme for FSSTScheme {
         };
 
         let compressed_original_lengths = compressor.compress_canonical(
-            Canonical::Primitive(fsst.uncompressed_lengths().to_primitive().narrow()?),
+            Canonical::Primitive(
+                fsst.uncompressed_lengths()
+                    .to_primitive()
+                    .narrow(exec_ctx)?,
+            ),
             ctx,
             Excludes::none(),
+            exec_ctx,
         )?;
 
         let compressed_codes_offsets = compressor.compress_canonical(
-            Canonical::Primitive(fsst.codes().offsets().to_primitive().narrow()?),
+            Canonical::Primitive(fsst.codes().offsets().to_primitive().narrow(exec_ctx)?),
             ctx,
             Excludes::none(),
+            exec_ctx,
         )?;
         let compressed_codes = VarBinArray::try_new(
             compressed_codes_offsets,
@@ -407,6 +421,7 @@ impl Scheme for ConstantScheme {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         _excludes: &[Self::CodeType],
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<f64> {
         if ctx.is_sample {
             return Ok(0.0);
@@ -428,6 +443,7 @@ impl Scheme for ConstantScheme {
         stats: &Self::StatsType,
         _ctx: CompressorContext,
         _excludes: &[Self::CodeType],
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let scalar_idx =
             (0..stats.source().len()).position(|idx| stats.source().is_valid(idx).unwrap_or(false));
@@ -465,6 +481,7 @@ impl Scheme for NullDominated {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         _excludes: &[Self::CodeType],
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<f64> {
         // Only use `SparseScheme` if we can cascade.
         if ctx.allowed_cascading == 0 {
@@ -491,6 +508,7 @@ impl Scheme for NullDominated {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         _excludes: &[Self::CodeType],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         assert!(ctx.allowed_cascading > 0);
 
@@ -501,11 +519,12 @@ impl Scheme for NullDominated {
             // Compress the indices only (not the values for strings)
             let new_excludes = vec![IntSparseScheme.code(), IntCode::Dict];
 
-            let indices = sparse.patches().indices().to_primitive().narrow()?;
+            let indices = sparse.patches().indices().to_primitive().narrow(exec_ctx)?;
             let compressed_indices = compressor.compress_canonical(
                 Canonical::Primitive(indices),
                 ctx.descend(),
                 Excludes::int_only(&new_excludes),
+                exec_ctx,
             )?;
 
             SparseArray::try_new(
@@ -536,6 +555,7 @@ impl Scheme for ZstdScheme {
         stats: &Self::StatsType,
         _ctx: CompressorContext,
         _excludes: &[StringCode],
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let compacted = stats.source().compact_buffers()?;
         Ok(
@@ -560,6 +580,7 @@ impl Scheme for ZstdBuffersScheme {
         stats: &Self::StatsType,
         _ctx: CompressorContext,
         _excludes: &[StringCode],
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         Ok(vortex_zstd::ZstdBuffersArray::compress(&stats.source().to_array(), 3)?.into_array())
     }

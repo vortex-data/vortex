@@ -14,6 +14,7 @@ use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
@@ -186,8 +187,14 @@ impl rle::RLEConfig for FloatRLEConfig {
         values: &vortex_array::arrays::PrimitiveArray,
         ctx: CompressorContext,
         excludes: &[FloatCode],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        compressor.compress_canonical(Canonical::Primitive(values.clone()), ctx, excludes.into())
+        compressor.compress_canonical(
+            Canonical::Primitive(values.clone()),
+            ctx,
+            excludes.into(),
+            exec_ctx,
+        )
     }
 }
 
@@ -208,6 +215,7 @@ impl Scheme for UncompressedScheme {
         _stats: &Self::StatsType,
         _ctx: CompressorContext,
         _excludes: &[FloatCode],
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<f64> {
         Ok(1.0)
     }
@@ -218,6 +226,7 @@ impl Scheme for UncompressedScheme {
         stats: &Self::StatsType,
         _ctx: CompressorContext,
         _excludes: &[FloatCode],
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         Ok(stats.source().to_array())
     }
@@ -237,6 +246,7 @@ impl Scheme for ConstantScheme {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         _excludes: &[FloatCode],
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<f64> {
         // Never select Constant when sampling
         if ctx.is_sample {
@@ -261,6 +271,7 @@ impl Scheme for ConstantScheme {
         stats: &Self::StatsType,
         _ctx: CompressorContext,
         _excludes: &[FloatCode],
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let scalar_idx =
             (0..stats.source().len()).position(|idx| stats.source().is_valid(idx).unwrap_or(false));
@@ -298,6 +309,7 @@ impl Scheme for ALPScheme {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         excludes: &[FloatCode],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<f64> {
         // We don't support ALP for f16
         if stats.source().ptype() == PType::F16 {
@@ -310,7 +322,7 @@ impl Scheme for ALPScheme {
             return Ok(0.0);
         }
 
-        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes, exec_ctx)
     }
 
     fn compress(
@@ -319,6 +331,7 @@ impl Scheme for ALPScheme {
         stats: &FloatStats,
         ctx: CompressorContext,
         excludes: &[FloatCode],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let alp_encoded = alp_encode(&stats.source().to_primitive(), None)?;
         let alp = alp_encoded.as_::<ALPVTable>();
@@ -339,9 +352,13 @@ impl Scheme for ALPScheme {
             Canonical::Primitive(alp_ints),
             ctx.descend(),
             Excludes::int_only(&int_excludes),
+            exec_ctx,
         )?;
 
-        let patches = alp.patches().map(compress_patches).transpose()?;
+        let patches = alp
+            .patches()
+            .map(|p| compress_patches(p, exec_ctx))
+            .transpose()?;
 
         Ok(ALPArray::new(compressed_alp_ints, alp.exponents(), patches).into_array())
     }
@@ -361,12 +378,13 @@ impl Scheme for ALPRDScheme {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         excludes: &[FloatCode],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<f64> {
         if stats.source().ptype() == PType::F16 {
             return Ok(0.0);
         }
 
-        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes, exec_ctx)
     }
 
     fn compress(
@@ -375,6 +393,7 @@ impl Scheme for ALPRDScheme {
         stats: &Self::StatsType,
         _ctx: CompressorContext,
         _excludes: &[FloatCode],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let encoder = match stats.source().ptype() {
             PType::F32 => RDEncoder::new(stats.source().as_slice::<f32>()),
@@ -386,7 +405,7 @@ impl Scheme for ALPRDScheme {
 
         let patches = alp_rd
             .left_parts_patches()
-            .map(compress_patches)
+            .map(|p| compress_patches(p, exec_ctx))
             .transpose()?;
         alp_rd.replace_left_parts_patches(patches);
 
@@ -408,6 +427,7 @@ impl Scheme for DictScheme {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         excludes: &[FloatCode],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<f64> {
         if stats.value_count == 0 {
             return Ok(0.0);
@@ -419,7 +439,7 @@ impl Scheme for DictScheme {
         }
 
         // Take a sample and run compression on the sample to determine before/after size.
-        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes, exec_ctx)
     }
 
     fn compress(
@@ -428,6 +448,7 @@ impl Scheme for DictScheme {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         _excludes: &[Self::CodeType],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let dict = dictionary_encode(stats);
         let has_all_values_referenced = dict.has_all_values_referenced();
@@ -437,6 +458,7 @@ impl Scheme for DictScheme {
             Canonical::Primitive(codes.to_primitive()),
             ctx.descend(),
             Excludes::int_only(&[IntCode::Dict, IntCode::Sequence]),
+            exec_ctx,
         )?;
 
         assert!(values.is_canonical());
@@ -444,6 +466,7 @@ impl Scheme for DictScheme {
             Canonical::Primitive(values.to_primitive()),
             ctx.descend(),
             Excludes::from(&[FloatCode::Dict]),
+            exec_ctx,
         )?;
 
         // SAFETY: compressing codes or values does not alter the invariants
@@ -471,6 +494,7 @@ impl Scheme for NullDominated {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         _excludes: &[Self::CodeType],
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<f64> {
         // Only use `SparseScheme` if we can cascade.
         if ctx.allowed_cascading == 0 {
@@ -497,6 +521,7 @@ impl Scheme for NullDominated {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         _excludes: &[Self::CodeType],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         assert!(ctx.allowed_cascading > 0);
 
@@ -509,11 +534,12 @@ impl Scheme for NullDominated {
 
             // Don't attempt to compress the non-null values
 
-            let indices = sparse.patches().indices().to_primitive().narrow()?;
+            let indices = sparse.patches().indices().to_primitive().narrow(exec_ctx)?;
             let compressed_indices = compressor.compress_canonical(
                 Canonical::Primitive(indices.to_primitive()),
                 ctx.descend(),
                 Excludes::int_only(&new_excludes),
+                exec_ctx,
             )?;
 
             SparseArray::try_new(
@@ -544,6 +570,7 @@ impl Scheme for PcoScheme {
         stats: &Self::StatsType,
         _ctx: CompressorContext,
         _excludes: &[FloatCode],
+        _exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         Ok(vortex_pco::PcoArray::from_primitive(
             stats.source(),
@@ -561,7 +588,9 @@ mod tests {
 
     use vortex_array::Array;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
@@ -584,11 +613,13 @@ mod tests {
     fn test_empty() -> VortexResult<()> {
         // Make sure empty array compression does not fail
         let btr = BtrBlocksCompressor::default();
+        let mut exec_ctx = LEGACY_SESSION.create_execution_ctx();
         let result = btr.float_compressor().compress(
             &btr,
             &PrimitiveArray::new(Buffer::<f32>::empty(), Validity::NonNullable),
             CompressorContext::default(),
             &[],
+            &mut exec_ctx,
         )?;
 
         assert!(result.is_empty());
@@ -608,9 +639,14 @@ mod tests {
 
         let floats = values.into_array().to_primitive();
         let btr = BtrBlocksCompressor::default();
-        let compressed =
-            btr.float_compressor()
-                .compress(&btr, &floats, CompressorContext::default(), &[])?;
+        let mut exec_ctx = LEGACY_SESSION.create_execution_ctx();
+        let compressed = btr.float_compressor().compress(
+            &btr,
+            &floats,
+            CompressorContext::default(),
+            &[],
+            &mut exec_ctx,
+        )?;
         assert_eq!(compressed.len(), 1024);
 
         let display = compressed
@@ -632,8 +668,14 @@ mod tests {
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
         let stats = super::FloatStats::generate(&array);
         let btr = BtrBlocksCompressor::default();
-        let compressed =
-            RLE_FLOAT_SCHEME.compress(&btr, &stats, CompressorContext::default(), &[])?;
+        let mut exec_ctx = LEGACY_SESSION.create_execution_ctx();
+        let compressed = RLE_FLOAT_SCHEME.compress(
+            &btr,
+            &stats,
+            CompressorContext::default(),
+            &[],
+            &mut exec_ctx,
+        )?;
 
         let decoded = compressed;
         let expected = Buffer::copy_from(&values).into_array();
@@ -654,9 +696,14 @@ mod tests {
 
         let floats = array.finish_into_primitive();
         let btr = BtrBlocksCompressor::default();
-        let compressed =
-            btr.float_compressor()
-                .compress(&btr, &floats, CompressorContext::default(), &[])?;
+        let mut exec_ctx = LEGACY_SESSION.create_execution_ctx();
+        let compressed = btr.float_compressor().compress(
+            &btr,
+            &floats,
+            CompressorContext::default(),
+            &[],
+            &mut exec_ctx,
+        )?;
         assert_eq!(compressed.len(), 96);
 
         let display = compressed
@@ -674,6 +721,8 @@ mod tests {
 mod scheme_selection_tests {
 
     use vortex_alp::ALPVTable;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantVTable;
     use vortex_array::arrays::DictVTable;
     use vortex_array::arrays::PrimitiveArray;
@@ -693,9 +742,14 @@ mod scheme_selection_tests {
         let values: Vec<f64> = vec![42.5; 100];
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
         let btr = BtrBlocksCompressor::default();
-        let compressed =
-            btr.float_compressor()
-                .compress(&btr, &array, CompressorContext::default(), &[])?;
+        let mut exec_ctx = LEGACY_SESSION.create_execution_ctx();
+        let compressed = btr.float_compressor().compress(
+            &btr,
+            &array,
+            CompressorContext::default(),
+            &[],
+            &mut exec_ctx,
+        )?;
         assert!(compressed.is::<ConstantVTable>());
         Ok(())
     }
@@ -705,9 +759,14 @@ mod scheme_selection_tests {
         let values: Vec<f64> = (0..1000).map(|i| (i as f64) * 0.01).collect();
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
         let btr = BtrBlocksCompressor::default();
-        let compressed =
-            btr.float_compressor()
-                .compress(&btr, &array, CompressorContext::default(), &[])?;
+        let mut exec_ctx = LEGACY_SESSION.create_execution_ctx();
+        let compressed = btr.float_compressor().compress(
+            &btr,
+            &array,
+            CompressorContext::default(),
+            &[],
+            &mut exec_ctx,
+        )?;
         assert!(compressed.is::<ALPVTable>());
         Ok(())
     }
@@ -720,9 +779,14 @@ mod scheme_selection_tests {
             .collect();
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
         let btr = BtrBlocksCompressor::default();
-        let compressed =
-            btr.float_compressor()
-                .compress(&btr, &array, CompressorContext::default(), &[])?;
+        let mut exec_ctx = LEGACY_SESSION.create_execution_ctx();
+        let compressed = btr.float_compressor().compress(
+            &btr,
+            &array,
+            CompressorContext::default(),
+            &[],
+            &mut exec_ctx,
+        )?;
         assert!(compressed.is::<DictVTable>());
         Ok(())
     }
@@ -736,9 +800,14 @@ mod scheme_selection_tests {
         builder.append_nulls(95);
         let array = builder.finish_into_primitive();
         let btr = BtrBlocksCompressor::default();
-        let compressed =
-            btr.float_compressor()
-                .compress(&btr, &array, CompressorContext::default(), &[])?;
+        let mut exec_ctx = LEGACY_SESSION.create_execution_ctx();
+        let compressed = btr.float_compressor().compress(
+            &btr,
+            &array,
+            CompressorContext::default(),
+            &[],
+            &mut exec_ctx,
+        )?;
         // Verify the compressed array preserves values.
         assert_eq!(compressed.len(), 100);
         Ok(())

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::Array;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
@@ -9,9 +10,13 @@ use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 
 /// Compresses the given patches by downscaling integers and checking for constant values.
-pub fn compress_patches(patches: &Patches) -> VortexResult<Patches> {
+pub fn compress_patches(patches: &Patches, exec_ctx: &mut ExecutionCtx) -> VortexResult<Patches> {
     // Downscale the patch indices.
-    let indices = patches.indices().to_primitive().narrow()?.into_array();
+    let indices = patches
+        .indices()
+        .to_primitive()
+        .narrow(exec_ctx)?
+        .into_array();
 
     // Check if the values are constant.
     let values = patches.values();

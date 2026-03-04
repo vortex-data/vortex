@@ -8,6 +8,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 
 use crate::BtrBlocksCompressor;
@@ -46,8 +47,9 @@ pub trait Scheme: Debug {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         excludes: &[Self::CodeType],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<f64> {
-        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes, exec_ctx)
     }
 
     /// Compress the input with this scheme, yielding a new array.
@@ -57,6 +59,7 @@ pub trait Scheme: Debug {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         excludes: &[Self::CodeType],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef>;
 }
 
@@ -84,6 +87,7 @@ pub trait SchemeExt: Scheme {
         stats: &Self::StatsType,
         ctx: CompressorContext,
         excludes: &[Self::CodeType],
+        exec_ctx: &mut ExecutionCtx,
     ) -> VortexResult<f64> {
         let sample = if ctx.is_sample {
             stats.clone()
@@ -101,7 +105,13 @@ pub trait SchemeExt: Scheme {
         };
 
         let after = self
-            .compress(btr_blocks_compressor, &sample, ctx.as_sample(), excludes)?
+            .compress(
+                btr_blocks_compressor,
+                &sample,
+                ctx.as_sample(),
+                excludes,
+                exec_ctx,
+            )?
             .nbytes();
         let before = sample.source().nbytes();
 
