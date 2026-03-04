@@ -13,32 +13,82 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
-[dependencies]
-anyhow = { workspace = true }
-arrow-array = { workspace = true }
-arrow-schema = { workspace = true }
-clap = { workspace = true, features = ["derive"] }
-crossterm = { workspace = true }
-datafusion = { workspace = true }
-env_logger = { version = "0.11" }
-flatbuffers = { workspace = true }
-futures = { workspace = true, features = ["executor"] }
-fuzzy-matcher = { workspace = true }
-humansize = { workspace = true }
-indicatif = { workspace = true, features = ["futures"] }
-itertools = { workspace = true }
-parquet = { workspace = true, features = ["arrow", "async"] }
-ratatui = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-taffy = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
-vortex = { workspace = true, features = ["tokio"] }
-vortex-datafusion = { workspace = true }
+[features]
+default = ["native"]
+native = [
+    "dep:arrow-array",
+    "dep:arrow-schema",
+    "dep:clap",
+    "dep:crossterm",
+    "dep:datafusion",
+    "dep:env_logger",
+    "dep:indicatif",
+    "dep:parquet",
+    "dep:tokio",
+    "dep:vortex-datafusion",
+    "ratatui/crossterm",
+    "vortex/tokio",
+    "vortex/zstd",
+]
 
-[lints]
-workspace = true
+[lib]
+crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "vx"
 path = "src/main.rs"
+required-features = ["native"]
+
+[dependencies]
+# Shared dependencies
+anyhow = { workspace = true }
+flatbuffers = { workspace = true }
+futures = { workspace = true }
+fuzzy-matcher = { workspace = true }
+humansize = { workspace = true }
+itertools = { workspace = true }
+ratatui = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+taffy = { workspace = true }
+vortex = { version = "0.1.0", path = "../vortex", default-features = false, features = [
+    "files",
+] }
+
+# Native-only dependencies (gated behind "native" feature)
+arrow-array = { workspace = true, optional = true }
+arrow-schema = { workspace = true, optional = true }
+clap = { workspace = true, features = ["derive"], optional = true }
+crossterm = { workspace = true, features = ["event-stream"], optional = true }
+datafusion = { workspace = true, optional = true }
+env_logger = { workspace = true, optional = true }
+indicatif = { workspace = true, features = ["futures"], optional = true }
+parquet = { workspace = true, features = ["arrow", "async"], optional = true }
+tokio = { workspace = true, features = [
+    "rt-multi-thread",
+    "macros",
+], optional = true }
+vortex-datafusion = { workspace = true, optional = true }
+
+# WASM-only dependencies
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1.7"
+js-sys = "0.3.81"
+ratzilla = "0.3"
+wasm-bindgen = "0.2.104"
+wasm-bindgen-futures = { workspace = true }
+web-sys = { version = "0.3.81", features = [
+    "console",
+    "DataTransfer",
+    "Document",
+    "DragEvent",
+    "Element",
+    "File",
+    "FileReader",
+    "HtmlElement",
+    "HtmlInputElement",
+    "Window",
+] }
+
+[lints]
+workspace = true
