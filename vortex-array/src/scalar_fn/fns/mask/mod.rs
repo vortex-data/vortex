@@ -114,7 +114,7 @@ impl ScalarFnVTable for Mask {
         if let Some(constant_mask) = mask_array.as_opt::<ConstantVTable>() {
             let mask_value = constant_mask.scalar().as_bool().value().unwrap_or(false);
             if mask_value {
-                builder.extend_from_array(&input);
+                input.append_to_builder(builder, args.ctx)?;
             } else {
                 ConstantArray::new(Scalar::null(input.dtype().as_nullable()), input.len())
                     .append_to_builder(builder, args.ctx)?;
