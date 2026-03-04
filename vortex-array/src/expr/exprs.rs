@@ -148,15 +148,16 @@ pub fn nested_case_when(
 
     let has_else = else_value.is_some();
     let mut children = Vec::with_capacity(when_then_pairs.len() * 2 + usize::from(has_else));
-    for (condition, then_value) in &when_then_pairs {
-        children.push(condition.clone());
-        children.push(then_value.clone());
+    let when_then_len = when_then_pairs.len();
+    for (condition, then_value) in when_then_pairs.into_iter() {
+        children.push(condition);
+        children.push(then_value);
     }
     if let Some(else_expr) = else_value {
         children.push(else_expr);
     }
 
-    let Ok(num_when_then_pairs) = u32::try_from(when_then_pairs.len()) else {
+    let Ok(num_when_then_pairs) = u32::try_from(when_then_len) else {
         vortex_panic!("nested_case_when has too many when/then pairs");
     };
     let options = CaseWhenOptions {

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use num_traits::{AsPrimitive, ToPrimitive};
+use num_traits::AsPrimitive;
+use num_traits::ToPrimitive;
 
 use crate::dtype::i256;
 
@@ -53,7 +54,7 @@ impl ToI256 for i256 {
 
 impl AsPrimitive<i256> for bool {
     fn as_(self) -> i256 {
-        self.then_some(i256::ONE).unwrap_or_default()
+        if self { i256::ONE } else { i256::ZERO }
     }
 }
 
