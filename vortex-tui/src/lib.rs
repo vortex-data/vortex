@@ -4,7 +4,7 @@
 //! Vortex TUI library for interactively browsing and inspecting Vortex files.
 //!
 //! This crate provides both a CLI tool (`vx`) and a library API for working with Vortex files.
-//! Users can bring their own [`VortexSession`] to enable custom encodings and extensions.
+//! Users can bring their own [`vortex::VortexSession`] to enable custom encodings and extensions.
 //!
 //! # Example
 //!

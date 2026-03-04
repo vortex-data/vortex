@@ -340,7 +340,7 @@ impl AppState {
     /// Reset the layout view state after navigating to a different layout.
     ///
     /// This resets the list selection to the first item and clears any scroll offset.
-    /// The caller is responsible for awaiting [`load_flat_data()`] afterward if the
+    /// The caller is responsible for awaiting `load_flat_data()` afterward if the
     /// new layout is a [`FlatVTable`].
     pub fn reset_layout_view_state(&mut self) {
         self.layouts_list_state = ListState::default().with_selected(Some(0));

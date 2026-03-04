@@ -51,7 +51,9 @@ ratatui = { version = "0.30", default-features = false }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 taffy = { workspace = true }
-vortex = { version = "0.1.0", path = "../vortex", default-features = false, features = ["files"] }
+vortex = { version = "0.1.0", path = "../vortex", default-features = false, features = [
+    "files",
+] }
 
 # Native-only dependencies (gated behind "native" feature)
 arrow-array = { workspace = true, optional = true }
@@ -62,12 +64,15 @@ datafusion = { workspace = true, optional = true }
 env_logger = { version = "0.11", optional = true }
 indicatif = { workspace = true, features = ["futures"], optional = true }
 parquet = { workspace = true, features = ["arrow", "async"], optional = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"], optional = true }
+tokio = { workspace = true, features = [
+    "rt-multi-thread",
+    "macros",
+], optional = true }
 vortex-datafusion = { workspace = true, optional = true }
 
 # WASM-only dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-console_error_panic_hook = "0.1"
+console_error_panic_hook = "0.1.7"
 js-sys = "0.3"
 ratzilla = "0.3"
 wasm-bindgen = "0.2"

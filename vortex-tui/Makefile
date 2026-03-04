@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
 .PHONY: serve clean-web
 
 web/pkg: src/**/*.rs Cargo.toml
