@@ -157,7 +157,7 @@ impl VTable for RunEndVTable {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<RunEndArray> {
+    ) -> VortexResult<ArrayRef> {
         let ends_dtype = DType::Primitive(metadata.ends_ptype(), Nullability::NonNullable);
         let runs = usize::try_from(metadata.num_runs).vortex_expect("Must be a valid usize");
         let ends = children.get(0, &ends_dtype, runs)?;
@@ -170,6 +170,7 @@ impl VTable for RunEndVTable {
             usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize"),
             len,
         )
+        .map(|a| a.into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

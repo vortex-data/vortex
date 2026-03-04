@@ -362,7 +362,7 @@ impl VTable for SequenceVTable {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
-    ) -> VortexResult<SequenceArray> {
+    ) -> VortexResult<ArrayRef> {
         SequenceArray::try_new(
             metadata.base,
             metadata.multiplier,
@@ -370,6 +370,7 @@ impl VTable for SequenceVTable {
             dtype.nullability(),
             len,
         )
+        .map(|a| a.into_array())
     }
 
     fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

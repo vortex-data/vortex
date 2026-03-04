@@ -139,7 +139,7 @@ impl VTable for MaskedVTable {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<MaskedArray> {
+    ) -> VortexResult<ArrayRef> {
         if !buffers.is_empty() {
             vortex_bail!("Expected 0 buffer, got {}", buffers.len());
         }
@@ -158,7 +158,7 @@ impl VTable for MaskedVTable {
             );
         };
 
-        MaskedArray::try_new(child, validity)
+        MaskedArray::try_new(child, validity).map(|a| a.into_array())
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {

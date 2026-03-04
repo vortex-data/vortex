@@ -132,14 +132,15 @@ impl VTable for FilterVTable {
         metadata: &FilterMetadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::Array> {
+    ) -> VortexResult<ArrayRef> {
         assert_eq!(len, metadata.0.true_count());
         let child = children.get(0, dtype, metadata.0.len())?;
         Ok(FilterArray {
             child,
             mask: metadata.0.clone(),
             stats: Default::default(),
-        })
+        }
+        .into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

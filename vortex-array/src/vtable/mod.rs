@@ -175,7 +175,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::Array>;
+    ) -> VortexResult<ArrayRef>;
 
     /// Replaces the children in `array` with `children`. The count must be the same and types
     /// of children must be expected.

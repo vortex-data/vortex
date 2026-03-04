@@ -157,7 +157,7 @@ impl VTable for ScalarFnVTable {
         metadata: &ScalarFnMetadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::Array> {
+    ) -> VortexResult<ArrayRef> {
         let children: Vec<_> = metadata
             .child_dtypes
             .iter()
@@ -181,7 +181,8 @@ impl VTable for ScalarFnVTable {
             len,
             children,
             stats: Default::default(),
-        })
+        }
+        .into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

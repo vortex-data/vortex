@@ -157,7 +157,7 @@ impl VTable for DecimalVTable {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<DecimalArray> {
+    ) -> VortexResult<ArrayRef> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -184,6 +184,7 @@ impl VTable for DecimalVTable {
                 D::DECIMAL_TYPE
             );
             DecimalArray::try_new_handle(values, metadata.values_type(), *decimal_dtype, validity)
+                .map(|a| a.into_array())
         })
     }
 

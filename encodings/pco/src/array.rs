@@ -208,7 +208,7 @@ impl VTable for PcoVTable {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<PcoArray> {
+    ) -> VortexResult<ArrayRef> {
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
@@ -243,7 +243,8 @@ impl VTable for PcoVTable {
             metadata.0.clone(),
             len,
             validity,
-        ))
+        )
+        .into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

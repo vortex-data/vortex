@@ -218,7 +218,7 @@ impl VTable for FSSTVTable {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<FSSTArray> {
+    ) -> VortexResult<ArrayRef> {
         let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
         let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
 
@@ -252,7 +252,8 @@ impl VTable for FSSTVTable {
                 symbol_lengths,
                 codes,
                 uncompressed_lengths,
-            );
+            )
+            .map(|a| a.into_array());
         }
 
         // Check for the current deserialization path.
@@ -299,7 +300,8 @@ impl VTable for FSSTVTable {
                 symbol_lengths,
                 codes,
                 uncompressed_lengths,
-            );
+            )
+            .map(|a| a.into_array());
         }
 
         vortex_bail!(

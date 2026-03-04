@@ -158,7 +158,7 @@ impl VTable for ListVTable {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ListArray> {
+    ) -> VortexResult<ArrayRef> {
         let validity = if children.len() == 2 {
             Validity::from(dtype.nullability())
         } else if children.len() == 3 {
@@ -183,7 +183,7 @@ impl VTable for ListVTable {
             len + 1,
         )?;
 
-        ListArray::try_new(elements, offsets, validity)
+        ListArray::try_new(elements, offsets, validity).map(|a| a.into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

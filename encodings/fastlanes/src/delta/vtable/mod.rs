@@ -172,7 +172,7 @@ impl VTable for DeltaVTable {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<DeltaArray> {
+    ) -> VortexResult<ArrayRef> {
         assert_eq!(children.len(), 2);
         let ptype = PType::try_from(dtype)?;
         let lanes = match_each_unsigned_integer_ptype!(ptype, |T| { <T as FastLanes>::LANES });
@@ -187,7 +187,7 @@ impl VTable for DeltaVTable {
         let bases = children.get(0, dtype, bases_len)?;
         let deltas = children.get(1, dtype, deltas_len)?;
 
-        DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
+        DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len).map(|a| a.into_array())
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {

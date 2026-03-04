@@ -149,7 +149,7 @@ impl VTable for ChunkedVTable {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ChunkedArray> {
+    ) -> VortexResult<ArrayRef> {
         if children.is_empty() {
             vortex_bail!("Chunked array needs at least one child");
         }
@@ -195,7 +195,8 @@ impl VTable for ChunkedVTable {
             chunk_offsets,
             chunks,
             stats_set: Default::default(),
-        })
+        }
+        .into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

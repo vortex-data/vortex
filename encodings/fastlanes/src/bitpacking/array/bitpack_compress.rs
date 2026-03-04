@@ -27,7 +27,9 @@ use vortex_mask::Mask;
 use crate::BitPackedArray;
 use crate::bitpack_decompress;
 
-pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedArray> {
+pub fn bitpack_to_best_bit_width(
+    array: &PrimitiveArray,
+) -> VortexResult<(BitPackedArray, Option<Patches>)> {
     let bit_width_freq = bit_width_histogram(array)?;
     let best_bit_width = find_best_bit_width(array.ptype(), &bit_width_freq)?;
     bitpack_encode(array, best_bit_width, Some(&bit_width_freq))
@@ -38,7 +40,7 @@ pub fn bitpack_encode(
     array: &PrimitiveArray,
     bit_width: u8,
     bit_width_freq: Option<&[usize]>,
-) -> VortexResult<BitPackedArray> {
+) -> VortexResult<(BitPackedArray, Option<Patches>)> {
     let bit_width_freq = match bit_width_freq {
         Some(freq) => freq,
         None => &bit_width_histogram(array)?,
@@ -77,7 +79,6 @@ pub fn bitpack_encode(
             BufferHandle::new_host(packed),
             array.dtype().clone(),
             array.validity().clone(),
-            patches,
             bit_width,
             array.len(),
             0,
@@ -87,7 +88,8 @@ pub fn bitpack_encode(
         .stats_set
         .to_ref(bitpacked.as_ref())
         .inherit_from(array.statistics());
-    Ok(bitpacked)
+
+    Ok((bitpacked, patches))
 }
 
 /// Bitpack an array into the specified bit-width without checking statistics.
@@ -111,7 +113,6 @@ pub unsafe fn bitpack_encode_unchecked(
             BufferHandle::new_host(packed),
             array.dtype().clone(),
             array.validity().clone(),
-            None,
             bit_width,
             array.len(),
             0,

@@ -155,7 +155,7 @@ impl VTable for VarBinVTable {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<VarBinArray> {
+    ) -> VortexResult<ArrayRef> {
         let validity = if children.len() == 1 {
             Validity::from(dtype.nullability())
         } else if children.len() == 2 {
@@ -176,7 +176,7 @@ impl VTable for VarBinVTable {
         }
         let bytes = buffers[0].clone().try_to_host_sync()?;
 
-        VarBinArray::try_new(offsets, bytes, dtype.clone(), validity)
+        VarBinArray::try_new(offsets, bytes, dtype.clone(), validity).map(|a| a.into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

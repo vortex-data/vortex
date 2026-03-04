@@ -11,15 +11,7 @@ use crate::bitpack_decompress;
 
 impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
     fn scalar_at(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
-        Ok(
-            if let Some(patches) = array.patches()
-                && let Some(patch) = patches.get_patched(index)?
-            {
-                patch
-            } else {
-                bitpack_decompress::unpack_single(array, index)
-            },
-        )
+        Ok(bitpack_decompress::unpack_single(array, index))
     }
 }
 
@@ -39,7 +31,6 @@ mod test {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::patches::Patches;
     use vortex_array::scalar::Scalar;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
@@ -183,7 +174,7 @@ mod test {
     }
 
     #[test]
-    fn scalar_at_invalid_patches() {
+    fn scalar_at_invalid() {
         let packed_array = unsafe {
             BitPackedArray::new_unchecked(
                 BufferHandle::new_host(ByteBuffer::copy_from_aligned(
@@ -192,16 +183,6 @@ mod test {
                 )),
                 DType::Primitive(PType::U32, true.into()),
                 Validity::AllInvalid,
-                Some(
-                    Patches::new(
-                        8,
-                        0,
-                        buffer![1u32].into_array(),
-                        PrimitiveArray::new(buffer![999u32], Validity::AllValid).into_array(),
-                        None,
-                    )
-                    .unwrap(),
-                ),
                 1,
                 8,
                 0,

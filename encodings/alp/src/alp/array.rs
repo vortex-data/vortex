@@ -158,7 +158,7 @@ impl VTable for ALPVTable {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ALPArray> {
+    ) -> VortexResult<ArrayRef> {
         let encoded_ptype = match &dtype {
             DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
             DType::Primitive(PType::F64, n) => DType::Primitive(PType::I64, *n),
@@ -188,6 +188,7 @@ impl VTable for ALPVTable {
             },
             patches,
         )
+        .map(|a| a.into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

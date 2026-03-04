@@ -126,7 +126,7 @@ impl VTable for ExtensionVTable {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ExtensionArray> {
+    ) -> VortexResult<ArrayRef> {
         let DType::Extension(ext_dtype) = dtype else {
             vortex_bail!("Not an extension DType");
         };
@@ -134,7 +134,7 @@ impl VTable for ExtensionVTable {
             vortex_bail!("Expected 1 child, got {}", children.len());
         }
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
-        Ok(ExtensionArray::new(ext_dtype.clone(), storage))
+        Ok(ExtensionArray::new(ext_dtype.clone(), storage).into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

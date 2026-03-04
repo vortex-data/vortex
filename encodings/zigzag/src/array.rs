@@ -127,7 +127,7 @@ impl VTable for ZigZagVTable {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ZigZagArray> {
+    ) -> VortexResult<ArrayRef> {
         if children.len() != 1 {
             vortex_bail!("Expected 1 child, got {}", children.len());
         }
@@ -136,7 +136,7 @@ impl VTable for ZigZagVTable {
         let encoded_type = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
 
         let encoded = children.get(0, &encoded_type, len)?;
-        ZigZagArray::try_new(encoded)
+        ZigZagArray::try_new(encoded).map(|a| a.into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

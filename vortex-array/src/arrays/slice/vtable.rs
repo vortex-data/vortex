@@ -20,6 +20,7 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
+use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::slice::array::SliceArray;
 use crate::arrays::slice::rules::PARENT_RULES;
@@ -132,14 +133,15 @@ impl VTable for SliceVTable {
         metadata: &SliceMetadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::Array> {
+    ) -> VortexResult<ArrayRef> {
         assert_eq!(len, metadata.0.len());
         let child = children.get(0, dtype, metadata.0.end)?;
         Ok(SliceArray {
             child,
             range: metadata.0.clone(),
             stats: Default::default(),
-        })
+        }
+        .into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

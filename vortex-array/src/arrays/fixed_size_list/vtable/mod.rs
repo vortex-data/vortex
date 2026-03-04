@@ -166,7 +166,7 @@ impl VTable for FixedSizeListVTable {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<FixedSizeListArray> {
+    ) -> VortexResult<ArrayRef> {
         vortex_ensure!(
             buffers.is_empty(),
             "`FixedSizeListVTable::build` expects no buffers"
@@ -193,7 +193,7 @@ impl VTable for FixedSizeListVTable {
         let num_elements = len * (*list_size as usize);
         let elements = children.get(0, element_dtype.as_ref(), num_elements)?;
 
-        FixedSizeListArray::try_new(elements, *list_size, validity, len)
+        FixedSizeListArray::try_new(elements, *list_size, validity, len).map(|a| a.into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

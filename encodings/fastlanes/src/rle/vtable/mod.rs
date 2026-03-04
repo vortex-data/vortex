@@ -190,7 +190,7 @@ impl VTable for RLEVTable {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<RLEArray> {
+    ) -> VortexResult<ArrayRef> {
         let metadata = &metadata.0;
         let values = children.get(
             0,
@@ -220,6 +220,7 @@ impl VTable for RLEVTable {
             metadata.offset as usize,
             len,
         )
+        .map(|a| a.into_array())
     }
 
     fn execute_parent(

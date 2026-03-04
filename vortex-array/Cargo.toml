@@ -96,6 +96,10 @@ serde_test = { workspace = true }
 vortex-array = { path = ".", features = ["_test-harness", "table-display"] }
 
 [[bench]]
+name = "patched"
+harness = false
+
+[[bench]]
 name = "search_sorted"
 harness = false
 

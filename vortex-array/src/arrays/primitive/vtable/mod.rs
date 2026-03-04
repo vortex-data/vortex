@@ -136,7 +136,7 @@ impl VTable for PrimitiveVTable {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<PrimitiveArray> {
+    ) -> VortexResult<ArrayRef> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -177,9 +177,7 @@ impl VTable for PrimitiveVTable {
 
         // SAFETY: checked ahead of time
         unsafe {
-            Ok(PrimitiveArray::new_unchecked_from_handle(
-                buffer, ptype, validity,
-            ))
+            Ok(PrimitiveArray::new_unchecked_from_handle(buffer, ptype, validity).into_array())
         }
     }
 

@@ -150,7 +150,7 @@ impl VTable for BoolVTable {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<BoolArray> {
+    ) -> VortexResult<ArrayRef> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -167,6 +167,7 @@ impl VTable for BoolVTable {
         let buffer = buffers[0].clone();
 
         BoolArray::try_new_from_handle(buffer, metadata.offset as usize, len, validity)
+            .map(|a| a.into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

@@ -145,7 +145,7 @@ impl VTable for FoRVTable {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<FoRArray> {
+    ) -> VortexResult<ArrayRef> {
         if children.len() != 1 {
             vortex_bail!(
                 "Expected 1 child for FoR encoding, found {}",
@@ -155,7 +155,7 @@ impl VTable for FoRVTable {
 
         let encoded = children.get(0, dtype, len)?;
 
-        FoRArray::try_new(encoded, metadata.clone())
+        FoRArray::try_new(encoded, metadata.clone()).map(|a| a.into_array())
     }
 
     fn reduce_parent(

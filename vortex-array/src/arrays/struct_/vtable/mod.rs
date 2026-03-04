@@ -143,7 +143,7 @@ impl VTable for StructVTable {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<StructArray> {
+    ) -> VortexResult<ArrayRef> {
         let DType::Struct(struct_dtype, nullability) = dtype else {
             vortex_bail!("Expected struct dtype, found {:?}", dtype)
         };
@@ -173,6 +173,7 @@ impl VTable for StructVTable {
             .try_collect()?;
 
         StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
+            .map(|a| a.into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

@@ -164,7 +164,7 @@ impl VTable for VarBinViewVTable {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<VarBinViewArray> {
+    ) -> VortexResult<ArrayRef> {
         let Some((views_handle, data_handles)) = buffers.split_last() else {
             vortex_bail!("Expected at least 1 buffer, got 0");
         };
@@ -197,7 +197,8 @@ impl VTable for VarBinViewVTable {
                 Arc::from(data_handles.to_vec()),
                 dtype.clone(),
                 validity,
-            );
+            )
+            .map(|a| a.into_array());
         }
 
         let data_buffers = data_handles
@@ -207,6 +208,7 @@ impl VTable for VarBinViewVTable {
         let views = Buffer::<BinaryView>::from_byte_buffer(views_handle.clone().as_host().clone());
 
         VarBinViewArray::try_new(views, Arc::from(data_buffers), dtype.clone(), validity)
+            .map(|a| a.into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

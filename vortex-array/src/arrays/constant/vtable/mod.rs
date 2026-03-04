@@ -157,8 +157,8 @@ impl VTable for ConstantVTable {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
-    ) -> VortexResult<ConstantArray> {
-        Ok(ConstantArray::new(metadata.clone(), len))
+    ) -> VortexResult<ArrayRef> {
+        Ok(ConstantArray::new(metadata.clone(), len).into_array())
     }
 
     fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

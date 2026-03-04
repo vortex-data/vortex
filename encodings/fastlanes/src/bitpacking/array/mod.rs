@@ -8,7 +8,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
-use vortex_array::patches::Patches;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
@@ -28,7 +27,6 @@ pub struct BitPackedArrayParts {
     pub bit_width: u8,
     pub len: usize,
     pub packed: BufferHandle,
-    pub patches: Option<Patches>,
     pub validity: Validity,
 }
 
@@ -41,7 +39,6 @@ pub struct BitPackedArray {
     pub(super) dtype: DType,
     pub(super) bit_width: u8,
     pub(super) packed: BufferHandle,
-    pub(super) patches: Option<Patches>,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
@@ -71,7 +68,6 @@ impl BitPackedArray {
         packed: BufferHandle,
         dtype: DType,
         validity: Validity,
-        patches: Option<Patches>,
         bit_width: u8,
         len: usize,
         offset: u16,
@@ -82,7 +78,6 @@ impl BitPackedArray {
             dtype,
             bit_width,
             packed,
-            patches,
             validity,
             stats_set: Default::default(),
         }
@@ -113,27 +108,18 @@ impl BitPackedArray {
         packed: BufferHandle,
         ptype: PType,
         validity: Validity,
-        patches: Option<Patches>,
         bit_width: u8,
         length: usize,
         offset: u16,
     ) -> VortexResult<Self> {
-        Self::validate(
-            &packed,
-            ptype,
-            &validity,
-            patches.as_ref(),
-            bit_width,
-            length,
-            offset,
-        )?;
+        Self::validate(&packed, ptype, &validity, bit_width, length, offset)?;
 
         let dtype = DType::Primitive(ptype, validity.nullability());
 
         // SAFETY: all components validated above
         unsafe {
             Ok(Self::new_unchecked(
-                packed, dtype, validity, patches, bit_width, length, offset,
+                packed, dtype, validity, bit_width, length, offset,
             ))
         }
     }
@@ -142,7 +128,6 @@ impl BitPackedArray {
         packed: &BufferHandle,
         ptype: PType,
         validity: &Validity,
-        patches: Option<&Patches>,
         bit_width: u8,
         length: usize,
         offset: u16,
@@ -163,11 +148,6 @@ impl BitPackedArray {
             "Offset must be less than the full block i.e., 1024, got {offset}"
         );
 
-        // Validate patches
-        if let Some(patches) = patches {
-            Self::validate_patches(patches, ptype, length)?;
-        }
-
         // Validate packed buffer
         let expected_packed_len =
             (length + offset as usize).div_ceil(1024) * (128 * bit_width as usize);
@@ -176,24 +156,6 @@ impl BitPackedArray {
             "Expected {} packed bytes, got {}",
             expected_packed_len,
             packed.len()
-        );
-
-        Ok(())
-    }
-
-    fn validate_patches(patches: &Patches, ptype: PType, len: usize) -> VortexResult<()> {
-        // Ensure that array and patches have same ptype
-        vortex_ensure!(
-            patches.dtype().eq_ignore_nullability(ptype.into()),
-            "Patches DType {} does not match BitPackedArray dtype {}",
-            patches.dtype().as_nonnullable(),
-            ptype
-        );
-
-        vortex_ensure!(
-            patches.array_len() == len,
-            "BitPackedArray patches length {} != expected {len}",
-            patches.array_len(),
         );
 
         Ok(())
@@ -239,19 +201,6 @@ impl BitPackedArray {
         self.bit_width
     }
 
-    /// Access the patches array.
-    ///
-    /// If present, patches MUST be a `SparseArray` with equal-length to this array, and whose
-    /// indices indicate the locations of patches. The indices must have non-zero length.
-    #[inline]
-    pub fn patches(&self) -> Option<&Patches> {
-        self.patches.as_ref()
-    }
-
-    pub fn replace_patches(&mut self, patches: Option<Patches>) {
-        self.patches = patches;
-    }
-
     #[inline]
     pub fn offset(&self) -> u16 {
         self.offset
@@ -291,7 +240,6 @@ impl BitPackedArray {
             bit_width: self.bit_width,
             len: self.len,
             packed: self.packed,
-            patches: self.patches,
             validity: self.validity,
         }
     }

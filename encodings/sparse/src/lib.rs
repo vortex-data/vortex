@@ -188,7 +188,7 @@ impl VTable for SparseVTable {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<SparseArray> {
+    ) -> VortexResult<ArrayRef> {
         vortex_ensure_eq!(
             children.len(),
             2,
@@ -214,6 +214,7 @@ impl VTable for SparseVTable {
             len,
             metadata.fill_value.clone(),
         )
+        .map(|a| a.into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

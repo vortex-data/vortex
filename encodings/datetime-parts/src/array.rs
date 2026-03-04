@@ -180,7 +180,7 @@ impl VTable for DateTimePartsVTable {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<DateTimePartsArray> {
+    ) -> VortexResult<ArrayRef> {
         if children.len() != 3 {
             vortex_bail!(
                 "Expected 3 children for datetime-parts encoding, found {}",
@@ -205,6 +205,7 @@ impl VTable for DateTimePartsVTable {
         )?;
 
         DateTimePartsArray::try_new(dtype.clone(), days, seconds, subseconds)
+            .map(|a| a.into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

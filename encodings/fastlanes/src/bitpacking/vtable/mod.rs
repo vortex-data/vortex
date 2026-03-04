@@ -10,9 +10,11 @@ use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionStep;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::arrays::PatchedArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::dtype::DType;
@@ -26,8 +28,8 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
-use vortex_array::vtable::patches_child;
 use vortex_array::vtable::patches_child_name;
 use vortex_array::vtable::patches_nchildren;
 use vortex_array::vtable::validity_nchildren;
@@ -58,8 +60,21 @@ pub struct BitPackedMetadata {
     pub(crate) bit_width: u32,
     #[prost(uint32, tag = "2")]
     pub(crate) offset: u32, // must be <1024
+
+    // NOTE(aduffy): Starting with format version 0.58.0, this field should never be set. It is
+    //  only set by older writers and we use it to migrate to the new PatchedArray wrapper.
     #[prost(message, optional, tag = "3")]
-    pub(crate) patches: Option<PatchesMetadata>,
+    patches: Option<PatchesMetadata>,
+}
+
+impl BitPackedMetadata {
+    pub(crate) fn new(bit_width: u32, offset: u32) -> Self {
+        Self {
+            bit_width,
+            offset,
+            patches: None,
+        }
+    }
 }
 
 impl VTable for BitPackedVTable {
@@ -96,7 +111,6 @@ impl VTable for BitPackedVTable {
         array.dtype.hash(state);
         array.bit_width.hash(state);
         array.packed.array_hash(state, precision);
-        array.patches.array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
@@ -106,7 +120,6 @@ impl VTable for BitPackedVTable {
             && array.dtype == other.dtype
             && array.bit_width == other.bit_width
             && array.packed.array_eq(&other.packed, precision)
-            && array.patches.array_eq(&other.patches, precision)
             && array.validity.array_eq(&other.validity, precision)
     }
 
@@ -129,19 +142,11 @@ impl VTable for BitPackedVTable {
     }
 
     fn nchildren(array: &BitPackedArray) -> usize {
-        array.patches().map_or(0, patches_nchildren) + validity_nchildren(&array.validity)
+        validity_nchildren(&array.validity)
     }
 
     fn child(array: &BitPackedArray, idx: usize) -> ArrayRef {
-        let pc = array.patches().map_or(0, patches_nchildren);
-        if idx < pc {
-            patches_child(
-                array
-                    .patches()
-                    .vortex_expect("BitPackedArray child index out of bounds"),
-                idx,
-            )
-        } else if idx < pc + validity_nchildren(&array.validity) {
+        if idx < validity_nchildren(&array.validity) {
             validity_to_child(&array.validity, array.len)
                 .vortex_expect("BitPackedArray child index out of bounds")
         } else {
@@ -150,12 +155,11 @@ impl VTable for BitPackedVTable {
     }
 
     fn child_name(array: &BitPackedArray, idx: usize) -> String {
-        let pc = array.patches().map_or(0, patches_nchildren);
-        if idx < pc {
-            patches_child_name(idx).to_string()
-        } else {
-            "validity".to_string()
+        if idx < validity_nchildren(array.validity()) {
+            return "validity".to_string();
         }
+
+        vortex_panic!("invalid child index for BitPackedArray: {idx}");
     }
 
     fn reduce_parent(
@@ -167,83 +171,34 @@ impl VTable for BitPackedVTable {
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // Children: patches (if present): indices, values, chunk_offsets; then validity (if present)
-        let patches_info = array
-            .patches()
-            .map(|p| (p.offset(), p.chunk_offsets().is_some()));
-
-        let mut child_idx = 0;
-        let patches = if let Some((patch_offset, has_chunk_offsets)) = patches_info {
-            let patch_indices = children
-                .get(child_idx)
-                .ok_or_else(|| vortex_err!("Expected patch_indices child at index {}", child_idx))?
-                .clone();
-            child_idx += 1;
-
-            let patch_values = children
-                .get(child_idx)
-                .ok_or_else(|| vortex_err!("Expected patch_values child at index {}", child_idx))?
-                .clone();
-            child_idx += 1;
-
-            let patch_chunk_offsets = if has_chunk_offsets {
-                let offsets = children
-                    .get(child_idx)
-                    .ok_or_else(|| {
-                        vortex_err!("Expected patch_chunk_offsets child at index {}", child_idx)
-                    })?
-                    .clone();
-                child_idx += 1;
-                Some(offsets)
-            } else {
-                None
-            };
-
-            Some(Patches::new(
-                array.len(),
-                patch_offset,
-                patch_indices,
-                patch_values,
-                patch_chunk_offsets,
-            )?)
+        // Children: validity (if present).
+        let expected_children = if matches!(array.validity, Validity::Array(_)) {
+            1
         } else {
-            None
+            0
         };
 
-        let validity = if child_idx < children.len() {
-            Validity::Array(children[child_idx].clone())
-        } else {
-            Validity::from(array.dtype().nullability())
-        };
-
-        let expected_children = child_idx
-            + if matches!(validity, Validity::Array(_)) {
-                1
-            } else {
-                0
-            };
         vortex_ensure!(
             children.len() == expected_children,
-            "Expected {} children, got {}",
-            expected_children,
+            "expected {expected_children} children for BitPackedArray, received {}",
             children.len()
         );
 
-        array.patches = patches;
+        let validity = match children.into_iter().next() {
+            Some(child) => Validity::Array(child),
+            None => Validity::from(array.dtype.nullability()),
+        };
+
         array.validity = validity;
 
         Ok(())
     }
 
     fn metadata(array: &BitPackedArray) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(BitPackedMetadata {
-            bit_width: array.bit_width() as u32,
-            offset: array.offset() as u32,
-            patches: array
-                .patches()
-                .map(|p| p.to_metadata(array.len(), array.dtype()))
-                .transpose()?,
-        }))
+        Ok(ProstMetadata(BitPackedMetadata::new(
+            array.bit_width as u32,
+            array.offset() as u32,
+        )))
     }
 
     fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
@@ -272,7 +227,7 @@ impl VTable for BitPackedVTable {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<BitPackedArray> {
+    ) -> VortexResult<ArrayRef> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -316,11 +271,10 @@ impl VTable for BitPackedVTable {
             })
             .transpose()?;
 
-        BitPackedArray::try_new(
+        let bp_array = BitPackedArray::try_new(
             packed,
             PType::try_from(dtype)?,
             validity,
-            patches,
             u8::try_from(metadata.bit_width).map_err(|_| {
                 vortex_err!(
                     "BitPackedMetadata bit_width {} does not fit in u8",
@@ -334,7 +288,19 @@ impl VTable for BitPackedVTable {
                     metadata.offset
                 )
             })?,
-        )
+        )?
+        .into_array();
+
+        if let Some(patches) = patches {
+            // TODO(aduffy): this is only needed for backward compatibility.
+            let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+            Ok(
+                PatchedArray::from_array_and_patches(bp_array.into_array(), &patches, &mut ctx)?
+                    .into_array(),
+            )
+        } else {
+            Ok(bp_array)
+        }
     }
 
     fn append_to_builder(

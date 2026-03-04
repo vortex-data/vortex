@@ -111,8 +111,8 @@ impl VTable for NullVTable {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
-    ) -> VortexResult<NullArray> {
-        Ok(NullArray::new(len))
+    ) -> VortexResult<ArrayRef> {
+        Ok(NullArray::new(len).into_array())
     }
 
     fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

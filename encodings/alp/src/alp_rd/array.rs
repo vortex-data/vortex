@@ -192,7 +192,7 @@ impl VTable for ALPRDVTable {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ALPRDArray> {
+    ) -> VortexResult<ArrayRef> {
         if children.len() < 2 {
             vortex_bail!(
                 "Expected at least 2 children for ALPRD encoding, found {}",
@@ -253,6 +253,7 @@ impl VTable for ALPRDVTable {
             })?,
             left_parts_patches,
         )
+        .map(|a| a.into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

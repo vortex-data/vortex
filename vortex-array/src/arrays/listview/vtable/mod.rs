@@ -165,7 +165,7 @@ impl VTable for ListViewVTable {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ListViewArray> {
+    ) -> VortexResult<ArrayRef> {
         vortex_ensure!(
             buffers.is_empty(),
             "`ListViewArray::build` expects no buffers"
@@ -208,7 +208,7 @@ impl VTable for ListViewVTable {
             len,
         )?;
 
-        ListViewArray::try_new(elements, offsets, sizes, validity)
+        ListViewArray::try_new(elements, offsets, sizes, validity).map(|a| a.into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

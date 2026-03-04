@@ -11,6 +11,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionStep;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
@@ -439,7 +440,7 @@ impl VTable for ZstdBuffersVTable {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ZstdBuffersArray> {
+    ) -> VortexResult<ArrayRef> {
         let compressed_buffers: Vec<BufferHandle> = buffers.to_vec();
 
         let child_arrays: Vec<ArrayRef> = (0..children.len())
@@ -459,7 +460,7 @@ impl VTable for ZstdBuffersVTable {
         };
 
         array.validate()?;
-        Ok(array)
+        Ok(array.into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

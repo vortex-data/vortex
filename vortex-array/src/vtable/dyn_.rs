@@ -92,7 +92,7 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         let array = V::build(dtype, len, &metadata, buffers, children)?;
         assert_eq!(array.len(), len, "Array length mismatch after building");
         assert_eq!(array.dtype(), dtype, "Array dtype mismatch after building");
-        Ok(array.into_array())
+        Ok(array)
     }
 
     fn with_children(&self, array: &ArrayRef, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
