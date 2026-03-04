@@ -236,7 +236,7 @@ tracing-subscriber = "0.3"
 url = "2.5.7"
 uuid = { version = "1.19", features = ["js"] }
 walkdir = "2.5.0"
-wasm-bindgen-futures = "0.4.39"
+wasm-bindgen-futures = "0.4.54"
 xshell = "0.2.6"
 zigzag = "0.1.0"
 zip = "6.0.0"
