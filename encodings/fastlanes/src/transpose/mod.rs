@@ -11,8 +11,7 @@
 //! position from 8 different input bytes at stride 16. The input byte groups follow
 //! the FL_ORDER permutation pattern.
 
-/// The FastLanes bit-reversal order for groups of 8.
-pub const FL_ORDER: [usize; 8] = [0, 4, 2, 6, 1, 5, 3, 7];
+use fastlanes::FL_ORDER;
 
 /// Base indices for the first 64 output bytes (lanes 0-7).
 /// Each entry indicates the starting input byte index for that output byte group.
