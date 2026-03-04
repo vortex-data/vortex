@@ -40,15 +40,15 @@ impl BetweenKernel for DecimalVTable {
             arr.dtype.nullability() | lower.dtype().nullability() | upper.dtype().nullability();
 
         match_each_decimal_value_type!(arr.values_type(), |D| {
-            between_unpack::<D>(arr, lower, upper, nullability, options)
+            between_unpack::<D>(arr, &lower, &upper, nullability, options)
         })
     }
 }
 
 fn between_unpack<T: NativeDecimalType>(
     arr: &DecimalArray,
-    lower: Scalar,
-    upper: Scalar,
+    lower: &Scalar,
+    upper: &Scalar,
     nullability: Nullability,
     options: &BetweenOptions,
 ) -> VortexResult<Option<ArrayRef>> {

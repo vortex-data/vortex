@@ -12,7 +12,7 @@ use crate::arrays::filter::execute::filter_validity;
 
 pub fn filter_bool(array: &BoolArray, mask: &Arc<MaskValues>) -> BoolArray {
     let validity = array.validity().vortex_expect("missing BoolArray validity");
-    let filtered_validity = filter_validity(validity, mask);
+    let filtered_validity = filter_validity(&validity, mask);
 
     let bit_buffer = array.to_bit_buffer();
     let filtered_buffer = bitbuffer::filter_bit_buffer(&bit_buffer, mask.as_ref());

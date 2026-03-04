@@ -26,6 +26,7 @@ use datafusion_physical_plan::collect;
 use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::fs::File;
+use vortex::io::filesystem::FileSystemRef;
 use vortex::scan::api::DataSourceRef;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
@@ -304,9 +305,9 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             .runtime_env()
             .object_store(table_url.object_store())?;
 
-        let fs: vortex::io::filesystem::FileSystemRef =
-            Arc::new(ObjectStoreFileSystem::new(store.clone(), SESSION.handle()));
-        let base_prefix = benchmark_base.path().trim_start_matches('/').to_string();
+        let fs =
+            Arc::new(ObjectStoreFileSystem::new(store.clone(), SESSION.handle())) as FileSystemRef;
+        let base_prefix = benchmark_base.path().trim_start_matches('/');
         let fs = fs.with_prefix(base_prefix);
 
         let glob_pattern = match &pattern {

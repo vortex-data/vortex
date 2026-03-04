@@ -98,17 +98,17 @@ impl ArrowArrayExecutor for ArrayRef {
         let arrow = match &resolved_type {
             DataType::Null => to_arrow_null(self, ctx),
             DataType::Boolean => to_arrow_bool(self, ctx),
-            DataType::Int8 => to_arrow_primitive::<Int8Type>(self, ctx),
-            DataType::Int16 => to_arrow_primitive::<Int16Type>(self, ctx),
-            DataType::Int32 => to_arrow_primitive::<Int32Type>(self, ctx),
-            DataType::Int64 => to_arrow_primitive::<Int64Type>(self, ctx),
-            DataType::UInt8 => to_arrow_primitive::<UInt8Type>(self, ctx),
-            DataType::UInt16 => to_arrow_primitive::<UInt16Type>(self, ctx),
-            DataType::UInt32 => to_arrow_primitive::<UInt32Type>(self, ctx),
-            DataType::UInt64 => to_arrow_primitive::<UInt64Type>(self, ctx),
-            DataType::Float16 => to_arrow_primitive::<Float16Type>(self, ctx),
-            DataType::Float32 => to_arrow_primitive::<Float32Type>(self, ctx),
-            DataType::Float64 => to_arrow_primitive::<Float64Type>(self, ctx),
+            DataType::Int8 => to_arrow_primitive::<Int8Type>(&self, ctx),
+            DataType::Int16 => to_arrow_primitive::<Int16Type>(&self, ctx),
+            DataType::Int32 => to_arrow_primitive::<Int32Type>(&self, ctx),
+            DataType::Int64 => to_arrow_primitive::<Int64Type>(&self, ctx),
+            DataType::UInt8 => to_arrow_primitive::<UInt8Type>(&self, ctx),
+            DataType::UInt16 => to_arrow_primitive::<UInt16Type>(&self, ctx),
+            DataType::UInt32 => to_arrow_primitive::<UInt32Type>(&self, ctx),
+            DataType::UInt64 => to_arrow_primitive::<UInt64Type>(&self, ctx),
+            DataType::Float16 => to_arrow_primitive::<Float16Type>(&self, ctx),
+            DataType::Float32 => to_arrow_primitive::<Float32Type>(&self, ctx),
+            DataType::Float64 => to_arrow_primitive::<Float64Type>(&self, ctx),
             DataType::Timestamp(..)
             | DataType::Date32
             | DataType::Date64
@@ -118,8 +118,8 @@ impl ArrowArrayExecutor for ArrayRef {
             DataType::LargeBinary => to_arrow_byte_array::<LargeBinaryType>(self, ctx),
             DataType::Utf8 => to_arrow_byte_array::<Utf8Type>(self, ctx),
             DataType::LargeUtf8 => to_arrow_byte_array::<LargeUtf8Type>(self, ctx),
-            DataType::BinaryView => to_arrow_byte_view::<BinaryViewType>(self, ctx),
-            DataType::Utf8View => to_arrow_byte_view::<StringViewType>(self, ctx),
+            DataType::BinaryView => to_arrow_byte_view::<BinaryViewType>(&self, ctx),
+            DataType::Utf8View => to_arrow_byte_view::<StringViewType>(&self, ctx),
             // TODO(joe): pass down preferred
             DataType::List(elements_field) => to_arrow_list::<i32>(self, elements_field, ctx),
             // TODO(joe): pass down preferred

@@ -58,6 +58,7 @@ impl StructBuilder {
     }
 
     /// Appends a struct `value` to the builder.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn append_value(&mut self, struct_scalar: StructScalar) -> VortexResult<()> {
         if !self.dtype.is_nullable() && struct_scalar.is_null() {
             vortex_bail!("Tried to append a null `StructScalar` to a non-nullable struct builder",);

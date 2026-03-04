@@ -95,7 +95,7 @@ impl StructReader {
             layout.children.clone(),
             dtypes,
             names,
-            segment_source.clone(),
+            segment_source,
             session.clone(),
         );
 
@@ -151,7 +151,7 @@ impl StructReader {
     }
 
     /// Utility for partitioning an expression over the fields of a struct.
-    fn partition_expr(&self, expr: Expression) -> Partitioned {
+    fn partition_expr(&self, expr: &Expression) -> Partitioned {
         self.partitioned_expr_cache
             .entry(ExactExpr(expr.clone()))
             .or_insert_with(|| {
@@ -250,7 +250,7 @@ impl LayoutReader for StructReader {
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr.clone()) {
+        match &self.partition_expr(expr) {
             Partitioned::Single(name, partition) => self
                 .field_reader(name)?
                 .pruning_evaluation(row_range, partition, mask)
@@ -272,7 +272,7 @@ impl LayoutReader for StructReader {
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
-        match &self.partition_expr(expr.clone()) {
+        match &self.partition_expr(expr) {
             Partitioned::Single(name, partition) => self
                 .field_reader(name)?
                 .filter_evaluation(row_range, partition, mask)
@@ -314,7 +314,7 @@ impl LayoutReader for StructReader {
             .transpose()?;
 
         // Partition the expression into expressions that can be evaluated over individual fields
-        let (projected, is_pack_merge) = match &self.partition_expr(expr.clone()) {
+        let (projected, is_pack_merge) = match &self.partition_expr(expr) {
             Partitioned::Single(name, partition) => (
                 self.field_reader(name)?
                     .projection_evaluation(row_range, partition, mask_fut)

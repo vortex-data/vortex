@@ -16,6 +16,7 @@ use crate::scalar_fn::fns::operators::Operator;
 
 /// This pass looks for expression of the form
 ///      `x >= a && x < b` and converts them into x between a and b`
+#[allow(clippy::needless_pass_by_value)]
 pub fn find_between(expr: Expression) -> Expression {
     // We search all pairs of cnfs to find any pair of expressions can be converted into a between
     // expression.

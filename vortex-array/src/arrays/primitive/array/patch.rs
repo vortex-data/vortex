@@ -32,9 +32,9 @@ impl PrimitiveArray {
         Ok(match_each_integer_ptype!(patch_indices.ptype(), |I| {
             match_each_native_ptype!(self.ptype(), |T| {
                 self.patch_typed::<T, I>(
-                    patch_indices,
+                    &patch_indices,
                     patches.offset(),
-                    patch_values,
+                    &patch_values,
                     patched_validity,
                 )
             })
@@ -43,9 +43,9 @@ impl PrimitiveArray {
 
     fn patch_typed<T, I>(
         self,
-        patch_indices: PrimitiveArray,
+        patch_indices: &PrimitiveArray,
         patch_indices_offset: usize,
-        patch_values: PrimitiveArray,
+        patch_values: &PrimitiveArray,
         patched_validity: Validity,
     ) -> Self
     where

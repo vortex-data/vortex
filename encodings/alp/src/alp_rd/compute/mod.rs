@@ -95,6 +95,6 @@ mod tests {
         encoder.encode(&arr)
     })]
     fn test_alp_rd_binary_numeric(#[case] array: ALPRDArray) {
-        test_binary_numeric_array(array.into_array());
+        test_binary_numeric_array(&array.into_array());
     }
 }

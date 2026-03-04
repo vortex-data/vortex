@@ -20,7 +20,7 @@ impl ListArray {
     /// appended to the array.
     pub fn from_iter_slow<O: IntegerPType, I: IntoIterator>(
         iter: I,
-        dtype: Arc<DType>,
+        dtype: &Arc<DType>,
     ) -> VortexResult<ArrayRef>
     where
         I::Item: IntoIterator,
@@ -47,7 +47,7 @@ impl ListArray {
 
     pub fn from_iter_opt_slow<O: IntegerPType, I: IntoIterator<Item = Option<T>>, T>(
         iter: I,
-        dtype: Arc<DType>,
+        dtype: &Arc<DType>,
     ) -> VortexResult<ArrayRef>
     where
         T: IntoIterator,

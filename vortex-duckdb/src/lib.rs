@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![allow(clippy::missing_safety_doc)]
+#![allow(clippy::needless_pass_by_value)]
 
 use std::ffi::CStr;
 use std::ffi::c_char;

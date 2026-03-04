@@ -291,7 +291,7 @@ impl RDEncoder {
 ///
 /// The function panics if the provided `left_parts` and `right_parts` differ in length.
 pub fn alp_rd_decode<T: ALPRDFloat>(
-    left_parts: Buffer<u16>,
+    left_parts: &[u16],
     left_parts_dict: &[u16],
     right_bit_width: u8,
     right_parts: BufferMut<T::UINT>,
@@ -321,7 +321,7 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
         left_parts_dict,
         right_bit_width,
         right_parts,
-        values,
+        values.as_ref(),
     ))
 }
 
@@ -348,7 +348,7 @@ fn alp_rd_decode_core<T: ALPRDFloat>(
     _left_parts_dict: &[u16],
     right_bit_width: u8,
     right_parts: BufferMut<T::UINT>,
-    values: BufferMut<u16>,
+    values: &[u16],
 ) -> Buffer<T> {
     // Shift the left-parts and add in the right-parts.
     let mut index = 0;

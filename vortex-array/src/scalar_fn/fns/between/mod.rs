@@ -420,7 +420,7 @@ mod tests {
         .unwrap()
         .to_bool();
 
-        let indices = to_int_indices(matches).unwrap();
+        let indices = to_int_indices(&matches).unwrap();
         assert_eq!(indices, expected);
     }
 
@@ -449,7 +449,7 @@ mod tests {
         .unwrap()
         .to_bool();
 
-        let indices = to_int_indices(matches).unwrap();
+        let indices = to_int_indices(&matches).unwrap();
         assert!(indices.is_empty());
 
         // upper is a fixed constant
@@ -466,7 +466,7 @@ mod tests {
         )
         .unwrap()
         .to_bool();
-        let indices = to_int_indices(matches).unwrap();
+        let indices = to_int_indices(&matches).unwrap();
         assert_eq!(indices, vec![0, 1, 3]);
 
         // lower is also a constant
@@ -484,7 +484,7 @@ mod tests {
         )
         .unwrap()
         .to_bool();
-        let indices = to_int_indices(matches).unwrap();
+        let indices = to_int_indices(&matches).unwrap();
         assert_eq!(indices, vec![0, 1, 2, 3, 4]);
     }
 

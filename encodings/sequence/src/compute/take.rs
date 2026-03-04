@@ -32,7 +32,7 @@ fn take_inner<T: IntegerPType, S: NativePType>(
     mul: S,
     base: S,
     indices: &[T],
-    indices_mask: Mask,
+    indices_mask: &Mask,
     result_nullability: Nullability,
     len: usize,
 ) -> ArrayRef {
@@ -92,7 +92,7 @@ impl TakeExecute for SequenceVTable {
                     mul,
                     base,
                     indices,
-                    mask,
+                    &mask,
                     result_nullability,
                     array.len(),
                 )))

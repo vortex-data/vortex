@@ -127,7 +127,7 @@ fn test_from_list_array() -> VortexResult<()> {
 
     let list_array = ListArray::try_new(elements, offsets, validity).unwrap();
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    let list_view = list_view_from_list(list_array, &mut ctx)?;
+    let list_view = list_view_from_list(&list_array, &mut ctx)?;
 
     assert_eq!(list_view.len(), 3);
 

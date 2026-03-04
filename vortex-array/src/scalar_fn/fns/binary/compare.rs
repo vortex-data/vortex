@@ -273,7 +273,7 @@ mod tests {
             .binary(arr.to_array(), Operator::Eq)
             .unwrap()
             .to_bool();
-        assert_eq!(to_int_indices(matches).unwrap(), [1u64, 2, 3, 4]);
+        assert_eq!(to_int_indices(&matches).unwrap(), [1u64, 2, 3, 4]);
 
         let matches = arr
             .to_array()
@@ -281,7 +281,7 @@ mod tests {
             .unwrap()
             .to_bool();
         let empty: [u64; 0] = [];
-        assert_eq!(to_int_indices(matches).unwrap(), empty);
+        assert_eq!(to_int_indices(&matches).unwrap(), empty);
 
         let other = BoolArray::new(
             BitBuffer::from_iter([false, false, false, true, true]),
@@ -293,28 +293,28 @@ mod tests {
             .binary(other.to_array(), Operator::Lte)
             .unwrap()
             .to_bool();
-        assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
+        assert_eq!(to_int_indices(&matches).unwrap(), [2u64, 3, 4]);
 
         let matches = arr
             .to_array()
             .binary(other.to_array(), Operator::Lt)
             .unwrap()
             .to_bool();
-        assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
+        assert_eq!(to_int_indices(&matches).unwrap(), [4u64]);
 
         let matches = other
             .to_array()
             .binary(arr.to_array(), Operator::Gte)
             .unwrap()
             .to_bool();
-        assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
+        assert_eq!(to_int_indices(&matches).unwrap(), [2u64, 3, 4]);
 
         let matches = other
             .to_array()
             .binary(arr.to_array(), Operator::Gt)
             .unwrap()
             .to_bool();
-        assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
+        assert_eq!(to_int_indices(&matches).unwrap(), [4u64]);
     }
 
     #[test]

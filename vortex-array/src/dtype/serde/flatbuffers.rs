@@ -61,6 +61,7 @@ impl ViewedDType {
 
 impl StructFields {
     /// Creates a new instance from a flatbuffer-defined object and its underlying buffer.
+    #[allow(clippy::needless_pass_by_value)]
     fn from_fb(
         fb_struct: fbd::Struct_<'_>,
         buffer: FlatBuffer,
@@ -429,6 +430,7 @@ mod test {
     use crate::dtype::serde::flatbuffers::ViewedDType;
     use crate::dtype::test::SESSION;
 
+    #[allow(clippy::needless_pass_by_value)]
     fn roundtrip_dtype(dtype: DType) {
         let bytes = dtype.write_flatbuffer_bytes().unwrap();
         let root_fb = root::<fb::DType>(&bytes).unwrap();

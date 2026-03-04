@@ -115,7 +115,7 @@ impl ScalarFnVTable for Cast {
 
         match columnar {
             ColumnarView::Canonical(canonical) => {
-                match cast_canonical(canonical.clone(), target_dtype, ctx)? {
+                match cast_canonical(canonical, target_dtype, ctx)? {
                     Some(result) => Ok(result),
                     None => vortex_bail!(
                         "No CastKernel to cast canonical array {} from {} to {}",

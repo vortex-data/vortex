@@ -38,6 +38,7 @@ use crate::expr::traversal::TraversalOrder;
 /// expression for computing the validity, or to include that expression as part of the root.
 ///
 /// See <https://github.com/vortex-data/vortex/issues/1907>.
+#[allow(clippy::needless_pass_by_value)]
 pub fn partition<A: AnnotationFn>(
     expr: Expression,
     scope: &DType,

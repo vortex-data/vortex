@@ -78,7 +78,7 @@ impl ZonedReader {
             layout.children.clone(),
             dtypes,
             names,
-            segment_source.clone(),
+            segment_source,
             session.clone(),
         );
 

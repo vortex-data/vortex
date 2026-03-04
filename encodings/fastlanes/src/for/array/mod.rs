@@ -23,6 +23,7 @@ pub struct FoRArray {
 }
 
 impl FoRArray {
+    #[allow(clippy::needless_pass_by_value)]
     pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<Self> {
         if reference.is_null() {
             vortex_bail!("Reference value cannot be null");

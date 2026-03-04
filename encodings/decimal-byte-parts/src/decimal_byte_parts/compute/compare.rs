@@ -79,7 +79,7 @@ impl CompareKernel for DecimalBytePartsVTable {
 
 // Used to represent the overflow direction when trying to
 // convert into the scalar type.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 enum Sign {
     Positive,
     Negative,

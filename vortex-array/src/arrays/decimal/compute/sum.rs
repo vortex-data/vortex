@@ -57,7 +57,7 @@ impl SumKernel for DecimalVTable {
                     .vortex_expect("cannot fail to cast initial value");
 
                 Ok(sum_to_scalar(
-                    array.buffer::<I>(),
+                    &array.buffer::<I>(),
                     validity,
                     initial_val,
                     return_decimal_dtype,
@@ -73,7 +73,7 @@ impl SumKernel for DecimalVTable {
 /// Returns a null scalar if the sum overflows the underlying integer type or if the result
 /// exceeds the declared decimal precision.
 fn sum_to_scalar<T, O>(
-    values: Buffer<T>,
+    values: &Buffer<T>,
     validity: Option<&BitBuffer>,
     initial: O,
     return_decimal_dtype: DecimalDType,
@@ -98,7 +98,7 @@ where
 }
 
 fn sum_decimal<T: AsPrimitive<I>, I: Copy + CheckedAdd + 'static>(
-    values: Buffer<T>,
+    values: &[T],
     initial: I,
 ) -> Option<I> {
     let mut sum = initial;
@@ -109,11 +109,15 @@ fn sum_decimal<T: AsPrimitive<I>, I: Copy + CheckedAdd + 'static>(
     Some(sum)
 }
 
-fn sum_decimal_with_validity<T: AsPrimitive<I>, I: Copy + CheckedAdd + 'static>(
-    values: Buffer<T>,
+fn sum_decimal_with_validity<T, I>(
+    values: &Buffer<T>,
     validity: &BitBuffer,
     initial: I,
-) -> Option<I> {
+) -> Option<I>
+where
+    T: AsPrimitive<I>,
+    I: Copy + CheckedAdd + 'static,
+{
     let mut sum = initial;
     for (v, valid) in values.iter().zip_eq(validity) {
         if valid {

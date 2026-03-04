@@ -34,6 +34,7 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -435,19 +436,19 @@ impl RunEndArray {
 
     /// Run the array through run-end encoding.
     pub fn encode(array: ArrayRef) -> VortexResult<Self> {
-        if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
-            let (ends, values) = runend_encode(parray);
-            // SAFETY: runend_encode handles this
-            unsafe {
-                Ok(Self::new_unchecked(
-                    ends.into_array(),
-                    values,
-                    0,
-                    array.len(),
-                ))
-            }
-        } else {
-            vortex_bail!("REE can only encode primitive arrays")
+        let parray = array
+            .try_into::<PrimitiveVTable>()
+            .map_err(|_| vortex_err!("REE can only encode primitive arrays"))?;
+
+        let (ends, values) = runend_encode(&parray);
+        // SAFETY: runend_encode handles this
+        unsafe {
+            Ok(Self::new_unchecked(
+                ends.into_array(),
+                values,
+                0,
+                parray.len(),
+            ))
         }
     }
 

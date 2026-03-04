@@ -17,6 +17,7 @@ use vortex_error::VortexExpect;
 use crate::FSSTArray;
 
 /// Compress a string array using FSST.
+#[allow(clippy::needless_pass_by_value)]
 pub fn fsst_compress<A: ArrayAccessor<[u8]> + AsRef<dyn DynArray>>(
     strings: A,
     compressor: &Compressor,

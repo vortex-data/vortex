@@ -14,6 +14,7 @@ use crate::expr::traversal::Transformed;
 use crate::expr::traversal::TraversalOrder;
 
 /// Replaces all occurrences of `needle` in the expression `expr` with `replacement`.
+#[allow(clippy::needless_pass_by_value)]
 pub fn replace(expr: Expression, needle: &Expression, replacement: Expression) -> Expression {
     expr.transform_down(|node| {
         if &node == needle {

@@ -238,6 +238,6 @@ mod tests {
     #[case::delta_u64_basic(DeltaArray::try_from_vec(vec![1u64, 1, 1, 1, 1]).unwrap())]
     #[case::delta_u32_large(DeltaArray::try_from_vec(vec![1u32; 100]).unwrap())]
     fn test_delta_binary_numeric(#[case] array: DeltaArray) {
-        test_binary_numeric_array(array.into_array());
+        test_binary_numeric_array(&array.into_array());
     }
 }

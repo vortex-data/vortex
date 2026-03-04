@@ -45,6 +45,6 @@ mod tests {
     #[case::f32_large(alp_encode(&PrimitiveArray::from_iter((0..100).map(|i| i as f32 * 1.5)), None).unwrap())]
     #[case::f64_large(alp_encode(&PrimitiveArray::from_iter((0..100).map(|i| i as f64 * 2.5)), None).unwrap())]
     fn test_alp_binary_numeric(#[case] array: ALPArray) {
-        test_binary_numeric_array(array.into_array());
+        test_binary_numeric_array(&array.into_array());
     }
 }

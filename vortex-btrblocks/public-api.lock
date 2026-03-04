@@ -252,9 +252,15 @@ pub struct vortex_btrblocks::GenerateStatsOptions
 
 pub vortex_btrblocks::GenerateStatsOptions::count_distinct_values: bool
 
+impl core::clone::Clone for vortex_btrblocks::GenerateStatsOptions
+
+pub fn vortex_btrblocks::GenerateStatsOptions::clone(&self) -> vortex_btrblocks::GenerateStatsOptions
+
 impl core::default::Default for vortex_btrblocks::GenerateStatsOptions
 
 pub fn vortex_btrblocks::GenerateStatsOptions::default() -> Self
+
+impl core::marker::Copy for vortex_btrblocks::GenerateStatsOptions
 
 pub struct vortex_btrblocks::IntegerStats
 

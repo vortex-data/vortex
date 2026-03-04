@@ -34,7 +34,7 @@ pub struct vortex_file::segments::FileSegmentSource
 
 impl vortex_file::segments::FileSegmentSource
 
-pub fn vortex_file::segments::FileSegmentSource::open<R: vortex_io::read_at::VortexReadAt + core::clone::Clone>(segments: alloc::sync::Arc<[vortex_file::SegmentSpec]>, reader: R, handle: vortex_io::runtime::handle::Handle, metrics: vortex_file::segments::RequestMetrics) -> Self
+pub fn vortex_file::segments::FileSegmentSource::open<R: vortex_io::read_at::VortexReadAt + core::clone::Clone>(segments: alloc::sync::Arc<[vortex_file::SegmentSpec]>, reader: R, handle: &vortex_io::runtime::handle::Handle, metrics: vortex_file::segments::RequestMetrics) -> Self
 
 impl vortex_layout::segments::source::SegmentSource for vortex_file::segments::FileSegmentSource
 
@@ -204,7 +204,7 @@ pub fn vortex_file::FooterDeserializer::buffer(&self) -> &vortex_buffer::ByteBuf
 
 pub fn vortex_file::FooterDeserializer::deserialize(&mut self) -> vortex_error::VortexResult<vortex_file::DeserializeStep>
 
-pub fn vortex_file::FooterDeserializer::prefix_data(&mut self, more_data: vortex_buffer::ByteBuffer)
+pub fn vortex_file::FooterDeserializer::prefix_data(&mut self, more_data: &vortex_buffer::ByteBuffer)
 
 pub fn vortex_file::FooterDeserializer::with_dtype(self, dtype: vortex_array::dtype::DType) -> Self
 

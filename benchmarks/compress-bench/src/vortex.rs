@@ -3,7 +3,6 @@
 
 use std::io::Cursor;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -58,9 +57,9 @@ impl Compressor for VortexCompressor {
         let start = Instant::now();
         let data = Bytes::from(buf);
         let scan = SESSION.open_options().open_buffer(data)?.scan()?;
-        let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
+        let schema = scan.dtype()?.to_arrow_schema()?;
 
-        let stream = scan.into_record_batch_stream(schema)?;
+        let stream = scan.into_record_batch_stream(&schema)?;
         pin_mut!(stream);
 
         while let Some(batch) = stream.next().await {

@@ -41,7 +41,7 @@ pub fn filter_listview(array: &ListViewArray, selection_mask: &Arc<MaskValues>) 
     let offsets = array.offsets();
     let sizes = array.sizes();
 
-    let new_validity = filter_validity(array.validity().clone(), selection_mask);
+    let new_validity = filter_validity(array.validity(), selection_mask);
     debug_assert!(
         new_validity
             .maybe_len()
@@ -70,7 +70,7 @@ pub fn filter_listview(array: &ListViewArray, selection_mask: &Arc<MaskValues>) 
     // right now, so we will just rebuild every time (similar to `ListArray`).
 
     new_array
-        .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
+        .rebuild(&ListViewRebuildMode::MakeZeroCopyToList)
         .vortex_expect("ListViewArray rebuild to zero-copy List should always succeed")
 }
 

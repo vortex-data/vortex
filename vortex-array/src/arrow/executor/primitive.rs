@@ -31,7 +31,7 @@ where
 }
 
 pub(super) fn to_arrow_primitive<T: ArrowPrimitiveType>(
-    array: ArrayRef,
+    array: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef>
 where

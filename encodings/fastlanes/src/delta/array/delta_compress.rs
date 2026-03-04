@@ -109,23 +109,23 @@ mod tests {
 
     #[test]
     fn test_compress() -> VortexResult<()> {
-        do_roundtrip_test((0u32..10_000).collect())
+        do_roundtrip_test(&(0u32..10_000).collect())
     }
 
     #[test]
     fn test_compress_nullable() -> VortexResult<()> {
-        do_roundtrip_test(PrimitiveArray::from_option_iter(
+        do_roundtrip_test(&PrimitiveArray::from_option_iter(
             (0u32..10_000).map(|i| (i % 2 == 0).then_some(i)),
         ))
     }
 
     #[test]
     fn test_compress_overflow() -> VortexResult<()> {
-        do_roundtrip_test((0..10_000).map(|i| (i % (u8::MAX as i32)) as u8).collect())
+        do_roundtrip_test(&(0..10_000).map(|i| (i % (u8::MAX as i32)) as u8).collect())
     }
 
-    fn do_roundtrip_test(input: PrimitiveArray) -> VortexResult<()> {
-        let delta = DeltaArray::try_from_primitive_array(&input)?;
+    fn do_roundtrip_test(input: &PrimitiveArray) -> VortexResult<()> {
+        let delta = DeltaArray::try_from_primitive_array(input)?;
         assert_eq!(delta.len(), input.len());
         let decompressed = delta_decompress(&delta, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(decompressed, input);

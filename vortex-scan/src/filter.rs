@@ -34,8 +34,8 @@ pub struct FilterExpr {
 }
 
 impl FilterExpr {
-    pub fn new(expr: Expression) -> Self {
-        let conjuncts = conjuncts(&expr);
+    pub fn new(expr: &Expression) -> Self {
+        let conjuncts = conjuncts(expr);
         let num_conjuncts = conjuncts.len();
 
         let dynamic_conjuncts = conjuncts.iter().map(DynamicExprUpdates::new).collect_vec();

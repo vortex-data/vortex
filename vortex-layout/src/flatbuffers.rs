@@ -43,13 +43,13 @@ static LAYOUT_VERIFIER: LazyLock<VerifierOptions> = LazyLock::new(|| {
 
 /// Parse a [`LayoutRef`] from a layout flatbuffer.
 pub fn layout_from_flatbuffer(
-    flatbuffer: FlatBuffer,
+    flatbuffer: &FlatBuffer,
     dtype: &DType,
     layout_ctx: &LayoutContext,
     ctx: &ArrayContext,
     layouts: &LayoutRegistry,
 ) -> VortexResult<LayoutRef> {
-    let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
+    let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, flatbuffer)?;
     let encoding_id = layout_ctx
         .resolve(fb_layout.encoding())
         .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;

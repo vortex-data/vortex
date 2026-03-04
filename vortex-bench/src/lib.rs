@@ -3,6 +3,7 @@
 
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::expect_used)]
+#![allow(clippy::needless_pass_by_value)]
 
 use std::clone::Clone;
 use std::fmt::Display;
@@ -284,7 +285,7 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         BenchmarkArg::TpcDS => {
             let scale_factor = opts.get(SCALE_FACTOR_KEY).unwrap_or(DEFAULT_SCALE_FACTOR);
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
-            let benchmark = TpcDsBenchmark::new(scale_factor.to_string(), remote_data_dir)?;
+            let benchmark = TpcDsBenchmark::new(scale_factor, remote_data_dir)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::StatPopGen => {

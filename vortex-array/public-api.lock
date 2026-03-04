@@ -2012,7 +2012,7 @@ pub unsafe fn vortex_array::arrays::ListViewArray::with_zero_copy_to_list(self, 
 
 impl vortex_array::arrays::ListViewArray
 
-pub fn vortex_array::arrays::ListViewArray::rebuild(&self, mode: vortex_array::arrays::ListViewRebuildMode) -> vortex_error::VortexResult<vortex_array::arrays::ListViewArray>
+pub fn vortex_array::arrays::ListViewArray::rebuild(&self, mode: &vortex_array::arrays::ListViewRebuildMode) -> vortex_error::VortexResult<vortex_array::arrays::ListViewArray>
 
 impl core::clone::Clone for vortex_array::arrays::ListViewArray
 
@@ -4096,9 +4096,9 @@ pub fn vortex_array::arrays::chunk_range(chunk_idx: usize, offset: usize, array_
 
 pub fn vortex_array::arrays::compute_is_constant<T: vortex_array::dtype::NativePType, const WIDTH: usize>(values: &[T]) -> bool
 
-pub fn vortex_array::arrays::list_from_list_view(list_view: vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<vortex_array::arrays::ListArray>
+pub fn vortex_array::arrays::list_from_list_view(list_view: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<vortex_array::arrays::ListArray>
 
-pub fn vortex_array::arrays::list_view_from_list(list: vortex_array::arrays::ListArray, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::ListViewArray>
+pub fn vortex_array::arrays::list_view_from_list(list: &vortex_array::arrays::ListArray, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::ListViewArray>
 
 pub fn vortex_array::arrays::mask_validity_canonical(canonical: vortex_array::Canonical, validity_mask: &vortex_mask::Mask, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::Canonical>
 
@@ -5948,7 +5948,7 @@ pub vortex_array::compute::MinMaxResult::min: vortex_array::scalar::Scalar
 
 impl vortex_array::compute::MinMaxResult
 
-pub fn vortex_array::compute::MinMaxResult::from_scalar(scalar: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<Self>>
+pub fn vortex_array::compute::MinMaxResult::from_scalar(scalar: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<Self>>
 
 impl core::clone::Clone for vortex_array::compute::MinMaxResult
 
@@ -7979,6 +7979,10 @@ pub fn vortex_array::dtype::i256::as_(self) -> i64
 impl num_traits::cast::AsPrimitive<i8> for vortex_array::dtype::i256
 
 pub fn vortex_array::dtype::i256::as_(self) -> i8
+
+impl num_traits::cast::AsPrimitive<vortex_array::dtype::i256> for bool
+
+pub fn bool::as_(self) -> vortex_array::dtype::i256
 
 impl num_traits::cast::AsPrimitive<vortex_array::dtype::i256> for i128
 
@@ -11028,9 +11032,9 @@ pub fn vortex_array::patches::Patches::slice(&self, range: core::ops::range::Ran
 
 pub fn vortex_array::patches::Patches::take(&self, take_indices: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<Self>>
 
-pub fn vortex_array::patches::Patches::take_map(&self, take_indices: vortex_array::arrays::PrimitiveArray, include_nulls: bool, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<Self>>
+pub fn vortex_array::patches::Patches::take_map(&self, take_indices: &vortex_array::arrays::PrimitiveArray, include_nulls: bool, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<Self>>
 
-pub fn vortex_array::patches::Patches::take_search(&self, take_indices: vortex_array::arrays::PrimitiveArray, include_nulls: bool, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<Self>>
+pub fn vortex_array::patches::Patches::take_search(&self, take_indices: &vortex_array::arrays::PrimitiveArray, include_nulls: bool, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<Self>>
 
 pub fn vortex_array::patches::Patches::take_with_nulls(&self, take_indices: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<Self>>
 
@@ -12011,6 +12015,8 @@ pub fn vortex_array::scalar::ExtScalar<'a>::try_from(value: &'a vortex_array::sc
 impl<'a> core::fmt::Debug for vortex_array::scalar::ExtScalar<'a>
 
 pub fn vortex_array::scalar::ExtScalar<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<'a> core::marker::Copy for vortex_array::scalar::ExtScalar<'a>
 
 pub struct vortex_array::scalar::ListScalar<'a>
 
@@ -16212,6 +16218,12 @@ pub type vortex_array::stats::StatsSetRef<'_>::Target<'t> = vortex_flatbuffers::
 
 pub fn vortex_array::stats::StatsSetRef<'_>::write_flatbuffer<'fb>(&self, fbb: &mut flatbuffers::builder::FlatBufferBuilder<'fb>) -> vortex_error::VortexResult<flatbuffers::primitives::WIPOffset<Self::Target>>
 
+impl<'a> core::clone::Clone for vortex_array::stats::StatsSetRef<'a>
+
+pub fn vortex_array::stats::StatsSetRef<'a>::clone(&self) -> vortex_array::stats::StatsSetRef<'a>
+
+impl<'a> core::marker::Copy for vortex_array::stats::StatsSetRef<'a>
+
 pub struct vortex_array::stats::TypedStatsSetRef<'a, 'b>
 
 pub vortex_array::stats::TypedStatsSetRef::dtype: &'b vortex_array::dtype::DType
@@ -17969,6 +17981,8 @@ pub fn vortex_array::CanonicalView<'a>::clone(&self) -> vortex_array::CanonicalV
 impl<'a> core::fmt::Debug for vortex_array::CanonicalView<'a>
 
 pub fn vortex_array::CanonicalView<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<'a> core::marker::Copy for vortex_array::CanonicalView<'a>
 
 pub enum vortex_array::Columnar
 

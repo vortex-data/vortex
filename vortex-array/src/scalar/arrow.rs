@@ -70,6 +70,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
 }
 
 /// Convert a [`BoolScalar`] to an Arrow [`Datum`].
+#[allow(clippy::needless_pass_by_value)]
 fn bool_to_arrow(scalar: BoolScalar<'_>) -> Result<Arc<dyn Datum>, VortexError> {
     value_to_arrow_scalar!(scalar.value(), BooleanArray)
 }
@@ -108,11 +109,13 @@ fn decimal_to_arrow(scalar: DecimalScalar<'_>) -> Result<Arc<dyn Datum>, VortexE
 }
 
 /// Convert a [`Utf8Scalar`] to an Arrow [`Datum`].
+#[allow(clippy::needless_pass_by_value)]
 fn utf8_to_arrow(scalar: Utf8Scalar<'_>) -> Result<Arc<dyn Datum>, VortexError> {
     value_to_arrow_scalar!(scalar.value(), StringViewArray)
 }
 
 /// Convert a [`BinaryScalar`] to an Arrow [`Datum`].
+#[allow(clippy::needless_pass_by_value)]
 fn binary_to_arrow(scalar: BinaryScalar<'_>) -> Result<Arc<dyn Datum>, VortexError> {
     value_to_arrow_scalar!(scalar.value(), BinaryViewArray)
 }

@@ -67,7 +67,7 @@ fn filter_select_var_bin_by_slice(
             offsets.as_slice::<O>(),
             values.bytes().as_slice(),
             mask_slices,
-            values.validity_mask()?,
+            &values.validity_mask()?,
             selection_count,
         )
     })
@@ -78,7 +78,7 @@ fn filter_select_var_bin_by_slice_primitive_offset<O>(
     offsets: &[O],
     data: &[u8],
     mask_slices: &[(usize, usize)],
-    logical_validity: Mask,
+    logical_validity: &Mask,
     selection_count: usize,
 ) -> VortexResult<VarBinArray>
 where
@@ -166,7 +166,7 @@ fn filter_select_var_bin_by_index(
             offsets.as_slice::<O>(),
             values.bytes().as_slice(),
             mask_indices,
-            values.validity().clone(),
+            values.validity(),
             selection_count,
         )
     })
@@ -178,7 +178,7 @@ fn filter_select_var_bin_by_index_primitive_offset<O: IntegerPType>(
     data: &[u8],
     mask_indices: &[usize],
     // TODO(ngates): pass LogicalValidity instead
-    validity: Validity,
+    validity: &Validity,
     selection_count: usize,
 ) -> VortexResult<VarBinArray> {
     let mut builder = VarBinBuilder::<O>::with_capacity(selection_count);

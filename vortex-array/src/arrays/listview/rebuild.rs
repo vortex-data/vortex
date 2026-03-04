@@ -55,7 +55,7 @@ pub enum ListViewRebuildMode {
 
 impl ListViewArray {
     /// Rebuilds the [`ListViewArray`] according to the specified mode.
-    pub fn rebuild(&self, mode: ListViewRebuildMode) -> VortexResult<ListViewArray> {
+    pub fn rebuild(&self, mode: &ListViewRebuildMode) -> VortexResult<ListViewArray> {
         if self.is_empty() {
             return Ok(self.clone());
         }
@@ -393,7 +393,7 @@ mod tests {
 
         let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
 
-        let flattened = listview.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?;
+        let flattened = listview.rebuild(&ListViewRebuildMode::MakeZeroCopyToList)?;
 
         // After flatten: elements should be [A, B, C, B, C] = [1, 2, 3, 2, 3]
         // Lists should be sequential with no overlaps
@@ -436,7 +436,7 @@ mod tests {
 
         let listview = ListViewArray::new(elements, offsets, sizes, validity);
 
-        let flattened = listview.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?;
+        let flattened = listview.rebuild(&ListViewRebuildMode::MakeZeroCopyToList)?;
 
         // Verify nullability is preserved
         assert_eq!(flattened.dtype().nullability(), Nullability::Nullable);
@@ -473,7 +473,7 @@ mod tests {
 
         let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
 
-        let trimmed = listview.rebuild(ListViewRebuildMode::TrimElements)?;
+        let trimmed = listview.rebuild(&ListViewRebuildMode::TrimElements)?;
 
         // After trimming: elements should be [A, B, _, C, D] = [1, 2, 97, 3, 4].
         assert_eq!(trimmed.elements().len(), 5);
@@ -516,7 +516,7 @@ mod tests {
         let listview = ListViewArray::new(elements, offsets, sizes, validity);
 
         // First rebuild to make it zero-copy-to-list
-        let rebuilt = listview.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?;
+        let rebuilt = listview.rebuild(&ListViewRebuildMode::MakeZeroCopyToList)?;
         assert!(rebuilt.is_zero_copy_to_list());
 
         // Verify NULL items have correct offsets (should not reuse previous offsets)
@@ -534,7 +534,7 @@ mod tests {
 
         // Now rebuild with MakeExact (which calls naive_rebuild then trim_elements)
         // This should not panic (issue #5412)
-        let exact = rebuilt.rebuild(ListViewRebuildMode::MakeExact)?;
+        let exact = rebuilt.rebuild(&ListViewRebuildMode::MakeExact)?;
 
         // Verify the result is still valid
         assert!(exact.is_valid(0).unwrap());
@@ -569,7 +569,7 @@ mod tests {
         let sizes = PrimitiveArray::from_iter(vec![2u16, 2]).into_array();
 
         let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
-        let trimmed = listview.rebuild(ListViewRebuildMode::TrimElements)?;
+        let trimmed = listview.rebuild(&ListViewRebuildMode::TrimElements)?;
         assert_arrays_eq!(
             trimmed.list_elements_at(1).unwrap(),
             PrimitiveArray::from_iter([30i32, 40])
@@ -589,7 +589,7 @@ mod tests {
         let sizes = PrimitiveArray::from_iter(vec![70_000u32, 2]).into_array();
 
         let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
-        let trimmed = listview.rebuild(ListViewRebuildMode::TrimElements)?;
+        let trimmed = listview.rebuild(&ListViewRebuildMode::TrimElements)?;
         assert_arrays_eq!(
             trimmed.list_elements_at(1).unwrap(),
             PrimitiveArray::from_iter([30i32, 40])

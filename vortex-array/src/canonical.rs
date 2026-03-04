@@ -171,7 +171,7 @@ impl Canonical {
         match self {
             Canonical::VarBinView(array) => Ok(Canonical::VarBinView(array.compact_buffers()?)),
             Canonical::List(array) => Ok(Canonical::List(
-                array.rebuild(ListViewRebuildMode::TrimElements)?,
+                array.rebuild(&ListViewRebuildMode::TrimElements)?,
             )),
             _ => Ok(self.clone()),
         }
@@ -839,7 +839,7 @@ impl Executable for StructArray {
 }
 
 /// A view into a canonical array type.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum CanonicalView<'a> {
     Null(&'a NullArray),
     Bool(&'a BoolArray),

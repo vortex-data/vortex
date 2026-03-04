@@ -306,7 +306,7 @@ impl FileOpener for VortexOpener {
 
             if let Some(file_range) = file.range {
                 scan_builder = apply_byte_range(
-                    file_range,
+                    &file_range,
                     file.object_meta.size,
                     vxf.row_count(),
                     scan_builder,
@@ -417,7 +417,7 @@ impl FileOpener for VortexOpener {
 
 /// If the file has a [`FileRange`], we translate it into a row range in the file for the scan.
 fn apply_byte_range(
-    file_range: FileRange,
+    file_range: &FileRange,
     total_size: u64,
     row_count: u64,
     scan_builder: ScanBuilder<ArrayRef>,

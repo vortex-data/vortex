@@ -229,6 +229,6 @@ mod tests {
     #[case::zigzag_i32_large(zigzag_encode(PrimitiveArray::from_iter((-50..50).map(|i| i * 10))).unwrap()
     )]
     fn test_zigzag_binary_numeric(#[case] array: ZigZagArray) {
-        test_binary_numeric_array(array.into_array());
+        test_binary_numeric_array(&array.into_array());
     }
 }

@@ -291,7 +291,8 @@ mod setup {
         let temporal_array = TemporalArray::new_timestamp(ts_array, TimeUnit::Microseconds, None);
 
         // Split into days, seconds, subseconds
-        let parts = split_temporal(temporal_array.clone()).unwrap();
+        let ext_dtype = temporal_array.ext_dtype();
+        let parts = split_temporal(temporal_array).unwrap();
 
         // Compress days with FoR <- BitPacked
         let days_prim = parts.days.to_primitive();
@@ -328,7 +329,7 @@ mod setup {
         .into_array();
 
         DateTimePartsArray::try_new(
-            DType::Extension(temporal_array.ext_dtype()),
+            DType::Extension(ext_dtype),
             compressed_days,
             compressed_seconds,
             compressed_subseconds,

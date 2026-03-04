@@ -46,11 +46,11 @@ impl ZoneMap {
     /// Create [`ZoneMap`] of given column_dtype from given array. Validates that the array matches expected
     /// structure for given list of stats.
     pub fn try_new(
-        column_dtype: DType,
+        column_dtype: &DType,
         array: StructArray,
         stats: Arc<[Stat]>,
     ) -> VortexResult<Self> {
-        let expected_dtype = Self::dtype_for_stats_table(&column_dtype, &stats);
+        let expected_dtype = Self::dtype_for_stats_table(column_dtype, &stats);
         if &expected_dtype != array.dtype() {
             vortex_bail!("Array dtype does not match expected zone map dtype: {expected_dtype}");
         }
@@ -390,7 +390,7 @@ mod tests {
         // |  3       |  7       |
         // +----------+----------+
         let zone_map = ZoneMap::try_new(
-            PType::I32.into(),
+            &PType::I32.into(),
             StructArray::from_fields(&[
                 (
                     "max",

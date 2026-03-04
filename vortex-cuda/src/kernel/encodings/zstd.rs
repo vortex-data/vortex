@@ -184,7 +184,7 @@ pub async fn zstd_kernel_prepare(
 pub(crate) struct ZstdExecutor;
 
 impl ZstdExecutor {
-    fn try_specialize(array: ArrayRef) -> Option<ZstdArray> {
+    fn try_specialize(array: &ArrayRef) -> Option<ZstdArray> {
         array.as_opt::<ZstdVTable>().cloned()
     }
 }
@@ -197,7 +197,7 @@ impl CudaExecute for ZstdExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let zstd = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected ZstdArray"))?;
+        let zstd = Self::try_specialize(&array).ok_or_else(|| vortex_err!("Expected ZstdArray"))?;
 
         match zstd.as_ref().dtype() {
             DType::Binary(_) | DType::Utf8(_) => decode_zstd(zstd, ctx).await,

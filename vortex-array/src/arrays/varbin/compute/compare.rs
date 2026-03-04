@@ -61,13 +61,13 @@ impl CompareKernel for VarBinVTable {
                     CompareOperator::Eq | CompareOperator::Lte => {
                         let lhs_offsets = lhs.offsets().clone().execute::<PrimitiveArray>(ctx)?;
                         match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
-                            compare_offsets_to_empty::<P>(lhs_offsets, true)
+                            compare_offsets_to_empty::<P>(&lhs_offsets, true)
                         })
                     }
                     CompareOperator::NotEq | CompareOperator::Gt => {
                         let lhs_offsets = lhs.offsets().clone().execute::<PrimitiveArray>(ctx)?;
                         match_each_integer_ptype!(lhs_offsets.ptype(), |P| {
-                            compare_offsets_to_empty::<P>(lhs_offsets, false)
+                            compare_offsets_to_empty::<P>(&lhs_offsets, false)
                         })
                     }
                 };
@@ -131,7 +131,7 @@ impl CompareKernel for VarBinVTable {
     }
 }
 
-fn compare_offsets_to_empty<P: IntegerPType>(offsets: PrimitiveArray, eq: bool) -> BitBuffer {
+fn compare_offsets_to_empty<P: IntegerPType>(offsets: &PrimitiveArray, eq: bool) -> BitBuffer {
     let fn_ = if eq { P::eq } else { P::ne };
     let offsets = offsets.as_slice::<P>();
     BitBuffer::collect_bool(offsets.len() - 1, |idx| {

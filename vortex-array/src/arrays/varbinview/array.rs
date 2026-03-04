@@ -212,6 +212,7 @@ impl VarBinViewArray {
     ///
     /// - The validity must have the same nullability as the dtype.
     /// - If validity is an array, its length must match `views.len()`.
+    #[allow(clippy::needless_pass_by_value)]
     pub unsafe fn new_unchecked(
         views: Buffer<BinaryView>,
         buffers: Arc<[ByteBuffer]>,

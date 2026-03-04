@@ -199,7 +199,7 @@ impl VortexOpenOptions {
         let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
             footer.segment_map().clone(),
             reader,
-            self.session.handle(),
+            &self.session.handle(),
             metrics,
         )));
 
@@ -249,7 +249,7 @@ impl VortexOpenOptions {
                         .await?
                         .try_into_host()?
                         .await?;
-                    deserializer.prefix_data(more_data);
+                    deserializer.prefix_data(&more_data);
                 }
                 DeserializeStep::NeedFileSize => unreachable!("We passed file_size above"),
                 DeserializeStep::Done(footer) => break Ok::<_, VortexError>(footer),

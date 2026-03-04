@@ -165,7 +165,7 @@ pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
             dst,
             indices.as_slice::<P>(),
             values,
-            validity,
+            &validity,
             patches.offset(),
             f,
         )
@@ -181,7 +181,7 @@ fn insert_values_and_validity_at_indices_to_uninit_range<
     dst: &mut UninitRange<T>,
     indices: &[IndexT],
     values: &[T],
-    values_validity: Mask,
+    values_validity: &Mask,
     indices_offset: usize,
     f: F,
 ) {

@@ -80,7 +80,7 @@ pub(super) fn execute_sparse(
         }
         DType::Struct(struct_fields, ..) => execute_sparse_struct(
             struct_fields,
-            array.fill_scalar().as_struct(),
+            &array.fill_scalar().as_struct(),
             array.dtype(),
             array.patches(),
             array.len(),
@@ -104,11 +104,11 @@ pub(super) fn execute_sparse(
         dtype @ DType::Utf8(..) => {
             let fill_value = array.fill_scalar().as_utf8().value().cloned();
             let fill_value = fill_value.map(BufferString::into_inner);
-            execute_varbin(array, dtype.clone(), fill_value, ctx)?
+            execute_varbin(array, dtype.clone(), &fill_value, ctx)?
         }
         dtype @ DType::Binary(..) => {
             let fill_value = array.fill_scalar().as_binary().value().cloned();
-            execute_varbin(array, dtype.clone(), fill_value, ctx)?
+            execute_varbin(array, dtype.clone(), &fill_value, ctx)?
         }
         DType::List(values_dtype, nullability) => {
             execute_sparse_lists(array, values_dtype.clone(), *nullability, ctx)?
@@ -151,12 +151,12 @@ fn execute_sparse_lists(
         match_smallest_offset_type!(total_canonical_values, |O| {
             execute_sparse_lists_inner::<I, O>(
                 indices.as_slice(),
-                values,
-                fill_value,
+                &values,
+                &fill_value,
                 values_dtype,
                 array.len(),
                 total_canonical_values,
-                validity,
+                &validity,
             )
         })
     }))
@@ -164,12 +164,12 @@ fn execute_sparse_lists(
 
 fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
     patch_indices: &[I],
-    patch_values: ListViewArray,
-    fill_value: ListScalar,
+    patch_values: &ListViewArray,
+    fill_value: &ListScalar,
     values_dtype: Arc<DType>,
     len: usize,
     total_canonical_values: usize,
-    validity: Validity,
+    validity: &Validity,
 ) -> ArrayRef {
     // Create the builder with appropriate types. It is easy to just use the same type for both
     // `offsets` and `sizes` since we have no other constraints.
@@ -235,8 +235,8 @@ fn execute_sparse_fixed_size_list(
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         execute_sparse_fixed_size_list_inner::<I>(
             indices.as_slice(),
-            values,
-            fill_value,
+            &values,
+            &fill_value,
             array.len(),
             validity,
         )
@@ -252,8 +252,8 @@ fn execute_sparse_fixed_size_list(
 /// elements without tracking offsets.
 fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
     indices: &[I],
-    values: FixedSizeListArray,
-    fill_value: ListScalar,
+    values: &FixedSizeListArray,
+    fill_value: &ListScalar,
     array_len: usize,
     validity: Validity,
 ) -> FixedSizeListArray {
@@ -387,7 +387,7 @@ fn execute_sparse_primitives<T: NativePType + for<'a> TryFrom<&'a Scalar, Error 
 
 fn execute_sparse_struct(
     struct_fields: &StructFields,
-    fill_struct: StructScalar,
+    fill_struct: &StructScalar,
     dtype: &DType,
     // Resolution is unnecessary b/c we're just pushing the patches into the fields.
     unresolved_patches: &Patches,
@@ -481,7 +481,7 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
 fn execute_varbin(
     array: &SparseArray,
     dtype: DType,
-    fill_value: Option<ByteBuffer>,
+    fill_value: &Option<ByteBuffer>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let patches = array.resolved_patches()?;
@@ -492,14 +492,14 @@ fn execute_varbin(
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         let indices = indices.to_buffer::<I>();
-        execute_varbin_inner::<I>(fill_value, indices, values, dtype, validity, len).into_array()
+        execute_varbin_inner::<I>(fill_value, indices, &values, dtype, validity, len).into_array()
     }))
 }
 
 fn execute_varbin_inner<I: IntegerPType>(
-    fill_value: Option<ByteBuffer>,
+    fill_value: &Option<ByteBuffer>,
     indices: Buffer<I>,
-    values: VarBinViewArray,
+    values: &VarBinViewArray,
     dtype: DType,
     validity: Validity,
     len: usize,
@@ -509,7 +509,7 @@ fn execute_varbin_inner<I: IntegerPType>(
     let n_patch_buffers = values.buffers().len();
     let mut buffers = values.buffers().to_vec();
 
-    let fill = if let Some(buffer) = &fill_value {
+    let fill = if let Some(buffer) = fill_value {
         buffers.push(BufferHandle::new_host(buffer.clone()));
         BinaryView::make_view(
             buffer.as_ref(),

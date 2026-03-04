@@ -471,6 +471,7 @@ mod tests {
         VortexSession::empty()
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn round_trip(scalar: Scalar) {
         assert_eq!(
             scalar,

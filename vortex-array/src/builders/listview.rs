@@ -151,6 +151,7 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
     ///
     /// This method extends the value builder with the provided values and records
     /// the offset and size of the new list.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
         let Some(elements) = value.elements() else {
             // If `elements` is `None`, then the `value` is a null value.
@@ -314,7 +315,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         // Otherwise, after removing any leading and trailing elements, we can simply bulk append
         // the entire array.
         let listview = listview
-            .rebuild(ListViewRebuildMode::MakeExact)
+            .rebuild(&ListViewRebuildMode::MakeExact)
             .vortex_expect("ListViewArray::rebuild(MakeExact) failed in extend_from_array");
         debug_assert!(listview.is_zero_copy_to_list());
 
@@ -357,7 +358,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         match_each_integer_ptype!(new_offsets.ptype(), |A| {
             adjust_and_extend_offsets::<O, A>(
                 uninit_range,
-                new_offsets,
+                &new_offsets,
                 old_elements_len,
                 new_elements_len,
             );
@@ -389,7 +390,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
 /// offset.
 fn adjust_and_extend_offsets<'a, O: IntegerPType, A: IntegerPType>(
     mut uninit_range: UninitRange<'a, O>,
-    new_offsets: PrimitiveArray,
+    new_offsets: &PrimitiveArray,
     old_elements_len: usize,
     new_elements_len: usize,
 ) {
@@ -615,7 +616,7 @@ mod tests {
         // Create a source ListArray.
         let source = ListArray::from_iter_opt_slow::<u32, _, Vec<i32>>(
             [Some(vec![1, 2, 3]), None, Some(vec![4, 5])],
-            Arc::new(I32.into()),
+            &Arc::new(I32.into()),
         )
         .unwrap();
 
@@ -632,7 +633,7 @@ mod tests {
         // Extend from empty array (should be no-op).
         let empty_source = ListArray::from_iter_opt_slow::<u32, _, Vec<i32>>(
             std::iter::empty::<Option<Vec<i32>>>(),
-            Arc::new(I32.into()),
+            &Arc::new(I32.into()),
         )
         .unwrap();
         builder.extend_from_array(&empty_source.into_array());

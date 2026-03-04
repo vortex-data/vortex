@@ -16,7 +16,7 @@ use vortex_zstd::ZstdArray;
 fn rebuild_naive(bencher: Bencher) {
     let dudes = VarBinViewArray::from_iter_str(["Washington", "Adams", "Jefferson", "Madison"])
         .into_array();
-    let dudes = ZstdArray::from_array(dudes, 9, 1024).unwrap().into_array();
+    let dudes = ZstdArray::from_array(&dudes, 9, 1024).unwrap().into_array();
 
     let offsets = std::iter::repeat_n(0u32, 1024)
         .collect::<Buffer<u32>>()
@@ -32,7 +32,7 @@ fn rebuild_naive(bencher: Bencher) {
 
     bencher
         .with_inputs(|| &list_view)
-        .bench_refs(|list_view| list_view.rebuild(ListViewRebuildMode::MakeZeroCopyToList))
+        .bench_refs(|list_view| list_view.rebuild(&ListViewRebuildMode::MakeZeroCopyToList))
 }
 
 fn main() {

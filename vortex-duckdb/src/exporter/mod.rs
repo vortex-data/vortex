@@ -168,7 +168,7 @@ fn new_array_exporter_with_flatten(
         Canonical::Struct(array) => struct_::new_exporter(array, cache, ctx),
         Canonical::Extension(ext) => {
             if let Ok(temporal_array) = TemporalArray::try_from(ext) {
-                return temporal::new_exporter(temporal_array, ctx);
+                return temporal::new_exporter(&temporal_array, ctx);
             }
             vortex_bail!("no non-temporal extension exporter")
         }

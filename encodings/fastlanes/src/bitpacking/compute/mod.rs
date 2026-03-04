@@ -93,6 +93,6 @@ mod tests {
     #[case::i32_basic(bitpack_encode(&PrimitiveArray::from_iter([10i32, 20, 30, 40, 50]), 7, None).unwrap())]
     #[case::large_u32(bitpack_encode(&PrimitiveArray::from_iter((0..100).map(|i| i as u32)), 7, None).unwrap())]
     fn test_bitpacked_binary_numeric(#[case] array: BitPackedArray) {
-        test_binary_numeric_array(array.into_array());
+        test_binary_numeric_array(&array.into_array());
     }
 }

@@ -16,6 +16,7 @@ use vortex_flatbuffers::WriteFlatBufferExt;
 use vortex_flatbuffers::message as fb;
 
 /// An IPC message ready to be passed to the encoder.
+#[derive(Clone, Copy)]
 pub enum EncoderMessage<'a> {
     Array(&'a dyn DynArray),
     Buffer(&'a ByteBuffer),

@@ -110,6 +110,7 @@ impl<O: IntegerPType> ListBuilder<O> {
     }
 
     /// Appends a list `value` to the builder.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
         match value.elements() {
             None => {
@@ -426,7 +427,7 @@ mod tests {
     fn test_extend_builder_gen<O: IntegerPType>() {
         let list = ListArray::from_iter_opt_slow::<O, _, _>(
             [Some(vec![0, 1, 2]), None, Some(vec![4, 5])],
-            Arc::new(I32.into()),
+            &Arc::new(I32.into()),
         )
         .unwrap();
         assert_eq!(list.len(), 3);
@@ -449,7 +450,7 @@ mod tests {
                 None,
                 Some(vec![4, 5]),
             ],
-            Arc::new(DType::Primitive(I32, NonNullable)),
+            &Arc::new(DType::Primitive(I32, NonNullable)),
         )
         .unwrap()
         .to_listview();

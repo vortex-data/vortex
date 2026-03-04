@@ -76,7 +76,7 @@ fn test_simple_list_array_from_iter() {
     let list = ListArray::try_new(elements, offsets, validity).unwrap();
 
     let list_from_iter =
-        ListArray::from_iter_slow::<u32, _>(vec![vec![1i32, 2], vec![3]], Arc::new(I32.into()))
+        ListArray::from_iter_slow::<u32, _>(vec![vec![1i32, 2], vec![3]], &Arc::new(I32.into()))
             .unwrap();
 
     assert_eq!(list.len(), list_from_iter.len());
@@ -444,6 +444,7 @@ type OptVec<T> = Vec<Option<T>>;
 
 // Helper function to create a list of lists from a 3D vector with Option types.
 #[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::needless_pass_by_value)]
 fn create_list_of_lists_nullable(data: OptVec<OptVec<OptVec<i32>>>) -> ListArray {
     // Flatten all elements and track offsets and validity.
     let mut all_elements = Vec::new();

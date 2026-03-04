@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![allow(clippy::needless_pass_by_value)]
+
 use std::ops::Deref;
 use std::sync::LazyLock;
 

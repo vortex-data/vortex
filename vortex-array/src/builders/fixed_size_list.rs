@@ -107,6 +107,7 @@ impl FixedSizeListBuilder {
     /// fixed-size list arrays without accompanying metadata).
     ///
     /// [`ListArray`]: crate::arrays::ListArray
+    #[allow(clippy::needless_pass_by_value)]
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
         let Some(elements) = value.elements() else {
             // If `elements` is `None`, then the `value` is a null value.

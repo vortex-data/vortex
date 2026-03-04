@@ -140,7 +140,7 @@ impl fmt::Display for TreeDisplayWrapper {
             metadata,
             stats,
         };
-        array_fmt.format("root", array)
+        array_fmt.format("root", &array)
     }
 }
 
@@ -154,7 +154,7 @@ pub struct TreeFormatter<'a, 'b: 'a> {
 }
 
 impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
-    fn format(&mut self, name: &str, array: ArrayRef) -> fmt::Result {
+    fn format(&mut self, name: &str, array: &ArrayRef) -> fmt::Result {
         if self.stats {
             let nbytes = array.nbytes();
             let total_size = self
@@ -253,7 +253,7 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
                 .into_iter()
                 .zip(array.children().into_iter())
             {
-                i.format(&name, child)?;
+                i.format(&name, &child)?;
             }
             Ok(())
         })?;

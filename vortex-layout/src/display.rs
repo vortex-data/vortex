@@ -124,7 +124,7 @@ impl DisplayLayoutTree {
         }
     }
 
-    fn make_tree(&self, layout: LayoutRef) -> VortexResult<Tree<String>> {
+    fn make_tree(&self, layout: &LayoutRef) -> VortexResult<Tree<String>> {
         // Build the node label with encoding, dtype, and metadata
         let mut node_parts = vec![
             format!("{}", layout.encoding()),
@@ -180,7 +180,7 @@ impl DisplayLayoutTree {
             if !children.is_empty() && child_names.len() == children.len() {
                 // If we have names for all children, use them
                 children
-                    .into_iter()
+                    .iter()
                     .zip(child_names.iter())
                     .map(|(child, name)| {
                         let child_tree = self.make_tree(child)?;
@@ -190,7 +190,7 @@ impl DisplayLayoutTree {
                     .collect()
             } else if !children.is_empty() {
                 // No names available, just show children
-                children.into_iter().map(|c| self.make_tree(c)).collect()
+                children.iter().map(|c| self.make_tree(c)).collect()
             } else {
                 // Leaf node - no children
                 Ok(Vec::new())
@@ -202,7 +202,7 @@ impl DisplayLayoutTree {
 
 impl std::fmt::Display for DisplayLayoutTree {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.make_tree(self.layout.clone()) {
+        match self.make_tree(&self.layout) {
             Ok(tree) => write!(f, "{}", tree),
             Err(e) => write!(f, "Error building layout tree: {}", e),
         }

@@ -428,7 +428,7 @@ impl PcoArray {
         ))
     }
 
-    pub fn from_array(array: ArrayRef, level: usize, nums_per_page: usize) -> VortexResult<Self> {
+    pub fn from_array(array: &ArrayRef, level: usize, nums_per_page: usize) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
             Self::from_primitive(parray, level, nums_per_page)
         } else {

@@ -46,6 +46,7 @@ pub fn new_exporter_with_mask(
     new_exporter(array)
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub(crate) fn new_exporter(array: ConstantArray) -> VortexResult<Box<dyn ColumnExporter>> {
     let value = if array.scalar().is_null() {
         // If the scalar is null and _not_ of type Null, then we cannot assign a null DuckDB value

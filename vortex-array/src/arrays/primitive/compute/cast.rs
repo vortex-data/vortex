@@ -54,14 +54,14 @@ impl CastKernel for PrimitiveVTable {
         // Otherwise, we need to cast the values one-by-one
         Ok(Some(match_each_native_ptype!(new_ptype, |T| {
             match_each_native_ptype!(array.ptype(), |F| {
-                PrimitiveArray::new(cast::<F, T>(array.as_slice(), mask)?, new_validity)
+                PrimitiveArray::new(cast::<F, T>(array.as_slice(), &mask)?, new_validity)
                     .into_array()
             })
         })))
     }
 }
 
-fn cast<F: NativePType, T: NativePType>(array: &[F], mask: Mask) -> VortexResult<Buffer<T>> {
+fn cast<F: NativePType, T: NativePType>(array: &[F], mask: &Mask) -> VortexResult<Buffer<T>> {
     match mask.bit_buffer() {
         AllOr::All => {
             let mut buffer = BufferMut::with_capacity(array.len());

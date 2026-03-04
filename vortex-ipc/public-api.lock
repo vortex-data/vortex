@@ -64,6 +64,12 @@ pub vortex_ipc::messages::EncoderMessage::Buffer(&'a vortex_buffer::ByteBuffer)
 
 pub vortex_ipc::messages::EncoderMessage::DType(&'a vortex_array::dtype::DType)
 
+impl<'a> core::clone::Clone for vortex_ipc::messages::EncoderMessage<'a>
+
+pub fn vortex_ipc::messages::EncoderMessage<'a>::clone(&self) -> vortex_ipc::messages::EncoderMessage<'a>
+
+impl<'a> core::marker::Copy for vortex_ipc::messages::EncoderMessage<'a>
+
 pub enum vortex_ipc::messages::PollRead
 
 pub vortex_ipc::messages::PollRead::NeedMore(usize)

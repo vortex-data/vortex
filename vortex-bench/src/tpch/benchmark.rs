@@ -36,8 +36,8 @@ pub struct TpcHBenchmark {
 impl TpcHBenchmark {
     pub fn new(scale_factor: String, use_remote_data_dir: Option<String>) -> anyhow::Result<Self> {
         Ok(Self {
-            scale_factor: scale_factor.clone(),
             data_url: Self::create_data_url(&use_remote_data_dir, &scale_factor)?,
+            scale_factor,
         })
     }
 

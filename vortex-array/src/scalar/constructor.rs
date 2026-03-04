@@ -192,6 +192,7 @@ impl Scalar {
 }
 
 /// A helper enum for creating a [`ListScalar`].
+#[derive(Clone, Copy)]
 enum ListKind {
     /// Variable-length list.
     Variable,

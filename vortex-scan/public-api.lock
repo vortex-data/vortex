@@ -280,7 +280,7 @@ impl vortex_scan::ScanBuilder<vortex_array::array::ArrayRef>
 
 pub fn vortex_scan::ScanBuilder<vortex_array::array::ArrayRef>::into_record_batch_reader<B: vortex_io::runtime::blocking::BlockingRuntime>(self, schema: arrow_schema::schema::SchemaRef, runtime: &B) -> vortex_error::VortexResult<impl arrow_array::record_batch::RecordBatchReader + 'static>
 
-pub fn vortex_scan::ScanBuilder<vortex_array::array::ArrayRef>::into_record_batch_stream(self, schema: arrow_schema::schema::SchemaRef) -> vortex_error::VortexResult<impl futures_core::stream::Stream<Item = core::result::Result<arrow_array::record_batch::RecordBatch, arrow_schema::error::ArrowError>> + core::marker::Send + 'static>
+pub fn vortex_scan::ScanBuilder<vortex_array::array::ArrayRef>::into_record_batch_stream(self, schema: &arrow_schema::schema::Schema) -> vortex_error::VortexResult<impl futures_core::stream::Stream<Item = core::result::Result<arrow_array::record_batch::RecordBatch, arrow_schema::error::ArrowError>> + core::marker::Send + 'static>
 
 impl<A: 'static + core::marker::Send> vortex_scan::ScanBuilder<A>
 

@@ -24,6 +24,7 @@ fn to_level_filter(level: vx_log_level) -> LevelFilter {
 /// Log levels for the Vortex library.
 #[repr(C)]
 #[allow(non_camel_case_types)]
+#[derive(Clone, Copy)]
 pub enum vx_log_level {
     /// No logging will be performed.
     LOG_LEVEL_OFF = 0,

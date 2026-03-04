@@ -27,6 +27,7 @@ pub struct TemporalParts {
 ///
 /// Splitting the components by granularity creates more small values, which enables better
 /// cascading compression.
+#[allow(clippy::needless_pass_by_value)]
 pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     let temporal_values = array.temporal_values().to_primitive();
 

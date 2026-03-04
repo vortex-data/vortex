@@ -4,6 +4,7 @@
 //! Utility types and functions to be shared amongst the Vortex crates.
 
 #![deny(missing_docs)]
+#![allow(clippy::needless_pass_by_value)]
 
 pub mod aliases;
 pub mod debug_with;

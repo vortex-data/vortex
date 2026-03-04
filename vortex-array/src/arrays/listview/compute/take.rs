@@ -81,7 +81,7 @@ impl TakeReduce for ListViewVTable {
 
         Ok(Some(
             new_array
-                .rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
+                .rebuild(&ListViewRebuildMode::MakeZeroCopyToList)?
                 .into_array(),
         ))
     }

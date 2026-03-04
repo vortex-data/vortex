@@ -13,6 +13,7 @@ use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::ListViewArrayParts;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::list_from_list_view;
@@ -142,7 +143,7 @@ impl BtrBlocksCompressor {
     /// Compresses a [`ListArray`] by narrowing offsets and recursively compressing elements.
     fn compress_list_array(
         &self,
-        list_array: ListArray,
+        list_array: &ListArray,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         // Reset the offsets to remove garbage data that might prevent us from narrowing our
@@ -176,14 +177,22 @@ impl BtrBlocksCompressor {
         list_view: ListViewArray,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let compressed_elems = self.compress(list_view.elements())?;
+        let ListViewArrayParts {
+            elements_dtype: _,
+            elements,
+            offsets,
+            sizes,
+            validity,
+        } = list_view.into_parts();
+
+        let compressed_elems = self.compress(&elements)?;
         let compressed_offsets = self.compress_canonical(
-            Canonical::Primitive(list_view.offsets().to_primitive().narrow()?),
+            Canonical::Primitive(offsets.to_primitive().narrow()?),
             ctx,
             Excludes::none(),
         )?;
         let compressed_sizes = self.compress_canonical(
-            Canonical::Primitive(list_view.sizes().to_primitive().narrow()?),
+            Canonical::Primitive(sizes.to_primitive().narrow()?),
             ctx,
             Excludes::none(),
         )?;
@@ -191,7 +200,7 @@ impl BtrBlocksCompressor {
             compressed_elems,
             compressed_offsets,
             compressed_sizes,
-            list_view.validity().clone(),
+            validity,
         )?
         .into_array())
     }
@@ -240,8 +249,8 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                 if list_view_array.is_zero_copy_to_list() || list_view_array.elements().is_empty() {
                     // Offsets are already monotonic and non-overlapping, so we
                     // can drop the sizes array and compress as a ListArray.
-                    let list_array = list_from_list_view(list_view_array)?;
-                    self.compress_list_array(list_array, ctx)
+                    let list_array = list_from_list_view(&list_view_array)?;
+                    self.compress_list_array(&list_array, ctx)
                 } else {
                     self.compress_list_view_array(list_view_array, ctx)
                 }

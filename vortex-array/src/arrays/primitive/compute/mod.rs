@@ -53,6 +53,6 @@ mod tests {
     #[case::f64(PrimitiveArray::from_iter([10.1f64, 20.2, 30.3, 40.4, 50.5]))]
     fn test_primitive_binary_numeric(#[case] array: PrimitiveArray) {
         use crate::compute::conformance::binary_numeric::test_binary_numeric_array;
-        test_binary_numeric_array(array.into_array());
+        test_binary_numeric_array(&array.into_array());
     }
 }

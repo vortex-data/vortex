@@ -78,18 +78,18 @@ fn to_vec_of_scalar(array: &ArrayRef) -> Vec<Scalar> {
 /// Panics if:
 /// - The array cannot be converted to primitive form
 /// - Results don't match expected values (for operations that don't overflow)
-fn test_binary_numeric_conformance<T: NativePType + Num + Copy>(array: ArrayRef)
+fn test_binary_numeric_conformance<T: NativePType + Num + Copy>(array: &ArrayRef)
 where
     Scalar: From<T>,
 {
     // First test with the standard scalar value of 1
-    test_standard_binary_numeric::<T>(array.clone());
+    test_standard_binary_numeric::<T>(array);
 
     // Then test edge cases
     test_binary_numeric_edge_cases(array);
 }
 
-fn test_standard_binary_numeric<T: NativePType + Num + Copy>(array: ArrayRef)
+fn test_standard_binary_numeric<T: NativePType + Num + Copy>(array: &ArrayRef)
 where
     Scalar: From<T>,
 {
@@ -214,7 +214,7 @@ where
 ///     test_binary_numeric_array(array.into_array());
 /// }
 /// ```
-pub fn test_binary_numeric_array(array: ArrayRef) {
+pub fn test_binary_numeric_array(array: &ArrayRef) {
     match array.dtype() {
         DType::Primitive(ptype, _) => match ptype {
             PType::I8 => test_binary_numeric_conformance::<i8>(array),
@@ -245,22 +245,22 @@ pub fn test_binary_numeric_array(array: ArrayRef) {
 /// - Negative one (tests signed arithmetic)
 /// - Maximum value (tests overflow behavior)
 /// - Minimum value (tests underflow behavior)
-fn test_binary_numeric_edge_cases(array: ArrayRef) {
+fn test_binary_numeric_edge_cases(array: &ArrayRef) {
     match array.dtype() {
         DType::Primitive(ptype, _) => match ptype {
-            PType::I8 => test_binary_numeric_edge_cases_signed::<i8>(array),
-            PType::I16 => test_binary_numeric_edge_cases_signed::<i16>(array),
-            PType::I32 => test_binary_numeric_edge_cases_signed::<i32>(array),
-            PType::I64 => test_binary_numeric_edge_cases_signed::<i64>(array),
-            PType::U8 => test_binary_numeric_edge_cases_unsigned::<u8>(array),
-            PType::U16 => test_binary_numeric_edge_cases_unsigned::<u16>(array),
-            PType::U32 => test_binary_numeric_edge_cases_unsigned::<u32>(array),
-            PType::U64 => test_binary_numeric_edge_cases_unsigned::<u64>(array),
+            PType::I8 => test_binary_numeric_edge_cases_signed::<i8>(array.clone()),
+            PType::I16 => test_binary_numeric_edge_cases_signed::<i16>(array.clone()),
+            PType::I32 => test_binary_numeric_edge_cases_signed::<i32>(array.clone()),
+            PType::I64 => test_binary_numeric_edge_cases_signed::<i64>(array.clone()),
+            PType::U8 => test_binary_numeric_edge_cases_unsigned::<u8>(array.clone()),
+            PType::U16 => test_binary_numeric_edge_cases_unsigned::<u16>(array.clone()),
+            PType::U32 => test_binary_numeric_edge_cases_unsigned::<u32>(array.clone()),
+            PType::U64 => test_binary_numeric_edge_cases_unsigned::<u64>(array.clone()),
             PType::F16 => {
                 eprintln!("Skipping f16 edge case tests (not supported)");
             }
-            PType::F32 => test_binary_numeric_edge_cases_float::<f32>(array),
-            PType::F64 => test_binary_numeric_edge_cases_float::<f64>(array),
+            PType::F32 => test_binary_numeric_edge_cases_float::<f32>(array.clone()),
+            PType::F64 => test_binary_numeric_edge_cases_float::<f64>(array.clone()),
         },
         dtype => vortex_panic!(
             "Binary numeric edge case tests are only supported for primitive numeric types, got {dtype}"
@@ -327,6 +327,7 @@ where
     test_binary_numeric_with_scalar(array, T::neg_infinity());
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn test_binary_numeric_with_scalar<T>(array: ArrayRef, scalar_value: T)
 where
     T: NativePType + Num + Copy + std::fmt::Debug,

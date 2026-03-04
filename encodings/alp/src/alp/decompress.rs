@@ -6,12 +6,14 @@ use std::mem::transmute;
 use vortex_array::ExecutionCtx;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::arrays::chunk_range;
 use vortex_array::arrays::patch_chunk;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::vtable::ValidityHelper;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
@@ -48,7 +50,7 @@ pub fn decompress_into_array(
             &patches_values,
             &patches_chunk_offsets,
             patches,
-            dtype,
+            &dtype,
         ))
     } else {
         let encoded_prim = encoded.to_primitive();
@@ -56,7 +58,7 @@ pub fn decompress_into_array(
         // primitive didn't create a copy. In that case both alp_encoded and array
         // will hold a reference to the buffer we want to mutate.
         drop(encoded);
-        decompress_unchunked_core(encoded_prim, exponents, patches, dtype, ctx)
+        decompress_unchunked_core(encoded_prim, exponents, patches, &dtype, ctx)
     }
 }
 
@@ -70,6 +72,7 @@ pub fn decompress_into_array(
 /// A `PrimitiveArray` containing the decompressed floating-point values with all patches applied.
 pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     let (encoded, exponents, patches, dtype) = array.into_parts();
+
     if let Some(ref patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
     {
@@ -85,11 +88,11 @@ pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResu
             &patches_values,
             &patches_chunk_offsets,
             patches,
-            dtype,
+            &dtype,
         ))
     } else {
         let encoded = encoded.execute::<PrimitiveArray>(ctx)?;
-        decompress_unchunked_core(encoded, exponents, patches, dtype, ctx)
+        decompress_unchunked_core(encoded, exponents, patches, &dtype, ctx)
     }
 }
 
@@ -108,16 +111,27 @@ fn decompress_chunked_core(
     patches_values: &PrimitiveArray,
     patches_chunk_offsets: &PrimitiveArray,
     patches: &Patches,
-    dtype: DType,
+    dtype: &DType,
 ) -> PrimitiveArray {
-    let validity = encoded.validity().clone();
-    let ptype = dtype.as_ptype();
     let array_len = encoded.len();
+
+    let PrimitiveArrayParts {
+        ptype: _,
+        buffer,
+        validity,
+    } = encoded.into_parts();
+
     let offset_within_chunk = patches.offset_within_chunk().unwrap_or(0);
 
-    match_each_alp_float_ptype!(ptype, |T| {
+    match_each_alp_float_ptype!(dtype.as_ptype(), |T| {
         let patches_values = patches_values.as_slice::<T>();
-        let mut alp_buffer = encoded.into_buffer_mut();
+        let mut alp_buffer = {
+            let buffer = Buffer::from_byte_buffer(buffer.into_host_sync());
+            buffer
+                .try_into_mut()
+                .unwrap_or_else(|buffer| BufferMut::copy_from(&buffer))
+        };
+
         match_each_unsigned_integer_ptype!(patches_chunk_offsets.ptype(), |C| {
             let patches_chunk_offsets = patches_chunk_offsets.as_slice::<C>();
 
@@ -157,7 +171,7 @@ fn decompress_unchunked_core(
     encoded: PrimitiveArray,
     exponents: Exponents,
     patches: Option<Patches>,
-    dtype: DType,
+    dtype: &DType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let validity = encoded.validity().clone();

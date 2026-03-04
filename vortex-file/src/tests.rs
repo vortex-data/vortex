@@ -230,12 +230,12 @@ async fn test_read_simple_with_spawn() {
     let lists = ChunkedArray::from_iter([
         ListArray::from_iter_slow::<i16, _>(
             vec![vec![11, 12], vec![21, 22], vec![31, 32], vec![41, 42]],
-            Arc::new(I32.into()),
+            &Arc::new(I32.into()),
         )
         .unwrap(),
         ListArray::from_iter_slow::<i8, _>(
             vec![vec![51, 52], vec![61, 62], vec![71, 72], vec![81, 82]],
-            Arc::new(I32.into()),
+            &Arc::new(I32.into()),
         )
         .unwrap(),
     ])
@@ -1530,7 +1530,7 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
     let numbers = buffer![100i32, 200, 300].into_array();
     let lists = ListArray::from_iter_slow::<i16, _>(
         vec![vec![1, 2], vec![3, 4, 5], vec![6]],
-        Arc::new(I32.into()),
+        &Arc::new(I32.into()),
     )?;
 
     let chunk = StructArray::from_fields(&[

@@ -157,6 +157,6 @@ mod tests {
         DType::Primitive(PType::I32, Nullability::NonNullable),
     ).unwrap())]
     fn test_chunked_binary_numeric(#[case] array: ChunkedArray) {
-        test_binary_numeric_array(array.into_array())
+        test_binary_numeric_array(&array.into_array())
     }
 }

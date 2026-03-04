@@ -56,13 +56,13 @@ fn take_valid_indices<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -
     // the overhead to convert to a Vec<bool>.
     if bools.len() <= 4096 {
         let bools = bools.iter().collect_vec();
-        take_byte_bool(bools, indices)
+        take_byte_bool(&bools, indices)
     } else {
         take_bool_impl(bools, indices)
     }
 }
 
-fn take_byte_bool<I: AsPrimitive<usize>>(bools: Vec<bool>, indices: &[I]) -> BitBuffer {
+fn take_byte_bool<I: AsPrimitive<usize>>(bools: &[bool], indices: &[I]) -> BitBuffer {
     BitBuffer::collect_bool(indices.len(), |idx| {
         bools[unsafe { indices.get_unchecked(idx).as_() }]
     })

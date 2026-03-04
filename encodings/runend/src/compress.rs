@@ -6,6 +6,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::BoolArrayParts;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
@@ -59,7 +60,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
         Some(validity) => {
             match_each_native_ptype!(array.ptype(), |P| {
                 let (ends, values) =
-                    runend_encode_nullable_primitive(array.as_slice::<P>(), validity);
+                    runend_encode_nullable_primitive(array.as_slice::<P>(), &validity);
                 (
                     PrimitiveArray::new(ends, Validity::NonNullable),
                     values.into_array(),
@@ -106,7 +107,7 @@ fn runend_encode_primitive<T: NativePType>(elements: &[T]) -> (Buffer<u64>, Buff
 
 fn runend_encode_nullable_primitive<T: NativePType>(
     elements: &[T],
-    element_validity: BitBuffer,
+    element_validity: &BitBuffer,
 ) -> (Buffer<u64>, PrimitiveArray) {
     let mut ends = BufferMut::empty();
     let mut values = BufferMut::empty();
@@ -172,14 +173,15 @@ pub fn runend_decode_primitive(
     offset: usize,
     length: usize,
 ) -> VortexResult<PrimitiveArray> {
+    let nullability = values.dtype().nullability();
     let validity_mask = values.validity_mask()?;
     Ok(match_each_native_ptype!(values.ptype(), |P| {
         match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
             runend_decode_typed_primitive(
-                trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
-                values.as_slice::<P>(),
+                trimmed_ends_iter(&ends.into_buffer::<E>(), offset, length),
+                &values.into_buffer::<P>(),
                 validity_mask,
-                values.dtype().nullability(),
+                nullability,
                 length,
             )
         })
@@ -192,13 +194,24 @@ pub fn runend_decode_bools(
     offset: usize,
     length: usize,
 ) -> VortexResult<BoolArray> {
-    let validity_mask = values.validity_mask()?;
+    let nullability = values.dtype().nullability();
+    let BoolArrayParts {
+        bits,
+        offset: bool_offsets,
+        len,
+        validity,
+    } = values.into_parts();
+
+    let buffer = bits.as_host().clone();
+    let bit_buffer = BitBuffer::new_with_offset(buffer, len, bool_offsets);
+
+    let validity_mask = validity.to_mask(len);
     Ok(match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
         runend_decode_typed_bool(
-            trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
-            &values.to_bit_buffer(),
+            trimmed_ends_iter(&ends.into_buffer::<E>(), offset, length),
+            &bit_buffer,
             validity_mask,
-            values.dtype().nullability(),
+            nullability,
             length,
         )
     }))

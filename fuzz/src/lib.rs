@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![allow(clippy::use_debug)]
+#![allow(clippy::needless_pass_by_value)]
 
 mod array;
 pub mod compress;

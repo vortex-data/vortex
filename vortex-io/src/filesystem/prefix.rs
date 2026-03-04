@@ -24,7 +24,7 @@ pub struct PrefixFileSystem {
 }
 
 impl PrefixFileSystem {
-    pub fn new(inner: FileSystemRef, prefix: String) -> Self {
+    pub fn new(inner: FileSystemRef, prefix: &str) -> Self {
         // Normalize to always have a trailing slash for clean concatenation.
         let prefix = format!("{}/", prefix.trim_matches('/'));
         Self { inner, prefix }
@@ -61,7 +61,7 @@ impl FileSystem for PrefixFileSystem {
 
 impl dyn FileSystem + 'static {
     /// Create a new filesystem that applies the given prefix to all operations on this filesystem.
-    pub fn with_prefix(self: Arc<Self>, prefix: String) -> FileSystemRef {
+    pub fn with_prefix(self: Arc<Self>, prefix: &str) -> FileSystemRef {
         Arc::new(PrefixFileSystem::new(self, prefix))
     }
 }

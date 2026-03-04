@@ -73,9 +73,9 @@ impl FooterDeserializer {
     }
 
     /// Prefix more data to the existing buffer when requested by the deserializer.
-    pub fn prefix_data(&mut self, more_data: ByteBuffer) {
+    pub fn prefix_data(&mut self, more_data: &ByteBuffer) {
         let mut buffer = ByteBufferMut::with_capacity(self.buffer.len() + more_data.len());
-        buffer.extend_from_slice(&more_data);
+        buffer.extend_from_slice(more_data);
         buffer.extend_from_slice(&self.buffer);
         self.buffer = buffer.freeze();
     }
@@ -157,7 +157,7 @@ impl FooterDeserializer {
             &self.buffer,
             &postscript.footer,
             &postscript.layout,
-            dtype,
+            &dtype,
             file_stats,
         )?))
     }
@@ -245,7 +245,7 @@ impl FooterDeserializer {
         initial_read: &[u8],
         footer_segment: &PostscriptSegment,
         layout_segment: &PostscriptSegment,
-        dtype: DType,
+        dtype: &DType,
         file_stats: Option<FileStatistics>,
     ) -> VortexResult<Footer> {
         let footer_offset = usize::try_from(footer_segment.offset - initial_offset)?;
@@ -258,7 +258,13 @@ impl FooterDeserializer {
             &initial_read[layout_offset..layout_offset + (layout_segment.length as usize)],
         );
 
-        Footer::from_flatbuffer(footer_bytes, layout_bytes, dtype, file_stats, &self.session)
+        Footer::from_flatbuffer(
+            &footer_bytes,
+            &layout_bytes,
+            dtype,
+            file_stats,
+            &self.session,
+        )
     }
 }
 

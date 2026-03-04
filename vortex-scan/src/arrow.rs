@@ -6,6 +6,7 @@ use arrow_array::RecordBatchReader;
 use arrow_array::cast::AsArray;
 use arrow_schema::ArrowError;
 use arrow_schema::DataType;
+use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use futures::Stream;
 use futures::TryStreamExt;
@@ -45,7 +46,7 @@ impl ScanBuilder<ArrayRef> {
 
     pub fn into_record_batch_stream(
         self,
-        schema: SchemaRef,
+        schema: &Schema,
     ) -> VortexResult<impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static> {
         let data_type = DataType::Struct(schema.fields().clone());
         let session = self.session().clone();

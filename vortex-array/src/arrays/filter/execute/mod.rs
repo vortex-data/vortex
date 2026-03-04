@@ -40,7 +40,7 @@ fn values_to_mask(values: &Arc<MaskValues>) -> Mask {
 }
 
 /// A helper function that lazily filters a [`Validity`] with selection mask values.
-fn filter_validity(validity: Validity, mask: &Arc<MaskValues>) -> Validity {
+fn filter_validity(validity: &Validity, mask: &Arc<MaskValues>) -> Validity {
     validity
         .filter(&values_to_mask(mask))
         .vortex_expect("Somehow unable to wrap filter around a validity array")

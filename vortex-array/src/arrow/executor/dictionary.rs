@@ -35,7 +35,7 @@ pub(super) fn to_arrow_dictionary(
         Err(array) => array,
     };
     let array = match array.try_into::<ConstantVTable>() {
-        Ok(constant) => return constant_to_dict(constant, codes_type, values_type, ctx),
+        Ok(constant) => return constant_to_dict(&constant, codes_type, values_type, ctx),
         Err(array) => array,
     };
 
@@ -51,7 +51,7 @@ pub(super) fn to_arrow_dictionary(
 
 /// Convert a constant array to a dictionary with a single entry.
 fn constant_to_dict(
-    array: ConstantArray,
+    array: &ConstantArray,
     codes_type: &DataType,
     values_type: &DataType,
     ctx: &mut ExecutionCtx,
@@ -68,7 +68,7 @@ fn constant_to_dict(
         .into_array()
         .execute_arrow(Some(values_type), ctx)?;
     let codes = zeroed_codes_array(codes_type, len)?;
-    make_dict_array(codes_type, codes, values)
+    make_dict_array(codes_type, &codes, &values)
 }
 
 /// Convert a Vortex dictionary array to an Arrow dictionary array.
@@ -81,7 +81,7 @@ fn dict_to_dict(
     let DictArrayParts { codes, values, .. } = array.into_parts();
     let codes = codes.execute_arrow(Some(codes_type), ctx)?;
     let values = values.execute_arrow(Some(values_type), ctx)?;
-    make_dict_array(codes_type, codes, values)
+    make_dict_array(codes_type, &codes, &values)
 }
 
 /// Construct a zeroed Arrow primitive array directly.
@@ -102,33 +102,54 @@ fn zeroed_codes_array(codes_type: &DataType, len: usize) -> VortexResult<ArrowAr
 /// Construct an Arrow `DictionaryArray` from pre-built codes and values arrays.
 fn make_dict_array(
     codes_type: &DataType,
-    codes: ArrowArrayRef,
-    values: ArrowArrayRef,
+    codes: &ArrowArrayRef,
+    values: &ArrowArrayRef,
 ) -> VortexResult<ArrowArrayRef> {
     Ok(match codes_type {
         DataType::Int8 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<Int8Type>().clone(), values)
+            DictionaryArray::new_unchecked(codes.as_primitive::<Int8Type>().clone(), values.clone())
         }),
         DataType::Int16 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<Int16Type>().clone(), values)
+            DictionaryArray::new_unchecked(
+                codes.as_primitive::<Int16Type>().clone(),
+                values.clone(),
+            )
         }),
         DataType::Int32 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<Int32Type>().clone(), values)
+            DictionaryArray::new_unchecked(
+                codes.as_primitive::<Int32Type>().clone(),
+                values.clone(),
+            )
         }),
         DataType::Int64 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<Int64Type>().clone(), values)
+            DictionaryArray::new_unchecked(
+                codes.as_primitive::<Int64Type>().clone(),
+                values.clone(),
+            )
         }),
         DataType::UInt8 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<UInt8Type>().clone(), values)
+            DictionaryArray::new_unchecked(
+                codes.as_primitive::<UInt8Type>().clone(),
+                values.clone(),
+            )
         }),
         DataType::UInt16 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<UInt16Type>().clone(), values)
+            DictionaryArray::new_unchecked(
+                codes.as_primitive::<UInt16Type>().clone(),
+                values.clone(),
+            )
         }),
         DataType::UInt32 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<UInt32Type>().clone(), values)
+            DictionaryArray::new_unchecked(
+                codes.as_primitive::<UInt32Type>().clone(),
+                values.clone(),
+            )
         }),
         DataType::UInt64 => Arc::new(unsafe {
-            DictionaryArray::new_unchecked(codes.as_primitive::<UInt64Type>().clone(), values)
+            DictionaryArray::new_unchecked(
+                codes.as_primitive::<UInt64Type>().clone(),
+                values.clone(),
+            )
         }),
         _ => vortex_bail!("Unsupported dictionary codes type: {:?}", codes_type),
     })

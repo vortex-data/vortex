@@ -311,7 +311,7 @@ impl VTable for ALPRDVTable {
         let decoded_array = if array.is_f32() {
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
-                    left_parts.into_buffer::<u16>(),
+                    left_parts.as_slice::<u16>(),
                     left_parts_dict,
                     array.right_bit_width,
                     right_parts.into_buffer_mut::<u32>(),
@@ -323,7 +323,7 @@ impl VTable for ALPRDVTable {
         } else {
             PrimitiveArray::new(
                 alp_rd_decode::<f64>(
-                    left_parts.into_buffer::<u16>(),
+                    left_parts.as_slice::<u16>(),
                     left_parts_dict,
                     array.right_bit_width,
                     right_parts.into_buffer_mut::<u64>(),

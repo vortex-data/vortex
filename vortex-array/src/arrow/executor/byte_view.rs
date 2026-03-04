@@ -59,7 +59,7 @@ pub fn execute_varbinview_to_arrow<T: ByteViewType>(
 }
 
 pub(super) fn to_arrow_byte_view<T: ByteViewType>(
-    array: ArrayRef,
+    array: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     // First we cast the array into the desired ByteView type.

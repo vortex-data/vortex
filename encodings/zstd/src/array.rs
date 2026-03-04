@@ -685,7 +685,7 @@ impl ZstdArray {
         }
     }
 
-    pub fn from_array(array: ArrayRef, level: i32, values_per_frame: usize) -> VortexResult<Self> {
+    pub fn from_array(array: &ArrayRef, level: i32, values_per_frame: usize) -> VortexResult<Self> {
         Self::from_canonical(&array.to_canonical()?, level, values_per_frame)?
             .ok_or_else(|| vortex_err!("Zstd can only encode Primitive and VarBinView arrays"))
     }

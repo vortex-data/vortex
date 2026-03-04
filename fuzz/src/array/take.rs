@@ -73,7 +73,7 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
             let primitive_array = array.to_primitive();
             match_each_native_ptype!(p, |P| {
                 Ok(take_primitive::<P>(
-                    primitive_array,
+                    &primitive_array,
                     validity,
                     indices_slice_non_opt,
                 ))
@@ -145,15 +145,16 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
 }
 
 fn take_primitive<T: NativePType>(
-    primitive_array: PrimitiveArray,
+    primitive_array: &PrimitiveArray,
     validity: Validity,
     indices: &[usize],
 ) -> ArrayRef {
-    let vec_values = primitive_array.as_slice::<T>().to_vec();
+    let vec_values = primitive_array.as_slice::<T>();
     PrimitiveArray::new(
         indices
             .iter()
-            .map(|i| vec_values[*i])
+            .copied()
+            .map(|i| vec_values[i])
             .collect::<Buffer<T>>(),
         validity,
     )

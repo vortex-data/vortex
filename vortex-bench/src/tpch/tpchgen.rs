@@ -123,7 +123,6 @@ pub async fn generate_tpch_tables(options: TpchGenOptions) -> Result<()> {
                 table = table_name,
                 "Generating TPC-H table",
             );
-            let table_name = table_name.to_string();
 
             generate_table_files(table_name, *generator, options.clone())
         })
@@ -188,7 +187,7 @@ impl TableGenerator {
 
 /// Generate files for a specific table in streaming fashion
 fn generate_table_files(
-    table_name: String,
+    table_name: &str,
     generator: TableGenerator,
     options: TpchGenOptions,
 ) -> Result<Vec<BoxFuture<'static, Result<()>>>> {

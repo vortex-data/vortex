@@ -335,7 +335,7 @@ fn list_contains_scalar(
     // Process based on the offset and size types.
     let list_matches = match_each_integer_ptype!(offsets.ptype(), |O| {
         match_each_integer_ptype!(sizes.ptype(), |S| {
-            process_matches::<O, S>(matches, list_array.len(), offsets, sizes)
+            process_matches::<O, S>(&matches, list_array.len(), &offsets, &sizes)
         })
     });
 
@@ -349,10 +349,10 @@ fn list_contains_scalar(
 /// Returns a [`BitBuffer`] where each bit represents if a list contains the scalar, derived from a
 /// [`BoolArray`] of matches on the child elements array.
 fn process_matches<O, S>(
-    matches: BoolArray,
+    matches: &BoolArray,
     list_array_len: usize,
-    offsets: PrimitiveArray,
-    sizes: PrimitiveArray,
+    offsets: &PrimitiveArray,
+    sizes: &PrimitiveArray,
 ) -> BitBuffer
 where
     O: IntegerPType,
@@ -689,13 +689,17 @@ mod tests {
     // -- Tests migrated from compute/list_contains.rs --
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
-        ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
-            .unwrap()
-            .as_::<ListVTable>()
-            .to_listview()
-            .into_array()
+        ListArray::from_iter_slow::<u64, _>(
+            values,
+            &Arc::new(DType::Utf8(Nullability::NonNullable)),
+        )
+        .unwrap()
+        .as_::<ListVTable>()
+        .to_listview()
+        .into_array()
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn null_strings(values: Vec<Vec<Option<&str>>>) -> ArrayRef {
         let elements = values.iter().flatten().cloned().collect_vec();
 

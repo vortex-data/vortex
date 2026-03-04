@@ -9,7 +9,7 @@ use tracing::info;
 
 use crate::Format;
 
-pub fn generate_tpcds(base_dir: PathBuf, scale_factor: String) -> Result<PathBuf> {
+pub fn generate_tpcds(base_dir: PathBuf, scale_factor: &str) -> Result<PathBuf> {
     // Create output directory based on format
     let output_dir = base_dir.join(Format::Parquet.name());
     std::fs::create_dir_all(&output_dir)?;

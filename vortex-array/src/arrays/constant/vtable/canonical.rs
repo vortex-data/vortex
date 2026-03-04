@@ -396,7 +396,7 @@ mod tests {
         );
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
         let canonical_const = const_array.to_listview();
-        let list_array = canonical_const.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?;
+        let list_array = canonical_const.rebuild(&ListViewRebuildMode::MakeZeroCopyToList)?;
         assert_arrays_eq!(
             list_array.elements().to_primitive(),
             PrimitiveArray::from_iter([1u64, 2, 1, 2])

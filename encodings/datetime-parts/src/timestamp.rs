@@ -57,7 +57,7 @@ pub fn split(timestamp: i64, time_unit: TimeUnit) -> VortexResult<TimestampParts
 /// # Errors
 ///
 /// Returns an error if `time_unit` is days, which cannot be combined.
-pub fn combine(ts_parts: TimestampParts, time_unit: TimeUnit) -> i64 {
+pub fn combine(ts_parts: &TimestampParts, time_unit: TimeUnit) -> i64 {
     let divisor = match time_unit {
         TimeUnit::Nanoseconds => 1_000_000_000,
         TimeUnit::Microseconds => 1_000_000,
@@ -142,7 +142,7 @@ mod tests {
             seconds: 3723, // 1*3600 + 2*60 + 3
             subseconds: 0,
         };
-        let ts = combine(parts, TimeUnit::Seconds);
+        let ts = combine(&parts, TimeUnit::Seconds);
         assert_eq!(ts, SECONDS_PER_DAY + 3723);
     }
 
@@ -154,7 +154,7 @@ mod tests {
             seconds: 3723,
             subseconds: 456,
         };
-        let ts = combine(parts, TimeUnit::Milliseconds);
+        let ts = combine(&parts, TimeUnit::Milliseconds);
         assert_eq!(ts, (SECONDS_PER_DAY + 3723) * 1000 + 456);
     }
 
@@ -166,7 +166,7 @@ mod tests {
             seconds: 3723,
             subseconds: 456789,
         };
-        let ts = combine(parts, TimeUnit::Microseconds);
+        let ts = combine(&parts, TimeUnit::Microseconds);
         assert_eq!(ts, (SECONDS_PER_DAY + 3723) * 1_000_000 + 456789);
     }
 
@@ -178,7 +178,7 @@ mod tests {
             seconds: 3723,
             subseconds: 456789123,
         };
-        let ts = combine(parts, TimeUnit::Nanoseconds);
+        let ts = combine(&parts, TimeUnit::Nanoseconds);
         assert_eq!(ts, (SECONDS_PER_DAY + 3723) * 1_000_000_000 + 456789123);
     }
 
@@ -190,6 +190,6 @@ mod tests {
             seconds: 0,
             subseconds: 0,
         };
-        combine(parts, TimeUnit::Days);
+        combine(&parts, TimeUnit::Days);
     }
 }

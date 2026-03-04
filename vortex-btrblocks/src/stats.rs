@@ -8,6 +8,7 @@ use std::fmt::Debug;
 use vortex_array::vtable::VTable;
 
 /// Configures how stats are generated.
+#[derive(Clone, Copy)]
 pub struct GenerateStatsOptions {
     /// Should distinct values should be counted during stats generation.
     pub count_distinct_values: bool,

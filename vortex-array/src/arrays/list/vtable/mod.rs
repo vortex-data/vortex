@@ -211,7 +211,7 @@ impl VTable for ListVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(list_view_from_list(array.clone(), ctx)?.into_array())
+        Ok(list_view_from_list(array, ctx)?.into_array())
     }
 
     fn execute_parent(

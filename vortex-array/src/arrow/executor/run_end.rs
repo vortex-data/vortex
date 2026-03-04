@@ -50,7 +50,7 @@ pub(super) fn to_arrow_run_end(
 ) -> VortexResult<ArrowArrayRef> {
     let array = match array.try_into::<ConstantVTable>() {
         Ok(constant) => {
-            return constant_to_run_end(constant, ends_type, values_type, ctx);
+            return constant_to_run_end(&constant, ends_type, values_type, ctx);
         }
         Err(array) => array,
     };
@@ -62,7 +62,7 @@ pub(super) fn to_arrow_run_end(
         // NOTE(ngates): while this module still lives in vortex-array, we cannot depend on the
         //  vortex-runend crate. Therefore, we match on the encoding ID string and extract the children
         //  and metadata directly.
-        return run_end_to_arrow(array, ends_type, values_type, ctx);
+        return run_end_to_arrow(&array, ends_type, values_type, ctx);
     }
 
     // Fallback: canonicalize to flat Arrow, then cast to REE.
@@ -75,7 +75,7 @@ pub(super) fn to_arrow_run_end(
 }
 
 fn run_end_to_arrow(
-    array: ArrayRef,
+    array: &ArrayRef,
     ends_type: &DataType,
     values_type: &Field,
     ctx: &mut ExecutionCtx,
@@ -138,7 +138,7 @@ where
 
 /// Convert a constant array to a run-end encoded array with a single run.
 fn constant_to_run_end(
-    array: ConstantArray,
+    array: &ConstantArray,
     ends_type: &DataType,
     values_type: &Field,
     ctx: &mut ExecutionCtx,

@@ -182,6 +182,6 @@ mod tests {
         Scalar::from(2000i32)
     ).unwrap())]
     fn test_for_binary_numeric(#[case] array: FoRArray) {
-        test_binary_numeric_array(array.into_array());
+        test_binary_numeric_array(&array.into_array());
     }
 }

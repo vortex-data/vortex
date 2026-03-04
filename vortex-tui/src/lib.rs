@@ -25,6 +25,7 @@
 #![deny(clippy::missing_panics_doc)]
 #![deny(clippy::missing_safety_doc)]
 #![deny(missing_docs)]
+#![allow(clippy::needless_pass_by_value)]
 
 #[cfg_attr(
     all(not(feature = "native"), not(target_arch = "wasm32")),

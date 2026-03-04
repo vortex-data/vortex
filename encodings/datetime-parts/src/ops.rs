@@ -52,7 +52,7 @@ impl OperationsVTable<DateTimePartsVTable> for DateTimePartsVTable {
             .vortex_expect("subseconds fits in i64");
 
         let ts = timestamp::combine(
-            TimestampParts {
+            &TimestampParts {
                 days,
                 seconds,
                 subseconds,

@@ -28,7 +28,7 @@ impl ColumnExporter for TemporalExporter {
 
 // TODO(joe): into_parts
 pub(crate) fn new_exporter(
-    array: TemporalArray,
+    array: &TemporalArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     Ok(Box::new(TemporalExporter {
@@ -69,7 +69,7 @@ mod tests {
             DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP_S)]);
         let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut ctx)
+        new_exporter(&arr, &mut ctx)
             .unwrap()
             .export(1, 5, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
@@ -94,7 +94,7 @@ mod tests {
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP)]);
         let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut ctx)
+        new_exporter(&arr, &mut ctx)
             .unwrap()
             .export(1, 5, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();
@@ -118,7 +118,7 @@ mod tests {
         let mut chunk = DataChunk::new([LogicalType::try_from(arr.dtype()).unwrap()]);
         let mut ctx = SESSION.create_execution_ctx();
 
-        new_exporter(arr, &mut ctx)
+        new_exporter(&arr, &mut ctx)
             .unwrap()
             .export(1, 5, chunk.get_vector_mut(0), &mut ctx)
             .unwrap();

@@ -24,10 +24,10 @@ pub struct TpcDsBenchmark {
 }
 
 impl TpcDsBenchmark {
-    pub fn new(scale_factor: String, use_remote_data_dir: Option<String>) -> Result<Self> {
+    pub fn new(scale_factor: &str, use_remote_data_dir: Option<String>) -> Result<Self> {
         Ok(Self {
-            scale_factor: scale_factor.clone(),
-            data_url: Self::create_data_url(&use_remote_data_dir, &scale_factor)?,
+            scale_factor: scale_factor.to_string(),
+            data_url: Self::create_data_url(&use_remote_data_dir, scale_factor)?,
         })
     }
 
@@ -72,7 +72,7 @@ impl Benchmark for TpcDsBenchmark {
             Format::Parquet
         );
 
-        generate_tpcds(base_data_dir, self.scale_factor.clone())?;
+        generate_tpcds(base_data_dir, self.scale_factor.as_ref())?;
 
         Ok(())
     }

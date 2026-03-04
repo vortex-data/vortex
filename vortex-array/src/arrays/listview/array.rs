@@ -306,8 +306,8 @@ impl ListViewArray {
         if cfg!(debug_assertions) && is_zctl {
             validate_zctl(
                 &self.elements,
-                self.offsets.to_primitive(),
-                self.sizes.to_primitive(),
+                &self.offsets.to_primitive(),
+                &self.sizes.to_primitive(),
             )
             .vortex_expect("Failed to validate zero-copy to list flag");
         }
@@ -335,8 +335,8 @@ impl ListViewArray {
     pub fn verify_is_zero_copy_to_list(&self) -> bool {
         validate_zctl(
             &self.elements,
-            self.offsets.to_primitive(),
-            self.sizes.to_primitive(),
+            &self.offsets.to_primitive(),
+            &self.sizes.to_primitive(),
         )
         .is_ok()
     }
@@ -495,8 +495,8 @@ where
 /// [`ListArray`](crate::arrays::ListArray).
 fn validate_zctl(
     elements: &ArrayRef,
-    offsets_primitive: PrimitiveArray,
-    sizes_primitive: PrimitiveArray,
+    offsets_primitive: &PrimitiveArray,
+    sizes_primitive: &PrimitiveArray,
 ) -> VortexResult<()> {
     // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed), even
     // if there are null views.
@@ -559,8 +559,8 @@ fn validate_zctl(
 
     fn count_references<O: IntegerPType, S: IntegerPType>(
         element_references: &mut [u8],
-        offsets_primitive: PrimitiveArray,
-        sizes_primitive: PrimitiveArray,
+        offsets_primitive: &PrimitiveArray,
+        sizes_primitive: &PrimitiveArray,
     ) {
         let offsets_slice = offsets_primitive.as_slice::<O>();
         let sizes_slice = sizes_primitive.as_slice::<S>();

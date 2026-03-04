@@ -707,9 +707,9 @@ impl Patches {
 
         let take_indices = take_indices.to_array().execute::<PrimitiveArray>(ctx)?;
         if self.is_map_faster_than_search(&take_indices) {
-            self.take_map(take_indices, true, ctx)
+            self.take_map(&take_indices, true, ctx)
         } else {
-            self.take_search(take_indices, true, ctx)
+            self.take_search(&take_indices, true, ctx)
         }
     }
 
@@ -727,9 +727,9 @@ impl Patches {
 
         let take_indices = take_indices.to_array().execute::<PrimitiveArray>(ctx)?;
         if self.is_map_faster_than_search(&take_indices) {
-            self.take_map(take_indices, false, ctx)
+            self.take_map(&take_indices, false, ctx)
         } else {
-            self.take_search(take_indices, false, ctx)
+            self.take_search(&take_indices, false, ctx)
         }
     }
 
@@ -739,7 +739,7 @@ impl Patches {
     )]
     pub fn take_search(
         &self,
-        take_indices: PrimitiveArray,
+        take_indices: &PrimitiveArray,
         include_nulls: bool,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Self>> {
@@ -763,7 +763,7 @@ impl Patches {
                             take_indices_with_search_fn(
                                 patch_indices_slice,
                                 take_slice,
-                                take_indices.validity_mask()?,
+                                &take_indices.validity_mask()?,
                                 include_nulls,
                                 |take_idx| {
                                     self.search_index_chunked_batch(
@@ -778,7 +778,7 @@ impl Patches {
                         take_indices_with_search_fn(
                             patch_indices_slice,
                             take_slice,
-                            take_indices.validity_mask()?,
+                            &take_indices.validity_mask()?,
                             include_nulls,
                             |take_idx| {
                                 let Some(offset) = <PatchT as NumCast>::from(self.offset) else {
@@ -816,7 +816,7 @@ impl Patches {
 
     pub fn take_map(
         &self,
-        take_indices: PrimitiveArray,
+        take_indices: &PrimitiveArray,
         include_nulls: bool,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Self>> {
@@ -1009,7 +1009,7 @@ unsafe fn apply_patches_to_buffer_inner<P, I>(
 
 fn take_map<I: NativePType + Hash + Eq + TryFrom<usize>, T: NativePType>(
     indices: &[I],
-    take_indices: PrimitiveArray,
+    take_indices: &PrimitiveArray,
     indices_offset: usize,
     min_index: usize,
     max_index: usize,
@@ -1179,7 +1179,7 @@ fn take_indices_with_search_fn<
 >(
     indices: &[I],
     take_indices: &[T],
-    take_validity: Mask,
+    take_validity: &Mask,
     include_nulls: bool,
     search_fn: F,
 ) -> VortexResult<(BufferMut<u64>, BufferMut<u64>)> {
@@ -1295,7 +1295,7 @@ mod test {
 
         let taken = patches
             .take_search(
-                PrimitiveArray::new(buffer![9, 0], Validity::from_iter([true, false])),
+                &PrimitiveArray::new(buffer![9, 0], Validity::from_iter([true, false])),
                 true,
                 &mut LEGACY_SESSION.create_execution_ctx(),
             )
@@ -1329,7 +1329,7 @@ mod test {
 
         let taken = patches
             .take_search(
-                PrimitiveArray::new(buffer![500, 1200, 999], Validity::AllValid),
+                &PrimitiveArray::new(buffer![500, 1200, 999], Validity::AllValid),
                 true,
                 &mut LEGACY_SESSION.create_execution_ctx(),
             )
@@ -1356,7 +1356,7 @@ mod test {
 
         let taken = patches
             .take_search(
-                PrimitiveArray::new(buffer![3, 4, 5], Validity::AllValid),
+                &PrimitiveArray::new(buffer![3, 4, 5], Validity::AllValid),
                 true,
                 &mut LEGACY_SESSION.create_execution_ctx(),
             )
@@ -1378,7 +1378,7 @@ mod test {
 
         let taken = patches
             .take_search(
-                PrimitiveArray::new(buffer![10, 15, 20, 99], Validity::AllValid),
+                &PrimitiveArray::new(buffer![10, 15, 20, 99], Validity::AllValid),
                 true,
                 &mut LEGACY_SESSION.create_execution_ctx(),
             )
@@ -1405,7 +1405,7 @@ mod test {
 
         let taken = patches
             .take_search(
-                PrimitiveArray::new(BufferMut::from_iter(0..1500u64), Validity::AllValid),
+                &PrimitiveArray::new(BufferMut::from_iter(0..1500u64), Validity::AllValid),
                 false,
                 &mut LEGACY_SESSION.create_execution_ctx(),
             )

@@ -5,8 +5,9 @@ use std::marker::PhantomData;
 
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::PrimitiveArrayParts;
 use vortex::array::match_each_native_ptype;
-use vortex::array::vtable::ValidityHelper;
+use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
@@ -29,18 +30,22 @@ pub fn new_exporter(
     array: PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let validity = array
-        .validity()
-        .to_array(array.len())
-        .execute::<Mask>(ctx)?;
+    let array_len = array.len();
+    let PrimitiveArrayParts {
+        ptype,
+        buffer,
+        validity,
+    } = array.into_parts();
+
+    let validity = validity.to_array(array_len).execute::<Mask>(ctx)?;
 
     if validity.all_false() {
-        let ltype = LogicalType::try_from(array.ptype())?;
-        return Ok(all_invalid::new_exporter(array.len(), &ltype));
+        let ltype = LogicalType::try_from(ptype)?;
+        return Ok(all_invalid::new_exporter(array_len, &ltype));
     }
 
-    match_each_native_ptype!(array.ptype(), |T| {
-        let buffer = array.to_buffer::<T>();
+    match_each_native_ptype!(ptype, |T| {
+        let buffer = Buffer::<T>::from_byte_buffer(buffer.to_host_sync());
         let prim = Box::new(PrimitiveExporter {
             len: buffer.len(),
             start: buffer.as_ptr(),

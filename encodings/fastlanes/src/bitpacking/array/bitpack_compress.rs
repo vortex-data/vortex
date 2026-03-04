@@ -6,7 +6,9 @@ use itertools::Itertools;
 use num_traits::PrimInt;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
@@ -105,22 +107,34 @@ pub unsafe fn bitpack_encode_unchecked(
     // SAFETY: non-negativity of input checked by caller.
     let packed = unsafe { bitpack_unchecked(&array, bit_width)? };
 
+    let nullability = array.dtype().nullability();
+
+    let len = array.len();
+    let stats = array.statistics().to_owned();
+
+    let PrimitiveArrayParts {
+        ptype,
+        buffer: _,
+        validity,
+    } = array.into_parts();
+
     // SAFETY: checked by bitpack_unchecked
     let bitpacked = unsafe {
         BitPackedArray::new_unchecked(
             BufferHandle::new_host(packed),
-            array.dtype().clone(),
-            array.validity().clone(),
+            DType::from(ptype).with_nullability(nullability),
+            validity,
             None,
             bit_width,
-            array.len(),
+            len,
             0,
         )
     };
-    bitpacked
-        .stats_set
-        .to_ref(bitpacked.as_ref())
-        .inherit_from(array.statistics());
+
+    for (stat, value) in stats.into_iter() {
+        bitpacked.stats_set.set(stat, value);
+    }
+
     Ok(bitpacked)
 }
 
@@ -220,7 +234,7 @@ pub fn gather_patches(
                 bit_width,
                 num_exceptions_hint,
                 patch_validity,
-                validity_mask,
+                &validity_mask,
             )?
         })
     } else if array_len < u16::MAX as usize {
@@ -230,7 +244,7 @@ pub fn gather_patches(
                 bit_width,
                 num_exceptions_hint,
                 patch_validity,
-                validity_mask,
+                &validity_mask,
             )?
         })
     } else if array_len < u32::MAX as usize {
@@ -240,7 +254,7 @@ pub fn gather_patches(
                 bit_width,
                 num_exceptions_hint,
                 patch_validity,
-                validity_mask,
+                &validity_mask,
             )?
         })
     } else {
@@ -250,7 +264,7 @@ pub fn gather_patches(
                 bit_width,
                 num_exceptions_hint,
                 patch_validity,
-                validity_mask,
+                &validity_mask,
             )?
         })
     };
@@ -263,7 +277,7 @@ fn gather_patches_impl<T, P>(
     bit_width: u8,
     num_exceptions_hint: usize,
     patch_validity: Validity,
-    validity_mask: Mask,
+    validity_mask: &Mask,
 ) -> VortexResult<Option<Patches>>
 where
     T: PrimInt + NativePType,

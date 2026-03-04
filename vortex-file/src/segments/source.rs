@@ -73,7 +73,7 @@ impl FileSegmentSource {
     pub fn open<R: VortexReadAt + Clone>(
         segments: Arc<[SegmentSpec]>,
         reader: R,
-        handle: Handle,
+        handle: &Handle,
         metrics: RequestMetrics,
     ) -> Self {
         let (send, recv) = mpsc::unbounded();

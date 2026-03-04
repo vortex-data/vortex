@@ -125,7 +125,7 @@ pub fn upcast_decimal_values(
     match_each_decimal_value_type!(from_values_type, |F| {
         let from_buffer = array.buffer::<F>();
         match_each_decimal_value_type!(to_values_type, |T| {
-            let to_buffer = upcast_decimal_buffer::<F, T>(from_buffer);
+            let to_buffer = upcast_decimal_buffer::<F, T>(&from_buffer);
             Ok(DecimalArray::new(to_buffer, decimal_dtype, validity))
         })
     })
@@ -133,7 +133,9 @@ pub fn upcast_decimal_values(
 
 /// Upcast a buffer of decimal values from type F to type T.
 /// Since T is wider than F, this conversion never fails.
-fn upcast_decimal_buffer<F: NativeDecimalType, T: NativeDecimalType>(from: Buffer<F>) -> Buffer<T> {
+fn upcast_decimal_buffer<F: NativeDecimalType, T: NativeDecimalType>(
+    from: &Buffer<F>,
+) -> Buffer<T> {
     from.iter()
         .map(|&v| T::from(v).vortex_expect("upcast should never fail"))
         .collect()

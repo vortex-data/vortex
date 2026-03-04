@@ -15,7 +15,7 @@ pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> Primi
     let validity = array
         .validity()
         .vortex_expect("missing PrimitiveArray validity");
-    let filtered_validity = filter_validity(validity, mask);
+    let filtered_validity = filter_validity(&validity, mask);
 
     match_each_native_ptype!(array.ptype(), |T| {
         let filtered_buffer = buffer::filter_buffer(array.to_buffer::<T>(), mask.as_ref());

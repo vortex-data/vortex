@@ -151,7 +151,7 @@ impl PlanBuilderState<'_> {
         } else if id == RunEndVTable::ID {
             self.walk_runend(array)
         } else if id == PrimitiveVTable::ID {
-            self.walk_primitive(array)
+            self.walk_primitive(&array)
         } else {
             vortex_bail!(
                 "Encoding {:?} not supported by dynamic dispatch plan builder",
@@ -161,7 +161,7 @@ impl PlanBuilderState<'_> {
     }
 
     /// Canonical primitive array → LOAD source op.
-    fn walk_primitive(&mut self, array: ArrayRef) -> VortexResult<Pipeline> {
+    fn walk_primitive(&mut self, array: &ArrayRef) -> VortexResult<Pipeline> {
         let prim = array.to_canonical()?.into_primitive();
         let PrimitiveArrayParts { buffer, .. } = prim.into_parts();
         let device_buf = block_on(self.ctx.ensure_on_device(buffer))?;
