@@ -72,12 +72,12 @@ vortex-datafusion = { workspace = true, optional = true }
 
 # WASM-only dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-console_error_panic_hook = { workspace = true }
-js-sys = { workspace = true }
-ratzilla = { workspace = true }
-wasm-bindgen = { workspace = true }
+console_error_panic_hook = "0.1.7"
+js-sys = "0.3.81"
+ratzilla = "0.3"
+wasm-bindgen = "0.2"
 wasm-bindgen-futures = { workspace = true }
-web-sys = { workspace = true, features = [
+web-sys = { version = "0.3.81", features = [
     "console",
     "DataTransfer",
     "Document",
