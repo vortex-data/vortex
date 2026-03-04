@@ -245,7 +245,7 @@ impl CompactionStrategy {
             CompactionStrategy::CudaCompatible => options.with_strategy(
                 WriteStrategyBuilder::default()
                     .with_cuda_compatible_encodings()
-                    .with_segment_size_bytes(CUDA_SEGMENT_SIZE_BYTES)
+                    .with_segment_size_bytes(cuda_segment_size_bytes())
                     .with_flat_strategy(Arc::new(
                         vortex_cuda::layout::CudaFlatLayoutStrategy::default(),
                     ))
@@ -279,10 +279,18 @@ pub enum BenchmarkArg {
 
 /// Default scale factor for TPC-related benchmarks
 const DEFAULT_SCALE_FACTOR: &str = "1.0";
-const CUDA_SEGMENT_SIZE_BYTES: u64 = 128 * 1024 * 1024;
+const DEFAULT_CUDA_SEGMENT_SIZE_BYTES: u64 = 128 * 1024 * 1024;
 
 const SCALE_FACTOR_KEY: &str = "scale-factor";
 const REMOTE_DATA_KEY: &str = "remote-data-dir";
+
+fn cuda_segment_size_bytes() -> u64 {
+    std::env::var("VORTEX_CUDA_SEGMENT_SIZE_BYTES")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(DEFAULT_CUDA_SEGMENT_SIZE_BYTES)
+}
 
 /// Factory function to create a benchmark instance from CLI arguments.
 pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn Benchmark>> {
