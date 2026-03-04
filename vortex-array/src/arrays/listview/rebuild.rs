@@ -298,6 +298,8 @@ impl ListViewArray {
             // Cast both to a common type as required by `Operator::Add`.
             let offsets_ptype = self.offsets().dtype().as_ptype();
             let sizes_ptype = self.sizes().dtype().as_ptype();
+            assert!(offsets_ptype.is_unsigned_int() == sizes_ptype.is_unsigned_int());
+
             let common = DType::Primitive(
                 if offsets_ptype.byte_width() >= sizes_ptype.byte_width() {
                     offsets_ptype
