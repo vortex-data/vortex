@@ -43,3 +43,7 @@ rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-metal = { path = ".", features = ["_test-harness"] }
+
+[[bench]]
+name = "for_metal"
+harness = false
