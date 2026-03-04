@@ -93,7 +93,12 @@ pub fn render_app(app: &mut AppState, frame: &mut Frame<'_>) {
 
     let tabs = Tabs::new(tab_names)
         .style(Style::default().bold().white())
-        .highlight_style(Style::default().bold().fg(Color::Rgb(16, 16, 16)).bg(Color::Rgb(89, 113, 253)))
+        .highlight_style(
+            Style::default()
+                .bold()
+                .fg(Color::Rgb(16, 16, 16))
+                .bg(Color::Rgb(89, 113, 253)),
+        )
         .select(Some(selected_tab));
 
     frame.render_widget(tabs, tab_view);

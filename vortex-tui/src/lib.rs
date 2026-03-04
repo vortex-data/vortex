@@ -10,13 +10,15 @@
 //!
 //! ```ignore
 //! use vortex::session::VortexSession;
-//! use vortex::io::runtime::current::CurrentThreadRuntime;
 //! use vortex::io::session::RuntimeSessionExt;
 //! use vortex_tui::browse;
 //!
-//! let runtime = CurrentThreadRuntime::new();
-//! let session = VortexSession::default().with_handle(runtime.handle());
-//! runtime.block_on(browse::exec_tui(&session, "my_file.vortex"))?;
+//! #[tokio::main]
+//! async fn main() -> anyhow::Result<()> {
+//!     let session = VortexSession::default().with_tokio();
+//!     browse::exec_tui(&session, "my_file.vortex").await?;
+//!     Ok(())
+//! }
 //! ```
 
 #![deny(clippy::missing_errors_doc)]

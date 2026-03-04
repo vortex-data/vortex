@@ -5,10 +5,9 @@
 
 use std::sync::Arc;
 
-use futures::executor::block_on;
 use ratatui::prelude::Size;
 use ratatui::widgets::ListState;
-use vortex::array::serde::ArrayParts;
+use vortex::array::ArrayRef;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -112,21 +111,6 @@ impl LayoutCursor {
         path.pop();
 
         Self::new_with_path(self.footer.clone(), self.segment_source.clone(), path)
-    }
-
-    /// Get the size of the array flatbuffer for this layout.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the current layout is not a [`FlatVTable`] layout.
-    pub fn flatbuffer_size(&self) -> usize {
-        let segment_id = self.layout.as_::<FlatVTable>().segment_id();
-        let segment = block_on(self.segment_source.request(segment_id))
-            .vortex_expect("operation should succeed in TUI");
-        ArrayParts::try_from(segment)
-            .vortex_expect("operation should succeed in TUI")
-            .metadata()
-            .len()
     }
 
     /// Get a human-readable description of the flat layout metadata.
@@ -257,6 +241,12 @@ pub struct AppState {
     /// Vertical scroll offset for the encoding tree display in flat layout view.
     pub tree_scroll_offset: u16,
 
+    /// Cached array data for the current FlatLayout, loaded asynchronously on WASM.
+    pub cached_flat_array: Option<ArrayRef>,
+
+    /// Cached flatbuffer size for the current FlatLayout, loaded asynchronously on WASM.
+    pub cached_flatbuffer_size: Option<usize>,
+
     /// State for the Query tab.
     #[cfg(not(target_arch = "wasm32"))]
     pub query_state: super::ui::QueryState,
@@ -302,6 +292,8 @@ impl AppState {
             segment_grid_state: SegmentGridState::default(),
             frame_size: Size::new(0, 0),
             tree_scroll_offset: 0,
+            cached_flat_array: None,
+            cached_flatbuffer_size: None,
             query_state: super::ui::QueryState::default(),
             file_path,
         })
@@ -334,6 +326,8 @@ impl AppState {
             segment_grid_state: SegmentGridState::default(),
             frame_size: Size::new(0, 0),
             tree_scroll_offset: 0,
+            cached_flat_array: None,
+            cached_flatbuffer_size: None,
         })
     }
 
@@ -346,8 +340,55 @@ impl AppState {
     /// Reset the layout view state after navigating to a different layout.
     ///
     /// This resets the list selection to the first item and clears any scroll offset.
+    /// The caller is responsible for awaiting [`load_flat_data()`] afterward if the
+    /// new layout is a [`FlatVTable`].
     pub fn reset_layout_view_state(&mut self) {
         self.layouts_list_state = ListState::default().with_selected(Some(0));
         self.tree_scroll_offset = 0;
+        self.cached_flat_array = None;
+        self.cached_flatbuffer_size = None;
+    }
+
+    /// Asynchronously load and cache the flat layout array data and flatbuffer size.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) async fn load_flat_data(&mut self) {
+        use vortex::array::MaskFuture;
+        use vortex::array::serde::ArrayParts;
+        use vortex::expr::root;
+
+        let layout = &self.cursor.layout().clone();
+        let row_count = layout.row_count();
+
+        // Load the array.
+        let reader = layout
+            .new_reader("".into(), self.vxf.segment_source(), &self.session)
+            .vortex_expect("Failed to create reader");
+        let array = reader
+            .projection_evaluation(
+                &(0..row_count),
+                &root(),
+                MaskFuture::new_true(
+                    usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
+                ),
+            )
+            .vortex_expect("Failed to construct projection")
+            .await
+            .vortex_expect("Failed to read flat array");
+        self.cached_flat_array = Some(array);
+
+        // Load the flatbuffer size.
+        let segment_id = layout.as_::<FlatVTable>().segment_id();
+        let segment = self
+            .cursor
+            .segment_source
+            .request(segment_id)
+            .await
+            .vortex_expect("Failed to read segment");
+        self.cached_flatbuffer_size = Some(
+            ArrayParts::try_from(segment)
+                .vortex_expect("Failed to parse segment")
+                .metadata()
+                .len(),
+        );
     }
 }

@@ -78,9 +78,7 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
                 (InputKeyCode::Enter, ..) => {
                     app.query_state.sort_column = None;
                     app.query_state.sort_direction = SortDirection::None;
-                    let file_path = app.file_path.clone();
-                    app.query_state
-                        .execute_initial_query(&app.session, &file_path);
+                    app.query_state.prepare_initial_query();
                     app.query_state.focus = QueryFocus::ResultsTable;
                 }
                 (InputKeyCode::Left, ..) => app.query_state.move_cursor_left(),
@@ -123,16 +121,14 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
         #[cfg(not(target_arch = "wasm32"))]
         (InputKeyCode::Char('['), false, false, _) => {
             if app.current_tab == Tab::Query {
-                app.query_state
-                    .prev_page(&app.session, &app.file_path.clone());
+                app.query_state.prepare_prev_page();
             }
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         (InputKeyCode::Char(']'), false, false, _) => {
             if app.current_tab == Tab::Query {
-                app.query_state
-                    .next_page(&app.session, &app.file_path.clone());
+                app.query_state.prepare_next_page();
             }
         }
 
@@ -162,8 +158,7 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
                 Tab::Segments => app.segment_grid_state.scroll_up(SEGMENT_SCROLL_PAGE),
                 #[cfg(not(target_arch = "wasm32"))]
                 Tab::Query => {
-                    app.query_state
-                        .prev_page(&app.session, &app.file_path.clone());
+                    app.query_state.prepare_prev_page();
                 }
             }
         }
@@ -173,8 +168,7 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
                 Tab::Segments => app.segment_grid_state.scroll_down(SEGMENT_SCROLL_PAGE),
                 #[cfg(not(target_arch = "wasm32"))]
                 Tab::Query => {
-                    app.query_state
-                        .next_page(&app.session, &app.file_path.clone());
+                    app.query_state.prepare_next_page();
                 }
             }
         }
@@ -254,8 +248,7 @@ pub(crate) fn handle_normal_mode(app: &mut AppState, event: InputEvent) -> Handl
         (InputKeyCode::Char('s'), false, false, _) => {
             if app.current_tab == Tab::Query {
                 let col = app.query_state.selected_column();
-                app.query_state
-                    .apply_sort(&app.session, col, &app.file_path);
+                app.query_state.prepare_sort(col);
             }
         }
 
@@ -355,9 +348,10 @@ pub(crate) fn handle_search_mode(app: &mut AppState, event: InputEvent) -> Handl
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
-    use crossterm::event;
     use crossterm::event::Event;
+    use crossterm::event::EventStream;
     use crossterm::event::KeyEventKind;
+    use futures::StreamExt;
     use ratatui::DefaultTerminal;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
@@ -366,10 +360,43 @@ mod native {
     use super::*;
 
     async fn run(mut terminal: DefaultTerminal, mut app: AppState) -> VortexResult<()> {
+        // Eagerly load data if the initial layout is flat.
+        if app.cursor.layout().is::<FlatVTable>() {
+            app.load_flat_data().await;
+        }
+
+        let mut events = EventStream::new();
         loop {
             terminal.draw(|frame| render_app(&mut app, frame))?;
 
-            let raw_event = event::read()?;
+            // Take the pending query receiver so we can select! on it
+            // without holding a mutable borrow on app.
+            let pending_rx = app.query_state.pending_rx.take();
+
+            let event = if let Some(mut rx) = pending_rx {
+                tokio::select! {
+                    event = events.next() => {
+                        // No query result yet — put the receiver back.
+                        app.query_state.pending_rx = Some(rx);
+                        event
+                    }
+                    result = &mut rx => {
+                        if let Ok(result) = result {
+                            app.query_state.apply_query_result(result);
+                        }
+                        // Re-render immediately to show updated results.
+                        continue;
+                    }
+                }
+            } else {
+                events.next().await
+            };
+
+            let Some(raw_event) = event else {
+                break;
+            };
+            let raw_event = raw_event?;
+
             if let Event::Key(key) = raw_event {
                 if key.kind != KeyEventKind::Press {
                     continue;
@@ -384,8 +411,17 @@ mod native {
                 if matches!(result, HandleResult::Exit) {
                     return Ok(());
                 }
+
+                // After handling, load flat data if we navigated to a FlatLayout.
+                if app.cursor.layout().is::<FlatVTable>() && app.cached_flat_array.is_none() {
+                    app.load_flat_data().await;
+                }
+
+                // Spawn any pending query execution as a background task.
+                app.query_state.spawn_pending(&app.session, &app.file_path);
             }
         }
+        Ok(())
     }
 
     /// Launch the interactive TUI browser for a Vortex file.

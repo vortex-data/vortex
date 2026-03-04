@@ -94,8 +94,6 @@ pub fn vortex_tui::browse::app::LayoutCursor::dtype(&self) -> &vortex_array::dty
 
 pub fn vortex_tui::browse::app::LayoutCursor::flat_layout_metadata_info(&self) -> alloc::string::String
 
-pub fn vortex_tui::browse::app::LayoutCursor::flatbuffer_size(&self) -> usize
-
 pub fn vortex_tui::browse::app::LayoutCursor::is_stats_table(&self) -> bool
 
 pub fn vortex_tui::browse::app::LayoutCursor::layout(&self) -> &vortex_layout::layout::LayoutRef
