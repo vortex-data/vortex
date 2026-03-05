@@ -168,7 +168,7 @@ mod test {
             buffer![0, 3, 4],
             Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
         );
-        let actual = values.take(indices.to_array()).unwrap();
+        let actual = values.take(indices.into_array()).unwrap();
         assert_eq!(
             actual.scalar_at(0).vortex_expect("no fail"),
             Scalar::from(Some(1))
@@ -197,6 +197,6 @@ mod test {
     ))]
     #[case(PrimitiveArray::from_option_iter([Some(1), None, Some(3), Some(4), None]))]
     fn test_take_primitive_conformance(#[case] array: PrimitiveArray) {
-        test_take_conformance(&array.to_array());
+        test_take_conformance(&array.into_array());
     }
 }
