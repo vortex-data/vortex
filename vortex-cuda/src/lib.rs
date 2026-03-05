@@ -74,13 +74,12 @@ use vortex::encodings::zigzag::ZigZagVTable;
 #[cfg(feature = "unstable_encodings")]
 use vortex::encodings::zstd::ZstdBuffersVTable;
 use vortex::encodings::zstd::ZstdVTable;
+#[cfg(test)]
+use vortex_cuda_macros::test;
 pub use vortex_nvcomp as nvcomp;
 
 use crate::kernel::SequenceExecutor;
 use crate::kernel::SliceExecutor;
-
-#[cfg(test)]
-use vortex_cuda_macros::test;
 
 /// Checks if CUDA is available on the system by looking for nvcc.
 pub fn cuda_available() -> bool {
