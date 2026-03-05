@@ -118,6 +118,10 @@ impl VTable for ChunkedVTable {
 #[derive(Debug)]
 pub struct ChunkedLayoutEncoding;
 
+/// Partitions a column into row-based chunks so that each chunk can be read independently.
+///
+/// Used to break large columns into smaller pieces for parallel I/O and to limit memory
+/// usage when scanning.
 #[derive(Clone, Debug)]
 pub struct ChunkedLayout {
     row_count: u64,
