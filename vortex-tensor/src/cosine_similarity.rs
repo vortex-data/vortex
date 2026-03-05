@@ -7,9 +7,9 @@ use std::fmt::Formatter;
 
 use num_traits::Float;
 use vortex::array::ArrayRef;
+use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
-use vortex::array::ToCanonical;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::ConstantVTable;
 use vortex::array::arrays::ExtensionVTable;
@@ -150,8 +150,8 @@ impl ScalarFnVTable for CosineSimilarity {
         // Extract the flat primitive elements from each tensor column. When an input is a
         // `ConstantArray` (e.g., a literal query vector), we materialize only a single row
         // instead of expanding it to the full row count.
-        let (lhs_elems, lhs_stride) = extract_flat_elements(&lhs_storage, list_size);
-        let (rhs_elems, rhs_stride) = extract_flat_elements(&rhs_storage, list_size);
+        let (lhs_elems, lhs_stride) = extract_flat_elements(&lhs_storage, list_size)?;
+        let (rhs_elems, rhs_stride) = extract_flat_elements(&rhs_storage, list_size)?;
 
         match_each_float_ptype!(lhs_elems.ptype(), |T| {
             let lhs_slice = lhs_elems.as_slice::<T>();
@@ -186,8 +186,8 @@ impl ScalarFnVTable for CosineSimilarity {
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
-        // TODO(connor): Is this correct since we need to canonicalize?
-        false
+        // Canonicalization of the storage arrays can fail.
+        true
     }
 }
 
@@ -204,17 +204,22 @@ fn extension_storage(array: &ArrayRef) -> VortexResult<ArrayRef> {
 /// When the input is a [`ConstantArray`] (e.g., a literal query vector), only a single row is
 /// materialized to avoid expanding it to the full column length. Returns `(elements, stride)`
 /// where `stride` is `list_size` for a full array and `0` for a constant.
-fn extract_flat_elements(storage: &ArrayRef, list_size: usize) -> (PrimitiveArray, usize) {
+fn extract_flat_elements(
+    storage: &ArrayRef,
+    list_size: usize,
+) -> VortexResult<(PrimitiveArray, usize)> {
     if let Some(constant) = storage.as_opt::<ConstantVTable>() {
         // Rewrite the array as a length 1 array so when we canonicalize, we do not duplicate a
         // huge amount of data.
         let single = ConstantArray::new(constant.scalar().clone(), 1).into_array();
-        let elems = single.to_fixed_size_list().elements().to_primitive();
-        (elems, 0)
+        let fsl = single.to_canonical()?.into_fixed_size_list();
+        let elems = fsl.elements().to_canonical()?.into_primitive();
+        Ok((elems, 0))
     } else {
         // Otherwise we have to fully expand all of the data.
-        let elems = storage.to_fixed_size_list().elements().to_primitive();
-        (elems, list_size)
+        let fsl = storage.to_canonical()?.into_fixed_size_list();
+        let elems = fsl.elements().to_canonical()?.into_primitive();
+        Ok((elems, list_size))
     }
 }
 
