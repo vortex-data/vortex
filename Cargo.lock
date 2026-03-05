@@ -10449,8 +10449,7 @@ name = "vortex-tensor"
 version = "0.1.0"
 dependencies = [
  "itertools 0.14.0",
- "serde",
- "serde_json",
+ "prost 0.14.3",
  "vortex",
 ]
 

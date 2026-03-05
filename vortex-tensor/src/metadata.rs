@@ -67,6 +67,16 @@ impl FixedShapeTensorMetadata {
         &self.logical_shape
     }
 
+    /// Returns the dimension names, if set.
+    pub fn dim_names(&self) -> Option<&[String]> {
+        self.dim_names.as_deref()
+    }
+
+    /// Returns the permutation, if set.
+    pub fn permutation(&self) -> Option<&[usize]> {
+        self.permutation.as_deref()
+    }
+
     /// Returns an iterator over the physical shape of the tensor.
     ///
     /// The physical shape describes the row-major memory layout. It is derived from the logical

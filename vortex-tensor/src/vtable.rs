@@ -12,6 +12,7 @@ use vortex::scalar::ScalarValue;
 
 use crate::FixedShapeTensor;
 use crate::FixedShapeTensorMetadata;
+use crate::proto;
 
 impl ExtVTable for FixedShapeTensor {
     type Metadata = FixedShapeTensorMetadata;
@@ -20,15 +21,15 @@ impl ExtVTable for FixedShapeTensor {
     type NativeValue<'a> = &'a ScalarValue;
 
     fn id(&self) -> ExtId {
-        ExtId::new_ref("vortex.tensor")
+        ExtId::new_ref("vortex.fixedshapetensor")
     }
 
-    fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        todo!()
+    fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+        Ok(proto::serialize(metadata))
     }
 
-    fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        todo!()
+    fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
+        proto::deserialize(metadata)
     }
 
     fn validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()> {
@@ -70,5 +71,56 @@ impl ExtVTable for FixedShapeTensor {
         // type for a singular tensor, we do not need to validate anything as any backing memory
         // should be valid for a given tensor.
         Ok(storage_value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex::dtype::extension::ExtVTable;
+    use vortex::error::VortexResult;
+
+    use crate::FixedShapeTensor;
+    use crate::FixedShapeTensorMetadata;
+
+    fn assert_roundtrip(metadata: &FixedShapeTensorMetadata) -> VortexResult<()> {
+        let vtable = FixedShapeTensor;
+        let bytes = vtable.serialize_metadata(metadata)?;
+        let deserialized = vtable.deserialize_metadata(&bytes)?;
+        assert_eq!(&deserialized, metadata);
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrip_shape_only() -> VortexResult<()> {
+        assert_roundtrip(&FixedShapeTensorMetadata::new(vec![2, 3, 4]))
+    }
+
+    #[test]
+    fn roundtrip_with_permutation() -> VortexResult<()> {
+        assert_roundtrip(
+            &FixedShapeTensorMetadata::new(vec![2, 3, 4]).with_permutation(vec![2, 0, 1]),
+        )
+    }
+
+    #[test]
+    fn roundtrip_with_dim_names() -> VortexResult<()> {
+        assert_roundtrip(
+            &FixedShapeTensorMetadata::new(vec![3, 4])
+                .with_dim_names(vec!["rows".into(), "cols".into()]),
+        )
+    }
+
+    #[test]
+    fn roundtrip_all_fields() -> VortexResult<()> {
+        assert_roundtrip(
+            &FixedShapeTensorMetadata::new(vec![2, 3, 4])
+                .with_dim_names(vec!["x".into(), "y".into(), "z".into()])
+                .with_permutation(vec![1, 2, 0]),
+        )
+    }
+
+    #[test]
+    fn roundtrip_scalar_0d() -> VortexResult<()> {
+        assert_roundtrip(&FixedShapeTensorMetadata::new(vec![]))
     }
 }

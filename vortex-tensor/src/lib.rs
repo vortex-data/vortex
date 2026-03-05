@@ -6,6 +6,7 @@
 mod metadata;
 pub use metadata::FixedShapeTensorMetadata;
 
+mod proto;
 mod vtable;
 
 /// The VTable for the Tensor extension type.
