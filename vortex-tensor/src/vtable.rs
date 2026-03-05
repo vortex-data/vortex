@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn roundtrip_with_permutation() -> VortexResult<()> {
         assert_roundtrip(
-            &FixedShapeTensorMetadata::new(vec![2, 3, 4]).with_permutation(vec![2, 0, 1]),
+            &FixedShapeTensorMetadata::new(vec![2, 3, 4]).with_permutation(vec![2, 0, 1])?,
         )
     }
 
@@ -106,7 +106,7 @@ mod tests {
     fn roundtrip_with_dim_names() -> VortexResult<()> {
         assert_roundtrip(
             &FixedShapeTensorMetadata::new(vec![3, 4])
-                .with_dim_names(vec!["rows".into(), "cols".into()]),
+                .with_dim_names(vec!["rows".into(), "cols".into()])?,
         )
     }
 
@@ -114,8 +114,8 @@ mod tests {
     fn roundtrip_all_fields() -> VortexResult<()> {
         assert_roundtrip(
             &FixedShapeTensorMetadata::new(vec![2, 3, 4])
-                .with_dim_names(vec!["x".into(), "y".into(), "z".into()])
-                .with_permutation(vec![1, 2, 0]),
+                .with_dim_names(vec!["x".into(), "y".into(), "z".into()])?
+                .with_permutation(vec![1, 2, 0])?,
         )
     }
 

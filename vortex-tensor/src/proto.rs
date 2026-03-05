@@ -79,11 +79,11 @@ pub(crate) fn deserialize(bytes: &[u8]) -> VortexResult<FixedShapeTensorMetadata
     // Note that this is fine for 0 dimensions since if we do not have any dimensions, we cannot
     // have any names or permutations.
     if !proto.dim_names.is_empty() {
-        m = m.with_dim_names(proto.dim_names);
+        m = m.with_dim_names(proto.dim_names)?;
     }
     if !proto.permutation.is_empty() {
         let permutation = proto.permutation.into_iter().map(|i| i as usize).collect();
-        m = m.with_permutation(permutation);
+        m = m.with_permutation(permutation)?;
     }
 
     Ok(m)
