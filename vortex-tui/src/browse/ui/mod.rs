@@ -4,13 +4,18 @@
 //! UI rendering components for the TUI browser.
 
 mod layouts;
+#[cfg(feature = "native")]
 mod query;
 mod segments;
 
 use layouts::render_layouts;
+#[cfg(feature = "native")]
 pub use query::QueryFocus;
+#[cfg(feature = "native")]
 pub use query::QueryState;
+#[cfg(feature = "native")]
 pub use query::SortDirection;
+#[cfg(feature = "native")]
 use query::render_query;
 use ratatui::prelude::*;
 use ratatui::widgets::Block;
@@ -30,7 +35,7 @@ use crate::browse::ui::segments::segments_ui;
 /// - The outer border with title and help text
 /// - The tab bar showing available views
 /// - The content area for the currently selected tab
-pub fn render_app(app: &mut AppState<'_>, frame: &mut Frame<'_>) {
+pub fn render_app(app: &mut AppState, frame: &mut Frame<'_>) {
     // Render the outer tab view, then render the inner frame view.
     let bottom_text = if app.key_mode == KeyMode::Search {
         Line::from(format!(
@@ -47,7 +52,7 @@ pub fn render_app(app: &mut AppState<'_>, frame: &mut Frame<'_>) {
     let shell = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().magenta())
+        .border_style(Style::default().fg(Color::Rgb(89, 113, 253)))
         .title_top("Vortex Browser")
         .title_bottom(bottom_text)
         .title_alignment(Alignment::Center);
@@ -67,15 +72,33 @@ pub fn render_app(app: &mut AppState<'_>, frame: &mut Frame<'_>) {
     .areas(inner_area);
 
     // Display a tab indicator.
-    let selected_tab = match app.current_tab {
-        Tab::Layout => 0,
-        Tab::Segments => 1,
-        Tab::Query => 2,
+    #[cfg(feature = "native")]
+    let (selected_tab, tab_names) = {
+        let selected = match app.current_tab {
+            Tab::Layout => 0,
+            Tab::Segments => 1,
+            Tab::Query => 2,
+        };
+        (selected, vec!["File Layout", "Segments", "Query"])
     };
 
-    let tabs = Tabs::new(["File Layout", "Segments", "Query"])
+    #[cfg(not(feature = "native"))]
+    let (selected_tab, tab_names) = {
+        let selected = match app.current_tab {
+            Tab::Layout => 0,
+            Tab::Segments => 1,
+        };
+        (selected, vec!["File Layout", "Segments"])
+    };
+
+    let tabs = Tabs::new(tab_names)
         .style(Style::default().bold().white())
-        .highlight_style(Style::default().bold().black().on_white())
+        .highlight_style(
+            Style::default()
+                .bold()
+                .fg(Color::Rgb(16, 16, 16))
+                .bg(Color::Rgb(89, 113, 253)),
+        )
         .select(Some(selected_tab));
 
     frame.render_widget(tabs, tab_view);
@@ -86,6 +109,7 @@ pub fn render_app(app: &mut AppState<'_>, frame: &mut Frame<'_>) {
             render_layouts(app, app_view, frame.buffer_mut());
         }
         Tab::Segments => segments_ui(app, app_view, frame.buffer_mut()),
+        #[cfg(feature = "native")]
         Tab::Query => render_query(app, app_view, frame.buffer_mut()),
     }
 }

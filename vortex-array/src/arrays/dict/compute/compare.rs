@@ -5,8 +5,9 @@ use vortex_error::VortexResult;
 
 use super::DictArray;
 use super::DictVTable;
-use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
@@ -18,9 +19,9 @@ use crate::scalar_fn::fns::operators::Operator;
 impl CompareKernel for DictVTable {
     fn compare(
         lhs: &DictArray,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // if we have more values than codes, it is faster to canonicalise first.
         if lhs.values().len() > lhs.codes().len() {
@@ -30,7 +31,7 @@ impl CompareKernel for DictVTable {
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(rhs) = rhs.as_constant() {
             let compare_result = lhs.values().to_array().binary(
-                ConstantArray::new(rhs, lhs.values().len()).to_array(),
+                ConstantArray::new(rhs, lhs.values().len()).into_array(),
                 Operator::from(operator),
             )?;
 
@@ -42,7 +43,7 @@ impl CompareKernel for DictVTable {
             };
 
             // We canonicalize the result because dictionary-encoded bools is dumb.
-            return Ok(Some(result.to_canonical()?.into_array()));
+            return Ok(Some(result.execute::<Canonical>(ctx)?.into_array()));
         }
 
         // It's a little more complex, but we could perform a comparison against the dictionary

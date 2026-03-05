@@ -9,9 +9,9 @@ use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::BinaryView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
@@ -24,9 +24,9 @@ use crate::scalar_fn::fns::zip::ZipKernel;
 impl ZipKernel for VarBinViewVTable {
     fn zip(
         if_true: &VarBinViewArray,
-        if_false: &dyn Array,
-        mask: &Mask,
-        _ctx: &mut ExecutionCtx,
+        if_false: &ArrayRef,
+        mask: &ArrayRef,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(if_false) = if_false.as_opt::<VarBinViewVTable>() else {
             return Ok(None);
@@ -55,6 +55,7 @@ impl ZipKernel for VarBinViewVTable {
         let true_validity = if_true.validity_mask()?;
         let false_validity = if_false.validity_mask()?;
 
+        let mask = mask.try_to_mask_fill_null_false(ctx)?;
         match mask.slices() {
             AllOr::All => push_range(
                 if_true,
@@ -121,7 +122,7 @@ impl ZipKernel for VarBinViewVTable {
             )
         };
 
-        Ok(Some(array.to_array()))
+        Ok(Some(array.into_array()))
     }
 }
 
@@ -207,11 +208,11 @@ fn push_view(
 mod tests {
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinViewArray;
+    use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
-    #[expect(deprecated)]
-    use crate::compute::zip;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 
@@ -243,8 +244,12 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, false, true]);
 
-        #[expect(deprecated)]
-        let zipped = zip(a.as_ref(), b.as_ref(), &mask).unwrap().to_varbinview();
+        let zipped = mask
+            .clone()
+            .into_array()
+            .zip(a.into_array(), b.into_array())
+            .unwrap()
+            .to_varbinview();
 
         let values = zipped.with_iterator(|it| {
             it.map(|v| v.map(|bytes| String::from_utf8(bytes.to_vec()).unwrap()))

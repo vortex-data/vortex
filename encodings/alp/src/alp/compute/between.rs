@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
@@ -25,8 +24,8 @@ use crate::match_each_alp_float_ptype;
 impl BetweenReduce for ALPVTable {
     fn between(
         array: &ALPArray,
-        lower: &dyn Array,
-        upper: &dyn Array,
+        lower: &ArrayRef,
+        upper: &ArrayRef,
         options: &BetweenOptions,
     ) -> VortexResult<Option<ArrayRef>> {
         let (Some(lower), Some(upper)) = (lower.as_constant(), upper.as_constant()) else {

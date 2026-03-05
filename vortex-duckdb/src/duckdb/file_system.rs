@@ -39,14 +39,15 @@ pub(crate) fn fs_error(err: cpp::duckdb_vx_error) -> VortexError {
 
 /// An entry returned by [`duckdb_fs_list_dir`].
 pub(crate) struct DirEntry {
+    /// Full path for S3 files, relative path for local files
     pub name: String,
     pub is_dir: bool,
 }
 
 /// Non-recursively list entries in `directory` via DuckDB's filesystem.
 ///
-/// Returns file and subdirectory names (not full paths). The caller is
-/// responsible for joining paths and recursing into subdirectories.
+/// Returns full paths. The caller is responsible for joining paths and
+/// recursing into subdirectories.
 pub(crate) fn duckdb_fs_list_dir(
     ctx: &ClientContextRef,
     directory: &str,

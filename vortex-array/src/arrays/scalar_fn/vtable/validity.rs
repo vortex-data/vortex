@@ -13,8 +13,8 @@ use crate::arrays::scalar_fn::vtable::FakeEq;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::expr::Expression;
 use crate::expr::lit;
-use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFn;
+use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::root::Root;
 use crate::validity::Validity;
@@ -44,13 +44,9 @@ fn execute_expr(expr: &Expression, row_count: usize) -> VortexResult<ArrayRef> {
         .map(|child| execute_expr(child, row_count))
         .collect::<VortexResult<_>>()?;
 
-    let args = ExecutionArgs {
-        inputs,
-        row_count,
-        ctx: &mut ctx,
-    };
+    let args = VecExecutionArgs::new(inputs, row_count);
 
-    Ok(expr.scalar_fn().execute(args)?.into_array())
+    Ok(expr.scalar_fn().execute(&args, &mut ctx)?.into_array())
 }
 
 impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {

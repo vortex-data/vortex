@@ -2,24 +2,24 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::scalar_fn::fns::zip::ZipReduce;
+use crate::scalar_fn::fns::zip::ZipKernel;
 
 // Push down the zip call to the chunks. Without this rule
 // the default implementation canonicalises the chunked array
 // then zips once.
-impl ZipReduce for ChunkedVTable {
+impl ZipKernel for ChunkedVTable {
     fn zip(
         if_true: &ChunkedArray,
-        if_false: &dyn Array,
-        mask: &Mask,
+        if_false: &ArrayRef,
+        mask: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(if_false) = if_false.as_opt::<ChunkedVTable>() else {
             return Ok(None);
@@ -44,11 +44,11 @@ impl ZipReduce for ChunkedVTable {
             let rhs_rem = rhs_chunk.len() - rhs_offset;
             let take_until = lhs_rem.min(rhs_rem);
 
-            let mask_slice = mask.slice(pos..pos + take_until);
+            let mask_slice = mask.slice(pos..pos + take_until)?;
             let lhs_slice = lhs_chunk.slice(lhs_offset..lhs_offset + take_until)?;
             let rhs_slice = rhs_chunk.slice(rhs_offset..rhs_offset + take_until)?;
 
-            out_chunks.push(lhs_slice.zip(rhs_slice, mask_slice.into_array())?);
+            out_chunks.push(mask_slice.zip(lhs_slice, rhs_slice)?);
 
             pos += take_until;
             lhs_offset += take_until;
@@ -66,7 +66,7 @@ impl ZipReduce for ChunkedVTable {
 
         // SAFETY: chunks originate from zipping slices of inputs that share dtype/nullability.
         let chunked = unsafe { ChunkedArray::new_unchecked(out_chunks, dtype) };
-        Ok(Some(chunked.to_array()))
+        Ok(Some(chunked.into_array()))
     }
 }
 
@@ -75,12 +75,14 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
+    use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ChunkedVTable;
-    #[expect(deprecated)]
-    use crate::compute::zip;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -109,8 +111,15 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true, false, true]);
 
-        #[expect(deprecated)]
-        let zipped = zip(if_true.as_ref(), if_false.as_ref(), &mask).unwrap();
+        let zipped = &mask
+            .into_array()
+            .zip(if_true.into_array(), if_false.into_array())
+            .unwrap();
+        // One step of execution will push down the zip.
+        let zipped = zipped
+            .clone()
+            .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         let zipped = zipped
             .as_opt::<ChunkedVTable>()
             .expect("zip should keep chunked encoding");

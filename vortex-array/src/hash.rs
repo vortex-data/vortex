@@ -9,8 +9,8 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
 
@@ -86,15 +86,15 @@ mod private {
     impl<T: ArrayEq + ?Sized> SealedEq for T {}
 }
 
-impl ArrayHash for dyn Array + '_ {
+impl ArrayHash for dyn DynArray + '_ {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
         self.dyn_array_hash(state, precision);
     }
 }
 
-impl ArrayEq for dyn Array + '_ {
+impl ArrayEq for dyn DynArray + '_ {
     fn array_eq(&self, other: &Self, precision: Precision) -> bool {
-        self.dyn_array_eq(Array::as_any(other), precision)
+        self.dyn_array_eq(DynArray::as_any(other), precision)
     }
 }
 

@@ -3,6 +3,7 @@
 
 //! DuckDB context for benchmarks.
 
+use std::ops::Deref;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::time::Instant;
@@ -14,9 +15,11 @@ use vortex_bench::Benchmark;
 use vortex_bench::Format;
 use vortex_bench::IdempotentPath;
 use vortex_bench::generate_duckdb_registration_sql;
+use vortex_bench::runner::BenchmarkQueryResult;
 use vortex_duckdb::duckdb::Config;
 use vortex_duckdb::duckdb::Connection;
 use vortex_duckdb::duckdb::Database;
+use vortex_duckdb::duckdb::QueryResult;
 
 /// DuckDB context for benchmarks.
 pub struct DuckClient {
@@ -188,5 +191,33 @@ impl DuckClient {
         }
 
         Ok(())
+    }
+
+    /// Execute a query and return a `DuckQueryResult` wrapper.
+    pub fn execute_query_result(&self, query: &str) -> Result<(Option<Duration>, DuckQueryResult)> {
+        trace!("execute duckdb query: {query}");
+        let time_instant = Instant::now();
+        let result = self.connection().query(query)?;
+        let query_time = time_instant.elapsed();
+        Ok((Some(query_time), DuckQueryResult(result)))
+    }
+}
+
+/// Wrapper around DuckDB's `QueryResult` implementing `BenchmarkQueryResult`.
+pub struct DuckQueryResult(pub QueryResult);
+
+impl BenchmarkQueryResult for DuckQueryResult {
+    fn row_count(&self) -> usize {
+        usize::try_from(self.0.row_count()).unwrap_or(0)
+    }
+
+    fn display(self) -> String {
+        let mut output = String::new();
+        for chunk in self.0 {
+            let chunk_str =
+                String::try_from(chunk.deref()).unwrap_or_else(|_| "<error>".to_string());
+            output.push_str(&chunk_str);
+        }
+        output
     }
 }

@@ -197,7 +197,7 @@ impl WriteStrategyBuilder {
     pub fn with_cuda_compatible_encodings(mut self) -> Self {
         let mut builder = BtrBlocksCompressorBuilder::default()
             .exclude_int([IntCode::Sparse, IntCode::Rle])
-            .exclude_float([FloatCode::AlpRd, FloatCode::Rle, FloatCode::Sparse])
+            .exclude_float([FloatCode::Rle, FloatCode::Sparse])
             .exclude_string([StringCode::Dict, StringCode::Fsst]);
 
         #[cfg(feature = "unstable_encodings")]

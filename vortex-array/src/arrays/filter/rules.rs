@@ -4,9 +4,9 @@
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;

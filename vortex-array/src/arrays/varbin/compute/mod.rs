@@ -18,6 +18,7 @@ mod take;
 mod tests {
     use rstest::rstest;
 
+    use crate::IntoArray;
     use crate::arrays::VarBinArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::DType;
@@ -63,6 +64,6 @@ mod tests {
         DType::Utf8(Nullability::NonNullable),
     ))]
     fn test_varbin_consistency(#[case] array: VarBinArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.into_array());
     }
 }

@@ -6,6 +6,7 @@
 use std::str::from_utf8;
 
 use vortex_array::Canonical;
+use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
@@ -49,15 +50,16 @@ const LENGTH_AND_UNIQUE_VALUES: &[(usize, usize)] = &[
 #[divan::bench(args = LENGTH_AND_UNIQUE_VALUES)]
 fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, usize)) {
     let primitive_arr = gen_primitive_for_dict::<i32>(len, uniqueness);
-    let dict = dict_encode(primitive_arr.as_ref()).unwrap();
+    let dict = dict_encode(&primitive_arr.clone().into_array()).unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
     let session = VortexSession::empty();
 
     bencher
         .with_inputs(|| (&dict, session.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
-            dict.to_array()
-                .binary(ConstantArray::new(value, len).to_array(), Operator::Eq)
+            dict.clone()
+                .into_array()
+                .binary(ConstantArray::new(value, len).into_array(), Operator::Eq)
                 .unwrap()
                 .execute::<Canonical>(ctx)
                 .unwrap()
@@ -67,7 +69,7 @@ fn bench_compare_primitive(bencher: divan::Bencher, (len, uniqueness): (usize, u
 #[divan::bench(args = LENGTH_AND_UNIQUE_VALUES)]
 fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usize)) {
     let varbin_arr = VarBinArray::from(gen_varbin_words(len, uniqueness));
-    let dict = dict_encode(varbin_arr.as_ref()).unwrap();
+    let dict = dict_encode(&varbin_arr.clone().into_array()).unwrap();
     let bytes = varbin_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
     let session = VortexSession::empty();
@@ -75,8 +77,9 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usiz
     bencher
         .with_inputs(|| (&dict, session.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
-            dict.to_array()
-                .binary(ConstantArray::new(value, len).to_array(), Operator::Eq)
+            dict.clone()
+                .into_array()
+                .binary(ConstantArray::new(value, len).into_array(), Operator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -86,7 +89,7 @@ fn bench_compare_varbin(bencher: divan::Bencher, (len, uniqueness): (usize, usiz
 #[divan::bench(args = LENGTH_AND_UNIQUE_VALUES)]
 fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, usize)) {
     let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(len, uniqueness));
-    let dict = dict_encode(varbinview_arr.as_ref()).unwrap();
+    let dict = dict_encode(&varbinview_arr.clone().into_array()).unwrap();
     let bytes = varbinview_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
     let session = VortexSession::empty();
@@ -94,8 +97,9 @@ fn bench_compare_varbinview(bencher: divan::Bencher, (len, uniqueness): (usize, 
     bencher
         .with_inputs(|| (&dict, session.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
-            dict.to_array()
-                .binary(ConstantArray::new(value, len).to_array(), Operator::Eq)
+            dict.clone()
+                .into_array()
+                .binary(ConstantArray::new(value, len).into_array(), Operator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -120,7 +124,7 @@ fn bench_compare_sliced_dict_primitive(
     (codes_len, values_len): (usize, usize),
 ) {
     let primitive_arr = gen_primitive_for_dict::<i32>(codes_len.max(values_len), values_len);
-    let dict = dict_encode(primitive_arr.as_ref()).unwrap();
+    let dict = dict_encode(&primitive_arr.clone().into_array()).unwrap();
     let dict = dict.slice(0..codes_len).unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
     let session = VortexSession::empty();
@@ -141,7 +145,7 @@ fn bench_compare_sliced_dict_varbinview(
     (codes_len, values_len): (usize, usize),
 ) {
     let varbin_arr = VarBinArray::from(gen_varbin_words(codes_len.max(values_len), values_len));
-    let dict = dict_encode(varbin_arr.as_ref()).unwrap();
+    let dict = dict_encode(&varbin_arr.clone().into_array()).unwrap();
     let dict = dict.slice(0..codes_len).unwrap();
     let bytes = varbin_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();

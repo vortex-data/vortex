@@ -8,10 +8,10 @@ mod slice;
 use std::hash::Hash;
 
 use prost::Message as _;
-use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
@@ -325,7 +325,8 @@ impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::Array;
+    use vortex_array::DynArray;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
@@ -346,13 +347,13 @@ mod tests {
         let array = DecimalBytePartsArray::try_new(
             PrimitiveArray::new(
                 buffer![100i32, 200i32, 400i32],
-                Validity::Array(BoolArray::from_iter(vec![false, true, true]).to_array()),
+                Validity::Array(BoolArray::from_iter(vec![false, true, true]).into_array()),
             )
-            .to_array(),
+            .into_array(),
             decimal_dtype,
         )
         .unwrap()
-        .to_array();
+        .into_array();
 
         assert_eq!(Scalar::null(dtype.clone()), array.scalar_at(0).unwrap());
         assert_eq!(

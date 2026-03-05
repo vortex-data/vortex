@@ -12,13 +12,17 @@ pub fn vortex_zigzag::ZigZagArray::ptype(&self) -> vortex_array::dtype::ptype::P
 
 pub fn vortex_zigzag::ZigZagArray::try_new(encoded: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<Self>
 
+impl vortex_zigzag::ZigZagArray
+
+pub fn vortex_zigzag::ZigZagArray::to_array(&self) -> vortex_array::array::ArrayRef
+
 impl core::clone::Clone for vortex_zigzag::ZigZagArray
 
 pub fn vortex_zigzag::ZigZagArray::clone(&self) -> vortex_zigzag::ZigZagArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_zigzag::ZigZagArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_zigzag::ZigZagArray
 
-pub fn vortex_zigzag::ZigZagArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_zigzag::ZigZagArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_zigzag::ZigZagArray> for vortex_array::array::ArrayRef
 
@@ -30,7 +34,7 @@ pub fn vortex_zigzag::ZigZagArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) 
 
 impl core::ops::deref::Deref for vortex_zigzag::ZigZagArray
 
-pub type vortex_zigzag::ZigZagArray::Target = dyn vortex_array::array::Array
+pub type vortex_zigzag::ZigZagArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_zigzag::ZigZagArray::deref(&self) -> &Self::Target
 
@@ -50,7 +54,7 @@ pub fn vortex_zigzag::ZigZagVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>)
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_zigzag::ZigZagVTable
 
-pub fn vortex_zigzag::ZigZagVTable::take(array: &vortex_zigzag::ZigZagArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_zigzag::ZigZagVTable::take(array: &vortex_zigzag::ZigZagArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterReduce for vortex_zigzag::ZigZagVTable
 

@@ -9,8 +9,8 @@ use futures::Stream;
 use futures::stream;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::dtype::DType;
 
 mod adapter;
@@ -32,7 +32,7 @@ impl ArrayStream for SendableArrayStream {
     }
 }
 
-impl dyn Array + '_ {
+impl dyn DynArray + '_ {
     /// Create an [`ArrayStream`] over the array.
     pub fn to_array_stream(&self) -> impl ArrayStream + 'static {
         ArrayStreamAdapter::new(self.dtype().clone(), stream::iter(self.to_array_iterator()))

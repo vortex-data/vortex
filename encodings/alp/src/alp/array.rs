@@ -4,11 +4,11 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
@@ -285,7 +285,7 @@ pub struct ALPMetadata {
 
 impl ALPArray {
     fn validate(
-        encoded: &dyn Array,
+        encoded: &ArrayRef,
         exponents: Exponents,
         patches: Option<&Patches>,
     ) -> VortexResult<()> {
@@ -336,7 +336,7 @@ impl ALPArray {
     }
 
     /// Validate that any patches provided are valid for the ALPArray.
-    fn validate_patches<T: ALPFloat>(patches: &Patches, encoded: &dyn Array) -> VortexResult<()> {
+    fn validate_patches<T: ALPFloat>(patches: &Patches, encoded: &ArrayRef) -> VortexResult<()> {
         vortex_ensure!(
             patches.array_len() == encoded.len(),
             "patches array_len != encoded len: {} != {}",
@@ -494,6 +494,7 @@ mod tests {
     use rstest::rstest;
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -525,10 +526,15 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded).unwrap();
+        let expected =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -549,10 +555,15 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded).unwrap();
+        let expected =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -579,10 +590,15 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded).unwrap();
+        let expected =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -607,10 +623,15 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded).unwrap();
+        let expected =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -638,10 +659,15 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded).unwrap();
+        let expected =
+            decompress_into_array(encoded, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -782,7 +808,11 @@ mod tests {
         );
 
         // The legacy decompress_into_array path should work correctly.
-        let result_legacy = decompress_into_array(alp_without_chunk_offsets.clone()).unwrap();
+        let result_legacy = decompress_into_array(
+            alp_without_chunk_offsets.clone(),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap();
         let legacy_slice = result_legacy.as_slice::<f64>();
 
         // Verify the legacy path produces correct values.

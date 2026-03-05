@@ -15,10 +15,10 @@ pub use expr::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::compute::filter;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldName;
@@ -246,7 +246,7 @@ impl LayoutReader for RowIdxLayoutReader {
 
 // Returns a SequenceArray representing the row indices for the given row range,
 fn idx_array(row_offset: u64, row_range: &Range<u64>) -> SequenceArray {
-    SequenceArray::new(
+    SequenceArray::try_new(
         PValue::U64(row_offset + row_range.start),
         PValue::U64(1),
         PType::U64,
@@ -286,7 +286,7 @@ fn row_idx_array_future(
     let expr = expr.clone();
     async move {
         let array = idx_array(row_offset, &row_range).into_array();
-        let array = filter(&array, &mask.await?)?;
+        let array = array.filter(mask.await?)?.to_canonical()?.into_array();
         array.apply(&expr)
     }
     .boxed()

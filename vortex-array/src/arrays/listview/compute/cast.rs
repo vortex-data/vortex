@@ -20,11 +20,7 @@ impl CastReduce for ListViewVTable {
         };
 
         // Cast the elements to the target element type.
-        let new_elements = array
-            .elements()
-            .cast((**target_element_type).clone())?
-            .to_canonical()?
-            .into_array();
+        let new_elements = array.elements().cast((**target_element_type).clone())?;
         let validity = array
             .validity()
             .clone()

@@ -3,18 +3,14 @@
 
 //! Application state and data structures for the TUI browser.
 
-use std::path::Path;
 use std::sync::Arc;
 
-use futures::executor::block_on;
 use ratatui::prelude::Size;
 use ratatui::widgets::ListState;
-use vortex::array::serde::ArrayParts;
+use vortex::array::ArrayRef;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
-use vortex::error::VortexResult;
 use vortex::file::Footer;
-use vortex::file::OpenOptionsSessionExt;
 use vortex::file::SegmentSpec;
 use vortex::file::VortexFile;
 use vortex::layout::LayoutRef;
@@ -25,7 +21,6 @@ use vortex::layout::segments::SegmentId;
 use vortex::layout::segments::SegmentSource;
 use vortex::session::VortexSession;
 
-use super::ui::QueryState;
 use super::ui::SegmentGridState;
 
 /// The currently active tab in the TUI browser.
@@ -44,6 +39,7 @@ pub enum Tab {
     Segments,
 
     /// SQL query interface powered by DataFusion.
+    #[cfg(feature = "native")]
     Query,
 }
 
@@ -114,21 +110,6 @@ impl LayoutCursor {
         path.pop();
 
         Self::new_with_path(self.footer.clone(), self.segment_source.clone(), path)
-    }
-
-    /// Get the size of the array flatbuffer for this layout.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the current layout is not a [`FlatVTable`] layout.
-    pub fn flatbuffer_size(&self) -> usize {
-        let segment_id = self.layout.as_::<FlatVTable>().segment_id();
-        let segment = block_on(self.segment_source.request(segment_id))
-            .vortex_expect("operation should succeed in TUI");
-        ArrayParts::try_from(segment)
-            .vortex_expect("operation should succeed in TUI")
-            .metadata()
-            .len()
     }
 
     /// Get a human-readable description of the flat layout metadata.
@@ -222,9 +203,9 @@ pub enum KeyMode {
 ///
 /// The state is preserved when switching between tabs, allowing users to return to their previous
 /// position.
-pub struct AppState<'a> {
+pub struct AppState {
     /// The Vortex session used to read array data during rendering.
-    pub session: &'a VortexSession,
+    pub session: VortexSession,
 
     /// The current input mode (normal navigation or search).
     pub key_mode: KeyMode,
@@ -251,7 +232,7 @@ pub struct AppState<'a> {
     pub layouts_list_state: ListState,
 
     /// State for the segment grid display.
-    pub segment_grid_state: SegmentGridState<'a>,
+    pub segment_grid_state: SegmentGridState,
 
     /// The size of the last rendered frame.
     pub frame_size: Size,
@@ -259,23 +240,35 @@ pub struct AppState<'a> {
     /// Vertical scroll offset for the encoding tree display in flat layout view.
     pub tree_scroll_offset: u16,
 
-    /// State for the Query tab
-    pub query_state: QueryState,
+    /// Cached array data for the current FlatLayout, loaded asynchronously on WASM.
+    pub cached_flat_array: Option<ArrayRef>,
 
-    /// File path for use in query execution
+    /// Cached flatbuffer size for the current FlatLayout, loaded asynchronously on WASM.
+    pub cached_flatbuffer_size: Option<usize>,
+
+    /// State for the Query tab.
+    #[cfg(feature = "native")]
+    pub query_state: super::ui::QueryState,
+
+    /// File path for use in query execution.
+    #[cfg(feature = "native")]
     pub file_path: String,
 }
 
-impl<'a> AppState<'a> {
-    /// Create a new application state by opening a Vortex file.
+impl AppState {
+    /// Create a new application state by opening a Vortex file from a path.
     ///
     /// # Errors
     ///
     /// Returns an error if the file cannot be opened or read.
+    #[cfg(feature = "native")]
     pub async fn new(
-        session: &'a VortexSession,
-        path: impl AsRef<Path>,
-    ) -> VortexResult<AppState<'a>> {
+        session: &VortexSession,
+        path: impl AsRef<std::path::Path>,
+    ) -> vortex::error::VortexResult<AppState> {
+        use vortex::file::OpenOptionsSessionExt;
+
+        let session = session.clone();
         let vxf = session.open_options().open_path(path.as_ref()).await?;
 
         let cursor = LayoutCursor::new(vxf.footer().clone(), vxf.segment_source());
@@ -298,8 +291,42 @@ impl<'a> AppState<'a> {
             segment_grid_state: SegmentGridState::default(),
             frame_size: Size::new(0, 0),
             tree_scroll_offset: 0,
-            query_state: QueryState::default(),
+            cached_flat_array: None,
+            cached_flatbuffer_size: None,
+            query_state: super::ui::QueryState::default(),
             file_path,
+        })
+    }
+
+    /// Create a new application state from an in-memory buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the buffer does not contain a valid Vortex file.
+    #[cfg(target_arch = "wasm32")]
+    pub fn from_buffer(
+        session: VortexSession,
+        buffer: vortex::buffer::ByteBuffer,
+    ) -> vortex::error::VortexResult<AppState> {
+        use vortex::file::OpenOptionsSessionExt;
+
+        let vxf = session.open_options().open_buffer(buffer)?;
+        let cursor = LayoutCursor::new(vxf.footer().clone(), vxf.segment_source());
+
+        Ok(AppState {
+            session,
+            vxf,
+            cursor,
+            key_mode: KeyMode::default(),
+            search_filter: String::new(),
+            filter: None,
+            current_tab: Tab::default(),
+            layouts_list_state: ListState::default().with_selected(Some(0)),
+            segment_grid_state: SegmentGridState::default(),
+            frame_size: Size::new(0, 0),
+            tree_scroll_offset: 0,
+            cached_flat_array: None,
+            cached_flatbuffer_size: None,
         })
     }
 
@@ -312,8 +339,55 @@ impl<'a> AppState<'a> {
     /// Reset the layout view state after navigating to a different layout.
     ///
     /// This resets the list selection to the first item and clears any scroll offset.
+    /// The caller is responsible for awaiting `load_flat_data()` afterward if the
+    /// new layout is a [`FlatVTable`].
     pub fn reset_layout_view_state(&mut self) {
         self.layouts_list_state = ListState::default().with_selected(Some(0));
         self.tree_scroll_offset = 0;
+        self.cached_flat_array = None;
+        self.cached_flatbuffer_size = None;
+    }
+
+    /// Asynchronously load and cache the flat layout array data and flatbuffer size.
+    #[cfg(feature = "native")]
+    pub(crate) async fn load_flat_data(&mut self) {
+        use vortex::array::MaskFuture;
+        use vortex::array::serde::ArrayParts;
+        use vortex::expr::root;
+
+        let layout = &self.cursor.layout().clone();
+        let row_count = layout.row_count();
+
+        // Load the array.
+        let reader = layout
+            .new_reader("".into(), self.vxf.segment_source(), &self.session)
+            .vortex_expect("Failed to create reader");
+        let array = reader
+            .projection_evaluation(
+                &(0..row_count),
+                &root(),
+                MaskFuture::new_true(
+                    usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
+                ),
+            )
+            .vortex_expect("Failed to construct projection")
+            .await
+            .vortex_expect("Failed to read flat array");
+        self.cached_flat_array = Some(array);
+
+        // Load the flatbuffer size.
+        let segment_id = layout.as_::<FlatVTable>().segment_id();
+        let segment = self
+            .cursor
+            .segment_source
+            .request(segment_id)
+            .await
+            .vortex_expect("Failed to read segment");
+        self.cached_flatbuffer_size = Some(
+            ArrayParts::try_from(segment)
+                .vortex_expect("Failed to parse segment")
+                .metadata()
+                .len(),
+        );
     }
 }

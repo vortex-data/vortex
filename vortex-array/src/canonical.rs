@@ -5,15 +5,16 @@
 
 use std::sync::Arc;
 
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::Columnar;
+use crate::DynArray;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -50,7 +51,7 @@ use crate::matcher::Matcher;
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
 ///
-/// Any array can be decoded into canonical form via the [`to_canonical`](Array::to_canonical)
+/// Any array can be decoded into canonical form via the [`to_canonical`](DynArray::to_canonical)
 /// trait method. This is the simplest encoding for a type, and will not be compressed but may
 /// contain compressed child arrays.
 ///
@@ -324,8 +325,8 @@ impl Canonical {
     }
 }
 
-impl AsRef<dyn Array> for Canonical {
-    fn as_ref(&self) -> &(dyn Array + 'static) {
+impl AsRef<dyn DynArray> for Canonical {
+    fn as_ref(&self) -> &(dyn DynArray + 'static) {
         match_each_canonical!(self, |arr| arr.as_ref())
     }
 }
@@ -376,7 +377,7 @@ pub trait ToCanonical {
 }
 
 // Blanket impl for all Array encodings.
-impl<A: Array + ?Sized> ToCanonical for A {
+impl<A: DynArray + ?Sized> ToCanonical for A {
     fn to_null(&self) -> NullArray {
         self.to_canonical()
             .vortex_expect("to_canonical failed")
@@ -527,6 +528,7 @@ impl Executable for CanonicalValidity {
                 })))
             }
             Canonical::List(l) => {
+                let zctl = l.is_zero_copy_to_list();
                 let ListViewArrayParts {
                     elements,
                     offsets,
@@ -536,6 +538,7 @@ impl Executable for CanonicalValidity {
                 } = l.into_parts();
                 Ok(CanonicalValidity(Canonical::List(unsafe {
                     ListViewArray::new_unchecked(elements, offsets, sizes, validity.execute(ctx)?)
+                        .with_zero_copy_to_list(zctl)
                 })))
             }
             Canonical::FixedSizeList(fsl) => {
@@ -635,6 +638,7 @@ impl Executable for RecursiveCanonical {
                 })))
             }
             Canonical::List(l) => {
+                let zctl = l.is_zero_copy_to_list();
                 let ListViewArrayParts {
                     elements,
                     offsets,
@@ -649,6 +653,7 @@ impl Executable for RecursiveCanonical {
                         sizes.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
                         validity.execute(ctx)?,
                     )
+                    .with_zero_copy_to_list(zctl)
                 })))
             }
             Canonical::FixedSizeList(fsl) => {
@@ -736,6 +741,20 @@ impl Executable for BoolArray {
             Ok(bool_array) => Ok(bool_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_bool()),
         }
+    }
+}
+
+/// Execute the array to a [`BitBuffer`], aka a non-nullable  [`BoolArray`].
+///
+/// This will panic if the array's dtype is not non-nullable bool.
+impl Executable for BitBuffer {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let bool = BoolArray::execute(array, ctx)?;
+        assert!(
+            !bool.dtype().is_nullable(),
+            "bit buffer execute only works with non-nullable bool arrays"
+        );
+        Ok(bool.into_bit_buffer())
     }
 }
 
@@ -853,8 +872,8 @@ impl From<CanonicalView<'_>> for Canonical {
     }
 }
 
-impl AsRef<dyn Array> for CanonicalView<'_> {
-    fn as_ref(&self) -> &dyn Array {
+impl AsRef<dyn DynArray> for CanonicalView<'_> {
+    fn as_ref(&self) -> &dyn DynArray {
         match self {
             CanonicalView::Null(a) => a.as_ref(),
             CanonicalView::Bool(a) => a.as_ref(),
@@ -874,7 +893,7 @@ pub struct AnyCanonical;
 impl Matcher for AnyCanonical {
     type Match<'a> = CanonicalView<'a>;
 
-    fn matches(array: &dyn Array) -> bool {
+    fn matches(array: &dyn DynArray) -> bool {
         array.is::<NullVTable>()
             || array.is::<BoolVTable>()
             || array.is::<PrimitiveVTable>()
@@ -886,7 +905,7 @@ impl Matcher for AnyCanonical {
             || array.is::<ExtensionVTable>()
     }
 
-    fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
+    fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
         if let Some(a) = array.as_opt::<NullVTable>() {
             Some(CanonicalView::Null(a))
         } else if let Some(a) = array.as_opt::<BoolVTable>() {

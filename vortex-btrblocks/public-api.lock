@@ -196,7 +196,7 @@ pub vortex_btrblocks::BtrBlocksCompressor::string_schemes: alloc::vec::Vec<&'sta
 
 impl vortex_btrblocks::BtrBlocksCompressor
 
-pub fn vortex_btrblocks::BtrBlocksCompressor::compress(&self, array: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_btrblocks::BtrBlocksCompressor::compress(&self, array: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
 impl core::clone::Clone for vortex_btrblocks::BtrBlocksCompressor
 

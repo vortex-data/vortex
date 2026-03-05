@@ -10,8 +10,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListVTable;
@@ -158,8 +158,8 @@ impl ListArray {
     ///
     /// This function checks all the invariants required by [`ListArray::new_unchecked`].
     pub fn validate(
-        elements: &dyn Array,
-        offsets: &dyn Array,
+        elements: &ArrayRef,
+        offsets: &ArrayRef,
         validity: &Validity,
     ) -> VortexResult<()> {
         // Offsets must have at least one element

@@ -30,6 +30,7 @@ impl MaskReduce for BoolVTable {
 mod test {
     use rstest::rstest;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::compute::conformance::mask::test_mask_conformance;
 
@@ -40,6 +41,6 @@ mod test {
     #[case(BoolArray::from_iter([false, false]))]
     #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
     fn test_mask_bool_conformance(#[case] array: BoolArray) {
-        test_mask_conformance(array.as_ref());
+        test_mask_conformance(&array.into_array());
     }
 }

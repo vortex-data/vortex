@@ -7,8 +7,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;
@@ -70,7 +70,7 @@ impl ArrayBuilder for NullBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         self.append_nulls(array.len());
     }
 

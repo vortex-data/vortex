@@ -34,7 +34,7 @@ impl CastReduce for RunEndVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
@@ -155,6 +155,6 @@ mod tests {
         BoolArray::from_iter(vec![true, false, true, false, true]).into_array()
     ).unwrap())]
     fn test_cast_runend_conformance(#[case] array: RunEndArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.into_array());
     }
 }

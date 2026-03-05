@@ -19,7 +19,7 @@ impl CastReduce for NullVTable {
             vortex_bail!("Cannot cast Null to {}", dtype);
         }
         if dtype == &DType::Null {
-            return Ok(Some(array.to_array()));
+            return Ok(Some(array.clone().into_array()));
         }
 
         let scalar = Scalar::null(dtype.clone());
@@ -31,6 +31,7 @@ impl CastReduce for NullVTable {
 mod tests {
     use rstest::rstest;
 
+    use crate::IntoArray;
     use crate::arrays::NullArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
@@ -41,7 +42,7 @@ mod tests {
     #[test]
     fn test_cast_null_to_null() {
         let null_array = NullArray::new(5);
-        let result = null_array.to_array().cast(DType::Null).unwrap();
+        let result = null_array.into_array().cast(DType::Null).unwrap();
         assert_eq!(result.len(), 5);
         assert_eq!(result.dtype(), &DType::Null);
     }
@@ -50,7 +51,7 @@ mod tests {
     fn test_cast_null_to_nullable_succeeds() {
         let null_array = NullArray::new(5);
         let result = null_array
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I32, Nullability::Nullable))
             .unwrap();
 
@@ -71,7 +72,7 @@ mod tests {
     fn test_cast_null_to_non_nullable_fails() {
         let null_array = NullArray::new(5);
         let result = null_array
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I32, Nullability::NonNullable));
         assert!(result.is_err());
     }
@@ -82,6 +83,6 @@ mod tests {
     #[case(NullArray::new(100))]
     #[case(NullArray::new(0))]
     fn test_cast_null_conformance(#[case] array: NullArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.into_array());
     }
 }

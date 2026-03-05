@@ -11,6 +11,7 @@
 #include "bit_unpack_16.cu"
 #include "bit_unpack_32.cu"
 #include "bit_unpack_64.cu"
+#include "patches.h"
 
 /// Decodes a single lane of packed data.
 ///

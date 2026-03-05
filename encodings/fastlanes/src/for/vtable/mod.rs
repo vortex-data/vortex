@@ -132,9 +132,9 @@ impl VTable for FoRVTable {
         dtype: &DType,
         _len: usize,
         _buffers: &[BufferHandle],
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype)?;
+        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
         Scalar::try_new(dtype.clone(), scalar_value)
     }
 

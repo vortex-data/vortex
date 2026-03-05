@@ -32,7 +32,7 @@ impl SliceReduce for DictVTable {
             } else {
                 Ok(Some(
                     ConstantArray::new(Scalar::null(array.dtype().clone()), sliced_code.len())
-                        .to_array(),
+                        .into_array(),
                 ))
             };
         }
@@ -48,7 +48,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
-    use crate::Array;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::DictArray;

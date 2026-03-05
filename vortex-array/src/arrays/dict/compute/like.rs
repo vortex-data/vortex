@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use super::DictArray;
 use super::DictVTable;
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArrayExt;
@@ -18,7 +18,7 @@ use crate::scalar_fn::fns::like::LikeReduce;
 impl LikeReduce for DictVTable {
     fn like(
         array: &DictArray,
-        pattern: &dyn Array,
+        pattern: &ArrayRef,
         options: LikeOptions,
     ) -> VortexResult<Option<ArrayRef>> {
         // If we have more values than codes, it is faster to canonicalize first.

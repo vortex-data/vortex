@@ -20,7 +20,7 @@ jobs:
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
       - name: Upload Commit Metadata
         shell: bash
@@ -29,7 +29,7 @@ jobs:
 
           sudo apt-get update && sudo apt-get install -y jq
           bash scripts/commit-json.sh > new-commit.json
-          bash scripts/cat-s3.sh vortex-benchmark-results-database commits.json new-commit.json
+          bash scripts/cat-s3.sh vortex-ci-benchmark-results commits.json new-commit.json
 
   bench:
     timeout-minutes: 120
@@ -94,13 +94,13 @@ jobs:
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
       - name: Upload Benchmark Results
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz results.json
+          bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
 
       - name: Alert incident.io
         if: failure()
@@ -137,7 +137,7 @@ jobs:
             "subcommand": "tpch",
             "name": "TPC-H SF=1 on S3",
             "local_dir": "vortex-bench/data/tpch/1.0",
-            "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
+            "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/1.0/",
             "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
             "scale_factor": "1.0"
           },
@@ -154,7 +154,7 @@ jobs:
             "subcommand": "tpch",
             "name": "TPC-H SF=10 on S3",
             "local_dir": "vortex-bench/data/tpch/10.0",
-            "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
+            "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
             "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
             "scale_factor": "10.0"
           },
@@ -184,7 +184,7 @@ jobs:
             "subcommand": "fineweb",
             "name": "FineWeb S3",
             "local_dir": "vortex-bench/data/fineweb",
-            "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/fineweb/",
+            "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/fineweb/",
             "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact"
           },
           {

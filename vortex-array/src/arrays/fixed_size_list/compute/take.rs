@@ -7,10 +7,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::arrays::PrimitiveArray;
@@ -29,11 +28,11 @@ use crate::vtable::ValidityHelper;
 impl TakeExecute for FixedSizeListVTable {
     fn take(
         array: &FixedSizeListArray,
-        indices: &dyn Array,
-        _ctx: &mut ExecutionCtx,
+        indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         match_each_integer_ptype!(indices.dtype().as_ptype(), |I| {
-            take_with_indices::<I>(array, indices)
+            take_with_indices::<I>(array, indices, ctx)
         })
         .map(Some)
     }
@@ -42,11 +41,12 @@ impl TakeExecute for FixedSizeListVTable {
 /// Dispatches to the appropriate take implementation based on list size and nullability.
 fn take_with_indices<I: IntegerPType>(
     array: &FixedSizeListArray,
-    indices: &dyn Array,
+    indices: &ArrayRef,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
 
-    let indices_array = indices.to_primitive();
+    let indices_array = indices.to_array().execute::<PrimitiveArray>(ctx)?;
 
     // Make sure to handle degenerate case where lists have size 0 (these can take fast paths).
     if list_size == 0 {
@@ -115,7 +115,7 @@ fn take_non_nullable_fsl<I: IntegerPType>(
     debug_assert_eq!(elements_indices.len(), new_len * list_size);
 
     let elements_indices_array = PrimitiveArray::new(elements_indices, Validity::NonNullable);
-    let new_elements = array.elements().take(elements_indices_array.to_array())?;
+    let new_elements = array.elements().take(elements_indices_array.into_array())?;
     debug_assert_eq!(new_elements.len(), new_len * list_size);
 
     // Both inputs are non-nullable, so the result is non-nullable.
@@ -182,7 +182,7 @@ fn take_nullable_fsl<I: IntegerPType>(
     debug_assert_eq!(elements_indices.len(), new_len * list_size);
 
     let elements_indices_array = PrimitiveArray::new(elements_indices, Validity::NonNullable);
-    let new_elements = array.elements().take(elements_indices_array.to_array())?;
+    let new_elements = array.elements().take(elements_indices_array.into_array())?;
     debug_assert_eq!(new_elements.len(), new_len * list_size);
 
     // At least one input was nullable, so the result is nullable.

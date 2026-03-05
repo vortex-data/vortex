@@ -17,8 +17,8 @@ use vortex_utils::aliases::hash_map::RandomState;
 
 use super::DictConstraints;
 use super::DictEncoder;
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::BinaryView;
@@ -158,7 +158,7 @@ impl<Code: UnsignedPType> BytesDictBuilder<Code> {
 }
 
 impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
-    fn encode(&mut self, array: &dyn Array) -> ArrayRef {
+    fn encode(&mut self, array: &ArrayRef) -> ArrayRef {
         debug_assert_eq!(
             &self.dtype,
             array.dtype(),
@@ -206,6 +206,7 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
 mod test {
     use std::str;
 
+    use crate::IntoArray;
     use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinArray;
@@ -214,7 +215,7 @@ mod test {
     #[test]
     fn encode_varbin() {
         let arr = VarBinArray::from(vec!["hello", "world", "hello", "again", "world"]);
-        let dict = dict_encode(arr.as_ref()).unwrap();
+        let dict = dict_encode(&arr.into_array()).unwrap();
         assert_eq!(
             dict.codes().to_primitive().as_slice::<u8>(),
             &[0, 1, 0, 2, 1]
@@ -243,7 +244,7 @@ mod test {
         ]
         .into_iter()
         .collect();
-        let dict = dict_encode(arr.as_ref()).unwrap();
+        let dict = dict_encode(&arr.into_array()).unwrap();
         assert_eq!(
             dict.codes().to_primitive().as_slice::<u8>(),
             &[0, 1, 2, 0, 1, 3, 2, 1]
@@ -260,7 +261,7 @@ mod test {
     #[test]
     fn repeated_values() {
         let arr = VarBinArray::from(vec!["a", "a", "b", "b", "a", "b", "a", "b"]);
-        let dict = dict_encode(arr.as_ref()).unwrap();
+        let dict = dict_encode(&arr.into_array()).unwrap();
         dict.values().to_varbinview().with_iterator(|iter| {
             assert_eq!(
                 iter.flatten()

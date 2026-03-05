@@ -4,6 +4,8 @@
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use vortex_array::ExecutionCtx;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
@@ -59,7 +61,13 @@ pub fn unpack_to_primitive_typed<P: BitPacked>(array: &BitPackedArray) -> Primit
         // - `Patches` invariant guarantees indices are sorted and within array bounds.
         // - `elements` and `validity` have equal length (both are `len` from the array).
         // - All patch indices are valid after offset adjustment (guaranteed by `Patches`).
-        unsafe { patches.apply_to_buffer(&mut elements, &mut validity) };
+        unsafe {
+            patches.apply_to_buffer(
+                &mut elements,
+                &mut validity,
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+        };
     }
 
     // Convert MaskMut -> Mask -> Validity
@@ -254,7 +262,7 @@ mod tests {
 
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
-        let compressed = BitPackedArray::encode(values.as_ref(), 11).unwrap();
+        let compressed = BitPackedArray::encode(&values.clone().into_array(), 11).unwrap();
         assert_arrays_eq!(compressed, values);
 
         values

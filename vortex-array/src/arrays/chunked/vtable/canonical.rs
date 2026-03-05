@@ -5,9 +5,9 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
@@ -38,7 +38,7 @@ pub(super) fn _canonicalize(
         DType::Struct(struct_dtype, _) => {
             let struct_array = pack_struct_chunks(
                 array.chunks(),
-                Validity::copy_from_array(array.as_ref())?,
+                Validity::copy_from_array(&array.clone().into_array())?,
                 struct_dtype,
                 ctx,
             )?;
@@ -46,7 +46,7 @@ pub(super) fn _canonicalize(
         }
         DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
             array.chunks(),
-            Validity::copy_from_array(array.as_ref())?,
+            Validity::copy_from_array(&array.clone().into_array())?,
             elem_dtype,
             ctx,
         )?),
@@ -58,7 +58,7 @@ pub(super) fn _canonicalize(
     })
 }
 
-/// Packs many [`StructArray`]s to instead be a single [`StructArray`], where the [`Array`] for each
+/// Packs many [`StructArray`]s to instead be a single [`StructArray`], where the [`DynArray`] for each
 /// field is a [`ChunkedArray`].
 ///
 /// The caller guarantees there are at least 2 chunks.
@@ -219,7 +219,7 @@ mod tests {
         let dtype = struct_array.dtype().clone();
         let chunked = ChunkedArray::try_new(
             vec![
-                ChunkedArray::try_new(vec![struct_array.to_array()], dtype.clone())
+                ChunkedArray::try_new(vec![struct_array.clone().into_array()], dtype.clone())
                     .unwrap()
                     .into_array(),
             ],

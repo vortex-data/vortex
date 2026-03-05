@@ -43,7 +43,7 @@ Checks: |
   -bugprone-unused-local-non-trivial-variable,
   -bugprone-empty-catch,
 WarningsAsErrors: '*'
-HeaderFilterRegex: 'include/.*'
+HeaderFilterRegex: '(cpp|examples)/.*\.(cpp|hpp)$'
 FormatStyle:     none
 CheckOptions:
   - key:             readability-identifier-naming.ClassCase

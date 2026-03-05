@@ -11,7 +11,6 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
@@ -121,6 +120,12 @@ impl DecimalBuilder {
         self.nulls.append_non_null();
     }
 
+    /// Appends `n` copies of `value` as non-null entries, directly writing into the buffer.
+    pub fn append_n_values<V: NativeDecimalType>(&mut self, value: V, n: usize) {
+        self.values.push_n(value, n);
+        self.nulls.append_n_non_nulls(n);
+    }
+
     /// Finishes the builder directly into a [`DecimalArray`].
     pub fn finish_into_decimal(&mut self) -> DecimalArray {
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
@@ -187,7 +192,7 @@ impl ArrayBuilder for DecimalBuilder {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let decimal_array = array.to_decimal();
 
         match_each_decimal_value_type!(decimal_array.values_type(), |D| {

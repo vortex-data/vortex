@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
@@ -18,13 +18,13 @@ use vortex_error::vortex_panic;
 use crate::DateTimePartsArray;
 use crate::DateTimePartsVTable;
 
-fn take_datetime_parts(array: &DateTimePartsArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
     // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
     let indices = indices.to_primitive();
 
-    let taken_days = array.days().take(indices.to_array())?;
-    let taken_seconds = array.seconds().take(indices.to_array())?;
-    let taken_subseconds = array.subseconds().take(indices.to_array())?;
+    let taken_days = array.days().take(indices.clone().into_array())?;
+    let taken_seconds = array.seconds().take(indices.clone().into_array())?;
+    let taken_subseconds = array.subseconds().take(indices.clone().into_array())?;
 
     // Update the dtype if the nullability changed due to nullable indices
     let dtype = if taken_days.dtype().is_nullable() != array.dtype().is_nullable() {
@@ -88,7 +88,7 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &dyn Array) -> Vorte
 impl TakeExecute for DateTimePartsVTable {
     fn take(
         array: &DateTimePartsArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         take_datetime_parts(array, indices).map(Some)
@@ -136,6 +136,6 @@ mod tests {
         Some("UTC".into())
     )).unwrap())]
     fn test_take_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.into_array());
     }
 }

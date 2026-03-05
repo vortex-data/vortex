@@ -3,81 +3,24 @@
 #include <cuda_runtime.h>
 #include <stdint.h>
 #include "fastlanes_common.cuh"
+#include "patches.cuh"
 
-__device__ void _bit_unpack_64_0bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
-    unsigned int LANE_COUNT = 16;
-    
-    out[INDEX(0, lane)] = reference;
-    out[INDEX(1, lane)] = reference;
-    out[INDEX(2, lane)] = reference;
-    out[INDEX(3, lane)] = reference;
-    out[INDEX(4, lane)] = reference;
-    out[INDEX(5, lane)] = reference;
-    out[INDEX(6, lane)] = reference;
-    out[INDEX(7, lane)] = reference;
-    out[INDEX(8, lane)] = reference;
-    out[INDEX(9, lane)] = reference;
-    out[INDEX(10, lane)] = reference;
-    out[INDEX(11, lane)] = reference;
-    out[INDEX(12, lane)] = reference;
-    out[INDEX(13, lane)] = reference;
-    out[INDEX(14, lane)] = reference;
-    out[INDEX(15, lane)] = reference;
-    out[INDEX(16, lane)] = reference;
-    out[INDEX(17, lane)] = reference;
-    out[INDEX(18, lane)] = reference;
-    out[INDEX(19, lane)] = reference;
-    out[INDEX(20, lane)] = reference;
-    out[INDEX(21, lane)] = reference;
-    out[INDEX(22, lane)] = reference;
-    out[INDEX(23, lane)] = reference;
-    out[INDEX(24, lane)] = reference;
-    out[INDEX(25, lane)] = reference;
-    out[INDEX(26, lane)] = reference;
-    out[INDEX(27, lane)] = reference;
-    out[INDEX(28, lane)] = reference;
-    out[INDEX(29, lane)] = reference;
-    out[INDEX(30, lane)] = reference;
-    out[INDEX(31, lane)] = reference;
-    out[INDEX(32, lane)] = reference;
-    out[INDEX(33, lane)] = reference;
-    out[INDEX(34, lane)] = reference;
-    out[INDEX(35, lane)] = reference;
-    out[INDEX(36, lane)] = reference;
-    out[INDEX(37, lane)] = reference;
-    out[INDEX(38, lane)] = reference;
-    out[INDEX(39, lane)] = reference;
-    out[INDEX(40, lane)] = reference;
-    out[INDEX(41, lane)] = reference;
-    out[INDEX(42, lane)] = reference;
-    out[INDEX(43, lane)] = reference;
-    out[INDEX(44, lane)] = reference;
-    out[INDEX(45, lane)] = reference;
-    out[INDEX(46, lane)] = reference;
-    out[INDEX(47, lane)] = reference;
-    out[INDEX(48, lane)] = reference;
-    out[INDEX(49, lane)] = reference;
-    out[INDEX(50, lane)] = reference;
-    out[INDEX(51, lane)] = reference;
-    out[INDEX(52, lane)] = reference;
-    out[INDEX(53, lane)] = reference;
-    out[INDEX(54, lane)] = reference;
-    out[INDEX(55, lane)] = reference;
-    out[INDEX(56, lane)] = reference;
-    out[INDEX(57, lane)] = reference;
-    out[INDEX(58, lane)] = reference;
-    out[INDEX(59, lane)] = reference;
-    out[INDEX(60, lane)] = reference;
-    out[INDEX(61, lane)] = reference;
-    out[INDEX(62, lane)] = reference;
-    out[INDEX(63, lane)] = reference;
+template <int BW>
+__device__ void _bit_unpack_64_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane);
+
+template <>
+__device__ void _bit_unpack_64_lane<0>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+    #pragma unroll
+    for (int row = 0; row < 64; row++) {
+        out[INDEX(row, lane)] = reference;
+    }
 }
 
-__device__ void _bit_unpack_64_1bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<1>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 1);
     out[INDEX(0, lane)] = tmp + reference;
@@ -209,11 +152,11 @@ __device__ void _bit_unpack_64_1bw_lane(const uint64_t *__restrict in, uint64_t 
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_2bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<2>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 2);
     out[INDEX(0, lane)] = tmp + reference;
@@ -347,11 +290,11 @@ __device__ void _bit_unpack_64_2bw_lane(const uint64_t *__restrict in, uint64_t 
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_3bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<3>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 3);
     out[INDEX(0, lane)] = tmp + reference;
@@ -487,11 +430,11 @@ __device__ void _bit_unpack_64_3bw_lane(const uint64_t *__restrict in, uint64_t 
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_4bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<4>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 4);
     out[INDEX(0, lane)] = tmp + reference;
@@ -629,11 +572,11 @@ __device__ void _bit_unpack_64_4bw_lane(const uint64_t *__restrict in, uint64_t 
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_5bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<5>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 5);
     out[INDEX(0, lane)] = tmp + reference;
@@ -773,11 +716,11 @@ __device__ void _bit_unpack_64_5bw_lane(const uint64_t *__restrict in, uint64_t 
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_6bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<6>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 6);
     out[INDEX(0, lane)] = tmp + reference;
@@ -919,11 +862,11 @@ __device__ void _bit_unpack_64_6bw_lane(const uint64_t *__restrict in, uint64_t 
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_7bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<7>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 7);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1067,11 +1010,11 @@ __device__ void _bit_unpack_64_7bw_lane(const uint64_t *__restrict in, uint64_t 
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_8bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<8>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 8);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1217,11 +1160,11 @@ __device__ void _bit_unpack_64_8bw_lane(const uint64_t *__restrict in, uint64_t 
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_9bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<9>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 9);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1369,11 +1312,11 @@ __device__ void _bit_unpack_64_9bw_lane(const uint64_t *__restrict in, uint64_t 
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_10bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<10>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 10);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1523,11 +1466,11 @@ __device__ void _bit_unpack_64_10bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_11bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<11>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 11);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1679,11 +1622,11 @@ __device__ void _bit_unpack_64_11bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_12bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<12>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 12);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1837,11 +1780,11 @@ __device__ void _bit_unpack_64_12bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_13bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<13>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 13);
     out[INDEX(0, lane)] = tmp + reference;
@@ -1997,11 +1940,11 @@ __device__ void _bit_unpack_64_13bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_14bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<14>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 14);
     out[INDEX(0, lane)] = tmp + reference;
@@ -2159,11 +2102,11 @@ __device__ void _bit_unpack_64_14bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_15bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<15>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 15);
     out[INDEX(0, lane)] = tmp + reference;
@@ -2323,11 +2266,11 @@ __device__ void _bit_unpack_64_15bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_16bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<16>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 16);
     out[INDEX(0, lane)] = tmp + reference;
@@ -2489,11 +2432,11 @@ __device__ void _bit_unpack_64_16bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_17bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<17>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 17);
     out[INDEX(0, lane)] = tmp + reference;
@@ -2657,11 +2600,11 @@ __device__ void _bit_unpack_64_17bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_18bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<18>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 18);
     out[INDEX(0, lane)] = tmp + reference;
@@ -2827,11 +2770,11 @@ __device__ void _bit_unpack_64_18bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_19bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<19>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 19);
     out[INDEX(0, lane)] = tmp + reference;
@@ -2999,11 +2942,11 @@ __device__ void _bit_unpack_64_19bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_20bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<20>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 20);
     out[INDEX(0, lane)] = tmp + reference;
@@ -3173,11 +3116,11 @@ __device__ void _bit_unpack_64_20bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_21bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<21>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 21);
     out[INDEX(0, lane)] = tmp + reference;
@@ -3349,11 +3292,11 @@ __device__ void _bit_unpack_64_21bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_22bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<22>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 22);
     out[INDEX(0, lane)] = tmp + reference;
@@ -3527,11 +3470,11 @@ __device__ void _bit_unpack_64_22bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_23bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<23>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 23);
     out[INDEX(0, lane)] = tmp + reference;
@@ -3707,11 +3650,11 @@ __device__ void _bit_unpack_64_23bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_24bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<24>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 24);
     out[INDEX(0, lane)] = tmp + reference;
@@ -3889,11 +3832,11 @@ __device__ void _bit_unpack_64_24bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_25bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<25>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 25);
     out[INDEX(0, lane)] = tmp + reference;
@@ -4073,11 +4016,11 @@ __device__ void _bit_unpack_64_25bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_26bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<26>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 26);
     out[INDEX(0, lane)] = tmp + reference;
@@ -4259,11 +4202,11 @@ __device__ void _bit_unpack_64_26bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_27bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<27>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 27);
     out[INDEX(0, lane)] = tmp + reference;
@@ -4447,11 +4390,11 @@ __device__ void _bit_unpack_64_27bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_28bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<28>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 28);
     out[INDEX(0, lane)] = tmp + reference;
@@ -4637,11 +4580,11 @@ __device__ void _bit_unpack_64_28bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_29bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<29>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 29);
     out[INDEX(0, lane)] = tmp + reference;
@@ -4829,11 +4772,11 @@ __device__ void _bit_unpack_64_29bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_30bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<30>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 30);
     out[INDEX(0, lane)] = tmp + reference;
@@ -5023,11 +4966,11 @@ __device__ void _bit_unpack_64_30bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_31bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<31>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 31);
     out[INDEX(0, lane)] = tmp + reference;
@@ -5219,11 +5162,11 @@ __device__ void _bit_unpack_64_31bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_32bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<32>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 32);
     out[INDEX(0, lane)] = tmp + reference;
@@ -5417,11 +5360,11 @@ __device__ void _bit_unpack_64_32bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_33bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<33>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 33);
     out[INDEX(0, lane)] = tmp + reference;
@@ -5617,11 +5560,11 @@ __device__ void _bit_unpack_64_33bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_34bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<34>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 34);
     out[INDEX(0, lane)] = tmp + reference;
@@ -5819,11 +5762,11 @@ __device__ void _bit_unpack_64_34bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_35bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<35>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 35);
     out[INDEX(0, lane)] = tmp + reference;
@@ -6023,11 +5966,11 @@ __device__ void _bit_unpack_64_35bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_36bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<36>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 36);
     out[INDEX(0, lane)] = tmp + reference;
@@ -6229,11 +6172,11 @@ __device__ void _bit_unpack_64_36bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_37bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<37>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 37);
     out[INDEX(0, lane)] = tmp + reference;
@@ -6437,11 +6380,11 @@ __device__ void _bit_unpack_64_37bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_38bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<38>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 38);
     out[INDEX(0, lane)] = tmp + reference;
@@ -6647,11 +6590,11 @@ __device__ void _bit_unpack_64_38bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_39bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<39>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 39);
     out[INDEX(0, lane)] = tmp + reference;
@@ -6859,11 +6802,11 @@ __device__ void _bit_unpack_64_39bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_40bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<40>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 40);
     out[INDEX(0, lane)] = tmp + reference;
@@ -7073,11 +7016,11 @@ __device__ void _bit_unpack_64_40bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_41bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<41>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 41);
     out[INDEX(0, lane)] = tmp + reference;
@@ -7289,11 +7232,11 @@ __device__ void _bit_unpack_64_41bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_42bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<42>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 42);
     out[INDEX(0, lane)] = tmp + reference;
@@ -7507,11 +7450,11 @@ __device__ void _bit_unpack_64_42bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_43bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<43>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 43);
     out[INDEX(0, lane)] = tmp + reference;
@@ -7727,11 +7670,11 @@ __device__ void _bit_unpack_64_43bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_44bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<44>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 44);
     out[INDEX(0, lane)] = tmp + reference;
@@ -7949,11 +7892,11 @@ __device__ void _bit_unpack_64_44bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_45bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<45>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 45);
     out[INDEX(0, lane)] = tmp + reference;
@@ -8173,11 +8116,11 @@ __device__ void _bit_unpack_64_45bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_46bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<46>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 46);
     out[INDEX(0, lane)] = tmp + reference;
@@ -8399,11 +8342,11 @@ __device__ void _bit_unpack_64_46bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_47bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<47>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 47);
     out[INDEX(0, lane)] = tmp + reference;
@@ -8627,11 +8570,11 @@ __device__ void _bit_unpack_64_47bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_48bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<48>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 48);
     out[INDEX(0, lane)] = tmp + reference;
@@ -8857,11 +8800,11 @@ __device__ void _bit_unpack_64_48bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_49bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<49>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 49);
     out[INDEX(0, lane)] = tmp + reference;
@@ -9089,11 +9032,11 @@ __device__ void _bit_unpack_64_49bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_50bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<50>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 50);
     out[INDEX(0, lane)] = tmp + reference;
@@ -9323,11 +9266,11 @@ __device__ void _bit_unpack_64_50bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_51bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<51>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 51);
     out[INDEX(0, lane)] = tmp + reference;
@@ -9559,11 +9502,11 @@ __device__ void _bit_unpack_64_51bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_52bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<52>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 52);
     out[INDEX(0, lane)] = tmp + reference;
@@ -9797,11 +9740,11 @@ __device__ void _bit_unpack_64_52bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_53bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<53>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 53);
     out[INDEX(0, lane)] = tmp + reference;
@@ -10037,11 +9980,11 @@ __device__ void _bit_unpack_64_53bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_54bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<54>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 54);
     out[INDEX(0, lane)] = tmp + reference;
@@ -10279,11 +10222,11 @@ __device__ void _bit_unpack_64_54bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_55bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<55>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 55);
     out[INDEX(0, lane)] = tmp + reference;
@@ -10523,11 +10466,11 @@ __device__ void _bit_unpack_64_55bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_56bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<56>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 56);
     out[INDEX(0, lane)] = tmp + reference;
@@ -10769,11 +10712,11 @@ __device__ void _bit_unpack_64_56bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_57bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<57>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 57);
     out[INDEX(0, lane)] = tmp + reference;
@@ -11017,11 +10960,11 @@ __device__ void _bit_unpack_64_57bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_58bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<58>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 58);
     out[INDEX(0, lane)] = tmp + reference;
@@ -11267,11 +11210,11 @@ __device__ void _bit_unpack_64_58bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_59bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<59>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 59);
     out[INDEX(0, lane)] = tmp + reference;
@@ -11519,11 +11462,11 @@ __device__ void _bit_unpack_64_59bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_60bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<60>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 60);
     out[INDEX(0, lane)] = tmp + reference;
@@ -11773,11 +11716,11 @@ __device__ void _bit_unpack_64_60bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_61bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<61>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 61);
     out[INDEX(0, lane)] = tmp + reference;
@@ -12029,11 +11972,11 @@ __device__ void _bit_unpack_64_61bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_62bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<62>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 62);
     out[INDEX(0, lane)] = tmp + reference;
@@ -12287,11 +12230,11 @@ __device__ void _bit_unpack_64_62bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_63bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<63>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
     uint64_t src;
     uint64_t tmp;
-    
     src = in[lane];
     tmp = (src >> 0) & MASK(uint64_t, 63);
     out[INDEX(0, lane)] = tmp + reference;
@@ -12547,73 +12490,13 @@ __device__ void _bit_unpack_64_63bw_lane(const uint64_t *__restrict in, uint64_t
     out[INDEX(63, lane)] = tmp + reference;
 }
 
-__device__ void _bit_unpack_64_64bw_lane(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
+template <>
+__device__ void _bit_unpack_64_lane<64>(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, unsigned int lane) {
     unsigned int LANE_COUNT = 16;
-    
-    out[INDEX(0, lane)] = in[LANE_COUNT * 0 + lane] + reference;
-    out[INDEX(1, lane)] = in[LANE_COUNT * 1 + lane] + reference;
-    out[INDEX(2, lane)] = in[LANE_COUNT * 2 + lane] + reference;
-    out[INDEX(3, lane)] = in[LANE_COUNT * 3 + lane] + reference;
-    out[INDEX(4, lane)] = in[LANE_COUNT * 4 + lane] + reference;
-    out[INDEX(5, lane)] = in[LANE_COUNT * 5 + lane] + reference;
-    out[INDEX(6, lane)] = in[LANE_COUNT * 6 + lane] + reference;
-    out[INDEX(7, lane)] = in[LANE_COUNT * 7 + lane] + reference;
-    out[INDEX(8, lane)] = in[LANE_COUNT * 8 + lane] + reference;
-    out[INDEX(9, lane)] = in[LANE_COUNT * 9 + lane] + reference;
-    out[INDEX(10, lane)] = in[LANE_COUNT * 10 + lane] + reference;
-    out[INDEX(11, lane)] = in[LANE_COUNT * 11 + lane] + reference;
-    out[INDEX(12, lane)] = in[LANE_COUNT * 12 + lane] + reference;
-    out[INDEX(13, lane)] = in[LANE_COUNT * 13 + lane] + reference;
-    out[INDEX(14, lane)] = in[LANE_COUNT * 14 + lane] + reference;
-    out[INDEX(15, lane)] = in[LANE_COUNT * 15 + lane] + reference;
-    out[INDEX(16, lane)] = in[LANE_COUNT * 16 + lane] + reference;
-    out[INDEX(17, lane)] = in[LANE_COUNT * 17 + lane] + reference;
-    out[INDEX(18, lane)] = in[LANE_COUNT * 18 + lane] + reference;
-    out[INDEX(19, lane)] = in[LANE_COUNT * 19 + lane] + reference;
-    out[INDEX(20, lane)] = in[LANE_COUNT * 20 + lane] + reference;
-    out[INDEX(21, lane)] = in[LANE_COUNT * 21 + lane] + reference;
-    out[INDEX(22, lane)] = in[LANE_COUNT * 22 + lane] + reference;
-    out[INDEX(23, lane)] = in[LANE_COUNT * 23 + lane] + reference;
-    out[INDEX(24, lane)] = in[LANE_COUNT * 24 + lane] + reference;
-    out[INDEX(25, lane)] = in[LANE_COUNT * 25 + lane] + reference;
-    out[INDEX(26, lane)] = in[LANE_COUNT * 26 + lane] + reference;
-    out[INDEX(27, lane)] = in[LANE_COUNT * 27 + lane] + reference;
-    out[INDEX(28, lane)] = in[LANE_COUNT * 28 + lane] + reference;
-    out[INDEX(29, lane)] = in[LANE_COUNT * 29 + lane] + reference;
-    out[INDEX(30, lane)] = in[LANE_COUNT * 30 + lane] + reference;
-    out[INDEX(31, lane)] = in[LANE_COUNT * 31 + lane] + reference;
-    out[INDEX(32, lane)] = in[LANE_COUNT * 32 + lane] + reference;
-    out[INDEX(33, lane)] = in[LANE_COUNT * 33 + lane] + reference;
-    out[INDEX(34, lane)] = in[LANE_COUNT * 34 + lane] + reference;
-    out[INDEX(35, lane)] = in[LANE_COUNT * 35 + lane] + reference;
-    out[INDEX(36, lane)] = in[LANE_COUNT * 36 + lane] + reference;
-    out[INDEX(37, lane)] = in[LANE_COUNT * 37 + lane] + reference;
-    out[INDEX(38, lane)] = in[LANE_COUNT * 38 + lane] + reference;
-    out[INDEX(39, lane)] = in[LANE_COUNT * 39 + lane] + reference;
-    out[INDEX(40, lane)] = in[LANE_COUNT * 40 + lane] + reference;
-    out[INDEX(41, lane)] = in[LANE_COUNT * 41 + lane] + reference;
-    out[INDEX(42, lane)] = in[LANE_COUNT * 42 + lane] + reference;
-    out[INDEX(43, lane)] = in[LANE_COUNT * 43 + lane] + reference;
-    out[INDEX(44, lane)] = in[LANE_COUNT * 44 + lane] + reference;
-    out[INDEX(45, lane)] = in[LANE_COUNT * 45 + lane] + reference;
-    out[INDEX(46, lane)] = in[LANE_COUNT * 46 + lane] + reference;
-    out[INDEX(47, lane)] = in[LANE_COUNT * 47 + lane] + reference;
-    out[INDEX(48, lane)] = in[LANE_COUNT * 48 + lane] + reference;
-    out[INDEX(49, lane)] = in[LANE_COUNT * 49 + lane] + reference;
-    out[INDEX(50, lane)] = in[LANE_COUNT * 50 + lane] + reference;
-    out[INDEX(51, lane)] = in[LANE_COUNT * 51 + lane] + reference;
-    out[INDEX(52, lane)] = in[LANE_COUNT * 52 + lane] + reference;
-    out[INDEX(53, lane)] = in[LANE_COUNT * 53 + lane] + reference;
-    out[INDEX(54, lane)] = in[LANE_COUNT * 54 + lane] + reference;
-    out[INDEX(55, lane)] = in[LANE_COUNT * 55 + lane] + reference;
-    out[INDEX(56, lane)] = in[LANE_COUNT * 56 + lane] + reference;
-    out[INDEX(57, lane)] = in[LANE_COUNT * 57 + lane] + reference;
-    out[INDEX(58, lane)] = in[LANE_COUNT * 58 + lane] + reference;
-    out[INDEX(59, lane)] = in[LANE_COUNT * 59 + lane] + reference;
-    out[INDEX(60, lane)] = in[LANE_COUNT * 60 + lane] + reference;
-    out[INDEX(61, lane)] = in[LANE_COUNT * 61 + lane] + reference;
-    out[INDEX(62, lane)] = in[LANE_COUNT * 62 + lane] + reference;
-    out[INDEX(63, lane)] = in[LANE_COUNT * 63 + lane] + reference;
+    #pragma unroll
+    for (int row = 0; row < 64; row++) {
+        out[INDEX(row, lane)] = in[LANE_COUNT * row + lane] + reference;
+    }
 }
 
 /// Runtime dispatch to the optimized lane decoder for the given bit width.
@@ -12625,1111 +12508,547 @@ __device__ inline void bit_unpack_64_lane(
     uint32_t bit_width
 ) {
     switch (bit_width) {
-        case 0: _bit_unpack_64_0bw_lane(in, out, reference, lane); break;
-        case 1: _bit_unpack_64_1bw_lane(in, out, reference, lane); break;
-        case 2: _bit_unpack_64_2bw_lane(in, out, reference, lane); break;
-        case 3: _bit_unpack_64_3bw_lane(in, out, reference, lane); break;
-        case 4: _bit_unpack_64_4bw_lane(in, out, reference, lane); break;
-        case 5: _bit_unpack_64_5bw_lane(in, out, reference, lane); break;
-        case 6: _bit_unpack_64_6bw_lane(in, out, reference, lane); break;
-        case 7: _bit_unpack_64_7bw_lane(in, out, reference, lane); break;
-        case 8: _bit_unpack_64_8bw_lane(in, out, reference, lane); break;
-        case 9: _bit_unpack_64_9bw_lane(in, out, reference, lane); break;
-        case 10: _bit_unpack_64_10bw_lane(in, out, reference, lane); break;
-        case 11: _bit_unpack_64_11bw_lane(in, out, reference, lane); break;
-        case 12: _bit_unpack_64_12bw_lane(in, out, reference, lane); break;
-        case 13: _bit_unpack_64_13bw_lane(in, out, reference, lane); break;
-        case 14: _bit_unpack_64_14bw_lane(in, out, reference, lane); break;
-        case 15: _bit_unpack_64_15bw_lane(in, out, reference, lane); break;
-        case 16: _bit_unpack_64_16bw_lane(in, out, reference, lane); break;
-        case 17: _bit_unpack_64_17bw_lane(in, out, reference, lane); break;
-        case 18: _bit_unpack_64_18bw_lane(in, out, reference, lane); break;
-        case 19: _bit_unpack_64_19bw_lane(in, out, reference, lane); break;
-        case 20: _bit_unpack_64_20bw_lane(in, out, reference, lane); break;
-        case 21: _bit_unpack_64_21bw_lane(in, out, reference, lane); break;
-        case 22: _bit_unpack_64_22bw_lane(in, out, reference, lane); break;
-        case 23: _bit_unpack_64_23bw_lane(in, out, reference, lane); break;
-        case 24: _bit_unpack_64_24bw_lane(in, out, reference, lane); break;
-        case 25: _bit_unpack_64_25bw_lane(in, out, reference, lane); break;
-        case 26: _bit_unpack_64_26bw_lane(in, out, reference, lane); break;
-        case 27: _bit_unpack_64_27bw_lane(in, out, reference, lane); break;
-        case 28: _bit_unpack_64_28bw_lane(in, out, reference, lane); break;
-        case 29: _bit_unpack_64_29bw_lane(in, out, reference, lane); break;
-        case 30: _bit_unpack_64_30bw_lane(in, out, reference, lane); break;
-        case 31: _bit_unpack_64_31bw_lane(in, out, reference, lane); break;
-        case 32: _bit_unpack_64_32bw_lane(in, out, reference, lane); break;
-        case 33: _bit_unpack_64_33bw_lane(in, out, reference, lane); break;
-        case 34: _bit_unpack_64_34bw_lane(in, out, reference, lane); break;
-        case 35: _bit_unpack_64_35bw_lane(in, out, reference, lane); break;
-        case 36: _bit_unpack_64_36bw_lane(in, out, reference, lane); break;
-        case 37: _bit_unpack_64_37bw_lane(in, out, reference, lane); break;
-        case 38: _bit_unpack_64_38bw_lane(in, out, reference, lane); break;
-        case 39: _bit_unpack_64_39bw_lane(in, out, reference, lane); break;
-        case 40: _bit_unpack_64_40bw_lane(in, out, reference, lane); break;
-        case 41: _bit_unpack_64_41bw_lane(in, out, reference, lane); break;
-        case 42: _bit_unpack_64_42bw_lane(in, out, reference, lane); break;
-        case 43: _bit_unpack_64_43bw_lane(in, out, reference, lane); break;
-        case 44: _bit_unpack_64_44bw_lane(in, out, reference, lane); break;
-        case 45: _bit_unpack_64_45bw_lane(in, out, reference, lane); break;
-        case 46: _bit_unpack_64_46bw_lane(in, out, reference, lane); break;
-        case 47: _bit_unpack_64_47bw_lane(in, out, reference, lane); break;
-        case 48: _bit_unpack_64_48bw_lane(in, out, reference, lane); break;
-        case 49: _bit_unpack_64_49bw_lane(in, out, reference, lane); break;
-        case 50: _bit_unpack_64_50bw_lane(in, out, reference, lane); break;
-        case 51: _bit_unpack_64_51bw_lane(in, out, reference, lane); break;
-        case 52: _bit_unpack_64_52bw_lane(in, out, reference, lane); break;
-        case 53: _bit_unpack_64_53bw_lane(in, out, reference, lane); break;
-        case 54: _bit_unpack_64_54bw_lane(in, out, reference, lane); break;
-        case 55: _bit_unpack_64_55bw_lane(in, out, reference, lane); break;
-        case 56: _bit_unpack_64_56bw_lane(in, out, reference, lane); break;
-        case 57: _bit_unpack_64_57bw_lane(in, out, reference, lane); break;
-        case 58: _bit_unpack_64_58bw_lane(in, out, reference, lane); break;
-        case 59: _bit_unpack_64_59bw_lane(in, out, reference, lane); break;
-        case 60: _bit_unpack_64_60bw_lane(in, out, reference, lane); break;
-        case 61: _bit_unpack_64_61bw_lane(in, out, reference, lane); break;
-        case 62: _bit_unpack_64_62bw_lane(in, out, reference, lane); break;
-        case 63: _bit_unpack_64_63bw_lane(in, out, reference, lane); break;
-        case 64: _bit_unpack_64_64bw_lane(in, out, reference, lane); break;
+        case 0: _bit_unpack_64_lane<0>(in, out, reference, lane); break;
+        case 1: _bit_unpack_64_lane<1>(in, out, reference, lane); break;
+        case 2: _bit_unpack_64_lane<2>(in, out, reference, lane); break;
+        case 3: _bit_unpack_64_lane<3>(in, out, reference, lane); break;
+        case 4: _bit_unpack_64_lane<4>(in, out, reference, lane); break;
+        case 5: _bit_unpack_64_lane<5>(in, out, reference, lane); break;
+        case 6: _bit_unpack_64_lane<6>(in, out, reference, lane); break;
+        case 7: _bit_unpack_64_lane<7>(in, out, reference, lane); break;
+        case 8: _bit_unpack_64_lane<8>(in, out, reference, lane); break;
+        case 9: _bit_unpack_64_lane<9>(in, out, reference, lane); break;
+        case 10: _bit_unpack_64_lane<10>(in, out, reference, lane); break;
+        case 11: _bit_unpack_64_lane<11>(in, out, reference, lane); break;
+        case 12: _bit_unpack_64_lane<12>(in, out, reference, lane); break;
+        case 13: _bit_unpack_64_lane<13>(in, out, reference, lane); break;
+        case 14: _bit_unpack_64_lane<14>(in, out, reference, lane); break;
+        case 15: _bit_unpack_64_lane<15>(in, out, reference, lane); break;
+        case 16: _bit_unpack_64_lane<16>(in, out, reference, lane); break;
+        case 17: _bit_unpack_64_lane<17>(in, out, reference, lane); break;
+        case 18: _bit_unpack_64_lane<18>(in, out, reference, lane); break;
+        case 19: _bit_unpack_64_lane<19>(in, out, reference, lane); break;
+        case 20: _bit_unpack_64_lane<20>(in, out, reference, lane); break;
+        case 21: _bit_unpack_64_lane<21>(in, out, reference, lane); break;
+        case 22: _bit_unpack_64_lane<22>(in, out, reference, lane); break;
+        case 23: _bit_unpack_64_lane<23>(in, out, reference, lane); break;
+        case 24: _bit_unpack_64_lane<24>(in, out, reference, lane); break;
+        case 25: _bit_unpack_64_lane<25>(in, out, reference, lane); break;
+        case 26: _bit_unpack_64_lane<26>(in, out, reference, lane); break;
+        case 27: _bit_unpack_64_lane<27>(in, out, reference, lane); break;
+        case 28: _bit_unpack_64_lane<28>(in, out, reference, lane); break;
+        case 29: _bit_unpack_64_lane<29>(in, out, reference, lane); break;
+        case 30: _bit_unpack_64_lane<30>(in, out, reference, lane); break;
+        case 31: _bit_unpack_64_lane<31>(in, out, reference, lane); break;
+        case 32: _bit_unpack_64_lane<32>(in, out, reference, lane); break;
+        case 33: _bit_unpack_64_lane<33>(in, out, reference, lane); break;
+        case 34: _bit_unpack_64_lane<34>(in, out, reference, lane); break;
+        case 35: _bit_unpack_64_lane<35>(in, out, reference, lane); break;
+        case 36: _bit_unpack_64_lane<36>(in, out, reference, lane); break;
+        case 37: _bit_unpack_64_lane<37>(in, out, reference, lane); break;
+        case 38: _bit_unpack_64_lane<38>(in, out, reference, lane); break;
+        case 39: _bit_unpack_64_lane<39>(in, out, reference, lane); break;
+        case 40: _bit_unpack_64_lane<40>(in, out, reference, lane); break;
+        case 41: _bit_unpack_64_lane<41>(in, out, reference, lane); break;
+        case 42: _bit_unpack_64_lane<42>(in, out, reference, lane); break;
+        case 43: _bit_unpack_64_lane<43>(in, out, reference, lane); break;
+        case 44: _bit_unpack_64_lane<44>(in, out, reference, lane); break;
+        case 45: _bit_unpack_64_lane<45>(in, out, reference, lane); break;
+        case 46: _bit_unpack_64_lane<46>(in, out, reference, lane); break;
+        case 47: _bit_unpack_64_lane<47>(in, out, reference, lane); break;
+        case 48: _bit_unpack_64_lane<48>(in, out, reference, lane); break;
+        case 49: _bit_unpack_64_lane<49>(in, out, reference, lane); break;
+        case 50: _bit_unpack_64_lane<50>(in, out, reference, lane); break;
+        case 51: _bit_unpack_64_lane<51>(in, out, reference, lane); break;
+        case 52: _bit_unpack_64_lane<52>(in, out, reference, lane); break;
+        case 53: _bit_unpack_64_lane<53>(in, out, reference, lane); break;
+        case 54: _bit_unpack_64_lane<54>(in, out, reference, lane); break;
+        case 55: _bit_unpack_64_lane<55>(in, out, reference, lane); break;
+        case 56: _bit_unpack_64_lane<56>(in, out, reference, lane); break;
+        case 57: _bit_unpack_64_lane<57>(in, out, reference, lane); break;
+        case 58: _bit_unpack_64_lane<58>(in, out, reference, lane); break;
+        case 59: _bit_unpack_64_lane<59>(in, out, reference, lane); break;
+        case 60: _bit_unpack_64_lane<60>(in, out, reference, lane); break;
+        case 61: _bit_unpack_64_lane<61>(in, out, reference, lane); break;
+        case 62: _bit_unpack_64_lane<62>(in, out, reference, lane); break;
+        case 63: _bit_unpack_64_lane<63>(in, out, reference, lane); break;
+        case 64: _bit_unpack_64_lane<64>(in, out, reference, lane); break;
     }
 }
 
-__device__ void _bit_unpack_64_0bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
+template <int BW>
+__device__ void _bit_unpack_64_device(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx, GPUPatches& patches) {
     __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_0bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
+    #pragma unroll
+    for (int i = 0; i < 1; i++) {
+        _bit_unpack_64_lane<BW>(in, shared_out, reference, thread_idx * 1 + i);
+    }
+    __syncwarp();
+    PatchesCursor<uint64_t> cursor(patches, blockIdx.x, thread_idx, 16);
+    auto patch = cursor.next();
     for (int i = 0; i < 64; i++) {
         auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
+        if (idx == patch.index) {
+            out[idx] = patch.value;
+            patch = cursor.next();
+        } else {
+            out[idx] = shared_out[idx];
+        }
     }
 }
 
-extern "C" __global__ void bit_unpack_64_0bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_0bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 0 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_0bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<0>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_1bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_1bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_1bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_1bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 1 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_1bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<1>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_2bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_2bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_2bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_2bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 2 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_2bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<2>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_3bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_3bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_3bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_3bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 3 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_3bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<3>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_4bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_4bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_4bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_4bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 4 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_4bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<4>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_5bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_5bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_5bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_5bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 5 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_5bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<5>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_6bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_6bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_6bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_6bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 6 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_6bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<6>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_7bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_7bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_7bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_7bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 7 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_7bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<7>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_8bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_8bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_8bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_8bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 8 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_8bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<8>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_9bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_9bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_9bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_9bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 9 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_9bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<9>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_10bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_10bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_10bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_10bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 10 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_10bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<10>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_11bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_11bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_11bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_11bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 11 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_11bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<11>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_12bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_12bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_12bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_12bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 12 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_12bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<12>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_13bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_13bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_13bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_13bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 13 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_13bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<13>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_14bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_14bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_14bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_14bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 14 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_14bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<14>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_15bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_15bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_15bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_15bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 15 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_15bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<15>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_16bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_16bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_16bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_16bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 16 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_16bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<16>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_17bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_17bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_17bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_17bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 17 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_17bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<17>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_18bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_18bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_18bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_18bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 18 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_18bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<18>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_19bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_19bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_19bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_19bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 19 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_19bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<19>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_20bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_20bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_20bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_20bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 20 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_20bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<20>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_21bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_21bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_21bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_21bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 21 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_21bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<21>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_22bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_22bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_22bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_22bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 22 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_22bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<22>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_23bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_23bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_23bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_23bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 23 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_23bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<23>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_24bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_24bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_24bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_24bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 24 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_24bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<24>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_25bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_25bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_25bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_25bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 25 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_25bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<25>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_26bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_26bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_26bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_26bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 26 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_26bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<26>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_27bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_27bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_27bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_27bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 27 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_27bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<27>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_28bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_28bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_28bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_28bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 28 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_28bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<28>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_29bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_29bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_29bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_29bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 29 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_29bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<29>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_30bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_30bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_30bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_30bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 30 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_30bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<30>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_31bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_31bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_31bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_31bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 31 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_31bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<31>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_32bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_32bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_32bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_32bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 32 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_32bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<32>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_33bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_33bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_33bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_33bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 33 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_33bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<33>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_34bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_34bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_34bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_34bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 34 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_34bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<34>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_35bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_35bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_35bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_35bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 35 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_35bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<35>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_36bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_36bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_36bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_36bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 36 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_36bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<36>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_37bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_37bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_37bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_37bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 37 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_37bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<37>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_38bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_38bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_38bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_38bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 38 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_38bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<38>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_39bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_39bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_39bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_39bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 39 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_39bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<39>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_40bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_40bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_40bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_40bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 40 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_40bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<40>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_41bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_41bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_41bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_41bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 41 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_41bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<41>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_42bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_42bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_42bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_42bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 42 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_42bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<42>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_43bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_43bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_43bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_43bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 43 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_43bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<43>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_44bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_44bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_44bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_44bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 44 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_44bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<44>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_45bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_45bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_45bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_45bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 45 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_45bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<45>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_46bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_46bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_46bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_46bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 46 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_46bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<46>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_47bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_47bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_47bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_47bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 47 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_47bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<47>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_48bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_48bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_48bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_48bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 48 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_48bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<48>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_49bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_49bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_49bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_49bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 49 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_49bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<49>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_50bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_50bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_50bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_50bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 50 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_50bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<50>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_51bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_51bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_51bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_51bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 51 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_51bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<51>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_52bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_52bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_52bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_52bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 52 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_52bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<52>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_53bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_53bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_53bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_53bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 53 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_53bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<53>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_54bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_54bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_54bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_54bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 54 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_54bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<54>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_55bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_55bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_55bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_55bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 55 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_55bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<55>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_56bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_56bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_56bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_56bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 56 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_56bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<56>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_57bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_57bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_57bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_57bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 57 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_57bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<57>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_58bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_58bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_58bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_58bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 58 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_58bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<58>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_59bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_59bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_59bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_59bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 59 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_59bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<59>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_60bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_60bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_60bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_60bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 60 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_60bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<60>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_61bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_61bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_61bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_61bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 61 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_61bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<61>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_62bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_62bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_62bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_62bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 62 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_62bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<62>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_63bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_63bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_63bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_63bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 63 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_63bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<63>(in, out, reference, thread_idx, patches);
 }
 
-__device__ void _bit_unpack_64_64bw_16t(const uint64_t *__restrict in, uint64_t *__restrict out, uint64_t reference, int thread_idx) {
-    __shared__ uint64_t shared_out[1024];
-    _bit_unpack_64_64bw_lane(in, shared_out, reference, thread_idx * 1 + 0);
-    for (int i = 0; i < 64; i++) {
-        auto idx = i * 16 + thread_idx;
-        out[idx] = shared_out[idx];
-    }
-}
-
-extern "C" __global__ void bit_unpack_64_64bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference) {
+extern "C" __global__ void bit_unpack_64_64bw_16t(const uint64_t *__restrict full_in, uint64_t *__restrict full_out, uint64_t reference, GPUPatches patches) {
     int thread_idx = threadIdx.x;
     auto in = full_in + (blockIdx.x * (128 * 64 / sizeof(uint64_t)));
     auto out = full_out + (blockIdx.x * 1024);
-    _bit_unpack_64_64bw_16t(in, out, reference, thread_idx);
+    _bit_unpack_64_device<64>(in, out, reference, thread_idx, patches);
 }
 

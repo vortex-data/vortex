@@ -77,6 +77,7 @@ df3["remark"] = df3["remark"].case_when(
 vortex_df = df3[df3["name"].str.contains("vortex", case=False, na=False)]
 duckdb_vortex_df = df3[df3["name"].str.contains("duckdb.*vortex", case=False, na=False, regex=True)]
 datafusion_vortex_df = df3[df3["name"].str.contains("datafusion.*vortex", case=False, na=False, regex=True)]
+parquet_df = df3[df3["name"].str.contains("parquet", case=False, na=False)]
 
 
 # Overall performance (all results)
@@ -99,6 +100,7 @@ def calculate_geo_mean(df):
 vortex_geo_mean_ratio = calculate_geo_mean(vortex_df)
 duckdb_vortex_geo_mean_ratio = calculate_geo_mean(duckdb_vortex_df)
 datafusion_vortex_geo_mean_ratio = calculate_geo_mean(datafusion_vortex_df)
+parquet_geo_mean_ratio = calculate_geo_mean(parquet_df)
 
 # Find best and worst changes for vortex-only results
 vortex_valid_ratios = vortex_df["ratio"].dropna()
@@ -146,6 +148,8 @@ overall_performance = "no data" if pd.isna(geo_mean_ratio) else format_performan
 vortex_performance = format_performance(vortex_geo_mean_ratio, "vortex")
 duckdb_vortex_performance = format_performance(duckdb_vortex_geo_mean_ratio, "duckdb:vortex")
 datafusion_vortex_performance = format_performance(datafusion_vortex_geo_mean_ratio, "datafusion:vortex")
+parquet_performance = format_performance(parquet_geo_mean_ratio, "parquet")
+
 
 summary_lines = [
     "## Summary",
@@ -155,11 +159,10 @@ summary_lines = [
 
 # Only add vortex-specific sections if we have vortex data
 if len(vortex_df) > 0:
-    summary_lines.extend(
-        [
-            f"- **Vortex**: {vortex_performance}",
-        ]
-    )
+    summary_lines.extend([f"- **Vortex**: {vortex_performance}"])
+
+if len(parquet_df) > 0:
+    summary_lines.extend([f"- **Parquet**: {parquet_performance}"])
 
 # Only add duckdb:vortex section if we have that data
 if len(duckdb_vortex_df) > 0:
@@ -197,5 +200,5 @@ print("")
 print("<details>")
 print("<summary>Detailed Results Table</summary>")
 print("")
-print(table_df.to_markdown(index=False))
+print(table_df.to_markdown(index=False, tablefmt="github", floatfmt=".2f"))
 print("</details>")

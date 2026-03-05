@@ -104,6 +104,43 @@ fn http_client() -> Result<reqwest::blocking::Client, Box<dyn std::error::Error>
     Ok(client)
 }
 
+/// Download a URL with retry logic for transient failures (5xx, timeouts, connection errors).
+fn download_with_retries(url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let client = http_client()?;
+    let max_retries = 3;
+
+    for attempt in 1..=max_retries {
+        match client.get(url).send() {
+            Ok(response) if response.status().is_success() => {
+                return Ok(response.bytes()?.to_vec());
+            }
+            Ok(response) if response.status().is_server_error() => {
+                println!(
+                    "cargo:warning=Download attempt {attempt}/{max_retries} failed: HTTP {} for {url}",
+                    response.status()
+                );
+            }
+            Ok(response) => {
+                // Client errors (4xx) are not retryable
+                return Err(format!("Failed to download {url}: HTTP {}", response.status()).into());
+            }
+            Err(e) => {
+                println!(
+                    "cargo:warning=Download attempt {attempt}/{max_retries} failed: {e} for {url}"
+                );
+            }
+        }
+
+        if attempt < max_retries {
+            let delay = std::time::Duration::from_secs(2u64.pow(attempt as u32));
+            println!("cargo:warning=Retrying in {}s...", delay.as_secs());
+            std::thread::sleep(delay);
+        }
+    }
+
+    Err(format!("Failed to download {url} after {max_retries} attempts").into())
+}
+
 /// Get the target-specific platform and architecture for downloading prebuilt libraries.
 fn platform_arch() -> Result<(&'static str, &'static str), Box<dyn std::error::Error>> {
     let target = env::var("TARGET")?;
@@ -145,15 +182,8 @@ fn download_duckdb_lib_archive() -> Result<PathBuf, Box<dyn std::error::Error>> 
     // Download if archive doesn't exist
     if !archive_path.exists() {
         println!("cargo:info=Downloading DuckDB libraries from {url}");
-        let response = http_client()?.get(&url).send()?;
-        if !response.status().is_success() {
-            return Err(format!(
-                "Failed to download DuckDB libraries: HTTP {}",
-                response.status()
-            )
-            .into());
-        }
-        fs::write(&archive_path, &response.bytes()?)?;
+        let bytes = download_with_retries(&url)?;
+        fs::write(&archive_path, &bytes)?;
         println!("cargo:info=Downloaded to {}", archive_path.display());
     }
 
@@ -210,15 +240,8 @@ fn download_duckdb_source_archive() -> Result<PathBuf, Box<dyn std::error::Error
     // Download if archive doesn't exist
     if !archive_path.exists() {
         println!("cargo:info=Downloading DuckDB source code from {url}");
-        let response = http_client()?.get(&url).send()?;
-        if !response.status().is_success() {
-            return Err(format!(
-                "Failed to download DuckDB source: HTTP {}",
-                response.status()
-            )
-            .into());
-        }
-        fs::write(&archive_path, &response.bytes()?)?;
+        let bytes = download_with_retries(&url)?;
+        fs::write(&archive_path, &bytes)?;
         println!("cargo:info=Downloaded to {}", archive_path.display());
     }
 

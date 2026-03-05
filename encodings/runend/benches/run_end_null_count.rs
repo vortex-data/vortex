@@ -7,7 +7,7 @@ use divan::Bencher;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use vortex_array::Array;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;

@@ -14,13 +14,17 @@ pub fn vortex_datetime_parts::DateTimePartsArray::subseconds(&self) -> &vortex_a
 
 pub fn vortex_datetime_parts::DateTimePartsArray::try_new(dtype: vortex_array::dtype::DType, days: vortex_array::array::ArrayRef, seconds: vortex_array::array::ArrayRef, subseconds: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<Self>
 
+impl vortex_datetime_parts::DateTimePartsArray
+
+pub fn vortex_datetime_parts::DateTimePartsArray::to_array(&self) -> vortex_array::array::ArrayRef
+
 impl core::clone::Clone for vortex_datetime_parts::DateTimePartsArray
 
 pub fn vortex_datetime_parts::DateTimePartsArray::clone(&self) -> vortex_datetime_parts::DateTimePartsArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_datetime_parts::DateTimePartsArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_datetime_parts::DateTimePartsArray
 
-pub fn vortex_datetime_parts::DateTimePartsArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_datetime_parts::DateTimePartsArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_datetime_parts::DateTimePartsArray> for vortex_array::array::ArrayRef
 
@@ -38,7 +42,7 @@ pub fn vortex_datetime_parts::DateTimePartsArray::fmt(&self, f: &mut core::fmt::
 
 impl core::ops::deref::Deref for vortex_datetime_parts::DateTimePartsArray
 
-pub type vortex_datetime_parts::DateTimePartsArray::Target = dyn vortex_array::array::Array
+pub type vortex_datetime_parts::DateTimePartsArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_datetime_parts::DateTimePartsArray::deref(&self) -> &Self::Target
 
@@ -124,7 +128,7 @@ pub fn vortex_datetime_parts::DateTimePartsVTable::fmt(&self, f: &mut core::fmt:
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_datetime_parts::DateTimePartsVTable
 
-pub fn vortex_datetime_parts::DateTimePartsVTable::take(array: &vortex_datetime_parts::DateTimePartsArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_datetime_parts::DateTimePartsVTable::take(array: &vortex_datetime_parts::DateTimePartsArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterReduce for vortex_datetime_parts::DateTimePartsVTable
 
@@ -140,7 +144,7 @@ pub fn vortex_datetime_parts::DateTimePartsVTable::is_constant(&self, array: &vo
 
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_datetime_parts::DateTimePartsVTable
 
-pub fn vortex_datetime_parts::DateTimePartsVTable::compare(lhs: &vortex_datetime_parts::DateTimePartsArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_datetime_parts::DateTimePartsVTable::compare(lhs: &vortex_datetime_parts::DateTimePartsArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_datetime_parts::DateTimePartsVTable
 

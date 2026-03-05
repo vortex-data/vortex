@@ -3,23 +3,18 @@
 
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
-use crate::ExecutionCtx;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
-use crate::arrays::TakeExecute;
+use crate::arrays::TakeReduce;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
 
-impl TakeExecute for MaskedVTable {
-    fn take(
-        array: &MaskedArray,
-        indices: &dyn Array,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
+impl TakeReduce for MaskedVTable {
+    fn take(array: &MaskedArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let taken_child = if !indices.all_valid()? {
             // This is safe because we'll mask out these positions in the validity.
             let fill_scalar = Scalar::zero_value(indices.dtype());
@@ -69,6 +64,6 @@ mod tests {
         ).unwrap()
     )]
     fn test_take_masked_conformance(#[case] array: MaskedArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.into_array());
     }
 }

@@ -11,7 +11,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::StructArray;
@@ -165,7 +164,7 @@ impl ArrayBuilder for StructBuilder {
         self.append_value(scalar.as_struct())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let array = array.to_struct();
 
         for (a, builder) in array
@@ -173,7 +172,7 @@ impl ArrayBuilder for StructBuilder {
             .iter()
             .zip_eq(self.builders.iter_mut())
         {
-            builder.extend_from_array(a.as_ref());
+            builder.extend_from_array(a);
         }
 
         self.nulls.append_validity_mask(

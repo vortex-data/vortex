@@ -22,8 +22,9 @@ impl FilterKernel for FSSTVTable {
         // Directly invoke VarBin's FilterKernel to get a concrete VarBinArray back.
         let filtered_codes = <VarBinVTable as FilterKernel>::filter(array.codes(), mask, ctx)?
             .vortex_expect("VarBin filter kernel always returns Some")
-            .as_::<VarBinVTable>()
-            .clone();
+            .try_into::<VarBinVTable>()
+            .ok()
+            .vortex_expect("must be VarBinVTable");
 
         Ok(Some(
             FSSTArray::try_new(
@@ -40,6 +41,7 @@ impl FilterKernel for FSSTVTable {
 
 #[cfg(test)]
 mod test {
+    use vortex_array::IntoArray;
     use vortex_array::arrays::builder::VarBinBuilder;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::dtype::DType;
@@ -61,7 +63,7 @@ mod test {
 
         let compressor = fsst_train_compressor(&varbin);
         let array = fsst_compress(&varbin, &compressor);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
 
         // Test with longer strings that benefit from compression
         let mut builder = VarBinBuilder::<i32>::with_capacity(5);
@@ -74,7 +76,7 @@ mod test {
 
         let compressor = fsst_train_compressor(&varbin);
         let array = fsst_compress(&varbin, &compressor);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
 
         // Test with nullable strings
         let mut builder = VarBinBuilder::<i32>::with_capacity(5);
@@ -87,6 +89,6 @@ mod test {
 
         let compressor = fsst_train_compressor(&varbin);
         let array = fsst_compress(&varbin, &compressor);
-        test_filter_conformance(array.as_ref());
+        test_filter_conformance(&array.into_array());
     }
 }

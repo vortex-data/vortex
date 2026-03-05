@@ -8,9 +8,9 @@ use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
@@ -253,7 +253,7 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::Nullable),
         )
         .vortex_expect("construction")
-        .to_array();
+        .into_array();
 
         let expr = is_null(root());
         array.apply(&expr).vortex_expect("expr evaluation");

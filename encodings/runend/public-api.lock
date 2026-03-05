@@ -36,13 +36,17 @@ pub fn vortex_runend::RunEndArray::try_new_offset_length(ends: vortex_array::arr
 
 pub fn vortex_runend::RunEndArray::values(&self) -> &vortex_array::array::ArrayRef
 
+impl vortex_runend::RunEndArray
+
+pub fn vortex_runend::RunEndArray::to_array(&self) -> vortex_array::array::ArrayRef
+
 impl core::clone::Clone for vortex_runend::RunEndArray
 
 pub fn vortex_runend::RunEndArray::clone(&self) -> vortex_runend::RunEndArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_runend::RunEndArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_runend::RunEndArray
 
-pub fn vortex_runend::RunEndArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_runend::RunEndArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_runend::RunEndArray> for vortex_array::array::ArrayRef
 
@@ -54,7 +58,7 @@ pub fn vortex_runend::RunEndArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) 
 
 impl core::ops::deref::Deref for vortex_runend::RunEndArray
 
-pub type vortex_runend::RunEndArray::Target = dyn vortex_array::array::Array
+pub type vortex_runend::RunEndArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_runend::RunEndArray::deref(&self) -> &Self::Target
 
@@ -116,7 +120,7 @@ pub fn vortex_runend::RunEndVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>)
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_runend::RunEndVTable
 
-pub fn vortex_runend::RunEndVTable::take(array: &vortex_runend::RunEndArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEndVTable::take(array: &vortex_runend::RunEndArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_runend::RunEndVTable
 
@@ -138,7 +142,7 @@ pub fn vortex_runend::RunEndVTable::min_max(&self, array: &vortex_runend::RunEnd
 
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_runend::RunEndVTable
 
-pub fn vortex_runend::RunEndVTable::compare(lhs: &vortex_runend::RunEndArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEndVTable::compare(lhs: &vortex_runend::RunEndArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_runend::RunEndVTable
 

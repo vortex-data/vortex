@@ -46,6 +46,7 @@ impl CastReduce for DeltaVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -53,20 +54,17 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
 
     use crate::delta::DeltaArray;
 
     #[test]
     fn test_cast_delta_u8_to_u32() {
-        let primitive = PrimitiveArray::new(
-            Buffer::copy_from(vec![10u8, 20, 30, 40, 50]),
-            vortex_array::validity::Validity::NonNullable,
-        );
+        let primitive = PrimitiveArray::from_iter([10u8, 20, 30, 40, 50]);
         let array = DeltaArray::try_from_primitive_array(&primitive).unwrap();
 
         let casted = array
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -83,13 +81,13 @@ mod tests {
         // DeltaArray doesn't support nullable arrays - the validity is handled at the DeltaArray level
         // Create a non-nullable array and then add validity to the DeltaArray
         let values = PrimitiveArray::new(
-            Buffer::copy_from(vec![100u16, 0, 200, 300, 0]),
+            buffer![100u16, 0, 200, 300, 0],
             vortex_array::validity::Validity::NonNullable,
         );
         let array = DeltaArray::try_from_primitive_array(&values).unwrap();
 
         let casted = array
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -101,30 +99,30 @@ mod tests {
     #[rstest]
     #[case::u8(
         PrimitiveArray::new(
-            Buffer::copy_from(vec![0u8, 10, 20, 30, 40, 50]),
+            buffer![0u8, 10, 20, 30, 40, 50],
             vortex_array::validity::Validity::NonNullable,
         )
     )]
     #[case::u16(
         PrimitiveArray::new(
-            Buffer::copy_from(vec![0u16, 100, 200, 300, 400, 500]),
+            buffer![0u16, 100, 200, 300, 400, 500],
             vortex_array::validity::Validity::NonNullable,
         )
     )]
     #[case::u32(
         PrimitiveArray::new(
-            Buffer::copy_from(vec![0u32, 1000, 2000, 3000, 4000]),
+            buffer![0u32, 1000, 2000, 3000, 4000],
             vortex_array::validity::Validity::NonNullable,
         )
     )]
     #[case::u64(
         PrimitiveArray::new(
-            Buffer::copy_from(vec![0u64, 10000, 20000, 30000]),
+            buffer![0u64, 10000, 20000, 30000],
             vortex_array::validity::Validity::NonNullable,
         )
     )]
     fn test_cast_delta_conformance(#[case] primitive: PrimitiveArray) {
         let delta_array = DeltaArray::try_from_primitive_array(&primitive).unwrap();
-        test_cast_conformance(delta_array.as_ref());
+        test_cast_conformance(&delta_array.into_array());
     }
 }

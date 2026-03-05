@@ -26,7 +26,8 @@ impl OperationsVTable<DecimalVTable> for DecimalVTable {
 mod tests {
     use vortex_buffer::buffer;
 
-    use crate::Array;
+    use crate::DynArray;
+    use crate::IntoArray;
     use crate::arrays::DecimalArray;
     use crate::arrays::DecimalVTable;
     use crate::dtype::DecimalDType;
@@ -42,7 +43,7 @@ mod tests {
             DecimalDType::new(3, 2),
             Validity::NonNullable,
         )
-        .to_array();
+        .into_array();
 
         let sliced = array.slice(1..3).unwrap();
         assert_eq!(sliced.len(), 2);
@@ -58,7 +59,7 @@ mod tests {
             DecimalDType::new(3, 2),
             Validity::from_iter([false, true, false, true]),
         )
-        .to_array();
+        .into_array();
 
         let sliced = array.slice(1..3).unwrap();
         assert_eq!(sliced.len(), 2);

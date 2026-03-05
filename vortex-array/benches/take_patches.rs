@@ -10,7 +10,9 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::patches::Patches;
 use vortex_buffer::Buffer;
 
@@ -45,8 +47,10 @@ fn take_search(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64))
     );
 
     bencher
-        .with_inputs(|| (&patches, &indices))
-        .bench_refs(|(patches, indices)| patches.take_search(indices.to_primitive(), false));
+        .with_inputs(|| (&patches, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(patches, indices, ctx)| {
+            patches.take_search(indices.to_primitive(), false, ctx)
+        });
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -60,8 +64,10 @@ fn take_search_chunked(bencher: Bencher, (patches_sparsity, index_multiple): (f6
     );
 
     bencher
-        .with_inputs(|| (&patches, &indices))
-        .bench_refs(|(patches, indices)| patches.take_search(indices.to_primitive(), false));
+        .with_inputs(|| (&patches, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(patches, indices, ctx)| {
+            patches.take_search(indices.to_primitive(), false, ctx)
+        });
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -75,8 +81,8 @@ fn take_map(bencher: Bencher, (patches_sparsity, index_multiple): (f64, f64)) {
     );
 
     bencher
-        .with_inputs(|| (&patches, &indices))
-        .bench_refs(|(patches, indices)| patches.take_map(indices.to_primitive(), false));
+        .with_inputs(|| (&patches, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(patches, indices, ctx)| patches.take_map(indices.to_primitive(), false, ctx));
 }
 
 fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {

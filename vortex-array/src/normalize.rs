@@ -6,9 +6,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::Id;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::ArrayVisitor;
+use crate::DynArray;
 use crate::session::ArrayRegistry;
 
 /// Options for normalizing an array.
@@ -26,7 +26,7 @@ pub enum Operation {
     // TODO(joe): add into canonical variant
 }
 
-impl dyn Array + '_ {
+impl dyn DynArray + '_ {
     /// Normalize the array according to given options.
     ///
     /// This operation performs a recursive traversal of the array. Any non-allowed encoding is

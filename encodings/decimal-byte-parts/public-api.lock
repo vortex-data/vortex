@@ -10,13 +10,17 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::into_parts(self) -> vor
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::try_new(msp: vortex_array::array::ArrayRef, decimal_dtype: vortex_array::dtype::decimal::DecimalDType) -> vortex_error::VortexResult<Self>
 
+impl vortex_decimal_byte_parts::DecimalBytePartsArray
+
+pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::to_array(&self) -> vortex_array::array::ArrayRef
+
 impl core::clone::Clone for vortex_decimal_byte_parts::DecimalBytePartsArray
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::clone(&self) -> vortex_decimal_byte_parts::DecimalBytePartsArray
 
-impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_decimal_byte_parts::DecimalBytePartsArray
+impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_decimal_byte_parts::DecimalBytePartsArray
 
-pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::as_ref(&self) -> &dyn vortex_array::array::Array
+pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
 
 impl core::convert::From<vortex_decimal_byte_parts::DecimalBytePartsArray> for vortex_array::array::ArrayRef
 
@@ -28,7 +32,7 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::fmt(&self, f: &mut core
 
 impl core::ops::deref::Deref for vortex_decimal_byte_parts::DecimalBytePartsArray
 
-pub type vortex_decimal_byte_parts::DecimalBytePartsArray::Target = dyn vortex_array::array::Array
+pub type vortex_decimal_byte_parts::DecimalBytePartsArray::Target = dyn vortex_array::array::DynArray
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::deref(&self) -> &Self::Target
 
@@ -54,7 +58,7 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::fmt(&self, f: &mut cor
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_decimal_byte_parts::DecimalBytePartsVTable
 
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::take(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::take(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterReduce for vortex_decimal_byte_parts::DecimalBytePartsVTable
 
@@ -70,7 +74,7 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::is_constant(&self, arr
 
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_decimal_byte_parts::DecimalBytePartsVTable
 
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::compare(lhs: &Self::Array, rhs: &dyn vortex_array::array::Array, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::compare(lhs: &Self::Array, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_decimal_byte_parts::DecimalBytePartsVTable
 

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
@@ -25,7 +25,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 pub fn take_canonical_array_non_nullable_indices(
-    array: &dyn Array,
+    array: &ArrayRef,
     indices: &[usize],
 ) -> VortexResult<ArrayRef> {
     take_canonical_array(
@@ -38,10 +38,7 @@ pub fn take_canonical_array_non_nullable_indices(
     )
 }
 
-pub fn take_canonical_array(
-    array: &dyn Array,
-    indices: &[Option<usize>],
-) -> VortexResult<ArrayRef> {
+pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> VortexResult<ArrayRef> {
     let nullable: Nullability = indices.contains(&None).into();
 
     let validity = if array.dtype().is_nullable() || nullable == Nullability::Nullable {

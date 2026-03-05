@@ -29,6 +29,7 @@ use vortex::expr::get_item;
 use vortex::expr::is_null;
 use vortex::expr::list_contains;
 use vortex::expr::lit;
+use vortex::expr::nested_case_when;
 use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
@@ -144,6 +145,45 @@ impl DefaultExpressionConvertor {
             scalar_fn.name()
         ))
     }
+
+    /// Attempts to convert a DataFusion CaseExpr to a Vortex expression.
+    fn try_convert_case_expr(&self, case_expr: &df_expr::CaseExpr) -> DFResult<Expression> {
+        // DataFusion CaseExpr has:
+        // - expr(): Optional base expression (for "CASE expr WHEN ..." form)
+        // - when_then_expr(): Vec of (when, then) pairs
+        // - else_expr(): Optional else expression
+
+        // We don't support the "CASE expr WHEN value1 THEN result1" form yet
+        if case_expr.expr().is_some() {
+            return Err(exec_datafusion_err!(
+                "CASE expr WHEN form is not yet supported, only searched CASE is supported"
+            ));
+        }
+
+        let when_then_pairs = case_expr.when_then_expr();
+        if when_then_pairs.is_empty() {
+            return Err(exec_datafusion_err!(
+                "CASE expression must have at least one WHEN clause"
+            ));
+        }
+
+        // Convert all when/then pairs to (condition, value) tuples
+        let mut pairs = Vec::with_capacity(when_then_pairs.len());
+        for (when_expr, then_expr) in when_then_pairs {
+            let condition = self.convert(when_expr.as_ref())?;
+            let value = self.convert(then_expr.as_ref())?;
+            pairs.push((condition, value));
+        }
+
+        // Convert optional else expression
+        let else_value = case_expr
+            .else_expr()
+            .map(|e| self.convert(e.as_ref()))
+            .transpose()?;
+
+        // Build a single n-ary CASE WHEN expression from DataFusion WHEN/THEN pairs
+        Ok(nested_case_when(pairs, else_value))
+    }
 }
 
 impl ExpressionConvertor for DefaultExpressionConvertor {
@@ -233,6 +273,10 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
 
         if let Some(scalar_fn) = df.as_any().downcast_ref::<ScalarFunctionExpr>() {
             return self.try_convert_scalar_function(scalar_fn);
+        }
+
+        if let Some(case_expr) = df.as_any().downcast_ref::<df_expr::CaseExpr>() {
+            return self.try_convert_case_expr(case_expr);
         }
 
         Err(exec_datafusion_err!(
@@ -380,10 +424,12 @@ fn can_be_pushed_down_impl(df_expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> 
             && can_be_pushed_down_impl(like.pattern(), schema)
     } else if let Some(lit) = expr.downcast_ref::<df_expr::Literal>() {
         supported_data_types(&lit.value().data_type())
-    } else if expr.downcast_ref::<df_expr::CastExpr>().is_some()
-        || expr.downcast_ref::<df_expr::CastColumnExpr>().is_some()
-    {
-        true
+    } else if let Some(cast_expr) = expr.downcast_ref::<df_expr::CastExpr>() {
+        // CastExpr child must be an expression type that convert() can handle
+        is_convertible_expr(cast_expr.expr())
+    } else if let Some(cast_col_expr) = expr.downcast_ref::<df_expr::CastColumnExpr>() {
+        // CastColumnExpr child must be an expression type that convert() can handle
+        is_convertible_expr(cast_col_expr.expr())
     } else if let Some(is_null) = expr.downcast_ref::<df_expr::IsNullExpr>() {
         can_be_pushed_down_impl(is_null.arg(), schema)
     } else if let Some(is_not_null) = expr.downcast_ref::<df_expr::IsNotNullExpr>() {
@@ -396,10 +442,37 @@ fn can_be_pushed_down_impl(df_expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> 
                 .all(|e| can_be_pushed_down_impl(e, schema))
     } else if let Some(scalar_fn) = expr.downcast_ref::<ScalarFunctionExpr>() {
         can_scalar_fn_be_pushed_down(scalar_fn)
+    } else if let Some(case_expr) = expr.downcast_ref::<df_expr::CaseExpr>() {
+        can_case_be_pushed_down(case_expr, schema)
     } else {
         tracing::debug!(%df_expr, "DataFusion expression can't be pushed down");
         false
     }
+}
+
+/// Checks if an expression type is one that convert() can handle.
+/// This is less restrictive than can_be_pushed_down since it only checks
+/// expression types, not data type support.
+fn is_convertible_expr(df_expr: &Arc<dyn PhysicalExpr>) -> bool {
+    let expr = df_expr.as_any();
+
+    // Expression types that convert() handles
+    expr.downcast_ref::<df_expr::BinaryExpr>().is_some()
+        || expr.downcast_ref::<df_expr::Column>().is_some()
+        || expr.downcast_ref::<df_expr::LikeExpr>().is_some()
+        || expr.downcast_ref::<df_expr::Literal>().is_some()
+        || expr
+            .downcast_ref::<df_expr::CastExpr>()
+            .is_some_and(|e| is_convertible_expr(e.expr()))
+        || expr
+            .downcast_ref::<df_expr::CastColumnExpr>()
+            .is_some_and(|e| is_convertible_expr(e.expr()))
+        || expr.downcast_ref::<df_expr::IsNullExpr>().is_some()
+        || expr.downcast_ref::<df_expr::IsNotNullExpr>().is_some()
+        || expr.downcast_ref::<df_expr::InListExpr>().is_some()
+        || expr
+            .downcast_ref::<ScalarFunctionExpr>()
+            .is_some_and(|sf| ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(sf).is_some())
 }
 
 fn can_binary_be_pushed_down(binary: &df_expr::BinaryExpr, schema: &Schema) -> bool {
@@ -407,6 +480,32 @@ fn can_binary_be_pushed_down(binary: &df_expr::BinaryExpr, schema: &Schema) -> b
     is_op_supported
         && can_be_pushed_down_impl(binary.left(), schema)
         && can_be_pushed_down_impl(binary.right(), schema)
+}
+
+fn can_case_be_pushed_down(case_expr: &df_expr::CaseExpr, schema: &Schema) -> bool {
+    // We only support the "searched CASE" form (CASE WHEN cond THEN result ...)
+    // not the "simple CASE" form (CASE expr WHEN value THEN result ...)
+    if case_expr.expr().is_some() {
+        return false;
+    }
+
+    // Check all when/then pairs
+    for (when_expr, then_expr) in case_expr.when_then_expr() {
+        if !can_be_pushed_down_impl(when_expr, schema)
+            || !can_be_pushed_down_impl(then_expr, schema)
+        {
+            return false;
+        }
+    }
+
+    // Check the optional else clause
+    if let Some(else_expr) = case_expr.else_expr()
+        && !can_be_pushed_down_impl(else_expr, schema)
+    {
+        return false;
+    }
+
+    true
 }
 
 fn supported_data_types(dt: &DataType) -> bool {
@@ -442,7 +541,8 @@ fn supported_data_types(dt: &DataType) -> bool {
     is_supported
 }
 
-/// Checks if a GetField scalar function can be pushed down.
+/// Checks if a scalar function can be pushed down.
+/// Currently only GetFieldFunc is supported.
 fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr) -> bool {
     ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some()
 }
@@ -810,5 +910,97 @@ mod tests {
             .await?;
 
         Ok(())
+    }
+
+    /// Test that applying a CASE expression to an Arrow RecordBatch using DataFusion
+    /// matches the result of applying the converted Vortex expression.
+    #[test]
+    fn test_case_when_datafusion_vortex_equivalence() {
+        use datafusion::arrow::array::Int32Array;
+        use datafusion::arrow::array::RecordBatch;
+        use datafusion_physical_expr::expressions::CaseExpr;
+        use vortex::VortexSessionDefault;
+        use vortex::array::ArrayRef;
+        use vortex::array::Canonical;
+        use vortex::array::VortexSessionExecute as _;
+        use vortex::array::arrow::FromArrowArray;
+        use vortex::session::VortexSession;
+
+        // Create test data
+        let values = Arc::new(Int32Array::from(vec![1, 5, 10, 15, 20]));
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int32,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(schema, vec![values]).unwrap();
+
+        // Build a DataFusion CASE expression:
+        // CASE WHEN value > 10 THEN 100 WHEN value > 5 THEN 50 ELSE 0 END
+        let col_value = Arc::new(df_expr::Column::new("value", 0)) as Arc<dyn PhysicalExpr>;
+        let lit_10 =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(10)))) as Arc<dyn PhysicalExpr>;
+        let lit_5 =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(5)))) as Arc<dyn PhysicalExpr>;
+        let lit_100 =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(100)))) as Arc<dyn PhysicalExpr>;
+        let lit_50 =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(50)))) as Arc<dyn PhysicalExpr>;
+        let lit_0 =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(0)))) as Arc<dyn PhysicalExpr>;
+
+        // WHEN value > 10 THEN 100
+        let when1 = Arc::new(df_expr::BinaryExpr::new(
+            col_value.clone(),
+            DFOperator::Gt,
+            lit_10,
+        )) as Arc<dyn PhysicalExpr>;
+        // WHEN value > 5 THEN 50
+        let when2 = Arc::new(df_expr::BinaryExpr::new(col_value, DFOperator::Gt, lit_5))
+            as Arc<dyn PhysicalExpr>;
+
+        let case_expr =
+            CaseExpr::try_new(None, vec![(when1, lit_100), (when2, lit_50)], Some(lit_0)).unwrap();
+
+        // Apply DataFusion expression
+        let df_result = case_expr.evaluate(&batch).unwrap();
+        let df_array = df_result.into_array(batch.num_rows()).unwrap();
+
+        // Convert to Vortex expression
+        let expr_convertor = DefaultExpressionConvertor::default();
+        let vortex_expr = expr_convertor.try_convert_case_expr(&case_expr).unwrap();
+
+        // Convert batch to Vortex array
+        let vortex_array: ArrayRef = ArrayRef::from_arrow(&batch, false).unwrap();
+
+        // Apply Vortex expression
+        let session = VortexSession::default();
+        let mut ctx = session.create_execution_ctx();
+        let vortex_result = vortex_array
+            .apply(&vortex_expr)
+            .unwrap()
+            .execute::<Canonical>(&mut ctx)
+            .unwrap();
+
+        // Convert back to Arrow for comparison
+        let vortex_as_arrow = vortex_result.into_primitive().as_slice::<i32>().to_vec();
+
+        // Convert DataFusion result to Vec for comparison
+        let df_as_arrow: Vec<i32> = df_array
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .unwrap()
+            .values()
+            .to_vec();
+
+        // Compare results
+        // Expected: [0, 0, 50, 100, 100] for values [1, 5, 10, 15, 20]
+        // value=1: not > 10, not > 5 -> ELSE 0
+        // value=5: not > 10, not > 5 -> ELSE 0
+        // value=10: not > 10, > 5 -> 50
+        // value=15: > 10 -> 100
+        // value=20: > 10 -> 100
+        assert_eq!(df_as_arrow, vec![0, 0, 50, 100, 100]);
+        assert_eq!(vortex_as_arrow, df_as_arrow);
     }
 }

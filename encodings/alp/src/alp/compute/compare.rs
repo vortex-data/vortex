@@ -3,8 +3,8 @@
 
 use std::fmt::Debug;
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
@@ -28,7 +28,7 @@ use crate::match_each_alp_float_ptype;
 impl CompareKernel for ALPVTable {
     fn compare(
         lhs: &ALPArray,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

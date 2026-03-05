@@ -214,7 +214,7 @@ mod test {
 
         use arrow_array::RecordBatchReader;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-        use vortex::array::Array;
+        use vortex::array::DynArray;
         use vortex::array::arrays::ChunkedArray;
         use vortex::dtype::DType;
         use vortex::dtype::arrow::FromArrowType;
@@ -248,7 +248,7 @@ mod test {
         let array = PrimitiveArray::new(buffer![42u64; 100_000], Validity::NonNullable);
 
         // You can compress an array in-memory with the BtrBlocks compressor
-        let compressed = BtrBlocksCompressor::default().compress(array.as_ref())?;
+        let compressed = BtrBlocksCompressor::default().compress(&array.clone().into_array())?;
         println!(
             "BtrBlocks size: {} / {}",
             compressed.nbytes(),

@@ -4,7 +4,7 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
-use crate::Array;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;

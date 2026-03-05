@@ -98,8 +98,9 @@ fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (us
         })
         .bench_refs(|(fsst_array, constant, ctx)| {
             fsst_array
-                .to_array()
-                .binary(constant.to_array(), Operator::Eq)
+                .clone()
+                .into_array()
+                .binary(constant.clone().into_array(), Operator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap();
@@ -130,7 +131,7 @@ fn canonicalize_compare(
                 .unwrap()
                 .as_ref()
                 .to_array()
-                .binary(constant.to_array(), Operator::Eq)
+                .binary(constant.clone().into_array(), Operator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap();

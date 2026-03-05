@@ -13,9 +13,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
-use crate::Array;
 use crate::ArrayAdapter;
 use crate::ArrayRef;
+use crate::DynArray;
+use crate::IntoArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
@@ -32,7 +33,7 @@ pub type ArrayId = ArcRef<str>;
 /// this object-safe form.
 ///
 /// This trait contains the implementation API for Vortex arrays, allowing us to keep the public
-/// [`Array`] trait API to a minimum.
+/// [`DynArray`] trait API to a minimum.
 pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
     #[allow(clippy::too_many_arguments)]
     fn build(
@@ -45,7 +46,7 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef>;
-    fn with_children(&self, array: &dyn Array, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
+    fn with_children(&self, array: &ArrayRef, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 
     /// See [`VTable::reduce`]
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
@@ -90,13 +91,13 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         let array = V::build(dtype, len, &metadata, buffers, children)?;
         assert_eq!(array.len(), len, "Array length mismatch after building");
         assert_eq!(array.dtype(), dtype, "Array dtype mismatch after building");
-        Ok(array.to_array())
+        Ok(array.into_array())
     }
 
-    fn with_children(&self, array: &dyn Array, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
+    fn with_children(&self, array: &ArrayRef, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
         let mut array = array.as_::<V>().clone();
         V::with_children(&mut array, children)?;
-        Ok(array.to_array())
+        Ok(array.into_array())
     }
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

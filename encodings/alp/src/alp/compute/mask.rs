@@ -3,6 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar_fn::fns::mask::MaskKernel;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
@@ -20,7 +21,7 @@ impl MaskReduce for ALPVTable {
         }
         let masked_encoded = array.encoded().clone().mask(mask.clone())?;
         Ok(Some(
-            ALPArray::new(masked_encoded, array.exponents(), None).to_array(),
+            ALPArray::new(masked_encoded, array.exponents(), None).into_array(),
         ))
     }
 }
@@ -29,17 +30,17 @@ impl MaskKernel for ALPVTable {
     fn mask(
         array: &ALPArray,
         mask: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let vortex_mask = Validity::Array(mask.not()?).to_mask(array.len());
         let masked_encoded = array.encoded().clone().mask(mask.clone())?;
         let masked_patches = array
             .patches()
-            .map(|p| p.mask(&vortex_mask))
+            .map(|p| p.mask(&vortex_mask, ctx))
             .transpose()?
             .flatten();
         Ok(Some(
-            ALPArray::new(masked_encoded, array.exponents(), masked_patches).to_array(),
+            ALPArray::new(masked_encoded, array.exponents(), masked_patches).into_array(),
         ))
     }
 }
@@ -66,7 +67,7 @@ mod test {
     ].into_array())]
     fn test_mask_alp_conformance(#[case] array: vortex_array::ArrayRef) {
         let alp = alp_encode(&array.to_primitive(), None).unwrap();
-        test_mask_conformance(alp.as_ref());
+        test_mask_conformance(&alp.into_array());
     }
 
     #[test]
@@ -79,6 +80,6 @@ mod test {
         let array = PrimitiveArray::from_iter(values);
         let alp = alp_encode(&array, None).unwrap();
         assert!(alp.patches().is_some(), "expected patches");
-        test_mask_conformance(alp.as_ref());
+        test_mask_conformance(&alp.into_array());
     }
 }

@@ -10,8 +10,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::Precision;

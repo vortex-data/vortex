@@ -76,7 +76,8 @@ fn benchmark_datetimeparts(c: &mut Criterion) {
 
                     for _ in 0..iters {
                         // block on immediately here
-                        block_on(dtp_array.to_array().execute_cuda(&mut cuda_ctx)).unwrap();
+                        block_on(dtp_array.clone().into_array().execute_cuda(&mut cuda_ctx))
+                            .unwrap();
                     }
 
                     Duration::from_nanos(timer.load(Ordering::Relaxed))

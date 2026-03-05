@@ -142,7 +142,13 @@ impl FooterDeserializer {
             .statistics
             .as_ref()
             .map(|segment| {
-                self.parse_file_statistics(initial_offset, &self.buffer, segment, &dtype)
+                self.parse_file_statistics(
+                    initial_offset,
+                    &self.buffer,
+                    segment,
+                    &dtype,
+                    &self.session,
+                )
             })
             .transpose()?;
 
@@ -222,13 +228,14 @@ impl FooterDeserializer {
         initial_read: &[u8],
         segment: &PostscriptSegment,
         dtype: &DType,
+        session: &VortexSession,
     ) -> VortexResult<FileStatistics> {
         let offset = usize::try_from(segment.offset - initial_offset)?;
         let sliced_buffer =
             FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
 
         let fb = root::<vortex_flatbuffers::footer::FileStatistics>(&sliced_buffer)?;
-        FileStatistics::from_flatbuffer(&fb, dtype)
+        FileStatistics::from_flatbuffer(&fb, dtype, session)
     }
 
     /// Parse the rest of the footer from the initial read.

@@ -23,6 +23,8 @@ use vortex_bench::Opts;
 use vortex_bench::create_benchmark;
 use vortex_bench::create_output_writer;
 use vortex_bench::display::DisplayFormat;
+use vortex_bench::runner::BenchmarkMode;
+use vortex_bench::runner::BenchmarkQueryResult;
 use vortex_bench::runner::SqlBenchmarkRunner;
 use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
@@ -99,7 +101,9 @@ async fn main() -> anyhow::Result<()> {
     runner
         .run_all_async(
             &filtered_queries,
-            args.iterations,
+            BenchmarkMode::Run {
+                iterations: args.iterations,
+            },
             |_format| async {
                 let session = SessionContext::new();
                 register_lance_tables(&session, &*benchmark).await?;
@@ -108,10 +112,9 @@ async fn main() -> anyhow::Result<()> {
             |_query_idx, session, query| {
                 Box::pin(async move {
                     let timer = Instant::now();
-                    let (batches, plan) = execute_query(session, query).await?;
+                    let (batches, _plan) = execute_query(session, query).await?;
                     let time = timer.elapsed();
-                    let row_count = batches.iter().map(|batch| batch.num_rows()).sum::<usize>();
-                    anyhow::Ok((row_count, Some(time), plan))
+                    anyhow::Ok((Some(time), LanceQueryResult(batches)))
                 })
             },
         )
@@ -146,6 +149,22 @@ async fn register_lance_tables<B: Benchmark + ?Sized>(
     }
 
     Ok(())
+}
+
+/// Wrapper around Lance/DataFusion record batches implementing `BenchmarkQueryResult`.
+struct LanceQueryResult(Vec<RecordBatch>);
+
+impl BenchmarkQueryResult for LanceQueryResult {
+    fn row_count(&self) -> usize {
+        self.0.iter().map(|batch| batch.num_rows()).sum()
+    }
+
+    fn display(self) -> String {
+        // Lance uses the same Arrow RecordBatch type
+        lance::deps::datafusion::arrow::util::pretty::pretty_format_batches(&self.0)
+            .map(|d| d.to_string())
+            .unwrap_or_else(|e| format!("<error: {e}>"))
+    }
 }
 
 pub async fn execute_query(

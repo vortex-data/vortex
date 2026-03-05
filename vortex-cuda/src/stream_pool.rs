@@ -57,12 +57,12 @@ impl VortexCudaStreamPool {
         }
     }
 
-    /// Gets a stream from the pool.
+    /// Returns a stream from the pool.
     ///
     /// Uses round-robin slot selection. If the selected slot has a stream,
     /// it is reused. Otherwise, a new stream is created for that slot.
     /// All operations are lock-free.
-    pub fn get_stream(&self) -> VortexResult<VortexCudaStream> {
+    pub fn stream(&self) -> VortexResult<VortexCudaStream> {
         let slot_idx = self.next_index.fetch_add(1, Ordering::Relaxed) % self.slots.len();
         let slot = &self.slots[slot_idx];
 

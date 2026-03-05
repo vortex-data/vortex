@@ -6,8 +6,9 @@ use arrow_schema::DataType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrow::FromArrowArray;
@@ -19,13 +20,13 @@ use crate::scalar_fn::fns::operators::Operator;
 
 /// Point-wise Kleene logical _and_ between two Boolean arrays.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
-pub fn and_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+pub fn and_kleene(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
     lhs.to_array().binary(rhs.to_array(), Operator::And)
 }
 
 /// Point-wise Kleene logical _or_ between two Boolean arrays.
 #[deprecated(note = "Use `ArrayBuiltins::binary` instead")]
-pub fn or_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
+pub fn or_kleene(lhs: &ArrayRef, rhs: &ArrayRef) -> VortexResult<ArrayRef> {
     lhs.to_array().binary(rhs.to_array(), Operator::Or)
 }
 
@@ -34,8 +35,8 @@ pub fn or_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
 /// This is the entry point for boolean operations from the binary expression.
 /// Handles constant-constant directly, otherwise falls back to Arrow.
 pub(crate) fn execute_boolean(
-    lhs: &dyn Array,
-    rhs: &dyn Array,
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
     op: Operator,
 ) -> VortexResult<ArrayRef> {
     if let Some(result) = constant_boolean(lhs, rhs, op)? {
@@ -62,8 +63,8 @@ fn arrow_execute_boolean(lhs: ArrayRef, rhs: ArrayRef, op: Operator) -> VortexRe
 
 /// Constant-folds a boolean operation between two constant arrays.
 fn constant_boolean(
-    lhs: &dyn Array,
-    rhs: &dyn Array,
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
     op: Operator,
 ) -> VortexResult<Option<ArrayRef>> {
     let (Some(lhs), Some(rhs)) = (
@@ -100,7 +101,7 @@ fn constant_boolean(
         .map(|b| Scalar::bool(b, nullable.into()))
         .unwrap_or_else(|| Scalar::null(DType::Bool(nullable.into())));
 
-    Ok(Some(ConstantArray::new(scalar, length).to_array()))
+    Ok(Some(ConstantArray::new(scalar, length).into_array()))
 }
 
 #[cfg(test)]

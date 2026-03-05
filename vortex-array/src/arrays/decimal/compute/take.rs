@@ -4,11 +4,11 @@
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
-use crate::ToCanonical;
+use crate::IntoArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::TakeExecute;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativeDecimalType;
@@ -20,11 +20,11 @@ use crate::vtable::ValidityHelper;
 impl TakeExecute for DecimalVTable {
     fn take(
         array: &DecimalArray,
-        indices: &dyn Array,
-        _ctx: &mut ExecutionCtx,
+        indices: &ArrayRef,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let indices = indices.to_primitive();
-        let validity = array.validity().take(indices.as_ref())?;
+        let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
+        let validity = array.validity().take(&indices.clone().into_array())?;
 
         // TODO(joe): if the true count of take indices validity is low, only take array values with
         // valid indices.
@@ -38,7 +38,7 @@ impl TakeExecute for DecimalVTable {
             })
         });
 
-        Ok(Some(decimal.to_array()))
+        Ok(Some(decimal.into_array()))
     }
 }
 
@@ -128,6 +128,6 @@ mod tests {
         )
     })]
     fn test_take_decimal_conformance(#[case] array: DecimalArray) {
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.into_array());
     }
 }

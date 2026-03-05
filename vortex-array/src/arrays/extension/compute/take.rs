@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
@@ -14,7 +14,7 @@ use crate::arrays::TakeExecute;
 impl TakeExecute for ExtensionVTable {
     fn take(
         array: &ExtensionArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let taken_storage = array.storage().take(indices.to_array())?;

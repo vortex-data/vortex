@@ -5,7 +5,7 @@
 
 use fsst::Compressor;
 use fsst::Symbol;
-use vortex_array::Array;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::builder::VarBinBuilder;
@@ -17,7 +17,7 @@ use vortex_error::VortexExpect;
 use crate::FSSTArray;
 
 /// Compress a string array using FSST.
-pub fn fsst_compress<A: ArrayAccessor<[u8]> + AsRef<dyn Array>>(
+pub fn fsst_compress<A: ArrayAccessor<[u8]> + AsRef<dyn DynArray>>(
     strings: A,
     compressor: &Compressor,
 ) -> FSSTArray {

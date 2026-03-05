@@ -6,6 +6,7 @@
 use divan::Bencher;
 use rand::distr::Distribution;
 use rand::distr::StandardUniform;
+use vortex_array::IntoArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict_test::gen_primitive_for_dict;
@@ -43,7 +44,7 @@ where
 
     bencher
         .with_inputs(|| &primitive_arr)
-        .bench_refs(|arr| dict_encode(arr.as_ref()));
+        .bench_refs(|arr| dict_encode(&arr.clone().into_array()));
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -52,7 +53,7 @@ fn encode_varbin(bencher: Bencher, (len, unique_values): (usize, usize)) {
 
     bencher
         .with_inputs(|| &varbin_arr)
-        .bench_refs(|arr| dict_encode(arr.as_ref()));
+        .bench_refs(|arr| dict_encode(&arr.clone().into_array()));
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -61,7 +62,7 @@ fn encode_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
 
     bencher
         .with_inputs(|| &varbinview_arr)
-        .bench_refs(|arr| dict_encode(arr.as_ref()));
+        .bench_refs(|arr| dict_encode(&arr.clone().into_array()));
 }
 
 #[divan::bench(types = [u8, f32, i64], args = BENCH_ARGS)]
@@ -71,7 +72,7 @@ where
     StandardUniform: Distribution<T>,
 {
     let primitive_arr = gen_primitive_for_dict::<T>(len, unique_values);
-    let dict = dict_encode(primitive_arr.as_ref()).unwrap();
+    let dict = dict_encode(&primitive_arr.into_array()).unwrap();
 
     bencher
         .with_inputs(|| &dict)
@@ -81,7 +82,7 @@ where
 #[divan::bench(args = BENCH_ARGS)]
 fn decode_varbin(bencher: Bencher, (len, unique_values): (usize, usize)) {
     let varbin_arr = VarBinArray::from(gen_varbin_words(len, unique_values));
-    let dict = dict_encode(varbin_arr.as_ref()).unwrap();
+    let dict = dict_encode(&varbin_arr.into_array()).unwrap();
 
     bencher
         .with_inputs(|| &dict)
@@ -91,7 +92,7 @@ fn decode_varbin(bencher: Bencher, (len, unique_values): (usize, usize)) {
 #[divan::bench(args = BENCH_ARGS)]
 fn decode_varbinview(bencher: Bencher, (len, unique_values): (usize, usize)) {
     let varbinview_arr = VarBinViewArray::from_iter_str(gen_varbin_words(len, unique_values));
-    let dict = dict_encode(varbinview_arr.as_ref()).unwrap();
+    let dict = dict_encode(&varbinview_arr.into_array()).unwrap();
 
     bencher
         .with_inputs(|| &dict)

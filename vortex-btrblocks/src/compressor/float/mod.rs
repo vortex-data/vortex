@@ -219,7 +219,7 @@ impl Scheme for UncompressedScheme {
         _ctx: CompressorContext,
         _excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        Ok(stats.source().to_array())
+        Ok(stats.source().clone().into_array())
     }
 }
 
@@ -501,7 +501,7 @@ impl Scheme for NullDominated {
         assert!(ctx.allowed_cascading > 0);
 
         // We pass None as we only run this pathway for NULL-dominated float arrays
-        let sparse_encoded = SparseArray::encode(stats.src.as_ref(), None)?;
+        let sparse_encoded = SparseArray::encode(&stats.src.clone().into_array(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
             // Compress the values
@@ -559,7 +559,7 @@ mod tests {
 
     use std::iter;
 
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;

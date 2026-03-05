@@ -35,44 +35,50 @@ fn test_search_sorted_primitive(
 #[test]
 fn test_mask_primitive_array() {
     test_mask_conformance(
-        PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref(),
-    );
-    test_mask_conformance(PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref());
-    test_mask_conformance(
-        PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllInvalid).as_ref(),
+        &PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).into_array(),
     );
     test_mask_conformance(
-        PrimitiveArray::new(
+        &PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).into_array(),
+    );
+    test_mask_conformance(
+        &PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllInvalid).into_array(),
+    );
+    test_mask_conformance(
+        &PrimitiveArray::new(
             buffer![0, 1, 2, 3, 4],
             Validity::Array(BoolArray::from_iter([true, false, true, false, true]).into_array()),
         )
-        .as_ref(),
+        .into_array(),
     );
 }
 
 #[test]
 fn test_filter_primitive_array() {
     // Test various sizes
-    test_filter_conformance(PrimitiveArray::new(buffer![42i32], Validity::NonNullable).as_ref());
-    test_filter_conformance(PrimitiveArray::new(buffer![0, 1], Validity::NonNullable).as_ref());
     test_filter_conformance(
-        PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).as_ref(),
+        &PrimitiveArray::new(buffer![42i32], Validity::NonNullable).into_array(),
     );
     test_filter_conformance(
-        PrimitiveArray::new(buffer![0, 1, 2, 3, 4, 5, 6, 7], Validity::NonNullable).as_ref(),
+        &PrimitiveArray::new(buffer![0, 1], Validity::NonNullable).into_array(),
+    );
+    test_filter_conformance(
+        &PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::NonNullable).into_array(),
+    );
+    test_filter_conformance(
+        &PrimitiveArray::new(buffer![0, 1, 2, 3, 4, 5, 6, 7], Validity::NonNullable).into_array(),
     );
 
     // Test with validity
     test_filter_conformance(
-        PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).as_ref(),
+        &PrimitiveArray::new(buffer![0, 1, 2, 3, 4], Validity::AllValid).into_array(),
     );
     test_filter_conformance(
-        PrimitiveArray::new(
+        &PrimitiveArray::new(
             buffer![0, 1, 2, 3, 4, 5],
             Validity::Array(
                 BoolArray::from_iter([true, false, true, false, true, true]).into_array(),
             ),
         )
-        .as_ref(),
+        .into_array(),
     );
 }

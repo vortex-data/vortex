@@ -8,9 +8,9 @@ use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::DynArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::PrimitiveArrayParts;
 use vortex::array::buffer::BufferHandle;
@@ -86,7 +86,7 @@ where
 
     // Load kernel function
     let kernel_ptypes = [A::ALPInt::PTYPE, A::PTYPE];
-    let cuda_function = ctx.load_function_ptype("alp", &kernel_ptypes)?;
+    let cuda_function = ctx.load_function("alp", &kernel_ptypes)?;
 
     ctx.launch_kernel(&cuda_function, array_len, |args| {
         args.arg(&input_view)

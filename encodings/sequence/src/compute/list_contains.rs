@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
+use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::scalar_fn::fns::list_contains::ListContainsElementReduce;
 use vortex_error::VortexExpect;
@@ -12,7 +13,7 @@ use crate::array::SequenceVTable;
 use crate::compute::compare::find_intersection_scalar;
 
 impl ListContainsElementReduce for SequenceVTable {
-    fn list_contains(list: &dyn Array, element: &Self::Array) -> VortexResult<Option<ArrayRef>> {
+    fn list_contains(list: &ArrayRef, element: &Self::Array) -> VortexResult<Option<ArrayRef>> {
         let Some(list_scalar) = list.as_constant() else {
             return Ok(None);
         };
@@ -40,7 +41,7 @@ impl ListContainsElementReduce for SequenceVTable {
         let nullability = list.dtype().nullability() | element.dtype().nullability();
 
         Ok(Some(
-            BoolArray::from_indices(element.len(), set_indices, nullability.into()).to_array(),
+            BoolArray::from_indices(element.len(), set_indices, nullability.into()).into_array(),
         ))
     }
 }
@@ -49,7 +50,7 @@ impl ListContainsElementReduce for SequenceVTable {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
@@ -73,7 +74,7 @@ mod tests {
             // [1, 3] in  1
             //            2
             //            3
-            let array = SequenceArray::typed_new(1, 1, Nullability::NonNullable, 3).unwrap();
+            let array = SequenceArray::try_new_typed(1, 1, Nullability::NonNullable, 3).unwrap();
 
             let expr = list_contains(lit(list_scalar.clone()), root());
             let result = array.apply(&expr).unwrap();
@@ -85,7 +86,7 @@ mod tests {
             // [1, 3] in  1
             //            3
             //            5
-            let array = SequenceArray::typed_new(1, 2, Nullability::NonNullable, 3).unwrap();
+            let array = SequenceArray::try_new_typed(1, 2, Nullability::NonNullable, 3).unwrap();
 
             let expr = list_contains(lit(list_scalar), root());
             let result = array.apply(&expr).unwrap();

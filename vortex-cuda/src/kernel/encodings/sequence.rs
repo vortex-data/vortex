@@ -67,7 +67,7 @@ async fn execute_typed<T: NativePType + DeviceRepr>(
 
     let len_u64 = len as u64;
 
-    let kernel_func = ctx.load_function_ptype("sequence", &[T::PTYPE])?;
+    let kernel_func = ctx.load_function("sequence", &[T::PTYPE])?;
 
     ctx.launch_kernel(&kernel_func, len, |args| {
         args.arg(&buffer).arg(&base).arg(&multiplier).arg(&len_u64);
@@ -126,7 +126,7 @@ mod tests {
     ) {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
 
-        let array = SequenceArray::typed_new(base, multiplier, nullability, len).unwrap();
+        let array = SequenceArray::try_new_typed(base, multiplier, nullability, len).unwrap();
 
         let cpu_result = array.to_canonical().unwrap().into_array();
 

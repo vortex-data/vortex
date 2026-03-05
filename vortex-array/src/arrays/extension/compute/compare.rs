@@ -3,9 +3,10 @@
 
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
@@ -17,7 +18,7 @@ use crate::scalar_fn::fns::operators::Operator;
 impl CompareKernel for ExtensionVTable {
     fn compare(
         lhs: &ExtensionArray,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -28,7 +29,7 @@ impl CompareKernel for ExtensionVTable {
                 .storage()
                 .to_array()
                 .binary(
-                    ConstantArray::new(storage_scalar, lhs.len()).to_array(),
+                    ConstantArray::new(storage_scalar, lhs.len()).into_array(),
                     Operator::from(operator),
                 )
                 .map(Some);

@@ -371,7 +371,7 @@ pub fn data_chunk_to_vortex(
         len.as_(),
         Validity::NonNullable,
     )
-    .map(|a| a.to_array())
+    .map(|a| a.into_array())
 }
 
 #[cfg(test)]

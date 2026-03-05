@@ -6,8 +6,8 @@ use rstest::rstest;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbin::VarBinArray;

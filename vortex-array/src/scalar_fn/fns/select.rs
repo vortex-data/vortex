@@ -16,6 +16,7 @@ use vortex_proto::expr::select_opts::Opts;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::dtype::DType;
@@ -141,13 +142,10 @@ impl ScalarFnVTable for Select {
     fn execute(
         &self,
         selection: &FieldSelection,
-        mut args: ExecutionArgs,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let child = args
-            .inputs
-            .pop()
-            .vortex_expect("Missing input child")
-            .execute::<StructArray>(args.ctx)?;
+        let child = args.get(0)?.execute::<StructArray>(ctx)?;
 
         let result = match selection {
             FieldSelection::Include(f) => child.project(f.as_ref()),
@@ -162,7 +160,7 @@ impl ScalarFnVTable for Select {
             }
         }?;
 
-        result.into_array().execute(args.ctx)
+        result.into_array().execute(ctx)
     }
 
     fn simplify(
@@ -335,7 +333,7 @@ mod tests {
     pub fn include_columns() {
         let st = test_array();
         let select = select(vec![FieldName::from("a")], root());
-        let selected = st.to_array().apply(&select).unwrap().to_struct();
+        let selected = st.into_array().apply(&select).unwrap().to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["a"]);
     }
@@ -344,7 +342,7 @@ mod tests {
     pub fn exclude_columns() {
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], root());
-        let selected = st.to_array().apply(&select).unwrap().to_struct();
+        let selected = st.into_array().apply(&select).unwrap().to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["b"]);
     }

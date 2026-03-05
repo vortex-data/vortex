@@ -4,11 +4,11 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
@@ -228,8 +228,8 @@ impl RunEndVTable {
 
 impl RunEndArray {
     fn validate(
-        ends: &dyn Array,
-        values: &dyn Array,
+        ends: &ArrayRef,
+        values: &ArrayRef,
         offset: usize,
         length: usize,
     ) -> VortexResult<()> {
@@ -550,6 +550,6 @@ mod tests {
         // 2, 3, 4 => 2
         // 5, 6, 7, 8, 9 => 3
         let expected = buffer![1, 1, 2, 2, 2, 3, 3, 3, 3, 3].into_array();
-        assert_arrays_eq!(arr.to_array(), expected);
+        assert_arrays_eq!(arr.into_array(), expected);
     }
 }

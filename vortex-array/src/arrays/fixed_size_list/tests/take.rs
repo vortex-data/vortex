@@ -9,7 +9,7 @@ use super::common::create_empty_fsl;
 use super::common::create_large_fsl;
 use super::common::create_nullable_fsl;
 use super::common::create_single_element_fsl;
-use crate::Array;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
@@ -31,7 +31,7 @@ use crate::validity::Validity;
 #[case::single_element(create_single_element_fsl())]
 #[case::empty(create_empty_fsl())]
 fn test_take_fsl_conformance(#[case] fsl: FixedSizeListArray) {
-    test_take_conformance(fsl.as_ref());
+    test_take_conformance(&fsl.into_array());
 }
 
 // FSL-specific edge case tests that aren't covered by conformance.
@@ -85,11 +85,11 @@ fn test_take_degenerate_lists(
     let elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
     let fsl = FixedSizeListArray::new(elements.into_array(), 0, validity, 5);
 
-    test_take_conformance(fsl.as_ref());
+    test_take_conformance(&fsl.clone().into_array());
 
     // Also test the specific behavior.
     let indices_array = PrimitiveArray::from_option_iter(indices);
-    let result = fsl.take(indices_array.to_array()).unwrap();
+    let result = fsl.take(indices_array.into_array()).unwrap();
 
     assert_eq!(result.len(), expected_len);
     for (i, expected_null) in expected_nulls.iter().enumerate() {
@@ -118,7 +118,7 @@ fn test_take_fsl_with_null_indices_preserves_elements() {
 
     // Indices with nulls: [1, null, 0].
     let indices = PrimitiveArray::from_option_iter([Some(1u32), None, Some(0)]);
-    let result = fsl.take(indices.to_array()).unwrap();
+    let result = fsl.take(indices.into_array()).unwrap();
 
     // Expected: [[3,4], null, [1,2]]
     let expected = FixedSizeListArray::new(
@@ -184,7 +184,7 @@ fn test_take_nullable_arrays_fsl_specific(
 
     // Create indices (with possible nulls).
     let indices_array = PrimitiveArray::from_option_iter(indices.clone());
-    let result = fsl.take(indices_array.to_array()).unwrap();
+    let result = fsl.take(indices_array.into_array()).unwrap();
 
     assert_eq!(result.len(), indices.len());
     for (i, expected_null) in expected_nulls.iter().enumerate() {

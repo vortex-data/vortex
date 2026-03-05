@@ -10,7 +10,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
@@ -50,6 +49,12 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     pub fn append_value(&mut self, value: T) {
         self.values.push(value);
         self.nulls.append_non_null();
+    }
+
+    /// Appends `n` copies of `value` as non-null entries, directly writing into the buffer.
+    pub fn append_n_values(&mut self, value: T, n: usize) {
+        self.values.push_n(value, n);
+        self.nulls.append_n_non_nulls(n);
     }
 
     /// Returns the raw primitive values in this builder as a slice.
@@ -164,7 +169,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         Ok(())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let array = array.to_primitive();
 
         // This should be checked in `extend_from_array` but we can check it again.

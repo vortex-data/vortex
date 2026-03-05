@@ -422,7 +422,6 @@ mod tests {
 
         // Sync the stream so the recorded event completes.
         stream
-            .0
             .synchronize()
             .map_err(|e| vortex_err!("Failed to sync stream: {e}"))?;
 
@@ -480,7 +479,6 @@ mod tests {
 
         // Sync and reclaim so the single inflight buffer returns.
         stream
-            .0
             .synchronize()
             .map_err(|e| vortex_err!("Failed to sync stream: {e}"))?;
         pool.reclaim_completed()?;

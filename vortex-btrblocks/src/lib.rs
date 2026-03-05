@@ -22,7 +22,7 @@
 //!
 //! ```rust
 //! use vortex_btrblocks::{BtrBlocksCompressor, BtrBlocksCompressorBuilder, IntCode};
-//! use vortex_array::Array;
+//! use vortex_array::DynArray;
 //!
 //! // Default compressor with all schemes enabled
 //! let compressor = BtrBlocksCompressor::default();

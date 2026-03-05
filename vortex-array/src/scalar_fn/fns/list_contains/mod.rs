@@ -15,11 +15,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
+use vortex_utils::iter::ReduceBalancedIterExt;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
@@ -119,20 +120,23 @@ impl ScalarFnVTable for ListContains {
         Ok(DType::Bool(nullability))
     }
 
-    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let [list_array, value_array]: [ArrayRef; _] = args
-            .inputs
-            .try_into()
-            .map_err(|_| vortex_err!("Wrong number of arguments for ListContains expression"))?;
+    fn execute(
+        &self,
+        _options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let list_array = args.get(0)?;
+        let value_array = args.get(1)?;
 
         if let Some(list_scalar) = list_array.as_constant()
             && let Some(value_scalar) = value_array.as_constant()
         {
             let result = compute_contains_scalar(&list_scalar, &value_scalar)?;
-            return Ok(ConstantArray::new(result, args.row_count).into_array());
+            return Ok(ConstantArray::new(result, args.row_count()).into_array());
         }
 
-        compute_list_contains(list_array.as_ref(), value_array.as_ref())
+        compute_list_contains(&list_array, &value_array, ctx)
     }
 
     fn stat_falsification(
@@ -199,7 +203,11 @@ fn compute_contains_scalar(list: &Scalar, needle: &Scalar) -> VortexResult<Scala
     Ok(Scalar::bool(contains, nullability))
 }
 
-fn compute_list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<ArrayRef> {
+fn compute_list_contains(
+    array: &ArrayRef,
+    value: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
     let DType::List(elem_dtype, _) = array.dtype() else {
         vortex_bail!("Array must be of List type");
     };
@@ -222,7 +230,7 @@ fn compute_list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<A
     let nullability = array.dtype().nullability() | value.dtype().nullability();
 
     if let Some(value_scalar) = value.as_constant() {
-        list_contains_scalar(array, &value_scalar, nullability)
+        list_contains_scalar(array, &value_scalar, nullability, ctx)
     } else if let Some(list_scalar) = array.as_constant() {
         constant_list_scalar_contains(&list_scalar.as_list(), value, nullability)
     } else {
@@ -233,48 +241,49 @@ fn compute_list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<A
 /// There is a constant list scalar (haystack) being compared to an array of needles.
 fn constant_list_scalar_contains(
     list_scalar: &ListScalar,
-    values: &dyn Array,
+    values: &ArrayRef,
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
     let elements = list_scalar.elements().vortex_expect("non null");
 
     let len = values.len();
-    let mut result: Option<ArrayRef> = None;
     let false_scalar = Scalar::bool(false, nullability);
 
-    for element in elements {
-        let res = Binary
-            .try_new_array(
-                len,
-                Operator::Eq,
-                [
-                    ConstantArray::new(element, len).into_array(),
-                    values.to_array(),
-                ],
-            )?
-            .fill_null(false_scalar.clone())?;
-        if let Some(acc) = result {
-            result = Some(acc.binary(res, Operator::Or)?)
-        } else {
-            result = Some(res);
-        }
-    }
-    Ok(result.unwrap_or_else(|| ConstantArray::new(false_scalar, len).to_array()))
+    let result = elements
+        .iter()
+        .map(|element| {
+            Binary
+                .try_new_array(
+                    len,
+                    Operator::Eq,
+                    [
+                        ConstantArray::new(element.clone(), len).into_array(),
+                        values.to_array(),
+                    ],
+                )?
+                .fill_null(false_scalar.clone())
+        })
+        .collect::<VortexResult<Vec<_>>>()?
+        .into_iter()
+        .try_reduce_balanced(|acc, res| acc.binary(res, Operator::Or))?;
+
+    Ok(result.unwrap_or_else(|| ConstantArray::new(false_scalar, len).into_array()))
 }
 
 /// Returns a [`BoolArray`] where each bit represents if a list contains the scalar.
 fn list_contains_scalar(
-    array: &dyn Array,
+    array: &ArrayRef,
     value: &Scalar,
     nullability: Nullability,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // If the list array is constant, we perform a single comparison.
     if array.len() > 1 && array.is::<ConstantVTable>() {
-        let contains = list_contains_scalar(&array.slice(0..1)?, value, nullability)?;
+        let contains = list_contains_scalar(&array.slice(0..1)?, value, nullability, ctx)?;
         return Ok(ConstantArray::new(contains.scalar_at(0)?, array.len()).into_array());
     }
 
-    let list_array = array.to_listview();
+    let list_array = array.clone().execute::<ListViewArray>(ctx)?;
 
     let elems = list_array.elements();
     if elems.is_empty() {
@@ -283,9 +292,12 @@ fn list_contains_scalar(
     }
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
-    let matching_elements =
-        Binary.try_new_array(elems.len(), Operator::Eq, &[elems.clone(), rhs.to_array()])?;
-    let matches = matching_elements.to_bool();
+    let matching_elements = Binary.try_new_array(
+        elems.len(),
+        Operator::Eq,
+        &[elems.clone(), rhs.clone().into_array()],
+    )?;
+    let matches = matching_elements.execute::<BoolArray>(ctx)?;
 
     // Fast path: no elements match.
     if let Some(pred) = matches.as_constant() {
@@ -311,14 +323,17 @@ fn list_contains_scalar(
             // All elements match, and all comparisons are valid (result in `true`).
             Some(true) => {
                 // True, unless the list itself is empty or NULL.
-                list_is_not_empty(&list_array, nullability)
+                list_is_not_empty(&list_array, nullability, ctx)
             }
         };
     }
 
     // Get the offsets and sizes as primitive arrays.
-    let offsets = list_array.offsets().to_primitive();
-    let sizes = list_array.sizes().to_primitive();
+    let offsets = list_array
+        .offsets()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
+    let sizes = list_array.sizes().clone().execute::<PrimitiveArray>(ctx)?;
 
     // Process based on the offset and size types.
     let list_matches = match_each_integer_ptype!(offsets.ptype(), |O| {
@@ -402,6 +417,7 @@ fn list_false_or_null(
 fn list_is_not_empty(
     list_array: &ListViewArray,
     nullability: Nullability,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // Short-circuit for all invalid.
     if matches!(list_array.validity(), Validity::AllInvalid) {
@@ -412,7 +428,7 @@ fn list_is_not_empty(
         .into_array());
     }
 
-    let sizes = list_array.sizes().to_primitive();
+    let sizes = list_array.sizes().clone().execute::<PrimitiveArray>(ctx)?;
     let buffer = match_each_integer_ptype!(sizes.ptype(), |S| {
         BitBuffer::from_iter(sizes.as_slice::<S>().iter().map(|&size| size != S::zero()))
     });
@@ -436,8 +452,8 @@ mod tests {
     use vortex_utils::aliases::hash_map::HashMap;
     use vortex_utils::aliases::hash_set::HashSet;
 
-    use crate::Array;
     use crate::ArrayRef;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;

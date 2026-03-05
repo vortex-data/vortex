@@ -11,8 +11,8 @@ use futures::FutureExt;
 use futures::TryFutureExt;
 use futures::future::BoxFuture;
 use futures::try_join;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
@@ -226,7 +226,7 @@ impl LayoutReader for DictReader {
                 DictArray::new_unchecked(codes, values)
                     .set_all_values_referenced(all_values_referenced)
             }
-            .to_array()
+            .into_array()
             .optimize()?;
 
             array.apply(&expr)
@@ -298,7 +298,7 @@ mod tests {
                 ],
                 DType::Utf8(Nullability::Nullable),
             )
-            .to_array();
+            .into_array();
             let array_to_write = array.clone();
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -382,7 +382,8 @@ mod tests {
                 DictLayoutOptions::default(),
             );
 
-            let array = VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).to_array();
+            let array =
+                VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).into_array();
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -444,7 +445,7 @@ mod tests {
                 ],
                 DType::Utf8(Nullability::Nullable),
             )
-            .to_array();
+            .into_array();
             let array_to_write = array.clone();
             let ctx = ArrayContext::empty();
 

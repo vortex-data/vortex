@@ -5,8 +5,9 @@ use arrayref::array_mut_ref;
 use arrayref::array_ref;
 use fastlanes::RLE;
 use num_traits::AsPrimitive;
-use vortex_array::Array;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_native_ptype;
@@ -102,6 +103,6 @@ where
         buffer
             .freeze()
             .slice(offset_within_chunk..(offset_within_chunk + array.len())),
-        Validity::copy_from_array(array.as_ref())?,
+        Validity::copy_from_array(&array.clone().into_array())?,
     ))
 }

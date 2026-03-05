@@ -7,9 +7,9 @@ use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::DynArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::PrimitiveArrayParts;
 use vortex::array::arrays::SliceVTable;
@@ -105,7 +105,7 @@ where
 
     // Load kernel function
     let kernel_ptypes = [P::PTYPE];
-    let cuda_function = ctx.load_function_ptype("for", &kernel_ptypes)?;
+    let cuda_function = ctx.load_function("for", &kernel_ptypes)?;
 
     ctx.launch_kernel(&cuda_function, array_len, |args| {
         args.arg(&cuda_view).arg(&reference).arg(&array_len_u64);

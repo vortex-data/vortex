@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use vortex_array::Array;
 use vortex_array::Canonical;
+use vortex_array::DynArray;
 use vortex_array::arrays::varbin_scalar;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_decimal_value_type;

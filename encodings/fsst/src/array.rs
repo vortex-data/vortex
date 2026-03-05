@@ -10,12 +10,12 @@ use std::sync::LazyLock;
 use fsst::Compressor;
 use fsst::Decompressor;
 use fsst::Symbol;
-use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
@@ -193,7 +193,13 @@ impl VTable for FSSTVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            builder.extend_from_array(&array.to_array().execute::<Canonical>(ctx)?.into_array());
+            builder.extend_from_array(
+                &array
+                    .clone()
+                    .into_array()
+                    .execute::<Canonical>(ctx)?
+                    .into_array(),
+            );
             return Ok(());
         };
 
@@ -451,7 +457,7 @@ impl FSSTArray {
             Compressor::rebuild_from(symbols2.as_slice(), symbol_lengths2.as_slice())
         })
             as Box<dyn Fn() -> Compressor + Send>));
-        let codes_array = codes.to_array();
+        let codes_array = codes.clone().into_array();
 
         Self {
             dtype,
@@ -519,7 +525,7 @@ impl ValidityChild<FSSTVTable> for FSSTVTable {
 mod test {
     use fsst::Compressor;
     use fsst::Symbol;
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::ProstMetadata;

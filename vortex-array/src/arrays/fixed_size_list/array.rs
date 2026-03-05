@@ -7,8 +7,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
@@ -177,7 +177,7 @@ impl FixedSizeListArray {
     ///
     /// This function checks all the invariants required by [`FixedSizeListArray::new_unchecked`].
     pub fn validate(
-        elements: &dyn Array,
+        elements: &ArrayRef,
         len: usize,
         list_size: u32,
         validity: &Validity,

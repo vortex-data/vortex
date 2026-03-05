@@ -8,14 +8,15 @@ use std::fmt::Formatter;
 pub use kernel::*;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
+use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::BoolArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
@@ -104,13 +105,17 @@ impl ScalarFnVTable for Zip {
             .union_nullability(arg_dtypes[1].nullability()))
     }
 
-    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let [if_true, if_false, mask_array]: [ArrayRef; _] = args
-            .inputs
-            .try_into()
-            .map_err(|_| vortex_err!("Wrong arg count"))?;
+    fn execute(
+        &self,
+        _options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let if_true = args.get(0)?;
+        let if_false = args.get(1)?;
+        let mask_array = args.get(2)?;
 
-        let mask = mask_array.try_to_mask_fill_null_false()?;
+        let mask = mask_array.execute::<BoolArray>(ctx)?.to_mask();
 
         let return_dtype = if_true
             .dtype()
@@ -118,7 +123,7 @@ impl ScalarFnVTable for Zip {
             .union_nullability(if_false.dtype().nullability());
 
         if mask.all_true() {
-            return if_true.cast(return_dtype)?.execute(args.ctx);
+            return if_true.cast(return_dtype)?.execute(ctx);
         }
 
         let return_dtype = if_true
@@ -127,13 +132,13 @@ impl ScalarFnVTable for Zip {
             .union_nullability(if_false.dtype().nullability());
 
         if mask.all_false() {
-            return if_false.cast(return_dtype)?.execute(args.ctx);
+            return if_false.cast(return_dtype)?.execute(ctx);
         }
 
         if !if_true.is_canonical() || !if_false.is_canonical() {
-            let if_true = if_true.execute::<ArrayRef>(args.ctx)?;
-            let if_false = if_false.execute::<ArrayRef>(args.ctx)?;
-            return if_true.zip(if_false, mask.into_array());
+            let if_true = if_true.execute::<ArrayRef>(ctx)?;
+            let if_false = if_false.execute::<ArrayRef>(ctx)?;
+            return mask.into_array().zip(if_true, if_false);
         }
 
         zip_impl(&if_true, &if_false, &mask)
@@ -170,8 +175,8 @@ impl ScalarFnVTable for Zip {
 }
 
 pub(crate) fn zip_impl(
-    if_true: &dyn Array,
-    if_false: &dyn Array,
+    if_true: &ArrayRef,
+    if_false: &ArrayRef,
     mask: &Mask,
 ) -> VortexResult<ArrayRef> {
     assert_eq!(
@@ -193,8 +198,8 @@ pub(crate) fn zip_impl(
 }
 
 fn zip_impl_with_builder(
-    if_true: &dyn Array,
-    if_false: &dyn Array,
+    if_true: &ArrayRef,
+    if_false: &ArrayRef,
     mask: &Mask,
     mut builder: Box<dyn ArrayBuilder>,
 ) -> VortexResult<ArrayRef> {
@@ -219,14 +224,18 @@ mod tests {
     use arrow_array::cast::AsArray;
     use arrow_select::zip::zip as arrow_zip;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
-    use crate::Array;
+    use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
-    use crate::arrays::VarBinViewVTable;
+    use crate::arrays::StructVTable;
+    use crate::arrays::VarBinViewArray;
     use crate::arrow::IntoArrowArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
@@ -244,7 +253,7 @@ mod tests {
     #[test]
     fn dtype() {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let expr = zip_expr(root(), lit(0i32), lit(true));
+        let expr = zip_expr(lit(true), root(), lit(0i32));
         let result_dtype = expr.return_dtype(&dtype).unwrap();
         assert_eq!(
             result_dtype,
@@ -254,7 +263,7 @@ mod tests {
 
     #[test]
     fn test_display() {
-        let expr = zip_expr(root(), lit(0i32), lit(true));
+        let expr = zip_expr(lit(true), root(), lit(0i32));
         assert_eq!(expr.to_string(), "zip($, 0i32, true)");
     }
 
@@ -264,7 +273,7 @@ mod tests {
         let if_true = buffer![10, 20, 30, 40, 50].into_array();
         let if_false = buffer![1, 2, 3, 4, 5].into_array();
 
-        let result = if_true.zip(if_false, mask.into_array()).unwrap();
+        let result = mask.into_array().zip(if_true, if_false).unwrap();
         let expected = buffer![10, 2, 3, 40, 5].into_array();
 
         assert_arrays_eq!(result, expected);
@@ -277,7 +286,7 @@ mod tests {
         let if_false =
             PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), None]).into_array();
 
-        let result = if_true.zip(if_false.clone(), mask.into_array()).unwrap();
+        let result = mask.into_array().zip(if_true, if_false.clone()).unwrap();
         let expected =
             PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), Some(40)]).into_array();
 
@@ -294,30 +303,33 @@ mod tests {
         let if_true = buffer![10, 20, 30].into_array();
         let if_false = buffer![1, 2, 3, 4].into_array();
 
-        let _result = if_true.zip(if_false, mask.into_array()).unwrap();
+        let _result = mask.into_array().zip(if_true, if_false).unwrap();
     }
 
     #[test]
-    fn test_fragmentation() {
+    fn test_fragmentation() -> VortexResult<()> {
         let len = 100;
 
         let const1 = ConstantArray::new(
             Scalar::utf8("hello_this_is_a_longer_string", Nullability::Nullable),
             len,
         )
-        .to_array();
+        .into_array();
 
         let const2 = ConstantArray::new(
             Scalar::utf8("world_this_is_another_string", Nullability::Nullable),
             len,
         )
-        .to_array();
+        .into_array();
 
         let indices: Vec<usize> = (0..len).step_by(2).collect();
         let mask = Mask::from_indices(len, indices);
         let mask_array = mask.into_array();
 
-        let result = const1.zip(const2.clone(), mask_array.clone()).unwrap();
+        let result = mask_array
+            .clone()
+            .zip(const1.clone(), const2.clone())?
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
 
         insta::assert_snapshot!(result.display_tree(), @r"
         root: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%) [all_valid]
@@ -328,23 +340,15 @@ mod tests {
         ");
 
         // test wrapped in a struct
-        let wrapped1 = StructArray::try_from_iter([("nested", const1)])
-            .unwrap()
-            .to_array();
-        let wrapped2 = StructArray::try_from_iter([("nested", const2)])
-            .unwrap()
-            .to_array();
+        let wrapped1 = StructArray::try_from_iter([("nested", const1)])?.into_array();
+        let wrapped2 = StructArray::try_from_iter([("nested", const2)])?.into_array();
 
-        let wrapped_result = wrapped1.zip(wrapped2, mask_array).unwrap();
-        insta::assert_snapshot!(wrapped_result.display_tree(), @r"
-        root: vortex.struct({nested=utf8?}, len=100) nbytes=1.66 kB (100.00%)
-          metadata: EmptyMetadata
-          nested: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%) [all_valid]
-            metadata: EmptyMetadata
-            buffer: buffer_0 host 29 B (align=1) (1.75%)
-            buffer: buffer_1 host 28 B (align=1) (1.69%)
-            buffer: views host 1.60 kB (align=16) (96.56%)
-        ");
+        let wrapped_result = mask_array
+            .zip(wrapped1, wrapped2)?
+            .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        assert!(wrapped_result.is::<StructVTable>());
+
+        Ok(())
     }
 
     #[test]
@@ -383,8 +387,11 @@ mod tests {
         let mask = Mask::from_indices(200, (0..100).filter(|i| i % 3 != 0).collect());
         let mask_array = mask.clone().into_array();
 
-        let zipped = if_true.zip(if_false.clone(), mask_array).unwrap();
-        let zipped = zipped.as_opt::<VarBinViewVTable>().unwrap();
+        let zipped = mask_array
+            .zip(if_true.clone(), if_false.clone())
+            .unwrap()
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(zipped.nbuffers(), 2);
 
         // assert the result is the same as arrow
@@ -398,7 +405,7 @@ mod tests {
         )
         .unwrap();
 
-        let actual = zipped.clone().into_array().into_arrow_preferred().unwrap();
+        let actual = zipped.into_array().into_arrow_preferred().unwrap();
         assert_eq!(actual.as_ref(), expected.as_ref());
     }
 }

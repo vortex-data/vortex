@@ -49,7 +49,12 @@ impl ScalarFnVTable for RowIdx {
         Ok(DType::Primitive(PType::U64, Nullability::NonNullable))
     }
 
-    fn execute(&self, _options: &Self::Options, _args: ExecutionArgs) -> VortexResult<ArrayRef> {
+    fn execute(
+        &self,
+        _options: &Self::Options,
+        _args: &dyn ExecutionArgs,
+        _ctx: &mut vortex_array::ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         vortex_bail!(
             "RowIdxExpr should not be executed directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
         );

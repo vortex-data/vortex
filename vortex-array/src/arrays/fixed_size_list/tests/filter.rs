@@ -6,8 +6,8 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
@@ -177,7 +177,7 @@ fn test_filter_nested_fixed_size_lists() {
 #[case(create_fsl_single_element())]
 #[case(create_fsl_empty())]
 fn test_filter_fsl_conformance(#[case] array: ArrayRef) {
-    test_filter_conformance(array.as_ref());
+    test_filter_conformance(&array);
 }
 
 // Helper functions for creating test arrays.

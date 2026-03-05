@@ -5,8 +5,8 @@ mod cast;
 mod compare;
 mod filter;
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::TakeExecute;
@@ -23,7 +23,7 @@ use crate::FSSTVTable;
 impl TakeExecute for FSSTVTable {
     fn take(
         array: &FSSTArray,
-        indices: &dyn Array,
+        indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
@@ -53,7 +53,8 @@ impl TakeExecute for FSSTVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::Array;
+    use vortex_array::DynArray;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
@@ -74,14 +75,14 @@ mod tests {
         let idx1: PrimitiveArray = (0..1).collect();
 
         assert_eq!(
-            fsst.take(idx1.to_array()).unwrap().dtype(),
+            fsst.take(idx1.into_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::NonNullable)
         );
 
         let idx2: PrimitiveArray = PrimitiveArray::from_option_iter(vec![Some(0)]);
 
         assert_eq!(
-            fsst.take(idx2.to_array()).unwrap().dtype(),
+            fsst.take(idx2.into_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::Nullable)
         );
     }
@@ -102,7 +103,7 @@ mod tests {
     fn test_take_fsst_conformance(#[case] varbin: VarBinArray) {
         let compressor = fsst_train_compressor(&varbin);
         let array = fsst_compress(&varbin, &compressor);
-        test_take_conformance(array.as_ref());
+        test_take_conformance(&array.into_array());
     }
 
     #[rstest]
@@ -172,6 +173,6 @@ mod tests {
     })]
 
     fn test_fsst_consistency(#[case] array: FSSTArray) {
-        test_array_consistency(array.as_ref());
+        test_array_consistency(&array.into_array());
     }
 }

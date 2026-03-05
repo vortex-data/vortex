@@ -6,9 +6,7 @@ use std::ops::BitOr;
 use std::ops::Not;
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -22,9 +20,9 @@ use crate::vtable::ValidityHelper;
 impl ZipKernel for StructVTable {
     fn zip(
         if_true: &StructArray,
-        if_false: &dyn Array,
-        mask: &Mask,
-        _ctx: &mut ExecutionCtx,
+        if_false: &ArrayRef,
+        mask: &ArrayRef,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(if_false) = if_false.as_opt::<StructVTable>() else {
             return Ok(None);
@@ -39,7 +37,7 @@ impl ZipKernel for StructVTable {
             .unmasked_fields()
             .iter()
             .zip(if_false.unmasked_fields().iter())
-            .map(|(t, f)| ArrayBuiltins::zip(t, f.clone(), mask.clone().into_array()))
+            .map(|(t, f)| ArrayBuiltins::zip(mask, t.clone(), f.clone()))
             .collect::<VortexResult<Vec<_>>>()?;
 
         let validity = match (if_true.validity(), if_false.validity()) {
@@ -48,10 +46,11 @@ impl ZipKernel for StructVTable {
             (&Validity::AllInvalid, &Validity::AllInvalid) => Validity::AllInvalid,
 
             (v1, v2) => {
+                let mask_mask = mask.try_to_mask_fill_null_false(ctx)?;
                 let v1m = v1.to_mask(if_true.len());
                 let v2m = v2.to_mask(if_false.len());
 
-                let combined = (v1m.bitand(mask)).bitor(&v2m.bitand(&mask.not()));
+                let combined = (v1m.bitand(&mask_mask)).bitor(&v2m.bitand(&mask_mask.not()));
                 Validity::from_mask(
                     combined,
                     if_true.dtype.nullability() | if_false.dtype.nullability(),
@@ -61,7 +60,7 @@ impl ZipKernel for StructVTable {
 
         Ok(Some(
             StructArray::try_new(if_true.names().clone(), fields, if_true.len(), validity)?
-                .to_array(),
+                .into_array(),
         ))
     }
 }
@@ -73,8 +72,7 @@ mod tests {
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
-    #[expect(deprecated)]
-    use crate::compute::zip;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
@@ -99,8 +97,10 @@ mod tests {
 
         let mask = Mask::from_iter([false, false, true, false]);
 
-        #[expect(deprecated)]
-        let result = zip(&if_true, &if_false, &mask).unwrap();
+        let result = mask
+            .into_array()
+            .zip(if_true.clone(), if_false.clone())
+            .unwrap();
 
         insta::assert_snapshot!(result.display_table(), @r"
         ┌───────┐
@@ -137,8 +137,10 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, false, false]);
 
-        #[expect(deprecated)]
-        let result = zip(&if_true, &if_false, &mask).unwrap();
+        let result = mask
+            .into_array()
+            .zip(if_true.clone(), if_false.clone())
+            .unwrap();
 
         insta::assert_snapshot!(result.display_table(), @r"
         ┌───────┐

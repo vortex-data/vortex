@@ -26,27 +26,22 @@ use ratatui::widgets::StatefulWidget;
 use ratatui::widgets::Table;
 use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
-use tokio::runtime::Handle;
-use tokio::task::block_in_place;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
-use vortex::array::MaskFuture;
+use vortex::array::DynArray;
 use vortex::array::ToCanonical;
 use vortex::error::VortexExpect;
-use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
 
 use crate::browse::app::AppState;
-use crate::browse::app::LayoutCursor;
 
 /// Render the Layouts tab.
-pub fn render_layouts(app_state: &mut AppState<'_>, area: Rect, buf: &mut Buffer) {
+pub fn render_layouts(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
     let [header_area, detail_area] =
         Layout::vertical([Constraint::Length(10), Constraint::Min(1)]).areas(area);
 
     // Render the header area.
-    render_layout_header(&app_state.cursor, header_area, buf);
+    render_layout_header(app_state, header_area, buf);
 
     // Render the list view if the layout has children
     if app_state.cursor.layout().is::<FlatVTable>() {
@@ -61,7 +56,8 @@ pub fn render_layouts(app_state: &mut AppState<'_>, area: Rect, buf: &mut Buffer
     }
 }
 
-fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
+fn render_layout_header(app: &AppState, area: Rect, buf: &mut Buffer) {
+    let cursor = &app.cursor;
     let layout_id = cursor.layout().encoding_id();
     let row_count = cursor.layout().row_count();
     let size_formatter = make_format(DECIMAL);
@@ -78,10 +74,12 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
     ];
 
     if cursor.layout().is::<FlatVTable>() {
-        rows.push(Text::from(format!(
-            "FlatBuffer Size: {}",
-            size_formatter(cursor.flatbuffer_size())
-        )));
+        if let Some(fb_size) = app.cached_flatbuffer_size {
+            rows.push(Text::from(format!(
+                "FlatBuffer Size: {}",
+                size_formatter(fb_size)
+            )));
+        }
 
         // Display metadata info about the flat layout
         let metadata_info = cursor.flat_layout_metadata_info();
@@ -114,29 +112,19 @@ fn render_layout_header(cursor: &LayoutCursor, area: Rect, buf: &mut Buffer) {
 }
 
 /// Render the inner Array for a FlatLayout.
-fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
-    let row_count = app.cursor.layout().row_count();
-    let reader = app
-        .cursor
-        .layout()
-        .new_reader("".into(), app.vxf.segment_source(), app.session)
-        .vortex_expect("Failed to create reader");
-
-    // FIXME(ngates): our TUI app should never perform I/O in the render loop...
-    let array = block_in_place(|| {
-        Handle::current().block_on(
-            reader
-                .projection_evaluation(
-                    &(0..row_count),
-                    &root(),
-                    MaskFuture::new_true(
-                        usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
-                    ),
-                )
-                .vortex_expect("Failed to construct projection"),
-        )
-    })
-    .vortex_expect("Failed to read flat array");
+fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bool) {
+    // Array data is loaded eagerly when navigating to a FlatLayout (synchronously on
+    // native, asynchronously on WASM) and cached in AppState. The render loop never
+    // performs I/O.
+    let array = match app.cached_flat_array.as_ref() {
+        Some(arr) => arr.clone(),
+        None => {
+            let loading =
+                Paragraph::new("Loading array data...").style(Style::default().fg(Color::DarkGray));
+            Widget::render(loading, area, buf);
+            return;
+        }
+    };
 
     // Show the metadata as JSON. (show count of encoded bytes as well)
     // let metadata_size = array.metadata_bytes().unwrap_or_default().len();
@@ -159,7 +147,11 @@ fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table
             .chain(struct_array.names().iter().map(|x| x.as_ref()))
             .map(Cell::from)
             .collect::<Row>()
-            .style(Style::default().fg(Color::Green).bg(Color::DarkGray))
+            .style(
+                Style::default()
+                    .fg(Color::Rgb(206, 229, 98))
+                    .bg(Color::DarkGray),
+            )
             .height(1);
 
         assert_eq!(app.cursor.dtype(), array.dtype());
@@ -304,7 +296,12 @@ fn render_child_list_items(
 
     // Render the List view.
     StatefulWidget::render(
-        List::new(list_items).highlight_style(Style::default().black().on_white().bold()),
+        List::new(list_items).highlight_style(
+            Style::default()
+                .fg(Color::Rgb(16, 16, 16))
+                .bg(Color::Rgb(89, 113, 253))
+                .bold(),
+        ),
         inner_area,
         buf,
         &mut app.layouts_list_state,

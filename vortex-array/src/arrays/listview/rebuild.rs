@@ -6,7 +6,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::Array;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ConstantArray;
@@ -293,11 +293,25 @@ impl ListViewArray {
             let last_size = self.size_at(self.len() - 1);
             last_offset + last_size
         } else {
+            // Offsets and sizes can have different primitive types (e.g. u32 vs u16).
+            // Cast the narrower to the wider since arithmetic requires identical operand types.
+            let (offsets, sizes) = if self.offsets().dtype().as_ptype().byte_width()
+                >= self.sizes().dtype().as_ptype().byte_width()
+            {
+                (
+                    self.offsets().clone(),
+                    self.sizes().cast(self.offsets().dtype().clone())?,
+                )
+            } else {
+                (
+                    self.offsets().cast(self.sizes().dtype().clone())?,
+                    self.sizes().clone(),
+                )
+            };
+
             let min_max = compute::min_max(
-                &self
-                    .offsets()
-                    .clone()
-                    .binary(self.sizes().clone(), Operator::Add)
+                &offsets
+                    .binary(sizes, Operator::Add)
                     .vortex_expect("`offsets + sizes` somehow overflowed"),
             )
             .vortex_expect("Something went wrong while computing min and max")
@@ -537,6 +551,48 @@ mod tests {
         assert_arrays_eq!(
             exact.list_elements_at(1).unwrap(),
             PrimitiveArray::from_iter([3i32, 4])
+        );
+        Ok(())
+    }
+
+    /// Regression test for <https://github.com/vortex-data/vortex/issues/6773>.
+    /// u32 offsets exceed u16::MAX, so u16 sizes are widened to u32 for the add.
+    #[test]
+    fn test_rebuild_trim_elements_offsets_wider_than_sizes() -> VortexResult<()> {
+        let mut elems = vec![0i32; 70_005];
+        elems[70_000] = 10;
+        elems[70_001] = 20;
+        elems[70_002] = 30;
+        elems[70_003] = 40;
+        let elements = PrimitiveArray::from_iter(elems).into_array();
+        let offsets = PrimitiveArray::from_iter(vec![70_000u32, 70_002]).into_array();
+        let sizes = PrimitiveArray::from_iter(vec![2u16, 2]).into_array();
+
+        let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+        let trimmed = listview.rebuild(ListViewRebuildMode::TrimElements)?;
+        assert_arrays_eq!(
+            trimmed.list_elements_at(1).unwrap(),
+            PrimitiveArray::from_iter([30i32, 40])
+        );
+        Ok(())
+    }
+
+    /// Regression test for <https://github.com/vortex-data/vortex/issues/6773>.
+    /// u32 sizes exceed u16::MAX, so u16 offsets are widened to u32 for the add.
+    #[test]
+    fn test_rebuild_trim_elements_sizes_wider_than_offsets() -> VortexResult<()> {
+        let mut elems = vec![0i32; 70_001];
+        elems[3] = 30;
+        elems[4] = 40;
+        let elements = PrimitiveArray::from_iter(elems).into_array();
+        let offsets = PrimitiveArray::from_iter(vec![1u16, 3]).into_array();
+        let sizes = PrimitiveArray::from_iter(vec![70_000u32, 2]).into_array();
+
+        let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
+        let trimmed = listview.rebuild(ListViewRebuildMode::TrimElements)?;
+        assert_arrays_eq!(
+            trimmed.list_elements_at(1).unwrap(),
+            PrimitiveArray::from_iter([30i32, 40])
         );
         Ok(())
     }

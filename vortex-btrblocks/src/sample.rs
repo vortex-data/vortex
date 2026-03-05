@@ -4,8 +4,8 @@
 use rand::Rng;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_error::VortexExpect;
@@ -13,7 +13,7 @@ use vortex_error::VortexExpect;
 use crate::stats::SAMPLE_COUNT;
 use crate::stats::SAMPLE_SIZE;
 
-pub(crate) fn sample(input: &dyn Array, sample_size: u32, sample_count: u32) -> ArrayRef {
+pub(crate) fn sample(input: &ArrayRef, sample_size: u32, sample_count: u32) -> ArrayRef {
     if input.len() <= (sample_size as usize) * (sample_count as usize) {
         return input.to_array();
     }

@@ -11,8 +11,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ListArray;
 use crate::builders::ArrayBuilder;
@@ -91,7 +91,7 @@ impl<O: IntegerPType> ListBuilder<O> {
     ///
     /// Note that the list entry will be non-null but the elements themselves are allowed to be null
     /// (only if the elements [`DType`] in nullable, of course).
-    pub fn append_array_as_list(&mut self, array: &dyn Array) -> VortexResult<()> {
+    pub fn append_array_as_list(&mut self, array: &ArrayRef) -> VortexResult<()> {
         vortex_ensure!(
             array.dtype() == self.element_dtype(),
             "Array dtype {:?} does not match list element dtype {:?}",
@@ -213,7 +213,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         self.append_value(scalar.as_list())
     }
 
-    unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
+    unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let list = array.to_listview();
         if list.is_empty() {
             return;
@@ -310,7 +310,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::array::Array;
+    use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;

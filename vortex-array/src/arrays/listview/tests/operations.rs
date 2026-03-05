@@ -10,7 +10,7 @@ use vortex_mask::Mask;
 use super::common::create_basic_listview;
 use super::common::create_large_listview;
 use super::common::create_nullable_listview;
-use crate::Array;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
@@ -22,8 +22,6 @@ use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::is_constant;
-#[expect(deprecated)]
-use crate::compute::mask;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -41,7 +39,7 @@ fn test_slice_comprehensive() {
     let offsets = buffer![0i32, 3, 5, 7].into_array();
     let sizes = buffer![3i32, 2, 3, 2].into_array();
 
-    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
 
     // Test basic slice [1..3] - middle portion.
     let sliced = listview.slice(1..3).unwrap();
@@ -82,7 +80,7 @@ fn test_slice_out_of_order() {
     let offsets = buffer![6i32, 0, 3, 8, 2].into_array(); // Out of order.
     let sizes = buffer![2i32, 3, 3, 1, 1].into_array();
 
-    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
 
     // Slice [1..4] should maintain the out-of-order offsets.
     let sliced = listview.slice(1..4).unwrap();
@@ -226,7 +224,7 @@ fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
         ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
             .with_zero_copy_to_list(true)
     }
-    .to_array();
+    .into_array();
 
     let target_dtype = DType::List(
         Arc::new(DType::Primitive(to_ptype, Nullability::NonNullable)),
@@ -262,7 +260,7 @@ fn test_cast_with_nulls() {
         ListViewArray::new_unchecked(elements, offsets, sizes, validity)
             .with_zero_copy_to_list(true)
     }
-    .to_array();
+    .into_array();
 
     let target_dtype = DType::List(
         Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
@@ -299,7 +297,7 @@ fn test_cast_special_patterns(#[case] expected_sizes: Vec<usize>, #[case] list_c
         )
     };
 
-    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
 
     let target_dtype = if is_empty_case {
         DType::List(
@@ -338,7 +336,7 @@ fn test_cast_large_dataset() {
         ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
             .with_zero_copy_to_list(true)
     }
-    .to_array();
+    .into_array();
 
     let target_dtype = DType::List(
         Arc::new(DType::Primitive(PType::U32, Nullability::NonNullable)),
@@ -408,7 +406,7 @@ fn test_is_constant_basic(
         sizes.into_array(),
         validity,
     )
-    .to_array();
+    .into_array();
 
     assert_eq!(is_constant(&listview).unwrap(), Some(expected));
 }
@@ -476,7 +474,7 @@ fn test_constant_repeated_same_lists() {
     let offsets = buffer![0i32, 0, 0, 0].into_array(); // All point to same start.
     let sizes = buffer![3i32, 3, 3, 3].into_array(); // All same size.
 
-    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
 
     // All lists are [10, 20, 30] so should be constant.
     assert_eq!(is_constant(&listview).unwrap(), Some(true));
@@ -492,7 +490,7 @@ fn test_constant_repeated_same_lists() {
 #[case::nullable(create_nullable_listview())]
 #[case::large(create_large_listview())]
 fn test_mask_listview_conformance(#[case] listview: ListViewArray) {
-    test_mask_conformance(listview.as_ref());
+    test_mask_conformance(&listview.into_array());
 }
 
 #[test]
@@ -507,17 +505,16 @@ fn test_mask_preserves_structure() {
         ListViewArray::new_unchecked(elements, offsets, sizes, Validity::NonNullable)
             .with_zero_copy_to_list(true)
     }
-    .to_array();
+    .into_array();
 
     // Mask sets elements to null where true.
     let selection = Mask::from_iter([true, false, true, true]);
-    #[expect(deprecated)]
-    let result = mask(&listview, &selection).unwrap();
+    let result = listview.clone().mask((!&selection).into_array()).unwrap();
 
     assert_eq!(result.len(), 4); // Length is preserved.
     let result_list = result.to_listview();
 
-    // Check validity: true in mask means null.
+    // Check validity: true in selection means null.
     assert!(!result_list.is_valid(0).unwrap()); // Masked.
     assert!(result_list.is_valid(1).unwrap()); // Not masked.
     assert!(!result_list.is_valid(2).unwrap()); // Masked.
@@ -547,12 +544,11 @@ fn test_mask_with_existing_nulls() {
         ListViewArray::new_unchecked(elements, offsets, sizes, validity)
             .with_zero_copy_to_list(true)
     }
-    .to_array();
+    .into_array();
 
     // Mask additional elements.
     let selection = Mask::from_iter([false, true, true]);
-    #[expect(deprecated)]
-    let result = mask(&listview, &selection).unwrap();
+    let result = listview.clone().mask((!&selection).into_array()).unwrap();
     let result_list = result.to_listview();
 
     // Check combined validity:
@@ -569,11 +565,10 @@ fn test_mask_with_gaps() {
     let offsets = buffer![0u32, 4, 8].into_array();
     let sizes = buffer![2u32, 2, 2].into_array();
 
-    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
+    let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
 
     let selection = Mask::from_iter([true, false, false]);
-    #[expect(deprecated)]
-    let result = mask(&listview, &selection).unwrap();
+    let result = listview.clone().mask((!&selection).into_array()).unwrap();
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 3);
@@ -602,11 +597,10 @@ fn test_mask_constant_arrays() {
         constant_sizes,
         Validity::NonNullable,
     )
-    .to_array();
+    .into_array();
 
     let selection = Mask::from_iter([false, true, false]);
-    #[expect(deprecated)]
-    let result = mask(&const_list, &selection).unwrap();
+    let result = const_list.clone().mask((!&selection).into_array()).unwrap();
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 3);

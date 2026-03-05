@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::validity::Validity;
 use crate::vtable::VTable;
 

@@ -7,7 +7,6 @@ use std::fmt::Formatter;
 
 pub use kernel::*;
 use prost::Message;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -102,21 +101,21 @@ impl ScalarFnVTable for Cast {
         Ok(dtype.clone())
     }
 
-    fn execute(&self, target_dtype: &DType, mut args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let input = args
-            .inputs
-            .pop()
-            .vortex_expect("missing input for Cast expression");
+    fn execute(
+        &self,
+        target_dtype: &DType,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let input = args.get(0)?;
 
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
-            return input
-                .execute::<ArrayRef>(args.ctx)?
-                .cast(target_dtype.clone());
+            return input.execute::<ArrayRef>(ctx)?.cast(target_dtype.clone());
         };
 
         match columnar {
             ColumnarView::Canonical(canonical) => {
-                match cast_canonical(canonical.clone(), target_dtype, args.ctx)? {
+                match cast_canonical(canonical.clone(), target_dtype, ctx)? {
                     Some(result) => Ok(result),
                     None => vortex_bail!(
                         "No CastKernel to cast canonical array {} from {} to {}",

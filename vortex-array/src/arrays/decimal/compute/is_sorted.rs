@@ -71,6 +71,7 @@ mod tests {
     use arrow_cast::parse::parse_decimal;
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::arrays::DecimalArray;
     use crate::compute::is_sorted;
     use crate::compute::is_strict_sorted;
@@ -91,8 +92,8 @@ mod tests {
         let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
         let unsorted_array = DecimalArray::new(unsorted, dtype, Validity::NonNullable);
 
-        assert!(is_sorted(sorted_array.as_ref()).unwrap().unwrap());
-        assert!(!is_sorted(unsorted_array.as_ref()).unwrap().unwrap());
+        assert!(is_sorted(&sorted_array.into_array()).unwrap().unwrap());
+        assert!(!is_sorted(&unsorted_array.into_array()).unwrap().unwrap());
     }
 
     #[test]
@@ -114,10 +115,14 @@ mod tests {
         let sorted_array = DecimalArray::new(sorted, dtype, Validity::NonNullable);
 
         assert!(
-            is_strict_sorted(strict_sorted_array.as_ref())
+            is_strict_sorted(&strict_sorted_array.into_array())
                 .unwrap()
                 .unwrap()
         );
-        assert!(!is_strict_sorted(sorted_array.as_ref()).unwrap().unwrap());
+        assert!(
+            !is_strict_sorted(&sorted_array.into_array())
+                .unwrap()
+                .unwrap()
+        );
     }
 }

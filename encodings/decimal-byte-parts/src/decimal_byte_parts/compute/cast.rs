@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -65,7 +65,7 @@ mod tests {
 
         // Cast to nullable decimal
         let casted = array
-            .to_array()
+            .into_array()
             .cast(DType::Decimal(decimal_dtype, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -89,7 +89,7 @@ mod tests {
 
         // Cast to non-nullable should fail due to nulls - force evaluation via to_canonical
         let result = array
-            .to_array()
+            .into_array()
             .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))
             .and_then(|a| a.to_canonical().map(|c| c.into_array()));
         assert!(result.is_err());
@@ -118,6 +118,6 @@ mod tests {
         DecimalDType::new(10, 2),
     ).unwrap())]
     fn test_cast_decimal_byte_parts_conformance(#[case] array: DecimalBytePartsArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.into_array());
     }
 }

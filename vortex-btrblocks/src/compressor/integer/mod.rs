@@ -251,7 +251,7 @@ impl Scheme for UncompressedScheme {
         _ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        Ok(stats.source().to_array())
+        Ok(stats.source().clone().into_array())
     }
 }
 
@@ -601,7 +601,7 @@ impl Scheme for SparseScheme {
         }
 
         let sparse_encoded = SparseArray::encode(
-            stats.src.as_ref(),
+            &stats.src.clone().into_array(),
             Some(Scalar::primitive_value(
                 top_pvalue,
                 top_pvalue.ptype(),
@@ -889,7 +889,7 @@ mod tests {
     use rand::RngCore;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::DictVTable;
@@ -1063,7 +1063,7 @@ mod tests {
             .into_array();
 
         let btr = BtrBlocksCompressor::default();
-        drop(btr.compress(prim.as_ref())?);
+        drop(btr.compress(&prim)?);
 
         Ok(())
     }

@@ -14,6 +14,7 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::dtype::DType;
 use crate::expr::StatsCatalog;
 use crate::expr::and;
@@ -41,6 +42,8 @@ mod compare;
 pub use compare::*;
 mod numeric;
 pub(crate) use numeric::*;
+
+use crate::scalar::NumericOperator;
 
 #[derive(Clone)]
 pub struct Binary;
@@ -121,24 +124,28 @@ impl ScalarFnVTable for Binary {
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 
-    fn execute(&self, op: &Operator, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let [lhs, rhs] = &args.inputs[..] else {
-            vortex_bail!("Wrong arg count")
-        };
+    fn execute(
+        &self,
+        op: &Operator,
+        args: &dyn ExecutionArgs,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let lhs = args.get(0)?;
+        let rhs = args.get(1)?;
 
         match op {
-            Operator::Eq => execute_compare(lhs, rhs, CompareOperator::Eq),
-            Operator::NotEq => execute_compare(lhs, rhs, CompareOperator::NotEq),
-            Operator::Lt => execute_compare(lhs, rhs, CompareOperator::Lt),
-            Operator::Lte => execute_compare(lhs, rhs, CompareOperator::Lte),
-            Operator::Gt => execute_compare(lhs, rhs, CompareOperator::Gt),
-            Operator::Gte => execute_compare(lhs, rhs, CompareOperator::Gte),
-            Operator::And => execute_boolean(lhs, rhs, Operator::And),
-            Operator::Or => execute_boolean(lhs, rhs, Operator::Or),
-            Operator::Add => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Add),
-            Operator::Sub => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Sub),
-            Operator::Mul => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Mul),
-            Operator::Div => execute_numeric(lhs, rhs, crate::scalar::NumericOperator::Div),
+            Operator::Eq => execute_compare(&lhs, &rhs, CompareOperator::Eq),
+            Operator::NotEq => execute_compare(&lhs, &rhs, CompareOperator::NotEq),
+            Operator::Lt => execute_compare(&lhs, &rhs, CompareOperator::Lt),
+            Operator::Lte => execute_compare(&lhs, &rhs, CompareOperator::Lte),
+            Operator::Gt => execute_compare(&lhs, &rhs, CompareOperator::Gt),
+            Operator::Gte => execute_compare(&lhs, &rhs, CompareOperator::Gte),
+            Operator::And => execute_boolean(&lhs, &rhs, Operator::And),
+            Operator::Or => execute_boolean(&lhs, &rhs, Operator::Or),
+            Operator::Add => execute_numeric(&lhs, &rhs, NumericOperator::Add),
+            Operator::Sub => execute_numeric(&lhs, &rhs, NumericOperator::Sub),
+            Operator::Mul => execute_numeric(&lhs, &rhs, NumericOperator::Mul),
+            Operator::Div => execute_numeric(&lhs, &rhs, NumericOperator::Div),
         }
     }
 
@@ -510,5 +517,77 @@ mod tests {
         let result = struct_arr.apply(&expr).unwrap();
 
         assert_arrays_eq!(result, BoolArray::from_iter([Some(true)]).into_array())
+    }
+
+    #[test]
+    fn test_scalar_subtract_unsigned() {
+        use vortex_buffer::buffer;
+
+        use crate::IntoArray;
+        use crate::arrays::ConstantArray;
+        use crate::arrays::PrimitiveArray;
+
+        let values = buffer![1u16, 2, 3].into_array();
+        let rhs = ConstantArray::new(Scalar::from(1u16), 3).into_array();
+        let result = values.binary(rhs, Operator::Sub).unwrap();
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([0u16, 1, 2]));
+    }
+
+    #[test]
+    fn test_scalar_subtract_signed() {
+        use vortex_buffer::buffer;
+
+        use crate::IntoArray;
+        use crate::arrays::ConstantArray;
+        use crate::arrays::PrimitiveArray;
+
+        let values = buffer![1i64, 2, 3].into_array();
+        let rhs = ConstantArray::new(Scalar::from(-1i64), 3).into_array();
+        let result = values.binary(rhs, Operator::Sub).unwrap();
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([2i64, 3, 4]));
+    }
+
+    #[test]
+    fn test_scalar_subtract_nullable() {
+        use crate::IntoArray;
+        use crate::arrays::ConstantArray;
+        use crate::arrays::PrimitiveArray;
+
+        let values = PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]);
+        let rhs = ConstantArray::new(Scalar::from(Some(1u16)), 4).into_array();
+        let result = values.into_array().binary(rhs, Operator::Sub).unwrap();
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(0u16), Some(1), None, Some(2)])
+        );
+    }
+
+    #[test]
+    fn test_scalar_subtract_float() {
+        use vortex_buffer::buffer;
+
+        use crate::IntoArray;
+        use crate::arrays::ConstantArray;
+        use crate::arrays::PrimitiveArray;
+
+        let values = buffer![1.0f64, 2.0, 3.0].into_array();
+        let rhs = ConstantArray::new(Scalar::from(-1f64), 3).into_array();
+        let result = values.binary(rhs, Operator::Sub).unwrap();
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([2.0f64, 3.0, 4.0]));
+    }
+
+    #[test]
+    fn test_scalar_subtract_float_underflow_is_ok() {
+        use vortex_buffer::buffer;
+
+        use crate::IntoArray;
+        use crate::arrays::ConstantArray;
+
+        let values = buffer![f32::MIN, 2.0, 3.0].into_array();
+        let rhs1 = ConstantArray::new(Scalar::from(1.0f32), 3).into_array();
+        let _results = values.binary(rhs1, Operator::Sub).unwrap();
+        let values = buffer![f32::MIN, 2.0, 3.0].into_array();
+        let rhs2 = ConstantArray::new(Scalar::from(f32::MAX), 3).into_array();
+        let _results = values.binary(rhs2, Operator::Sub).unwrap();
     }
 }

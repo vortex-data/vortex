@@ -6,6 +6,8 @@
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
+use vortex_error::vortex_panic;
+use vortex_utils::iter::ReduceBalancedIterExt;
 
 use crate::dtype::DType;
 use crate::dtype::FieldName;
@@ -19,6 +21,8 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::binary::Binary;
+use crate::scalar_fn::fns::case_when::CaseWhen;
+use crate::scalar_fn::fns::case_when::CaseWhenOptions;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::dynamic::DynamicComparison;
 use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
@@ -108,6 +112,60 @@ pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
     GetItem.new_expr(field.into(), vec![child])
 }
 
+// ---- CaseWhen ----
+
+/// Creates a CASE WHEN expression with one WHEN/THEN pair and an ELSE value.
+pub fn case_when(
+    condition: Expression,
+    then_value: Expression,
+    else_value: Expression,
+) -> Expression {
+    let options = CaseWhenOptions {
+        num_when_then_pairs: 1,
+        has_else: true,
+    };
+    CaseWhen.new_expr(options, [condition, then_value, else_value])
+}
+
+/// Creates a CASE WHEN expression with one WHEN/THEN pair and no ELSE value.
+pub fn case_when_no_else(condition: Expression, then_value: Expression) -> Expression {
+    let options = CaseWhenOptions {
+        num_when_then_pairs: 1,
+        has_else: false,
+    };
+    CaseWhen.new_expr(options, [condition, then_value])
+}
+
+/// Creates an n-ary CASE WHEN expression from WHEN/THEN pairs and an optional ELSE value.
+pub fn nested_case_when(
+    when_then_pairs: Vec<(Expression, Expression)>,
+    else_value: Option<Expression>,
+) -> Expression {
+    assert!(
+        !when_then_pairs.is_empty(),
+        "nested_case_when requires at least one when/then pair"
+    );
+
+    let has_else = else_value.is_some();
+    let mut children = Vec::with_capacity(when_then_pairs.len() * 2 + usize::from(has_else));
+    for (condition, then_value) in &when_then_pairs {
+        children.push(condition.clone());
+        children.push(then_value.clone());
+    }
+    if let Some(else_expr) = else_value {
+        children.push(else_expr);
+    }
+
+    let Ok(num_when_then_pairs) = u32::try_from(when_then_pairs.len()) else {
+        vortex_panic!("nested_case_when has too many when/then pairs");
+    };
+    let options = CaseWhenOptions {
+        num_when_then_pairs,
+        has_else,
+    };
+    CaseWhen.new_expr(options, children)
+}
+
 // ---- Binary operators ----
 
 /// Create a new [`Binary`] using the [`Eq`](Operator::Eq) operator.
@@ -116,7 +174,7 @@ pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray};
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{eq, root, lit};
@@ -140,7 +198,7 @@ pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray};
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{root, lit, not_eq};
@@ -164,7 +222,7 @@ pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{gt_eq, root, lit};
@@ -188,7 +246,7 @@ pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{gt, root, lit};
@@ -212,7 +270,7 @@ pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{root, lit, lt_eq};
@@ -236,7 +294,7 @@ pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{root, lit, lt};
@@ -260,7 +318,7 @@ pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::BoolArray;
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::expr::{root, lit, or};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
 /// let result = xs.to_array().apply(&or(root(), lit(false))).unwrap();
@@ -286,8 +344,7 @@ pub fn or_collect<I>(iter: I) -> Option<Expression>
 where
     I: IntoIterator<Item = Expression>,
 {
-    let exprs: Vec<_> = iter.into_iter().collect();
-    balanced_reduce(exprs, or)
+    iter.into_iter().reduce_balanced(or)
 }
 
 /// Create a new [`Binary`] using the [`And`](Operator::And) operator.
@@ -296,7 +353,7 @@ where
 ///
 /// ```
 /// # use vortex_array::arrays::BoolArray;
-/// # use vortex_array::{Array, IntoArray, ToCanonical};
+/// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::expr::{and, root, lit};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
 /// let result = xs.to_array().apply(&and(root(), lit(true))).unwrap();
@@ -322,42 +379,7 @@ pub fn and_collect<I>(iter: I) -> Option<Expression>
 where
     I: IntoIterator<Item = Expression>,
 {
-    let exprs: Vec<_> = iter.into_iter().collect();
-    balanced_reduce(exprs, and)
-}
-
-/// Helper function to reduce a list of expressions into a balanced binary tree.
-fn balanced_reduce<F>(mut exprs: Vec<Expression>, combine: F) -> Option<Expression>
-where
-    F: Fn(Expression, Expression) -> Expression + Copy,
-{
-    if exprs.is_empty() {
-        return None;
-    }
-    if exprs.len() == 1 {
-        return exprs.pop();
-    }
-
-    while exprs.len() > 1 {
-        let exprs_len = exprs.len();
-
-        for target_idx in 0..(exprs.len() / 2) {
-            let item_idx = target_idx * 2;
-            let new = combine(exprs[item_idx].clone(), exprs[item_idx + 1].clone());
-            exprs[target_idx] = new;
-        }
-
-        if !exprs.len().is_multiple_of(2) {
-            // We want the odd nodes to be inside the tree and not at root
-            let lhs = exprs[(exprs.len() / 2) - 1].clone();
-            let rhs = exprs[exprs.len() - 1].clone();
-            exprs[exprs_len / 2 - 1] = combine(lhs, rhs);
-        }
-
-        exprs.truncate(exprs_len / 2);
-    }
-
-    exprs.pop()
+    iter.into_iter().reduce_balanced(and)
 }
 
 /// Create a new [`Binary`] using the [`Add`](Operator::Add) operator.
@@ -365,7 +387,7 @@ where
 /// ## Example usage
 ///
 /// ```
-/// # use vortex_array::{Array, IntoArray};
+/// # use vortex_array::{DynArray, IntoArray};
 /// # use vortex_array::arrow::IntoArrowArray as _;
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{checked_add, lit, root};
@@ -612,9 +634,9 @@ pub fn merge_opts(
 ///
 /// ```rust
 /// # use vortex_array::expr::{zip_expr, root, lit};
-/// let expr = zip_expr(root(), lit(0i32), lit(true));
+/// let expr = zip_expr(lit(true), root(), lit(0i32));
 /// ```
-pub fn zip_expr(if_true: Expression, if_false: Expression, mask: Expression) -> Expression {
+pub fn zip_expr(mask: Expression, if_true: Expression, if_false: Expression) -> Expression {
     Zip.new_expr(EmptyOptions, [if_true, if_false, mask])
 }
 

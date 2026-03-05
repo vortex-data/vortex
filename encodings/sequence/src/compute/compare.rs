@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::NativePType;
@@ -25,7 +26,7 @@ use crate::array::SequenceVTable;
 impl CompareKernel for SequenceVTable {
     fn compare(
         lhs: &SequenceArray,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -57,10 +58,10 @@ impl CompareKernel for SequenceVTable {
 
         if let Ok(set_idx) = set_idx {
             let buffer = BitBuffer::from_iter((0..lhs.len()).map(|idx| idx == set_idx));
-            Ok(Some(BoolArray::new(buffer, validity).to_array()))
+            Ok(Some(BoolArray::new(buffer, validity).into_array()))
         } else {
             Ok(Some(
-                ConstantArray::new(Scalar::bool(false, nullability), lhs.len()).to_array(),
+                ConstantArray::new(Scalar::bool(false, nullability), lhs.len()).into_array(),
             ))
         }
     }
@@ -135,6 +136,7 @@ fn find_intersection<P: NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
@@ -147,27 +149,36 @@ mod tests {
 
     #[test]
     fn test_compare_match() {
-        let lhs = SequenceArray::typed_new(2i64, 1, NonNullable, 4).unwrap();
+        let lhs = SequenceArray::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(4i64, lhs.len());
-        let result = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
+        let result = lhs
+            .into_array()
+            .binary(rhs.into_array(), Operator::Eq)
+            .unwrap();
         let expected = BoolArray::from_iter([false, false, true, false]);
         assert_arrays_eq!(result, expected);
     }
 
     #[test]
     fn test_compare_match_scale() {
-        let lhs = SequenceArray::typed_new(2i64, 3, Nullable, 4).unwrap();
+        let lhs = SequenceArray::try_new_typed(2i64, 3, Nullable, 4).unwrap();
         let rhs = ConstantArray::new(8i64, lhs.len());
-        let result = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
+        let result = lhs
+            .into_array()
+            .binary(rhs.into_array(), Operator::Eq)
+            .unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(true), Some(false)]);
         assert_arrays_eq!(result, expected);
     }
 
     #[test]
     fn test_compare_no_match() {
-        let lhs = SequenceArray::typed_new(2i64, 1, NonNullable, 4).unwrap();
+        let lhs = SequenceArray::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(1i64, lhs.len());
-        let result = lhs.to_array().binary(rhs.to_array(), Operator::Eq).unwrap();
+        let result = lhs
+            .into_array()
+            .binary(rhs.into_array(), Operator::Eq)
+            .unwrap();
         let expected = BoolArray::from_iter([false, false, false, false]);
         assert_arrays_eq!(result, expected);
     }

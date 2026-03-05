@@ -3,8 +3,8 @@
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use vortex_array::Array;
 use vortex_array::ArrayContext;
+use vortex_array::DynArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
@@ -194,9 +194,9 @@ impl LayoutStrategy for FlatLayoutStrategy {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::Array;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;

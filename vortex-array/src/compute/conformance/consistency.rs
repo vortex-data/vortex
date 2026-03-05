@@ -24,13 +24,12 @@ use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::Array;
+use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::invert;
-use crate::compute::mask;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -47,7 +46,7 @@ use crate::scalar_fn::fns::operators::Operator;
 /// - Creates indices array containing positions where mask is true
 /// - Applies take with these indices
 /// - Verifies both results are identical
-fn test_filter_take_consistency(array: &dyn Array) {
+fn test_filter_take_consistency(array: &ArrayRef) {
     let len = array.len();
     if len == 0 {
         return;
@@ -115,7 +114,7 @@ fn test_filter_take_consistency(array: &dyn Array) {
 /// # Why This Matters
 /// This test ensures that mask operations compose correctly, which is critical for
 /// complex query operations that may apply multiple filters.
-fn test_double_mask_consistency(array: &dyn Array) {
+fn test_double_mask_consistency(array: &ArrayRef) {
     let len = array.len();
     if len == 0 {
         return;
@@ -126,9 +125,14 @@ fn test_double_mask_consistency(array: &dyn Array) {
     let mask2: Mask = (0..len).map(|i| i % 2 == 0).collect();
 
     // Apply masks sequentially
-    let first_masked = mask(array, &mask1).vortex_expect("mask should succeed in conformance test");
-    let double_masked =
-        mask(&first_masked, &mask2).vortex_expect("mask should succeed in conformance test");
+    let first_masked = array
+        .clone()
+        .mask((!&mask1).into_array())
+        .vortex_expect("mask should succeed in conformance test");
+    let double_masked = first_masked
+        .clone()
+        .mask((!&mask2).into_array())
+        .vortex_expect("mask should succeed in conformance test");
 
     // Create combined mask (OR operation - element is masked if EITHER mask is true)
     let combined_pattern: BitBuffer = mask1
@@ -140,8 +144,10 @@ fn test_double_mask_consistency(array: &dyn Array) {
     let combined_mask = Mask::from_buffer(combined_pattern);
 
     // Apply combined mask directly
-    let directly_masked =
-        mask(array, &combined_mask).vortex_expect("mask should succeed in conformance test");
+    let directly_masked = array
+        .clone()
+        .mask((!&combined_mask).into_array())
+        .vortex_expect("mask should succeed in conformance test");
 
     // Results should be identical
     assert_eq!(
@@ -182,7 +188,7 @@ fn test_double_mask_consistency(array: &dyn Array) {
 /// # Why This Matters
 /// This is an identity operation that should be optimized in implementations
 /// to avoid unnecessary copying.
-fn test_filter_identity(array: &dyn Array) {
+fn test_filter_identity(array: &ArrayRef) {
     let len = array.len();
     if len == 0 {
         return;
@@ -231,15 +237,17 @@ fn test_filter_identity(array: &dyn Array) {
 /// # Why This Matters
 /// Masking always produces a nullable array, even when no values are actually masked.
 /// This test ensures the type system handles this correctly.
-fn test_mask_identity(array: &dyn Array) {
+fn test_mask_identity(array: &ArrayRef) {
     let len = array.len();
     if len == 0 {
         return;
     }
 
     let all_false_mask = Mask::new_false(len);
-    let masked =
-        mask(array, &all_false_mask).vortex_expect("mask should succeed in conformance test");
+    let masked = array
+        .clone()
+        .mask((!&all_false_mask).into_array())
+        .vortex_expect("mask should succeed in conformance test");
 
     // Masked array should have same values (just nullable)
     assert_eq!(
@@ -287,7 +295,7 @@ fn test_mask_identity(array: &dyn Array) {
 /// # Why This Matters
 /// When a filter mask represents a contiguous range, it should be equivalent to
 /// a slice operation. Some implementations may optimize this case.
-fn test_slice_filter_consistency(array: &dyn Array) {
+fn test_slice_filter_consistency(array: &ArrayRef) {
     let len = array.len();
     if len < 4 {
         return; // Need at least 4 elements for meaningful test
@@ -344,7 +352,7 @@ fn test_slice_filter_consistency(array: &dyn Array) {
 ///
 /// # Why This Matters
 /// Sequential takes are a common pattern that can be optimized to slice operations.
-fn test_take_slice_consistency(array: &dyn Array) {
+fn test_take_slice_consistency(array: &ArrayRef) {
     let len = array.len();
     if len < 3 {
         return; // Need at least 3 elements
@@ -387,7 +395,7 @@ fn test_take_slice_consistency(array: &dyn Array) {
 }
 
 /// Tests that filter preserves relative ordering
-fn test_filter_preserves_order(array: &dyn Array) {
+fn test_filter_preserves_order(array: &ArrayRef) {
     let len = array.len();
     if len < 4 {
         return;
@@ -432,7 +440,7 @@ fn test_filter_preserves_order(array: &dyn Array) {
 }
 
 /// Tests that take with repeated indices works correctly
-fn test_take_repeated_indices(array: &dyn Array) {
+fn test_take_repeated_indices(array: &ArrayRef) {
     let len = array.len();
     if len == 0 {
         return;
@@ -458,7 +466,7 @@ fn test_take_repeated_indices(array: &dyn Array) {
 }
 
 /// Tests mask and filter interaction with nulls
-fn test_mask_filter_null_consistency(array: &dyn Array) {
+fn test_mask_filter_null_consistency(array: &ArrayRef) {
     let len = array.len();
     if len < 3 {
         return;
@@ -467,7 +475,10 @@ fn test_mask_filter_null_consistency(array: &dyn Array) {
     // First mask some elements
     let mask_pattern: Vec<bool> = (0..len).map(|i| i % 2 == 0).collect();
     let mask_array = Mask::from_iter(mask_pattern);
-    let masked = mask(array, &mask_array).vortex_expect("mask should succeed in conformance test");
+    let masked = array
+        .clone()
+        .mask((!&mask_array).into_array())
+        .vortex_expect("mask should succeed in conformance test");
 
     // Then filter to remove the nulls
     let filter_pattern: Vec<bool> = (0..len).map(|i| i % 2 != 0).collect();
@@ -495,7 +506,7 @@ fn test_mask_filter_null_consistency(array: &dyn Array) {
 }
 
 /// Tests that empty operations are consistent
-fn test_empty_operations_consistency(array: &dyn Array) {
+fn test_empty_operations_consistency(array: &ArrayRef) {
     let len = array.len();
 
     // Empty filter
@@ -524,7 +535,7 @@ fn test_empty_operations_consistency(array: &dyn Array) {
 }
 
 /// Tests that take preserves array properties
-fn test_take_preserves_properties(array: &dyn Array) {
+fn test_take_preserves_properties(array: &ArrayRef) {
     let len = array.len();
     if len == 0 {
         return;
@@ -568,7 +579,7 @@ fn test_take_preserves_properties(array: &dyn Array) {
 /// # Why This Matters
 /// Nullable indices are a powerful feature that allows introducing nulls during
 /// a take operation, which is useful for outer joins and similar operations.
-fn test_nullable_indices_consistency(array: &dyn Array) {
+fn test_nullable_indices_consistency(array: &ArrayRef) {
     let len = array.len();
     if len < 3 {
         return; // Need at least 3 elements to test indices 0 and 2
@@ -634,7 +645,7 @@ fn test_nullable_indices_consistency(array: &dyn Array) {
 }
 
 /// Tests large array consistency
-fn test_large_array_consistency(array: &dyn Array) {
+fn test_large_array_consistency(array: &ArrayRef) {
     let len = array.len();
     if len < 1000 {
         return;
@@ -684,8 +695,7 @@ fn test_large_array_consistency(array: &dyn Array) {
 /// Comparison operations must maintain logical consistency across encodings.
 /// This test catches bugs where an encoding might implement one comparison
 /// correctly but fail on its logical inverse.
-#[expect(deprecated)]
-fn test_comparison_inverse_consistency(array: &dyn Array) {
+fn test_comparison_inverse_consistency(array: &ArrayRef) {
     let len = array.len();
     if len == 0 {
         return;
@@ -711,13 +721,14 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
     if let (Ok(eq_result), Ok(neq_result)) = (
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::Eq),
+            .binary(const_array.clone().into_array(), Operator::Eq),
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::NotEq),
+            .binary(const_array.clone().into_array(), Operator::NotEq),
     ) {
-        let inverted_eq =
-            invert(&eq_result).vortex_expect("invert should succeed in conformance test");
+        let inverted_eq = eq_result
+            .not()
+            .vortex_expect("not should succeed in conformance test");
 
         assert_eq!(
             inverted_eq.len(),
@@ -744,13 +755,14 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
     if let (Ok(gt_result), Ok(lte_result)) = (
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::Gt),
+            .binary(const_array.clone().into_array(), Operator::Gt),
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::Lte),
+            .binary(const_array.clone().into_array(), Operator::Lte),
     ) {
-        let inverted_gt =
-            invert(&gt_result).vortex_expect("invert should succeed in conformance test");
+        let inverted_gt = gt_result
+            .not()
+            .vortex_expect("not should succeed in conformance test");
 
         for i in 0..inverted_gt.len() {
             let inv_val = inverted_gt
@@ -771,13 +783,14 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
     if let (Ok(lt_result), Ok(gte_result)) = (
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::Lt),
+            .binary(const_array.clone().into_array(), Operator::Lt),
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::Gte),
+            .binary(const_array.into_array(), Operator::Gte),
     ) {
-        let inverted_lt =
-            invert(&lt_result).vortex_expect("invert should succeed in conformance test");
+        let inverted_lt = lt_result
+            .not()
+            .vortex_expect("not should succeed in conformance test");
 
         for i in 0..inverted_lt.len() {
             let inv_val = inverted_lt
@@ -810,7 +823,7 @@ fn test_comparison_inverse_consistency(array: &dyn Array) {
 /// # Why This Matters
 /// Ensures that comparison operations maintain mathematical ordering properties
 /// regardless of operand order.
-fn test_comparison_symmetry_consistency(array: &dyn Array) {
+fn test_comparison_symmetry_consistency(array: &ArrayRef) {
     let len = array.len();
     if len == 0 {
         return;
@@ -838,9 +851,10 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
     if let (Ok(arr_gt_scalar), Ok(scalar_lt_arr)) = (
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::Gt),
+            .binary(const_array.clone().into_array(), Operator::Gt),
         const_array
-            .to_array()
+            .clone()
+            .into_array()
             .binary(array.to_array(), Operator::Lt),
     ) {
         assert_eq!(
@@ -868,9 +882,9 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
     if let (Ok(arr_eq_scalar), Ok(scalar_eq_arr)) = (
         array
             .to_array()
-            .binary(const_array.to_array(), Operator::Eq),
+            .binary(const_array.clone().into_array(), Operator::Eq),
         const_array
-            .to_array()
+            .into_array()
             .binary(array.to_array(), Operator::Eq),
     ) {
         for i in 0..arr_eq_scalar.len() {
@@ -905,26 +919,26 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
 /// Boolean operations must maintain logical consistency across encodings.
 /// This test catches bugs where encodings might optimize boolean operations
 /// incorrectly, breaking fundamental logical properties.
-#[expect(deprecated)]
-fn test_boolean_demorgan_consistency(array: &dyn Array) {
+fn test_boolean_demorgan_consistency(array: &ArrayRef) {
     if !matches!(array.dtype(), DType::Bool(_)) {
         return;
     }
 
-    let mask = {
+    let bool_mask = {
         let mask_pattern: Vec<bool> = (0..array.len()).map(|i| i % 3 == 0).collect();
         BoolArray::from_iter(mask_pattern)
     };
-    let mask = mask.as_ref();
+    let bool_mask = bool_mask.into_array();
 
     // Test first De Morgan's law: NOT(A AND B) = (NOT A) OR (NOT B)
     if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) = (
-        array.to_array().binary(mask.to_array(), Operator::And),
-        invert(array),
-        invert(mask),
+        array.to_array().binary(bool_mask.clone(), Operator::And),
+        array.not(),
+        bool_mask.not(),
     ) {
-        let not_a_and_b =
-            invert(&a_and_b).vortex_expect("invert should succeed in conformance test");
+        let not_a_and_b = a_and_b
+            .not()
+            .vortex_expect("not should succeed in conformance test");
         let not_a_or_not_b = not_a
             .binary(not_b.clone(), Operator::Or)
             .vortex_expect("or should succeed in conformance test");
@@ -952,11 +966,13 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
 
     // Test second De Morgan's law: NOT(A OR B) = (NOT A) AND (NOT B)
     if let (Ok(a_or_b), Ok(not_a), Ok(not_b)) = (
-        array.to_array().binary(mask.to_array(), Operator::Or),
-        invert(array),
-        invert(mask),
+        array.to_array().binary(bool_mask.clone(), Operator::Or),
+        array.not(),
+        bool_mask.not(),
     ) {
-        let not_a_or_b = invert(&a_or_b).vortex_expect("invert should succeed in conformance test");
+        let not_a_or_b = a_or_b
+            .not()
+            .vortex_expect("not should succeed in conformance test");
         let not_a_and_not_b = not_a
             .binary(not_b.clone(), Operator::And)
             .vortex_expect("and should succeed in conformance test");
@@ -992,7 +1008,7 @@ fn test_boolean_demorgan_consistency(array: &dyn Array) {
 /// # Why This Matters
 /// Aggregate operations on sliced arrays must produce correct results
 /// regardless of the underlying encoding's offset handling.
-fn test_slice_aggregate_consistency(array: &dyn Array) {
+fn test_slice_aggregate_consistency(array: &ArrayRef) {
     use crate::compute::min_max;
     use crate::compute::nan_count;
     use crate::compute::sum;
@@ -1095,7 +1111,7 @@ fn test_slice_aggregate_consistency(array: &dyn Array) {
 /// This test specifically catches bugs where encodings (like RunEndArray) fail to preserve
 /// offset information during cast operations. Such bugs can lead to incorrect data being
 /// returned after casting a sliced array.
-fn test_cast_slice_consistency(array: &dyn Array) {
+fn test_cast_slice_consistency(array: &ArrayRef) {
     let len = array.len();
     if len < 5 {
         return; // Need at least 5 elements for meaningful slice
@@ -1356,7 +1372,7 @@ fn test_cast_slice_consistency(array: &dyn Array) {
 /// ## Large Arrays
 /// - **Performance**: Operations scale correctly to large arrays (1000+ elements)
 /// ```text
-pub fn test_array_consistency(array: &dyn Array) {
+pub fn test_array_consistency(array: &ArrayRef) {
     // Core operation consistency
     test_filter_take_consistency(array);
     test_double_mask_consistency(array);

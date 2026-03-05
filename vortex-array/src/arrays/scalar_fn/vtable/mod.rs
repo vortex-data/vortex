@@ -17,10 +17,10 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::Array;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
@@ -38,6 +38,7 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTableExt;
+use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vtable;
@@ -195,12 +196,8 @@ impl VTable for ScalarFnVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
-        let args = ExecutionArgs {
-            inputs: array.children.clone(),
-            row_count: array.len,
-            ctx,
-        };
-        array.scalar_fn.execute(args)
+        let args = VecExecutionArgs::new(array.children.clone(), array.len);
+        array.scalar_fn.execute(&args, ctx)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
@@ -253,7 +250,7 @@ pub struct AnyScalarFn;
 impl Matcher for AnyScalarFn {
     type Match<'a> = &'a ScalarFnArray;
 
-    fn try_match(array: &dyn Array) -> Option<Self::Match<'_>> {
+    fn try_match(array: &dyn DynArray) -> Option<Self::Match<'_>> {
         array.as_opt::<ScalarFnVTable>()
     }
 }
@@ -265,7 +262,7 @@ pub struct ExactScalarFn<F: scalar_fn::ScalarFnVTable>(PhantomData<F>);
 impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
     type Match<'a> = ScalarFnArrayView<'a, F>;
 
-    fn matches(array: &dyn Array) -> bool {
+    fn matches(array: &dyn DynArray) -> bool {
         if let Some(scalar_fn_array) = array.as_opt::<ScalarFnVTable>() {
             scalar_fn_array.scalar_fn().is::<F>()
         } else {
@@ -273,7 +270,7 @@ impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
         }
     }
 
-    fn try_match(array: &dyn Array) -> Option<Self::Match<'_>> {
+    fn try_match(array: &dyn DynArray) -> Option<Self::Match<'_>> {
         let scalar_fn_array = array.as_opt::<ScalarFnVTable>()?;
         let scalar_fn_vtable = scalar_fn_array
             .scalar_fn
@@ -292,13 +289,13 @@ impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
 }
 
 pub struct ScalarFnArrayView<'a, F: scalar_fn::ScalarFnVTable> {
-    array: &'a dyn Array,
+    array: &'a dyn DynArray,
     pub vtable: &'a F,
     pub options: &'a F::Options,
 }
 
 impl<F: scalar_fn::ScalarFnVTable> Deref for ScalarFnArrayView<'_, F> {
-    type Target = dyn Array;
+    type Target = dyn DynArray;
 
     fn deref(&self) -> &Self::Target {
         self.array
@@ -358,8 +355,13 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
         Ok(options.0.dtype().clone())
     }
 
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        crate::Executable::execute(options.0.clone(), args.ctx)
+    fn execute(
+        &self,
+        options: &Self::Options,
+        _args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        crate::Executable::execute(options.0.clone(), ctx)
     }
 
     fn validity(

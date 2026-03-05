@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::Ordering;
+
 use arrow_array::BooleanArray;
+use arrow_buffer::NullBuffer;
 use arrow_ord::cmp;
+use arrow_ord::ord::make_comparator;
+use arrow_schema::SortOptions;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -18,7 +22,6 @@ use crate::arrays::ScalarFnVTable;
 use crate::arrow::Datum;
 use crate::arrow::IntoArrowArray;
 use crate::arrow::from_arrow_array_with_len;
-use crate::compute::compare_nested_arrow_arrays;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::kernel::ExecuteParentKernel;
@@ -35,7 +38,7 @@ use crate::vtable::VTable;
 pub trait CompareKernel: VTable {
     fn compare(
         lhs: &Self::Array,
-        rhs: &dyn Array,
+        rhs: &ArrayRef,
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
@@ -98,7 +101,7 @@ where
             ));
         }
 
-        V::compare(array, other.as_ref(), cmp_op, ctx)
+        V::compare(array, other, cmp_op, ctx)
     }
 }
 
@@ -107,8 +110,8 @@ where
 /// This is the entry point for compare operations from the binary expression.
 /// Handles empty, constant-null, and constant-constant directly, otherwise falls back to Arrow.
 pub(crate) fn execute_compare(
-    lhs: &dyn Array,
-    rhs: &dyn Array,
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
     op: CompareOperator,
 ) -> VortexResult<ArrayRef> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
@@ -139,8 +142,8 @@ pub(crate) fn execute_compare(
 
 /// Fall back to Arrow for comparison.
 fn arrow_compare_arrays(
-    left: &dyn Array,
-    right: &dyn Array,
+    left: &ArrayRef,
+    right: &ArrayRef,
     operator: CompareOperator,
 ) -> VortexResult<ArrayRef> {
     assert_eq!(left.len(), right.len());
@@ -195,6 +198,37 @@ pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: CompareOperator) -> Scal
     }
 }
 
+/// Compare two Arrow arrays element-wise using [`make_comparator`].
+///
+/// This function is required for nested types (Struct, List, FixedSizeList) because Arrow's
+/// vectorized comparison kernels ([`cmp::eq`], [`cmp::neq`], etc.) do not support them.
+///
+/// The vectorized kernels are faster but only work on primitive types, so for non-nested types,
+/// prefer using the vectorized kernels directly for better performance.
+pub fn compare_nested_arrow_arrays(
+    lhs: &dyn arrow_array::Array,
+    rhs: &dyn arrow_array::Array,
+    operator: CompareOperator,
+) -> VortexResult<BooleanArray> {
+    let compare_arrays_at = make_comparator(lhs, rhs, SortOptions::default())?;
+
+    let cmp_fn = match operator {
+        CompareOperator::Eq => Ordering::is_eq,
+        CompareOperator::NotEq => Ordering::is_ne,
+        CompareOperator::Gt => Ordering::is_gt,
+        CompareOperator::Gte => Ordering::is_ge,
+        CompareOperator::Lt => Ordering::is_lt,
+        CompareOperator::Lte => Ordering::is_le,
+    };
+
+    let values = (0..lhs.len())
+        .map(|i| cmp_fn(compare_arrays_at(i, i)))
+        .collect();
+    let nulls = NullBuffer::union(lhs.nulls(), rhs.nulls());
+
+    Ok(BooleanArray::new(values, nulls))
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -235,15 +269,17 @@ mod tests {
         );
 
         let matches = arr
-            .to_array()
-            .binary(arr.to_array(), Operator::Eq)
+            .clone()
+            .into_array()
+            .binary(arr.clone().into_array(), Operator::Eq)
             .unwrap()
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [1u64, 2, 3, 4]);
 
         let matches = arr
-            .to_array()
-            .binary(arr.to_array(), Operator::NotEq)
+            .clone()
+            .into_array()
+            .binary(arr.clone().into_array(), Operator::NotEq)
             .unwrap()
             .to_bool();
         let empty: [u64; 0] = [];
@@ -255,29 +291,32 @@ mod tests {
         );
 
         let matches = arr
-            .to_array()
-            .binary(other.to_array(), Operator::Lte)
+            .clone()
+            .into_array()
+            .binary(other.clone().into_array(), Operator::Lte)
             .unwrap()
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
         let matches = arr
-            .to_array()
-            .binary(other.to_array(), Operator::Lt)
+            .clone()
+            .into_array()
+            .binary(other.clone().into_array(), Operator::Lt)
             .unwrap()
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
 
         let matches = other
-            .to_array()
-            .binary(arr.to_array(), Operator::Gte)
+            .clone()
+            .into_array()
+            .binary(arr.clone().into_array(), Operator::Gte)
             .unwrap()
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
         let matches = other
-            .to_array()
-            .binary(arr.to_array(), Operator::Gt)
+            .into_array()
+            .binary(arr.into_array(), Operator::Gt)
             .unwrap()
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
@@ -289,8 +328,8 @@ mod tests {
         let right = ConstantArray::new(Scalar::from(10u32), 10);
 
         let result = left
-            .to_array()
-            .binary(right.to_array(), Operator::Gt)
+            .into_array()
+            .binary(right.into_array(), Operator::Gt)
             .unwrap();
         assert_eq!(result.len(), 10);
         let scalar = result.scalar_at(0).unwrap();
@@ -330,22 +369,24 @@ mod tests {
         .unwrap();
 
         let result = list1
-            .to_array()
-            .binary(list2.to_array(), Operator::Eq)
+            .clone()
+            .into_array()
+            .binary(list2.clone().into_array(), Operator::Eq)
             .unwrap();
         let expected = BoolArray::from_iter([true, true, false]);
         assert_arrays_eq!(result, expected);
 
         let result = list1
-            .to_array()
-            .binary(list2.to_array(), Operator::NotEq)
+            .clone()
+            .into_array()
+            .binary(list2.clone().into_array(), Operator::NotEq)
             .unwrap();
         let expected = BoolArray::from_iter([false, false, true]);
         assert_arrays_eq!(result, expected);
 
         let result = list1
-            .to_array()
-            .binary(list2.to_array(), Operator::Lt)
+            .into_array()
+            .binary(list2.into_array(), Operator::Lt)
             .unwrap();
         let expected = BoolArray::from_iter([false, false, true]);
         assert_arrays_eq!(result, expected);
@@ -371,8 +412,8 @@ mod tests {
         let constant = ConstantArray::new(list_scalar, 3);
 
         let result = list
-            .to_array()
-            .binary(constant.to_array(), Operator::Eq)
+            .into_array()
+            .binary(constant.into_array(), Operator::Eq)
             .unwrap();
         let expected = BoolArray::from_iter([false, true, false]);
         assert_arrays_eq!(result, expected);
@@ -399,15 +440,16 @@ mod tests {
         .unwrap();
 
         let result = struct1
-            .to_array()
-            .binary(struct2.to_array(), Operator::Eq)
+            .clone()
+            .into_array()
+            .binary(struct2.clone().into_array(), Operator::Eq)
             .unwrap();
         let expected = BoolArray::from_iter([true, true, false]);
         assert_arrays_eq!(result, expected);
 
         let result = struct1
-            .to_array()
-            .binary(struct2.to_array(), Operator::Gt)
+            .into_array()
+            .binary(struct2.into_array(), Operator::Gt)
             .unwrap();
         let expected = BoolArray::from_iter([false, false, true]);
         assert_arrays_eq!(result, expected);
@@ -432,8 +474,8 @@ mod tests {
         .unwrap();
 
         let result = empty1
-            .to_array()
-            .binary(empty2.to_array(), Operator::Eq)
+            .into_array()
+            .binary(empty2.into_array(), Operator::Eq)
             .unwrap();
         let expected = BoolArray::from_iter([true, true, true, true, true]);
         assert_arrays_eq!(result, expected);
@@ -449,8 +491,9 @@ mod tests {
         );
 
         let result = list
-            .to_array()
-            .binary(list.to_array(), Operator::Eq)
+            .clone()
+            .into_array()
+            .binary(list.into_array(), Operator::Eq)
             .unwrap();
         assert!(result.scalar_at(0).unwrap().is_valid());
         assert!(result.scalar_at(1).unwrap().is_valid());

@@ -5,9 +5,9 @@ use std::ops::Deref;
 
 use pyo3::PyClass;
 use pyo3::prelude::*;
-use vortex::array::Array;
 use vortex::array::ArrayAdapter;
 use vortex::array::ArrayRef;
+use vortex::array::DynArray;
 use vortex::array::arrays::BoolVTable;
 use vortex::array::arrays::ChunkedVTable;
 use vortex::array::arrays::ConstantVTable;

@@ -15,23 +15,11 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 
 use arcref::ArcRef;
-pub use boolean::*;
-#[expect(deprecated)]
-pub use cast::cast;
-pub use compare::*;
-pub use fill_null::*;
-pub use filter::*;
-#[expect(deprecated)]
-pub use invert::invert;
 pub use is_constant::*;
 pub use is_sorted::*;
 use itertools::Itertools;
-#[expect(deprecated)]
-pub use list_contains::list_contains;
-pub use mask::*;
 pub use min_max::*;
 pub use nan_count::*;
-pub use numeric::*;
 use parking_lot::RwLock;
 pub use sum::*;
 use vortex_error::VortexError;
@@ -39,33 +27,22 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
-pub use zip::*;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
-mod boolean;
-mod cast;
-mod compare;
 #[cfg(feature = "_test-harness")]
 pub mod conformance;
-mod fill_null;
-mod filter;
-mod invert;
 mod is_constant;
 mod is_sorted;
-mod list_contains;
-mod mask;
 mod min_max;
 mod nan_count;
-mod numeric;
 mod sum;
-mod zip;
 
 /// An instance of a compute function holding the implementation vtable and a set of registered
 /// compute kernels.
@@ -217,7 +194,7 @@ pub struct InvocationArgs<'a> {
 
 /// For unary compute functions, it's useful to just have this short-cut.
 pub struct UnaryArgs<'a, O: Options> {
-    pub array: &'a dyn Array,
+    pub array: &'a dyn DynArray,
     pub options: &'a O,
 }
 
@@ -241,8 +218,8 @@ impl<'a, O: Options> TryFrom<&InvocationArgs<'a>> for UnaryArgs<'a, O> {
 
 /// For binary compute functions, it's useful to just have this short-cut.
 pub struct BinaryArgs<'a, O: Options> {
-    pub lhs: &'a dyn Array,
-    pub rhs: &'a dyn Array,
+    pub lhs: &'a dyn DynArray,
+    pub rhs: &'a dyn DynArray,
     pub options: &'a O,
 }
 
@@ -270,7 +247,7 @@ impl<'a, O: Options> TryFrom<&InvocationArgs<'a>> for BinaryArgs<'a, O> {
 /// Input to a compute function.
 pub enum Input<'a> {
     Scalar(&'a Scalar),
-    Array(&'a dyn Array),
+    Array(&'a dyn DynArray),
     Mask(&'a Mask),
     Builder(&'a mut dyn ArrayBuilder),
     DType(&'a DType),
@@ -290,9 +267,15 @@ impl Debug for Input<'_> {
     }
 }
 
-impl<'a> From<&'a dyn Array> for Input<'a> {
-    fn from(value: &'a dyn Array) -> Self {
+impl<'a> From<&'a dyn DynArray> for Input<'a> {
+    fn from(value: &'a dyn DynArray) -> Self {
         Input::Array(value)
+    }
+}
+
+impl<'a> From<&'a ArrayRef> for Input<'a> {
+    fn from(value: &'a ArrayRef) -> Self {
+        Input::Array(value.as_ref())
     }
 }
 
@@ -323,7 +306,7 @@ impl<'a> Input<'a> {
         }
     }
 
-    pub fn array(&self) -> Option<&'a dyn Array> {
+    pub fn array(&self) -> Option<&'a dyn DynArray> {
         if let Input::Array(array) = self {
             Some(*array)
         } else {

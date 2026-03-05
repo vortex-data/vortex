@@ -5,7 +5,7 @@
 
 use divan::Bencher;
 use itertools::repeat_n;
-use vortex_array::Array;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
@@ -73,7 +73,7 @@ fn decompress<T: IntegerPType>(bencher: Bencher, (length, run_step): (usize, usi
         .into_array();
 
     let run_end_array = RunEndArray::new(ends, values);
-    let array = run_end_array.to_array();
+    let array = run_end_array.into_array();
 
     bencher
         .with_inputs(|| &array)
@@ -95,7 +95,7 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     let (ends, values) = runend_encode(&values);
     let runend_array = RunEndArray::try_new(ends.into_array(), values)
         .unwrap()
-        .to_array();
+        .into_array();
 
     bencher
         .with_inputs(|| {

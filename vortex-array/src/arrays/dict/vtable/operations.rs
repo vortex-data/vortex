@@ -5,7 +5,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::DictVTable;
-use crate::Array;
+use crate::DynArray;
 use crate::arrays::dict::DictArray;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;

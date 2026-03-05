@@ -29,6 +29,7 @@ use crate::DynArrayEq;
 use crate::DynArrayHash;
 use crate::ExecutionCtx;
 use crate::LEGACY_SESSION;
+use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantVTable;
@@ -65,7 +66,7 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
 /// The public API trait for all Vortex arrays.
-pub trait Array:
+pub trait DynArray:
     'static
     + private::Sealed
     + Send
@@ -166,10 +167,10 @@ pub trait Array:
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 }
 
-impl Array for Arc<dyn Array> {
+impl DynArray for Arc<dyn DynArray> {
     #[inline]
     fn as_any(&self) -> &dyn Any {
-        Array::as_any(self.as_ref())
+        DynArray::as_any(self.as_ref())
     }
 
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
@@ -279,10 +280,10 @@ impl Array for Arc<dyn Array> {
     }
 }
 
-/// A reference counted pointer to a dynamic [`Array`] trait object.
-pub type ArrayRef = Arc<dyn Array>;
+/// A reference counted pointer to a dynamic [`DynArray`] trait object.
+pub type ArrayRef = Arc<dyn DynArray>;
 
-impl ToOwned for dyn Array {
+impl ToOwned for dyn DynArray {
     type Owned = ArrayRef;
 
     fn to_owned(&self) -> Self::Owned {
@@ -290,7 +291,7 @@ impl ToOwned for dyn Array {
     }
 }
 
-impl dyn Array + '_ {
+impl dyn DynArray + '_ {
     /// Does the array match the given matcher.
     pub fn is<M: Matcher>(&self) -> bool {
         M::matches(self)
@@ -371,10 +372,10 @@ mod private {
     pub trait Sealed {}
 
     impl<V: VTable> Sealed for ArrayAdapter<V> {}
-    impl Sealed for Arc<dyn Array> {}
+    impl Sealed for Arc<dyn DynArray> {}
 }
 
-/// Adapter struct used to lift the [`VTable`] trait into an object-safe [`Array`]
+/// Adapter struct used to lift the [`VTable`] trait into an object-safe [`DynArray`]
 /// implementation.
 ///
 /// Since this is a unit struct with `repr(transparent)`, we are able to turn un-adapted array
@@ -419,7 +420,7 @@ impl<V: VTable> ReduceNode for ArrayAdapter<V> {
     }
 }
 
-impl<V: VTable> Array for ArrayAdapter<V> {
+impl<V: VTable> DynArray for ArrayAdapter<V> {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -603,7 +604,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(Mask::new_true(self.len())),
             Validity::AllInvalid => Ok(Mask::new_false(self.len())),
-            Validity::Array(a) => a.try_to_mask_fill_null_false(),
+            Validity::Array(a) => Ok(a.to_bool().to_mask()),
         }
     }
 
@@ -742,12 +743,12 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
 impl<V: VTable> Matcher for V {
     type Match<'a> = &'a V::Array;
 
-    fn matches(array: &dyn Array) -> bool {
-        Array::as_any(array).is::<ArrayAdapter<V>>()
+    fn matches(array: &dyn DynArray) -> bool {
+        DynArray::as_any(array).is::<ArrayAdapter<V>>()
     }
 
-    fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
-        Array::as_any(array)
+    fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
+        DynArray::as_any(array)
             .downcast_ref::<ArrayAdapter<V>>()
             .map(|array_adapter| &array_adapter.0)
     }

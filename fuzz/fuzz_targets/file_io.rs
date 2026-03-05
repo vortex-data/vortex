@@ -7,8 +7,8 @@
 use itertools::Itertools;
 use libfuzzer_sys::Corpus;
 use libfuzzer_sys::fuzz_target;
-use vortex_array::Array;
 use vortex_array::Canonical;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ChunkedArray;

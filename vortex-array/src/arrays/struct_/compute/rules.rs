@@ -14,6 +14,7 @@ use crate::arrays::ScalarFnArrayView;
 use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
+use crate::arrays::TakeReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -30,6 +31,7 @@ pub(crate) const PARENT_RULES: ParentRuleSet<StructVTable> = ParentRuleSet::new(
     ParentRuleSet::lift(&StructGetItemRule),
     ParentRuleSet::lift(&MaskReduceAdaptor(StructVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(StructVTable)),
+    ParentRuleSet::lift(&TakeReduceAdaptor(StructVTable)),
 ]);
 
 /// Rule to push down cast into struct fields.

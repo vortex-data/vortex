@@ -10,8 +10,8 @@ use bytes::Bytes;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::pin_mut;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
@@ -1198,7 +1198,7 @@ async fn write_nullable_top_level_struct() {
 }
 
 async fn round_trip(
-    array: &dyn Array,
+    array: &ArrayRef,
     f: impl Fn(ScanBuilder<ArrayRef>) -> VortexResult<ScanBuilder<ArrayRef>>,
 ) -> VortexResult<ArrayRef> {
     let mut writer = vec![];
@@ -1229,7 +1229,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
         Nullability::Nullable,
     );
 
-    let struct_ = ConstantArray::new(Scalar::null(nested_dtype.clone()), 3).to_array();
+    let struct_ = ConstantArray::new(Scalar::null(nested_dtype.clone()), 3).into_array();
 
     let array = StructArray::try_new(
         ["struct"].into(),
@@ -1257,7 +1257,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
 async fn scan_empty_fields() -> VortexResult<()> {
     let array = (0..10000).collect::<PrimitiveArray>();
 
-    let result = round_trip(array.as_ref(), |scan| {
+    let result = round_trip(&array.clone().into_array(), |scan| {
         Ok(scan.with_projection(Pack.new_expr(
             PackOptions {
                 names: Default::default(),

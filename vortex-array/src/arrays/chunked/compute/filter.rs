@@ -7,8 +7,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskIter;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
@@ -163,7 +163,7 @@ fn filter_indices(
                 let chunk = array.chunk(current_chunk_id);
                 let indices =
                     PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable);
-                result.push(chunk.take(indices.to_array())?);
+                result.push(chunk.take(indices.into_array())?);
             }
 
             // Advance the chunk forward, reset the chunk indices buffer.
@@ -177,7 +177,7 @@ fn filter_indices(
     if !chunk_indices.is_empty() {
         let chunk = array.chunk(current_chunk_id);
         let indices = PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable);
-        let filtered_chunk = chunk.take(indices.to_array())?;
+        let filtered_chunk = chunk.take(indices.into_array())?;
         result.push(filtered_chunk);
     }
 
@@ -205,7 +205,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::array::Array;
+    use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
@@ -253,17 +253,17 @@ mod test {
         vec![
             buffer![0u64, 1].into_array(),
             buffer![2_u64].into_array(),
-            PrimitiveArray::empty::<u64>(Nullability::NonNullable).to_array(),
+            PrimitiveArray::empty::<u64>(Nullability::NonNullable).into_array(),
             buffer![3_u64, 4].into_array(),
         ],
         DType::Primitive(PType::U64, Nullability::NonNullable),
     ).unwrap())]
     #[case(ChunkedArray::try_new(
         vec![
-            PrimitiveArray::from_option_iter([Some(0u64), None]).to_array(),
-            PrimitiveArray::from_option_iter([Some(2u64)]).to_array(),
-            PrimitiveArray::empty::<u64>(Nullability::Nullable).to_array(),
-            PrimitiveArray::from_option_iter([None, Some(4u64)]).to_array(),
+            PrimitiveArray::from_option_iter([Some(0u64), None]).into_array(),
+            PrimitiveArray::from_option_iter([Some(2u64)]).into_array(),
+            PrimitiveArray::empty::<u64>(Nullability::Nullable).into_array(),
+            PrimitiveArray::from_option_iter([None, Some(4u64)]).into_array(),
         ],
         DType::Primitive(PType::U64, Nullability::Nullable),
     ).unwrap())]
@@ -278,6 +278,6 @@ mod test {
         DType::Primitive(PType::I64, Nullability::NonNullable),
     ).unwrap())]
     fn test_filter_chunked_conformance(#[case] chunked: ChunkedArray) {
-        test_filter_conformance(chunked.as_ref());
+        test_filter_conformance(&chunked.into_array());
     }
 }

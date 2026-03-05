@@ -22,11 +22,7 @@ impl CastReduce for FixedSizeListVTable {
             return Ok(None);
         };
 
-        let elements = array
-            .elements()
-            .cast((**target_element_type).clone())?
-            .to_canonical()?
-            .into_array();
+        let elements = array.elements().cast((**target_element_type).clone())?;
         let validity = array
             .validity()
             .clone()
@@ -43,7 +39,7 @@ impl CastReduce for FixedSizeListVTable {
                     array.len(),
                 )
             }
-            .to_array(),
+            .into_array(),
         ))
     }
 }

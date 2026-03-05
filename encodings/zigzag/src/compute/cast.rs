@@ -27,7 +27,8 @@ impl CastReduce for ZigZagVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::Array;
+    use vortex_array::DynArray;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -45,7 +46,7 @@ mod tests {
         let zigzag = zigzag_encode(values).unwrap();
 
         let casted = zigzag
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -71,7 +72,7 @@ mod tests {
         let zigzag = zigzag_encode(values).unwrap();
 
         let casted = zigzag
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I16, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -90,7 +91,7 @@ mod tests {
         let zigzag16 = zigzag_encode(values16).unwrap();
 
         let casted64 = zigzag16
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -112,7 +113,7 @@ mod tests {
         let zigzag = zigzag_encode(values).unwrap();
 
         let casted = zigzag
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -127,6 +128,6 @@ mod tests {
     #[case(zigzag_encode(PrimitiveArray::from_option_iter([Some(-5i16), None, Some(0), Some(5), None])).unwrap())]
     #[case(zigzag_encode(PrimitiveArray::from_iter([i32::MIN, -1, 0, 1, i32::MAX])).unwrap())]
     fn test_cast_zigzag_conformance(#[case] array: ZigZagArray) {
-        test_cast_conformance(array.as_ref());
+        test_cast_conformance(&array.into_array());
     }
 }

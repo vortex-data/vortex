@@ -92,24 +92,25 @@ impl ScalarFnVTable for FillNull {
             .with_nullability(arg_dtypes[1].nullability()))
     }
 
-    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let [input, fill_value]: [ArrayRef; _] = args
-            .inputs
-            .try_into()
-            .map_err(|_| vortex_err!("Wrong arg count"))?;
+    fn execute(
+        &self,
+        _options: &Self::Options,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let input = args.get(0)?;
+        let fill_value = args.get(1)?;
 
         let fill_scalar = fill_value
             .as_constant()
             .ok_or_else(|| vortex_err!("fill_null fill_value must be a constant/scalar"))?;
 
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
-            return input.execute::<ArrayRef>(args.ctx)?.fill_null(fill_scalar);
+            return input.execute::<ArrayRef>(ctx)?.fill_null(fill_scalar);
         };
 
         match columnar {
-            ColumnarView::Canonical(canonical) => {
-                fill_null_canonical(canonical, &fill_scalar, args.ctx)
-            }
+            ColumnarView::Canonical(canonical) => fill_null_canonical(canonical, &fill_scalar, ctx),
             ColumnarView::Constant(constant) => fill_null_constant(constant, &fill_scalar),
         }
     }
@@ -156,7 +157,8 @@ fn fill_null_canonical(
     fill_value: &Scalar,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    if let Some(result) = precondition(canonical.as_ref(), fill_value)? {
+    let arr = canonical.as_ref().to_array();
+    if let Some(result) = precondition(&arr, fill_value)? {
         // The result of precondition may return another ScalarFn, in which case we should
         // apply it immediately.
         // TODO(aduffy): Remove this once we have better driver check. We're also implicitly

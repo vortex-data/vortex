@@ -12,6 +12,8 @@ use vortex_alp::ALPRDFloat;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
 use vortex_alp::decompress_into_array;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::dtype::NativePType;
@@ -91,13 +93,16 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
     let values = values.freeze();
     bencher
         .with_inputs(|| {
-            alp_encode(
-                &PrimitiveArray::new(Buffer::copy_from(&values), validity.clone()),
-                None,
+            (
+                alp_encode(
+                    &PrimitiveArray::new(Buffer::copy_from(&values), validity.clone()),
+                    None,
+                )
+                .unwrap(),
+                LEGACY_SESSION.create_execution_ctx(),
             )
-            .unwrap()
         })
-        .bench_values(decompress_into_array);
+        .bench_values(|(v, mut ctx)| decompress_into_array(v, &mut ctx));
 }
 
 #[divan::bench(types = [f32, f64], args = [10_000, 100_000])]

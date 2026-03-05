@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
@@ -43,9 +43,10 @@ impl CastReduce for RLEVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::Array;
+    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::dtype::DType;
@@ -64,14 +65,11 @@ mod tests {
         );
         let rle = RLEArray::encode(&primitive).unwrap();
 
-        let res = rle
-            .to_array()
-            .cast(DType::Primitive(PType::U16, Nullability::NonNullable));
-        assert!(res.is_ok());
-        assert_eq!(
-            res.unwrap().dtype(),
-            &DType::Primitive(PType::U16, Nullability::NonNullable)
-        );
+        let casted = rle
+            .into_array()
+            .cast(DType::Primitive(PType::U16, Nullability::NonNullable))
+            .unwrap();
+        assert_arrays_eq!(casted, PrimitiveArray::from_iter([10u16, 20, 30, 40, 50]));
     }
 
     #[test]
@@ -82,7 +80,7 @@ mod tests {
             Validity::from_iter([true, false, true, true, false]),
         );
         let rle = RLEArray::encode(&primitive).unwrap();
-        rle.to_array()
+        rle.into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
             .and_then(|a| a.to_canonical().map(|c| c.into_array()))
             .unwrap();
@@ -139,6 +137,6 @@ mod tests {
     )]
     fn test_cast_rle_conformance(#[case] primitive: PrimitiveArray) {
         let rle_array = RLEArray::encode(&primitive).unwrap();
-        test_cast_conformance(rle_array.as_ref());
+        test_cast_conformance(&rle_array.into_array());
     }
 }

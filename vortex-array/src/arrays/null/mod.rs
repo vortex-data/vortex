@@ -11,6 +11,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::null::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -131,7 +132,7 @@ impl VTable for NullVTable {
     }
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(array.to_array())
+        Ok(array.clone().into_array())
     }
 }
 
