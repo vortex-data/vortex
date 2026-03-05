@@ -76,7 +76,7 @@ mod tests {
 
     #[test]
     fn take_nullable_indices() {
-        let array = ConstantArray::new(42, 10).to_array();
+        let array = ConstantArray::new(42, 10).into_array();
         let taken = array
             .take(
                 PrimitiveArray::new(
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn take_all_valid_indices() {
-        let array = ConstantArray::new(42, 10).to_array();
+        let array = ConstantArray::new(42, 10).into_array();
         let taken = array
             .take(PrimitiveArray::new(buffer![0, 5, 7], Validity::AllValid).into_array())
             .unwrap();
@@ -128,6 +128,6 @@ mod tests {
     #[case(ConstantArray::new(Scalar::null_native::<i64>(), 5))]
     #[case(ConstantArray::new(true, 1))]
     fn test_take_constant_conformance(#[case] array: ConstantArray) {
-        test_take_conformance(&array.to_array());
+        test_take_conformance(&array.into_array());
     }
 }

@@ -88,7 +88,7 @@ mod test {
             .collect();
 
         let dict =
-            dict_encode(&PrimitiveArray::from_option_iter(values.clone()).to_array()).unwrap();
+            dict_encode(&PrimitiveArray::from_option_iter(values.clone()).into_array()).unwrap();
         let actual = dict.to_primitive();
 
         let expected = PrimitiveArray::from_option_iter(values);
@@ -101,7 +101,7 @@ mod test {
         let unique_values: Vec<i32> = (0..32).collect();
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 32]));
 
-        let dict = dict_encode(&expected.to_array()).unwrap();
+        let dict = dict_encode(&expected.clone().into_array()).unwrap();
         let actual = dict.to_primitive();
 
         assert_arrays_eq!(actual, expected);
@@ -112,7 +112,7 @@ mod test {
         let unique_values: Vec<i32> = (0..100).collect();
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 100]));
 
-        let dict = dict_encode(&expected.to_array()).unwrap();
+        let dict = dict_encode(&expected.clone().into_array()).unwrap();
         let actual = dict.to_primitive();
 
         assert_arrays_eq!(actual, expected);
@@ -125,7 +125,7 @@ mod test {
             DType::Utf8(Nullability::Nullable),
         );
         assert_eq!(reference.len(), 6);
-        let dict = dict_encode(&reference.to_array()).unwrap();
+        let dict = dict_encode(&reference.clone().into_array()).unwrap();
         let flattened_dict = dict.to_varbinview();
         assert_eq!(
             flattened_dict.with_iterator(|iter| iter
@@ -146,7 +146,7 @@ mod test {
             Some(1),
             Some(5),
         ]);
-        let dict = dict_encode(&reference.to_array()).unwrap();
+        let dict = dict_encode(&reference.into_array()).unwrap();
         dict.slice(1..4).unwrap()
     }
 
@@ -155,24 +155,24 @@ mod test {
         use crate::arrays::BoolArray;
         let sliced = sliced_dict_array();
         let compared = sliced
-            .binary(ConstantArray::new(42, 3).to_array(), Operator::Eq)
+            .binary(ConstantArray::new(42, 3).into_array(), Operator::Eq)
             .unwrap();
 
         let expected = BoolArray::from_iter([Some(false), None, Some(true)]);
-        assert_arrays_eq!(compared, expected.to_array());
+        assert_arrays_eq!(compared, expected.into_array());
     }
 
     #[test]
     fn test_mask_dict_array() {
         let array = dict_encode(&buffer![2, 0, 2, 0, 10].into_array()).unwrap();
-        test_mask_conformance(&array.to_array());
+        test_mask_conformance(&array.into_array());
 
         let array = dict_encode(
             &PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)])
-                .to_array(),
+                .into_array(),
         )
         .unwrap();
-        test_mask_conformance(&array.to_array());
+        test_mask_conformance(&array.into_array());
 
         let array = dict_encode(
             &VarBinArray::from_iter(
@@ -188,20 +188,20 @@ mod test {
             .into_array(),
         )
         .unwrap();
-        test_mask_conformance(&array.to_array());
+        test_mask_conformance(&array.into_array());
     }
 
     #[test]
     fn test_filter_dict_array() {
         let array = dict_encode(&buffer![2, 0, 2, 0, 10].into_array()).unwrap();
-        test_filter_conformance(&array.to_array());
+        test_filter_conformance(&array.into_array());
 
         let array = dict_encode(
             &PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)])
-                .to_array(),
+                .into_array(),
         )
         .unwrap();
-        test_filter_conformance(&array.to_array());
+        test_filter_conformance(&array.into_array());
 
         let array = dict_encode(
             &VarBinArray::from_iter(
@@ -217,7 +217,7 @@ mod test {
             .into_array(),
         )
         .unwrap();
-        test_filter_conformance(&array.to_array());
+        test_filter_conformance(&array.into_array());
     }
 
     #[test]
@@ -226,7 +226,7 @@ mod test {
 
         assert_eq!(
             array
-                .take(PrimitiveArray::from_option_iter([Option::<i32>::None]).to_array())
+                .take(PrimitiveArray::from_option_iter([Option::<i32>::None]).into_array())
                 .unwrap()
                 .dtype(),
             &DType::Primitive(I32, Nullability::Nullable)
@@ -236,14 +236,14 @@ mod test {
     #[test]
     fn test_take_dict_conformance() {
         let array = dict_encode(&buffer![2, 0, 2, 0, 10].into_array()).unwrap();
-        test_take_conformance(&array.to_array());
+        test_take_conformance(&array.into_array());
 
         let array = dict_encode(
             &PrimitiveArray::from_option_iter([Some(2), None, Some(2), Some(0), Some(10)])
-                .to_array(),
+                .into_array(),
         )
         .unwrap();
-        test_take_conformance(&array.to_array());
+        test_take_conformance(&array.into_array());
 
         let array = dict_encode(
             &VarBinArray::from_iter(
@@ -259,7 +259,7 @@ mod test {
             .into_array(),
         )
         .unwrap();
-        test_take_conformance(&array.to_array());
+        test_take_conformance(&array.into_array());
     }
 }
 
@@ -285,7 +285,7 @@ mod tests {
         PrimitiveArray::from_option_iter([Some(10), Some(20), None]).into_array(),
     ).unwrap())]
     #[case::dict_nullable_values(dict_encode(
-        &PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).to_array()
+        &PrimitiveArray::from_option_iter([Some(1i32), None, Some(2), Some(1), None]).into_array()
     ).unwrap())]
     #[case::dict_u64(dict_encode(&buffer![100u64, 200, 100, 300, 200].into_array()).unwrap())]
     // String arrays
@@ -306,6 +306,6 @@ mod tests {
     #[case::dict_all_same(dict_encode(&buffer![5i32, 5, 5, 5, 5].into_array()).unwrap())]
     #[case::dict_large(dict_encode(&PrimitiveArray::from_iter((0..1000).map(|i| i % 10)).into_array()).unwrap())]
     fn test_dict_consistency(#[case] array: DictArray) {
-        test_array_consistency(&array.to_array());
+        test_array_consistency(&array.into_array());
     }
 }

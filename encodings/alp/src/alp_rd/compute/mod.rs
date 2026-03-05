@@ -66,7 +66,7 @@ mod tests {
         encoder.encode(&arr)
     })]
     fn test_alp_rd_consistency(#[case] array: ALPRDArray) {
-        test_array_consistency(&array.to_array());
+        test_array_consistency(&array.into_array());
     }
 
     #[rstest]

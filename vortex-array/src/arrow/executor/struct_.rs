@@ -42,7 +42,7 @@ pub(super) fn to_arrow_struct(
         Ok(array) => {
             // NOTE(ngates): this currently uses the old into_canonical code path, but we should
             //  just call directly into the swizzle-chunks function.
-            array.to_array().execute::<StructArray>(ctx)?.into_array()
+            array.into_array().execute::<StructArray>(ctx)?.into_array()
         }
         Err(array) => array,
     };

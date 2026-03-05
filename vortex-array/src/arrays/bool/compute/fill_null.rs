@@ -46,6 +46,7 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::bitbuffer;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
@@ -63,7 +64,7 @@ mod tests {
             Validity::from_iter([true, false, true, false]),
         );
         let non_null_array = bool_array
-            .to_array()
+            .into_array()
             .fill_null(Scalar::from(fill_value))
             .unwrap()
             .to_bool();

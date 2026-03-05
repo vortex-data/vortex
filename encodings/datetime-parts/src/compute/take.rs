@@ -22,9 +22,9 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> Vortex
     // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
     let indices = indices.to_primitive();
 
-    let taken_days = array.days().take(indices.to_array())?;
-    let taken_seconds = array.seconds().take(indices.to_array())?;
-    let taken_subseconds = array.subseconds().take(indices.to_array())?;
+    let taken_days = array.days().take(indices.clone().into_array())?;
+    let taken_seconds = array.seconds().take(indices.clone().into_array())?;
+    let taken_subseconds = array.subseconds().take(indices.clone().into_array())?;
 
     // Update the dtype if the nullability changed due to nullable indices
     let dtype = if taken_days.dtype().is_nullable() != array.dtype().is_nullable() {
@@ -136,6 +136,6 @@ mod tests {
         Some("UTC".into())
     )).unwrap())]
     fn test_take_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
-        test_take_conformance(&array.to_array());
+        test_take_conformance(&array.into_array());
     }
 }

@@ -67,7 +67,7 @@ mod test {
     fn fill_null_leading_none() {
         let arr = PrimitiveArray::from_option_iter([None, Some(8u8), None, Some(10), None]);
         let p = arr
-            .to_array()
+            .into_array()
             .fill_null(Scalar::from(42u8))
             .unwrap()
             .to_primitive();
@@ -80,7 +80,7 @@ mod test {
         let arr = PrimitiveArray::from_option_iter([Option::<u8>::None, None, None, None, None]);
 
         let p = arr
-            .to_array()
+            .into_array()
             .fill_null(Scalar::from(255u8))
             .unwrap()
             .to_primitive();
@@ -95,7 +95,7 @@ mod test {
             Validity::Array(BoolArray::from_iter([true, true, true, true, true]).into_array()),
         );
         let p = arr
-            .to_array()
+            .into_array()
             .fill_null(Scalar::from(255u8))
             .unwrap()
             .to_primitive();

@@ -69,12 +69,14 @@ mod setup {
         let uint_array =
             PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(42u32..256)));
         let int_array = uint_array
-            .to_array()
+            .clone()
+            .into_array()
             .cast(PType::I32.into())
             .unwrap()
             .to_primitive();
         let float_array = uint_array
-            .to_array()
+            .clone()
+            .into_array()
             .cast(PType::F64.into())
             .unwrap()
             .to_primitive();
@@ -135,7 +137,7 @@ mod setup {
         let codes_prim = PrimitiveArray::from_iter(codes);
 
         // Compress codes with BitPacked (6 bits should be enough for ~50 unique values)
-        let codes_bp = BitPackedArray::encode(&codes_prim.to_array(), 6)
+        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), 6)
             .unwrap()
             .into_array();
 
@@ -180,7 +182,7 @@ mod setup {
 
         // Compress the values with BitPacked
         let values_prim = runend.values().to_primitive();
-        let compressed_values = BitPackedArray::encode(&values_prim.to_array(), 8)
+        let compressed_values = BitPackedArray::encode(&values_prim.into_array(), 8)
             .unwrap()
             .into_array();
 
@@ -244,7 +246,7 @@ mod setup {
         // Compress the VarBin offsets with BitPacked
         let codes = fsst.codes();
         let offsets_prim = codes.offsets().to_primitive();
-        let offsets_bp = BitPackedArray::encode(&offsets_prim.to_array(), 20).unwrap();
+        let offsets_bp = BitPackedArray::encode(&offsets_prim.into_array(), 20).unwrap();
 
         // Rebuild VarBin with compressed offsets
         let compressed_codes = VarBinArray::try_new(

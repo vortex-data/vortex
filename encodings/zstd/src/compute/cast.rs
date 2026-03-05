@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
@@ -25,7 +26,9 @@ impl CastReduce for ZstdVTable {
             // Same type case. This should be handled in the layer above but for
             // completeness of the match arms we also handle it here.
             (Nullability::Nullable, Nullability::Nullable)
-            | (Nullability::NonNullable, Nullability::NonNullable) => Ok(Some(array.to_array())),
+            | (Nullability::NonNullable, Nullability::NonNullable) => {
+                Ok(Some(array.clone().into_array()))
+            }
             (Nullability::NonNullable, Nullability::Nullable) => {
                 // nonnull => null, trivial cast by altering the validity
                 Ok(Some(
@@ -73,6 +76,7 @@ impl CastReduce for ZstdVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -92,7 +96,7 @@ mod tests {
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
 
         let casted = zstd
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -110,7 +114,7 @@ mod tests {
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
 
         let casted = zstd
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -182,6 +186,6 @@ mod tests {
     ))]
     fn test_cast_zstd_conformance(#[case] values: PrimitiveArray) {
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
-        test_cast_conformance(&zstd.to_array());
+        test_cast_conformance(&zstd.into_array());
     }
 }

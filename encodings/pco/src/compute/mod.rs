@@ -6,6 +6,7 @@ mod cast;
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
 
@@ -61,6 +62,6 @@ mod tests {
     #[case::single(pco_single())]
     #[case::large(pco_large())]
     fn test_pco_consistency(#[case] array: PcoArray) {
-        test_array_consistency(&array.to_array());
+        test_array_consistency(&array.into_array());
     }
 }

@@ -89,6 +89,7 @@ impl CastReduce for SequenceVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -107,7 +108,7 @@ mod tests {
 
         // Cast to nullable
         let casted = sequence
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -122,7 +123,7 @@ mod tests {
             SequenceArray::try_new_typed(100u32, 10u32, Nullability::NonNullable, 4).unwrap();
 
         let casted = sequence
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -142,7 +143,7 @@ mod tests {
             SequenceArray::try_new_typed(5i16, 3i16, Nullability::NonNullable, 3).unwrap();
 
         let casted = sequence
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I32, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -165,7 +166,7 @@ mod tests {
 
         // Cast to float should delegate to canonical (SequenceArray doesn't support float)
         let casted = sequence
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::F32, Nullability::NonNullable))
             .unwrap();
         // Should still succeed by decoding to canonical first
@@ -198,6 +199,6 @@ mod tests {
         5,
     ).unwrap())]
     fn test_cast_sequence_conformance(#[case] sequence: SequenceArray) {
-        test_cast_conformance(&sequence.to_array());
+        test_cast_conformance(&sequence.into_array());
     }
 }

@@ -11,6 +11,7 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::BinaryView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
@@ -121,7 +122,7 @@ impl ZipKernel for VarBinViewVTable {
             )
         };
 
-        Ok(Some(array.to_array()))
+        Ok(Some(array.into_array()))
     }
 }
 
@@ -246,7 +247,7 @@ mod tests {
         let zipped = mask
             .clone()
             .into_array()
-            .zip(a.to_array(), b.to_array())
+            .zip(a.into_array(), b.into_array())
             .unwrap()
             .to_varbinview();
 

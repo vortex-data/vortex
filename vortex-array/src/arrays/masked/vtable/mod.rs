@@ -256,7 +256,8 @@ mod tests {
 
         let ctx = ArrayContext::empty();
         let serialized = array
-            .to_array()
+            .clone()
+            .into_array()
             .serialize(&ctx, &SerializeOptions::default())
             .unwrap();
 

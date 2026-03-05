@@ -130,7 +130,7 @@ mod tests {
             Validity::from(BitBuffer::from(vec![true, false])),
         );
 
-        let taken = arr.take(indices.to_array()).unwrap();
+        let taken = arr.take(indices.into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(
@@ -159,6 +159,6 @@ mod tests {
     ))]
     #[case(VarBinViewArray::from_iter(["single"].map(Some), DType::Utf8(NonNullable)))]
     fn test_take_varbinview_conformance(#[case] array: VarBinViewArray) {
-        test_take_conformance(&array.to_array());
+        test_take_conformance(&array.into_array());
     }
 }

@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::builtins::ArrayBuiltins;
@@ -65,7 +66,7 @@ impl ZipKernel for ChunkedVTable {
 
         // SAFETY: chunks originate from zipping slices of inputs that share dtype/nullability.
         let chunked = unsafe { ChunkedArray::new_unchecked(out_chunks, dtype) };
-        Ok(Some(chunked.to_array()))
+        Ok(Some(chunked.into_array()))
     }
 }
 
@@ -112,7 +113,7 @@ mod tests {
 
         let zipped = &mask
             .into_array()
-            .zip(if_true.to_array(), if_false.to_array())
+            .zip(if_true.into_array(), if_false.into_array())
             .unwrap();
         // One step of execution will push down the zip.
         let zipped = zipped

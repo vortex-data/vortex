@@ -6,6 +6,7 @@ use std::hash::Hash;
 use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
+use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::NativeValue;
 use vortex_array::arrays::PrimitiveArray;
@@ -92,7 +93,8 @@ impl CompressorStats for FloatStats {
     }
 
     fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled = sample(&self.src.to_array(), sample_size, sample_count).to_primitive();
+        let sampled =
+            sample(&self.src.clone().into_array(), sample_size, sample_count).to_primitive();
 
         Self::generate_opts(&sampled, opts)
     }

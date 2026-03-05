@@ -22,6 +22,10 @@ pub fn vortex_zstd::ZstdArray::into_parts(self) -> vortex_zstd::ZstdArrayParts
 
 pub fn vortex_zstd::ZstdArray::new(dictionary: core::option::Option<vortex_buffer::ByteBuffer>, frames: alloc::vec::Vec<vortex_buffer::ByteBuffer>, dtype: vortex_array::dtype::DType, metadata: vortex_zstd::ZstdMetadata, n_rows: usize, validity: vortex_array::validity::Validity) -> Self
 
+impl vortex_zstd::ZstdArray
+
+pub fn vortex_zstd::ZstdArray::to_array(&self) -> vortex_array::array::ArrayRef
+
 impl core::clone::Clone for vortex_zstd::ZstdArray
 
 pub fn vortex_zstd::ZstdArray::clone(&self) -> vortex_zstd::ZstdArray

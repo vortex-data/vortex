@@ -250,7 +250,8 @@ mod test {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
-            let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
+            let array =
+                PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
@@ -288,7 +289,8 @@ mod test {
 
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
-            let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
+            let array =
+                PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
@@ -324,7 +326,8 @@ mod test {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
-            let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
+            let array =
+                PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).into_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,

@@ -155,6 +155,6 @@ mod tests {
         BoolArray::from_iter(vec![true, false, true, false, true]).into_array()
     ).unwrap())]
     fn test_cast_runend_conformance(#[case] array: RunEndArray) {
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 }

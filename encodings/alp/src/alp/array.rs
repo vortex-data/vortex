@@ -526,7 +526,11 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
         let expected =
@@ -551,7 +555,11 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
         let expected =
@@ -582,7 +590,11 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
         let expected =
@@ -611,7 +623,11 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
         let expected =
@@ -643,7 +659,11 @@ mod tests {
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
-            encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
+            encoded
+                .clone()
+                .into_array()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
         };
         // Compare against the traditional array-based decompress path
         let expected =

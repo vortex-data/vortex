@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::builtins::ArrayBuiltins;
@@ -38,7 +39,7 @@ impl CastReduce for FixedSizeListVTable {
                     array.len(),
                 )
             }
-            .to_array(),
+            .into_array(),
         ))
     }
 }

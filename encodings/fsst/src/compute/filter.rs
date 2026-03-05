@@ -41,6 +41,7 @@ impl FilterKernel for FSSTVTable {
 
 #[cfg(test)]
 mod test {
+    use vortex_array::IntoArray;
     use vortex_array::arrays::builder::VarBinBuilder;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::dtype::DType;
@@ -62,7 +63,7 @@ mod test {
 
         let compressor = fsst_train_compressor(&varbin);
         let array = fsst_compress(&varbin, &compressor);
-        test_filter_conformance(&array.to_array());
+        test_filter_conformance(&array.into_array());
 
         // Test with longer strings that benefit from compression
         let mut builder = VarBinBuilder::<i32>::with_capacity(5);
@@ -75,7 +76,7 @@ mod test {
 
         let compressor = fsst_train_compressor(&varbin);
         let array = fsst_compress(&varbin, &compressor);
-        test_filter_conformance(&array.to_array());
+        test_filter_conformance(&array.into_array());
 
         // Test with nullable strings
         let mut builder = VarBinBuilder::<i32>::with_capacity(5);
@@ -88,6 +89,6 @@ mod test {
 
         let compressor = fsst_train_compressor(&varbin);
         let array = fsst_compress(&varbin, &compressor);
-        test_filter_conformance(&array.to_array());
+        test_filter_conformance(&array.into_array());
     }
 }

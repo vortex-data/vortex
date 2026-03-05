@@ -92,7 +92,7 @@ mod test {
         let sparse = sparse.slice(30..40).unwrap();
         let taken = sparse.take(buffer![6, 7, 8].into_array()).unwrap();
         let expected = PrimitiveArray::from_option_iter([Option::<f64>::None, Some(0.47), None]);
-        assert_arrays_eq!(taken, expected.to_array());
+        assert_arrays_eq!(taken, expected.into_array());
     }
 
     #[test]
@@ -106,7 +106,7 @@ mod test {
             Some(1.23),
             Some(3.5),
         ]);
-        assert_arrays_eq!(taken, expected.to_array());
+        assert_arrays_eq!(taken, expected.into_array());
     }
 
     #[test]
@@ -124,7 +124,7 @@ mod test {
         let taken = sparse.take(buffer![69, 37].into_array()).unwrap();
         // Index 69 is not in sparse array (fill value is null), index 37 has value 0.47
         let expected = PrimitiveArray::from_option_iter([Option::<f64>::None, Some(0.47f64)]);
-        assert_arrays_eq!(taken, expected.to_array());
+        assert_arrays_eq!(taken, expected.into_array());
     }
 
     #[test]
@@ -140,12 +140,12 @@ mod test {
         let taken = arr
             .take(
                 PrimitiveArray::from_option_iter([Some(2u32), Some(1u32), Option::<u32>::None])
-                    .to_array(),
+                    .into_array(),
             )
             .unwrap();
 
         let expected = PrimitiveArray::from_option_iter([Some(1), Some(10), Option::<i32>::None]);
-        assert_arrays_eq!(taken, expected.to_array());
+        assert_arrays_eq!(taken, expected.into_array());
     }
 
     #[test]
@@ -161,12 +161,12 @@ mod test {
         let taken = arr
             .take(
                 PrimitiveArray::from_option_iter([Some(2u32), Some(1u32), Option::<u32>::None])
-                    .to_array(),
+                    .into_array(),
             )
             .unwrap();
 
         let expected = PrimitiveArray::from_option_iter([Some(1), Some(10), Option::<i32>::None]);
-        assert_arrays_eq!(taken, expected.to_array());
+        assert_arrays_eq!(taken, expected.into_array());
     }
 
     #[rstest]
@@ -199,6 +199,6 @@ mod test {
     ).unwrap())]
     fn test_take_sparse_conformance(#[case] sparse: SparseArray) {
         use vortex_array::compute::conformance::take::test_take_conformance;
-        test_take_conformance(&sparse.to_array());
+        test_take_conformance(&sparse.into_array());
     }
 }

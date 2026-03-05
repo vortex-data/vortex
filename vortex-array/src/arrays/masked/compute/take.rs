@@ -64,6 +64,6 @@ mod tests {
         ).unwrap()
     )]
     fn test_take_masked_conformance(#[case] array: MaskedArray) {
-        test_take_conformance(&array.to_array());
+        test_take_conformance(&array.into_array());
     }
 }

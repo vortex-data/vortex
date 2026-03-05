@@ -10,6 +10,10 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::into_parts(self) -> vor
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::try_new(msp: vortex_array::array::ArrayRef, decimal_dtype: vortex_array::dtype::decimal::DecimalDType) -> vortex_error::VortexResult<Self>
 
+impl vortex_decimal_byte_parts::DecimalBytePartsArray
+
+pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::to_array(&self) -> vortex_array::array::ArrayRef
+
 impl core::clone::Clone for vortex_decimal_byte_parts::DecimalBytePartsArray
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::clone(&self) -> vortex_decimal_byte_parts::DecimalBytePartsArray

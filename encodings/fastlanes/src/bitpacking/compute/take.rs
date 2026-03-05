@@ -135,7 +135,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
         unpatched_taken = unpatched_taken.reinterpret_cast(array.ptype());
     }
     if let Some(patches) = array.patches()
-        && let Some(patches) = patches.take(&indices.to_array(), ctx)?
+        && let Some(patches) = patches.take(&indices.clone().into_array(), ctx)?
     {
         let cast_patches = patches.cast_values(unpatched_taken.dtype())?;
         return unpatched_taken.patch(&cast_patches, ctx);
@@ -171,7 +171,7 @@ mod test {
 
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedArray::encode(&unpacked.to_array(), 6).unwrap();
+        let bitpacked = BitPackedArray::encode(&unpacked.into_array(), 6).unwrap();
 
         let primitive_result = bitpacked.take(indices.to_array()).unwrap();
         assert_arrays_eq!(
@@ -197,7 +197,7 @@ mod test {
 
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedArray::encode(&unpacked.to_array(), 6).unwrap();
+        let bitpacked = BitPackedArray::encode(&unpacked.into_array(), 6).unwrap();
         let sliced = bitpacked.slice(128..2050).unwrap();
 
         let primitive_result = sliced.take(indices.to_array()).unwrap();
@@ -210,14 +210,14 @@ mod test {
         let num_patches: usize = 128;
         let values = (0..u16::MAX as u32 + num_patches as u32).collect::<Buffer<_>>();
         let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
-        let packed = BitPackedArray::encode(&uncompressed.to_array(), 16).unwrap();
+        let packed = BitPackedArray::encode(&uncompressed.into_array(), 16).unwrap();
         assert!(packed.patches().is_some());
 
         let rng = rng();
         let range = Uniform::new(0, values.len()).unwrap();
         let random_indices =
             PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
-        let taken = packed.take(random_indices.to_array()).unwrap();
+        let taken = packed.take(random_indices.clone().into_array()).unwrap();
 
         // sanity check
         random_indices
@@ -258,7 +258,9 @@ mod test {
             BitPackedArray::encode(&buffer![1i32, 2i32, 3i32, 4i32].into_array(), 1).unwrap();
 
         let taken_primitive = start
-            .take(PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]).to_array())
+            .take(
+                PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]).into_array(),
+            )
             .unwrap();
         assert_arrays_eq!(
             taken_primitive,
@@ -268,17 +270,17 @@ mod test {
     }
 
     #[rstest]
-    #[case(BitPackedArray::encode(&PrimitiveArray::from_iter((0..100).map(|i| (i % 63) as u8)).to_array(), 6).unwrap())]
-    #[case(BitPackedArray::encode(&PrimitiveArray::from_iter((0..256).map(|i| i as u32)).to_array(), 8).unwrap())]
+    #[case(BitPackedArray::encode(&PrimitiveArray::from_iter((0..100).map(|i| (i % 63) as u8)).into_array(), 6).unwrap())]
+    #[case(BitPackedArray::encode(&PrimitiveArray::from_iter((0..256).map(|i| i as u32)).into_array(), 8).unwrap())]
     #[case(BitPackedArray::encode(&buffer![1i32, 2, 3, 4, 5, 6, 7, 8].into_array(), 3).unwrap())]
     #[case(BitPackedArray::encode(
-        &PrimitiveArray::from_option_iter([Some(10u16), None, Some(20), Some(30), None]).to_array(),
+        &PrimitiveArray::from_option_iter([Some(10u16), None, Some(20), Some(30), None]).into_array(),
         5
     ).unwrap())]
     #[case(BitPackedArray::encode(&buffer![42u32].into_array(), 6).unwrap())]
-    #[case(BitPackedArray::encode(&PrimitiveArray::from_iter((0..1024).map(|i| i as u32)).to_array(), 8).unwrap())]
+    #[case(BitPackedArray::encode(&PrimitiveArray::from_iter((0..1024).map(|i| i as u32)).into_array(), 8).unwrap())]
     fn test_take_bitpacked_conformance(#[case] bitpacked: BitPackedArray) {
         use vortex_array::compute::conformance::take::test_take_conformance;
-        test_take_conformance(&bitpacked.to_array());
+        test_take_conformance(&bitpacked.into_array());
     }
 }

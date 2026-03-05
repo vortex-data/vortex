@@ -3,9 +3,9 @@ images:
     platform: "linux"
     arch: "x64"
     name: "vortex-ci-*"
-    owner: "375504701696"
+    owner: "245040174862"
   vortex-ci-arm64:
     platform: "linux"
     arch: "arm64"
     name: "vortex-ci-*"
-    owner: "375504701696"
+    owner: "245040174862"
