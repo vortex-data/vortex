@@ -15,6 +15,8 @@ use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::builders::ArrayBuilder;
+use crate::builders::VarBinViewBuilder;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -51,7 +53,15 @@ pub(super) fn _canonicalize(
             ctx,
         )?),
         _ => {
-            let mut builder = builder_with_capacity(array.dtype(), array.len());
+            let mut builder: Box<dyn ArrayBuilder> = match array.dtype() {
+                DType::Utf8(_) | DType::Binary(_) => {
+                    Box::new(VarBinViewBuilder::with_buffer_deduplication(
+                        array.dtype().clone(),
+                        array.len(),
+                    ))
+                }
+                _ => builder_with_capacity(array.dtype(), array.len()),
+            };
             array.append_to_builder(builder.as_mut(), ctx)?;
             builder.finish_into_canonical()
         }
@@ -201,11 +211,45 @@ mod tests {
     use crate::arrays::ListArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
+    use crate::assert_arrays_eq;
     use crate::dtype::DType::List;
     use crate::dtype::DType::Primitive;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType::I32;
     use crate::validity::Validity;
+
+    /// Verifies that canonicalizing a ChunkedArray of VarBinView chunks that all share the same
+    /// backing buffers does not duplicate those buffers in the output.
+    #[test]
+    pub fn varbinview_chunks_share_buffers_after_canonicalize() {
+        // Build a source array with at least one outlined buffer.
+        let source = VarBinViewArray::from_iter_str([
+            "this string is definitely longer than twelve bytes",
+            "so is this one, and it goes into the same buffer",
+            "and this one too for good measure",
+        ]);
+        let nbuffers_source = source.nbuffers();
+        assert!(nbuffers_source > 0, "test requires outlined buffers");
+
+        // Slice into two chunks that reference the same backing buffer(s).
+        let chunk0 = source.slice(0..2).unwrap();
+        let chunk1 = source.slice(2..3).unwrap();
+
+        let chunked = ChunkedArray::try_new(vec![chunk0, chunk1], source.dtype().clone()).unwrap();
+
+        let canonical = chunked.to_varbinview();
+
+        // With deduplication the canonical array should not hold more buffers than the source.
+        assert!(
+            canonical.nbuffers() <= nbuffers_source,
+            "canonical has {} buffers, source had {}",
+            canonical.nbuffers(),
+            nbuffers_source,
+        );
+
+        // Data must be correct.
+        assert_arrays_eq!(canonical, source);
+    }
 
     #[test]
     pub fn pack_nested_structs() {

@@ -123,6 +123,10 @@ name = "varbinview_compact"
 harness = false
 
 [[bench]]
+name = "varbinview_chunked_canonicalize"
+harness = false
+
+[[bench]]
 name = "expr_large_struct_pack"
 path = "benches/expr/large_struct_pack.rs"
 harness = false

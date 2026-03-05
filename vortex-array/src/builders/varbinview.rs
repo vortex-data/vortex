@@ -287,56 +287,7 @@ impl ArrayBuilder for VarBinViewBuilder {
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &ArrayRef) {
         let array = array.to_varbinview();
-        self.flush_in_progress();
-
-        self.push_only_validity_mask(
-            array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
-        );
-
-        let view_adjustment =
-            self.completed
-                .extend_from_compaction(BuffersWithOffsets::from_array(
-                    &array,
-                    self.compaction_threshold,
-                ));
-
-        match view_adjustment {
-            ViewAdjustment::Precomputed(adjustment) => self.views_builder.extend_trusted(
-                array
-                    .views()
-                    .iter()
-                    .map(|view| adjustment.adjust_view(view)),
-            ),
-            ViewAdjustment::Rewriting(adjustment) => match array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked")
-            {
-                Mask::AllTrue(_) => {
-                    for (idx, &view) in array.views().iter().enumerate() {
-                        let new_view = self.push_view(view, &adjustment, &array, idx);
-                        self.views_builder.push(new_view);
-                    }
-                }
-                Mask::AllFalse(_) => {
-                    self.views_builder
-                        .push_n(BinaryView::empty_view(), array.len());
-                }
-                Mask::Values(v) => {
-                    for (idx, (&view, is_valid)) in
-                        array.views().iter().zip(v.bit_buffer().iter()).enumerate()
-                    {
-                        let new_view = if !is_valid {
-                            BinaryView::empty_view()
-                        } else {
-                            self.push_view(view, &adjustment, &array, idx)
-                        };
-                        self.views_builder.push(new_view);
-                    }
-                }
-            },
-        }
+        self.extend_from_varbinview(&array);
     }
 
     fn reserve_exact(&mut self, additional: usize) {
@@ -359,6 +310,60 @@ impl ArrayBuilder for VarBinViewBuilder {
 }
 
 impl VarBinViewBuilder {
+    /// Append all rows from an already-resolved [`VarBinViewArray`] into this builder.
+    ///
+    /// Unlike [`ArrayBuilder::extend_from_array`], this accepts a typed reference and avoids
+    /// the `execute::<Canonical>` round-trip, skipping K Arc clones per call when the source
+    /// array's buffers are already available.
+    pub fn extend_from_varbinview(&mut self, array: &VarBinViewArray) {
+        self.flush_in_progress();
+
+        let mask = array
+            .validity_mask()
+            .vortex_expect("validity_mask in extend_from_varbinview");
+        self.push_only_validity_mask(mask.clone());
+
+        let view_adjustment =
+            self.completed
+                .extend_from_compaction(BuffersWithOffsets::from_array(
+                    array,
+                    self.compaction_threshold,
+                ));
+
+        match view_adjustment {
+            ViewAdjustment::Precomputed(adjustment) => self.views_builder.extend_trusted(
+                array
+                    .views()
+                    .iter()
+                    .map(|view| adjustment.adjust_view(view)),
+            ),
+            ViewAdjustment::Rewriting(adjustment) => match mask {
+                Mask::AllTrue(_) => {
+                    for (idx, &view) in array.views().iter().enumerate() {
+                        let new_view = self.push_view(view, &adjustment, array, idx);
+                        self.views_builder.push(new_view);
+                    }
+                }
+                Mask::AllFalse(_) => {
+                    self.views_builder
+                        .push_n(BinaryView::empty_view(), array.len());
+                }
+                Mask::Values(v) => {
+                    for (idx, (&view, is_valid)) in
+                        array.views().iter().zip(v.bit_buffer().iter()).enumerate()
+                    {
+                        let new_view = if !is_valid {
+                            BinaryView::empty_view()
+                        } else {
+                            self.push_view(view, &adjustment, array, idx)
+                        };
+                        self.views_builder.push(new_view);
+                    }
+                }
+            },
+        }
+    }
+
     #[inline]
     fn push_view(
         &mut self,
