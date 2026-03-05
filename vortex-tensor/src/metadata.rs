@@ -4,7 +4,7 @@
 use std::fmt;
 
 use itertools::Either;
-use vortex_error::VortexExpect;
+use vortex::error::VortexExpect;
 
 /// Metadata for a `FixedShapeTensor` extension type.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

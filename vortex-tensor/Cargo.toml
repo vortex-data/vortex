@@ -17,6 +17,8 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+vortex = { workspace = true }
+
 itertools = { workspace = true }
-vortex-array = { workspace = true }
-vortex-error = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
