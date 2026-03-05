@@ -30,7 +30,6 @@ use std::sync::LazyLock;
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::Item;
 use syn::parse_macro_input;
 
 /// Cached result of nvcc availability check.
