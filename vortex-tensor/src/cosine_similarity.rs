@@ -8,7 +8,10 @@ use std::fmt::Formatter;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::dtype::DType;
+use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
+use vortex::error::vortex_ensure;
+use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::scalar_fn::Arity;
 use vortex::scalar_fn::ChildName;
@@ -45,7 +48,7 @@ impl ScalarFnVTable for CosineSimilarity {
         match child_idx {
             0 => ChildName::from("lhs"),
             1 => ChildName::from("rhs"),
-            _ => unreachable!("CosineSimilarity has exactly two children"),
+            _ => unreachable!("CosineSimilarity must have exactly two children"),
         }
     }
 
@@ -62,8 +65,49 @@ impl ScalarFnVTable for CosineSimilarity {
         write!(f, ")")
     }
 
-    fn return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
-        todo!("return_dtype")
+    fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
+        debug_assert_eq!(arg_dtypes.len(), 2);
+
+        let lhs = &arg_dtypes[0];
+        let rhs = &arg_dtypes[1];
+
+        // Both must have the same dtype (ignoring top-level nullability).
+        vortex_ensure!(
+            lhs.eq_ignore_nullability(rhs),
+            "cosine_similarity requires both inputs to have the same dtype, got {lhs} and {rhs}"
+        );
+
+        // We don't need to look at rhs anymore since we know lhs and rhs are equal.
+
+        // Both inputs must be extension types.
+        let lhs_ext = lhs.as_extension_opt().ok_or_else(|| {
+            vortex_err!("cosine_similarity lhs must be an extension type, got {lhs}")
+        })?;
+
+        // Extract the element dtype from the storage FixedSizeList.
+        let element_dtype = lhs_ext
+            .storage_dtype()
+            .as_fixed_size_list_element_opt()
+            .ok_or_else(|| {
+                vortex_err!(
+                    "cosine_similarity storage dtype must be a FixedSizeList, got {}",
+                    lhs_ext.storage_dtype()
+                )
+            })?;
+
+        // Element dtype must be a non-nullable float primitive.
+        vortex_ensure!(
+            element_dtype.is_float(),
+            "cosine_similarity element dtype must be a float primitive, got {element_dtype}"
+        );
+        vortex_ensure!(
+            !element_dtype.is_nullable(),
+            "cosine_similarity element dtype must be non-nullable"
+        );
+
+        let ptype = element_dtype.as_ptype();
+        let nullability = Nullability::from(lhs.is_nullable() || rhs.is_nullable());
+        Ok(DType::Primitive(ptype, nullability))
     }
 
     fn execute(
