@@ -232,7 +232,7 @@ mod tests {
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_zstd_buffers_decompression_primitive() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -251,7 +251,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_zstd_buffers_decompression_varbinview() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
