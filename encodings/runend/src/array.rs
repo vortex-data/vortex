@@ -39,7 +39,6 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::compress::runend_decode_bools;

@@ -6,8 +6,11 @@
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::CanonicalValidity;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
@@ -113,7 +116,10 @@ impl BtrBlocksCompressor {
     /// First canonicalizes and compacts the array, then applies optimal compression schemes.
     pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
         // Canonicalize the array
-        let canonical = array.to_canonical()?;
+        let canonical = array
+            .to_array()
+            .execute::<CanonicalValidity>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .0;
 
         // Compact it, removing any wasted space before we attempt to compress it
         let compact = canonical.compact()?;
