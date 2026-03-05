@@ -46,7 +46,7 @@ export default function Sidebar({
 
         <div className="sidebar-footer">
           <a
-            href="https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz"
+            href="https://vortex-ci-benchmark-results.s3.amazonaws.com/data.json.gz"
             className="download-btn"
             download
           >
