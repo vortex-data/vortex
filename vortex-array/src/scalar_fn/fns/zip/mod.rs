@@ -184,6 +184,14 @@ pub(crate) fn zip_impl(
         .dtype()
         .clone()
         .union_nullability(if_false.dtype().nullability());
+
+    if mask.all_true() {
+        return if_true.cast(return_type);
+    }
+    if mask.all_false() {
+        return if_false.cast(return_type);
+    }
+
     zip_impl_with_builder(
         if_true,
         if_false,
@@ -199,13 +207,8 @@ fn zip_impl_with_builder(
     mut builder: Box<dyn ArrayBuilder>,
 ) -> VortexResult<ArrayRef> {
     match mask.slices() {
-        AllOr::All => {
-            builder.extend_from_array(if_true);
-            Ok(builder.finish())
-        }
-        AllOr::None => {
-            builder.extend_from_array(if_false);
-            Ok(builder.finish())
+        AllOr::All | AllOr::None => {
+            unreachable!("zip_impl_with_builder called with all-true or all-false mask; handle in zip_impl")
         }
         AllOr::Some(slices) => {
             for (start, end) in slices {
