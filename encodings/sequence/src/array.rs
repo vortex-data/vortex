@@ -383,17 +383,7 @@ impl VTable for SequenceVTable {
     }
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let prim = match_each_native_ptype!(array.ptype(), |P| {
-            let base = array.base().cast::<P>()?;
-            let multiplier = array.multiplier().cast::<P>()?;
-            let values = BufferMut::from_iter(
-                (0..array.len())
-                    .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
-            );
-            PrimitiveArray::new(values, array.dtype.nullability().into())
-        });
-
-        Ok(prim.into_array())
+        crate::compress::sequence_decompress(array)
     }
 
     fn execute_parent(
