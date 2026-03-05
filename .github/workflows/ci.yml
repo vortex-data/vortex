@@ -50,8 +50,8 @@ jobs:
     name: "Python (lint)"
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m8i+m8i-flex+m8a
-      - cpu=8
+      - family=m8azn
+      - cpu=2
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=python-lint
@@ -84,8 +84,8 @@ jobs:
     name: "Python (test)"
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m8i+m8i-flex+m8a
-      - cpu=16
+      - family=m8azn
+      - cpu=12
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=python-test
@@ -175,8 +175,8 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m8i+m8i-flex+m8a
-      - cpu=8
+      - family=m8azn
+      - cpu=2
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-docs
@@ -199,8 +199,8 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m8i+m8i-flex+m8a
-      - cpu=8
+      - family=m8azn
+      - cpu=${{ matrix.config.cpu }}
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=${{ matrix.config.name }}
@@ -212,13 +212,17 @@ jobs:
       matrix:
         config:
           - name: "all-features"
+            cpu: 4
             args: "--all-features --all-targets"
           - name: "default features"
+            cpu: 4
             args: "--all-targets"
           - name: "with tokio dispatcher"
+            cpu: 2
             # Only build the crates that have the tokio features, not re-building other crates with no-default-features
             args: "--no-default-features --features tokio --all-targets -p vortex -p vortex-io -p vortex-file -p vortex-layout"
           - name: "wasm32 with default features"
+            cpu: 4
             target: wasm32-unknown-unknown
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"wasm_js\"'"
@@ -249,8 +253,8 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m8i+m8i-flex+m8a
-      - cpu=8
+      - family=m8azn
+      - cpu=1
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-min-deps
@@ -271,8 +275,8 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m8i+m8i-flex+m8a
-      - cpu=16
+      - family=m8azn
+      - cpu=12
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-lint
@@ -316,8 +320,8 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m8i+m8i-flex+m8a
-      - cpu=16
+      - family=m8azn
+      - cpu=4
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-lint-no-default
@@ -342,8 +346,8 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m8i+m8i-flex+m8a
-      - cpu=8
+      - family=m8azn
+      - cpu=1
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=public-api
@@ -383,10 +387,10 @@ jobs:
       matrix:
         include:
           - suite: tests
-            cpu: 32
+            cpu: 24
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m8i+m8i-flex+m8a
+      - family=m8azn
       - cpu=${{ matrix.cpu }}
       - image=ubuntu24-full-x64
       - extras=s3-cache
@@ -443,8 +447,8 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m8i+m8i-flex+m8a
-      - cpu=16
+      - family=m8azn
+      - cpu=12
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-test-sanitizer
@@ -745,8 +749,8 @@ jobs:
     name: "Java"
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m8i+m8i-flex+m8a
-      - cpu=16
+      - family=m8azn
+      - cpu=4
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=java
@@ -833,8 +837,8 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m8i+m8i-flex+m8a
-      - cpu=8
+      - family=m8azn
+      - cpu=1
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=cxx-build
@@ -863,8 +867,8 @@ jobs:
     name: "SQL logic tests"
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m8i+m8i-flex+m8a
-      - cpu=8
+      - family=m8azn
+      - cpu=1
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=sql-logic-test
@@ -987,8 +991,8 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m8i+m8i-flex+m8a
-      - cpu=8
+      - family=m8azn
+      - cpu=1
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-publish-dry-run
