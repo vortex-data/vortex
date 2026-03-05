@@ -70,7 +70,7 @@ mod tests {
     use crate::zstd;
 
     /// Test that we can call nvcompBatchedZstdDecompressGetTempSizeAsync.
-    #[crate::test]
+    #[vortex_cuda_macros::test]
     fn test_get_decompress_temp_size() {
         let num_chunks = 10;
         let max_uncompressed_chunk_bytes = 65536; // 64KB recommended chunk size
