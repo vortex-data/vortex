@@ -7,11 +7,9 @@ use num_traits::cast::FromPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -36,7 +34,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
-use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -45,6 +42,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::compress::sequence_decompress;
 use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
@@ -383,17 +381,7 @@ impl VTable for SequenceVTable {
     }
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let prim = match_each_native_ptype!(array.ptype(), |P| {
-            let base = array.base().cast::<P>()?;
-            let multiplier = array.multiplier().cast::<P>()?;
-            let values = BufferMut::from_iter(
-                (0..array.len())
-                    .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
-            );
-            PrimitiveArray::new(values, array.dtype.nullability().into())
-        });
-
-        Ok(prim.into_array())
+        sequence_decompress(array)
     }
 
     fn execute_parent(
