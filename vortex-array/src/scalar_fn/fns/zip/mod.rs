@@ -208,7 +208,9 @@ fn zip_impl_with_builder(
 ) -> VortexResult<ArrayRef> {
     match mask.slices() {
         AllOr::All | AllOr::None => {
-            unreachable!("zip_impl_with_builder called with all-true or all-false mask; handle in zip_impl")
+            unreachable!(
+                "zip_impl_with_builder called with all-true or all-false mask; handle in zip_impl"
+            )
         }
         AllOr::Some(slices) => {
             for (start, end) in slices {
@@ -231,6 +233,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
+    use super::zip_impl;
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -295,13 +298,9 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), Some(40)]).into_array();
 
         assert_arrays_eq!(result, expected);
-
-        // result must be nullable even if_true was not
         assert_eq!(result.dtype(), if_false.dtype())
     }
 
-    /// When the mask is all-false and `if_true` is Nullable, the result dtype must be Nullable
-    /// even though `if_false` is NonNullable.
     #[test]
     fn test_zip_all_false_widens_nullability() {
         let mask = Mask::new_false(4);
@@ -314,8 +313,40 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), Some(4)]).into_array();
 
         assert_arrays_eq!(result, expected);
-        // result must be nullable even though if_false was not
         assert_eq!(result.dtype(), if_true.dtype());
+    }
+
+    #[test]
+    fn test_zip_impl_all_true_widens_nullability() -> VortexResult<()> {
+        let mask = Mask::new_true(4);
+        let if_true = buffer![10i32, 20, 30, 40].into_array();
+        let if_false =
+            PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), None]).into_array();
+
+        let result = zip_impl(&if_true, &if_false, &mask)?;
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30), Some(40)])
+                .into_array()
+        );
+        assert_eq!(result.dtype(), if_false.dtype());
+        Ok(())
+    }
+
+    #[test]
+    fn test_zip_impl_all_false_widens_nullability() -> VortexResult<()> {
+        let mask = Mask::new_false(4);
+        let if_true =
+            PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), None]).into_array();
+        let if_false = buffer![1i32, 2, 3, 4].into_array();
+
+        let result = zip_impl(&if_true, &if_false, &mask)?;
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)]).into_array()
+        );
+        assert_eq!(result.dtype(), if_true.dtype());
+        Ok(())
     }
 
     #[test]
@@ -361,7 +392,6 @@ mod tests {
           buffer: views host 1.60 kB (align=16) (96.56%)
         ");
 
-        // test wrapped in a struct
         let wrapped1 = StructArray::try_from_iter([("nested", const1)])?.into_array();
         let wrapped2 = StructArray::try_from_iter([("nested", const2)])?.into_array();
 
@@ -405,7 +435,6 @@ mod tests {
             builder.finish()
         };
 
-        // [1,2,4,5,7,8,..]
         let mask = Mask::from_indices(200, (0..100).filter(|i| i % 3 != 0).collect());
         let mask_array = mask.clone().into_array();
 
@@ -416,7 +445,6 @@ mod tests {
             .unwrap();
         assert_eq!(zipped.nbuffers(), 2);
 
-        // assert the result is the same as arrow
         let expected = arrow_zip(
             mask.into_array()
                 .into_arrow_preferred()
