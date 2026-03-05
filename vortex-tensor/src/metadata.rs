@@ -193,33 +193,45 @@ impl FixedShapeTensorMetadata {
 
 impl fmt::Display for FixedShapeTensorMetadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Tensor(")?;
+
         match &self.dim_names {
             Some(names) => {
-                write!(f, "Tensor(")?;
                 for (i, (dim, name)) in self.logical_shape.iter().zip(names.iter()).enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
                     write!(f, "{name}: {dim}")?;
                 }
-                write!(f, ")")
             }
             None => {
-                write!(f, "Tensor(")?;
                 for (i, dim) in self.logical_shape.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
                     write!(f, "{dim}")?;
                 }
-                write!(f, ")")
             }
         }
+
+        if let Some(perm) = &self.permutation {
+            for (i, p) in perm.iter().enumerate() {
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{p}")?;
+            }
+            write!(f, "]")?;
+        }
+
+        write!(f, ")")
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
     /// Reference implementation that computes permuted strides in an explicit, step-by-step way.
@@ -246,60 +258,40 @@ mod tests {
         (0..ndim).map(|l| physical_strides[perm[l]]).collect()
     }
 
-    #[test]
-    fn strides_1d() {
-        let m = FixedShapeTensorMetadata::new(vec![5]);
-        assert_eq!(m.strides().collect::<Vec<_>>(), vec![1]);
+    // -- Row-major strides (no permutation) --
+
+    #[rstest]
+    #[case::scalar_0d(vec![],        vec![])]
+    #[case::vector_1d(vec![5],       vec![1])]
+    #[case::matrix_2d(vec![3, 4],    vec![4, 1])]
+    #[case::tensor_3d(vec![2, 3, 4], vec![12, 4, 1])]
+    #[case::zero_dim( vec![3, 0, 4], vec![0, 4, 1])]
+    fn strides_row_major(#[case] shape: Vec<usize>, #[case] expected: Vec<usize>) {
+        let m = FixedShapeTensorMetadata::new(shape);
+        assert_eq!(m.strides().collect::<Vec<_>>(), expected);
     }
 
-    #[test]
-    fn strides_2d_row_major() {
-        let m = FixedShapeTensorMetadata::new(vec![3, 4]);
-        assert_eq!(m.strides().collect::<Vec<_>>(), vec![4, 1]);
-    }
+    // -- Permuted strides --
+    //
+    // Each case is checked against the expected value and cross-validated against the
+    // `slow_strides` reference implementation.
 
-    #[test]
-    fn strides_3d_row_major() {
-        let m = FixedShapeTensorMetadata::new(vec![2, 3, 4]);
-        assert_eq!(m.strides().collect::<Vec<_>>(), vec![12, 4, 1]);
-    }
-
-    #[test]
-    fn strides_2d_transposed() -> VortexResult<()> {
-        // Logical shape [3, 4] with perm [1, 0] (transpose).
-        // Physical shape = [4, 3], so logical strides = [1, 3].
-        let m = FixedShapeTensorMetadata::new(vec![3, 4]).with_permutation(vec![1, 0])?;
-        assert_eq!(m.strides().collect::<Vec<_>>(), vec![1, 3]);
-        Ok(())
-    }
-
-    #[test]
-    fn strides_3d_permuted() -> VortexResult<()> {
-        // Logical shape [2, 3, 4] with perm [2, 0, 1].
-        // Physical shape = [3, 4, 2], so logical strides = [1, 8, 2].
-        let m = FixedShapeTensorMetadata::new(vec![2, 3, 4]).with_permutation(vec![2, 0, 1])?;
-        assert_eq!(m.strides().collect::<Vec<_>>(), vec![1, 8, 2]);
-        Ok(())
-    }
-
-    #[test]
-    fn strides_0d_scalar() {
-        let m = FixedShapeTensorMetadata::new(vec![]);
-        assert_eq!(m.strides().collect::<Vec<_>>(), Vec::<usize>::new());
-    }
-
-    #[test]
-    fn strides_zero_size_dimension() {
-        let m = FixedShapeTensorMetadata::new(vec![3, 0, 4]);
-        assert_eq!(m.strides().collect::<Vec<_>>(), vec![0, 4, 1]);
-    }
-
-    #[test]
-    fn strides_zero_size_dimension_permuted() -> VortexResult<()> {
-        // Logical shape [3, 0, 4] with perm [1, 2, 0].
-        // Physical shape = [4, 3, 0], so logical strides = [0, 1, 0].
-        let m = FixedShapeTensorMetadata::new(vec![3, 0, 4]).with_permutation(vec![1, 2, 0])?;
-        assert_eq!(m.strides().collect::<Vec<_>>(), vec![0, 1, 0]);
+    #[rstest]
+    // 2D transpose: physical shape = [4, 3].
+    #[case::transpose_2d(vec![3, 4],    vec![1, 0],    vec![1, 3])]
+    // 3D: physical shape = [3, 4, 2].
+    #[case::perm_3d_201( vec![2, 3, 4], vec![2, 0, 1], vec![1, 8, 2])]
+    // 3D with zero-sized dimension: physical shape = [4, 3, 0].
+    #[case::zero_dim(    vec![3, 0, 4], vec![1, 2, 0], vec![0, 1, 0])]
+    fn strides_permuted(
+        #[case] shape: Vec<usize>,
+        #[case] perm: Vec<usize>,
+        #[case] expected: Vec<usize>,
+    ) -> VortexResult<()> {
+        let m = FixedShapeTensorMetadata::new(shape.clone()).with_permutation(perm.clone())?;
+        let actual: Vec<usize> = m.strides().collect();
+        assert_eq!(actual, expected);
+        assert_eq!(actual, slow_strides(&shape, &perm));
         Ok(())
     }
 
@@ -315,79 +307,49 @@ mod tests {
         Ok(())
     }
 
+    /// Cross-validates the fast `permuted_stride` against the reference `slow_strides` across a
+    /// broader set of shapes and permutations.
+    #[rstest]
+    #[case::perm_3d_120(vec![2, 3, 4],    vec![1, 2, 0])]
+    #[case::perm_3d_021(vec![2, 3, 4],    vec![0, 2, 1])]
+    #[case::identity_3d(vec![2, 3, 4],    vec![0, 1, 2])]
+    #[case::zero_lead(  vec![0, 3, 4],    vec![2, 0, 1])]
+    #[case::rev_4d(     vec![2, 3, 4, 5], vec![3, 2, 1, 0])]
+    #[case::swap_4d(    vec![2, 3, 4, 5], vec![1, 0, 3, 2])]
+    #[case::half_4d(    vec![2, 3, 4, 5], vec![2, 3, 0, 1])]
+    fn strides_match_slow_reference(
+        #[case] shape: Vec<usize>,
+        #[case] perm: Vec<usize>,
+    ) -> VortexResult<()> {
+        let m = FixedShapeTensorMetadata::new(shape.clone()).with_permutation(perm.clone())?;
+        assert_eq!(m.strides().collect::<Vec<_>>(), slow_strides(&shape, &perm));
+        Ok(())
+    }
+
+    // -- Physical shape --
+
     #[test]
     fn physical_shape_no_permutation() {
         let m = FixedShapeTensorMetadata::new(vec![2, 3, 4]);
         assert_eq!(m.physical_shape().collect::<Vec<_>>(), vec![2, 3, 4]);
     }
 
-    #[test]
-    fn physical_shape_2d_transposed() -> VortexResult<()> {
-        // Logical [3, 4] with perm [1, 0]: physical dim 0 gets logical dim 1's size (4),
-        // physical dim 1 gets logical dim 0's size (3).
-        let m = FixedShapeTensorMetadata::new(vec![3, 4]).with_permutation(vec![1, 0])?;
-        assert_eq!(m.physical_shape().collect::<Vec<_>>(), vec![4, 3]);
-        Ok(())
-    }
-
-    #[test]
-    fn physical_shape_3d_permuted() -> VortexResult<()> {
-        // Logical [2, 3, 4] with perm [2, 0, 1]: logical 0 -> phys 2, logical 1 -> phys 0,
-        // logical 2 -> phys 1. So physical shape = [3, 4, 2].
-        let m = FixedShapeTensorMetadata::new(vec![2, 3, 4]).with_permutation(vec![2, 0, 1])?;
-        assert_eq!(m.physical_shape().collect::<Vec<_>>(), vec![3, 4, 2]);
-        Ok(())
-    }
-
-    #[test]
-    fn physical_shape_identity_permutation() -> VortexResult<()> {
-        let no_perm = FixedShapeTensorMetadata::new(vec![2, 3, 4]);
-        let identity =
-            FixedShapeTensorMetadata::new(vec![2, 3, 4]).with_permutation(vec![0, 1, 2])?;
-        assert_eq!(
-            no_perm.physical_shape().collect::<Vec<_>>(),
-            identity.physical_shape().collect::<Vec<_>>(),
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn physical_shape_zero_size_dimension() -> VortexResult<()> {
-        // Logical [3, 0, 4] with perm [1, 2, 0]: physical shape = [4, 3, 0].
-        let m = FixedShapeTensorMetadata::new(vec![3, 0, 4]).with_permutation(vec![1, 2, 0])?;
-        assert_eq!(m.physical_shape().collect::<Vec<_>>(), vec![4, 3, 0]);
-        Ok(())
-    }
-
-    /// Verifies that the fast `permuted_stride` matches the explicit reference `slow_strides`
-    /// across a variety of shapes and permutations.
-    #[test]
-    fn fast_strides_match_slow_reference() -> VortexResult<()> {
-        let cases: Vec<(Vec<usize>, Vec<usize>)> = vec![
-            // 2D transpose.
-            (vec![3, 4], vec![1, 0]),
-            // 3D permutations.
-            (vec![2, 3, 4], vec![2, 0, 1]),
-            (vec![2, 3, 4], vec![1, 2, 0]),
-            (vec![2, 3, 4], vec![0, 2, 1]),
-            // 3D identity.
-            (vec![2, 3, 4], vec![0, 1, 2]),
-            // 3D with a zero-sized dimension.
-            (vec![3, 0, 4], vec![1, 2, 0]),
-            (vec![0, 3, 4], vec![2, 0, 1]),
-            // 4D permutations.
-            (vec![2, 3, 4, 5], vec![3, 2, 1, 0]),
-            (vec![2, 3, 4, 5], vec![1, 0, 3, 2]),
-            (vec![2, 3, 4, 5], vec![2, 3, 0, 1]),
-        ];
-
-        for (shape, perm) in &cases {
-            let m = FixedShapeTensorMetadata::new(shape.clone()).with_permutation(perm.clone())?;
-            let fast: Vec<usize> = m.strides().collect();
-            let slow = slow_strides(shape, perm);
-            assert_eq!(fast, slow, "mismatch for shape={shape:?}, perm={perm:?}");
-        }
-
+    #[rstest]
+    // Logical [3, 4] with perm [1, 0] → physical [4, 3].
+    #[case::transpose_2d(vec![3, 4],    vec![1, 0],    vec![4, 3])]
+    // Logical [2, 3, 4] with perm [2, 0, 1] → physical [3, 4, 2].
+    #[case::perm_3d(     vec![2, 3, 4], vec![2, 0, 1], vec![3, 4, 2])]
+    // Identity: physical = logical.
+    #[case::identity(    vec![2, 3, 4], vec![0, 1, 2], vec![2, 3, 4])]
+    // Logical [3, 0, 4] with perm [1, 2, 0] → physical [4, 3, 0].
+    #[case::zero_dim(    vec![3, 0, 4], vec![1, 2, 0], vec![4, 3, 0])]
+    fn physical_shape_permuted(
+        #[case] shape: Vec<usize>,
+        #[case] perm: Vec<usize>,
+        #[case] expected: Vec<usize>,
+    ) -> VortexResult<()> {
+        let m = FixedShapeTensorMetadata::new(shape).with_permutation(perm)?;
+        assert_eq!(m.physical_shape().collect::<Vec<_>>(), expected);
         Ok(())
     }
 

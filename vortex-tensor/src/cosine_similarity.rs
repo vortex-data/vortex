@@ -335,66 +335,43 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn opposite_vectors() -> VortexResult<()> {
-        let lhs = tensor_array(&[3], &[1.0, 0.0, 0.0])?;
-        let rhs = tensor_array(&[3], &[-1.0, 0.0, 0.0])?;
+    use rstest::rstest;
 
-        // Antiparallel → -1.0.
-        assert_close(&eval_cosine_similarity(lhs, rhs, 1)?, &[-1.0]);
+    /// Single-row cosine similarity for various vector pairs.
+    #[rstest]
+    // Antiparallel → -1.0.
+    #[case::opposite(&[3], &[1.0, 0.0, 0.0],  &[-1.0, 0.0, 0.0], &[-1.0])]
+    // dot=24, both magnitudes=5 → 24/25 = 0.96.
+    #[case::non_unit(&[2], &[3.0, 4.0],        &[4.0, 3.0],       &[0.96])]
+    // Zero vector → 0/0 → NaN.
+    #[case::zero_norm(&[2], &[0.0, 0.0],       &[1.0, 0.0],       &[f64::NAN])]
+    fn single_row(
+        #[case] shape: &[usize],
+        #[case] lhs_elems: &[f64],
+        #[case] rhs_elems: &[f64],
+        #[case] expected: &[f64],
+    ) -> VortexResult<()> {
+        let lhs = tensor_array(shape, lhs_elems)?;
+        let rhs = tensor_array(shape, rhs_elems)?;
+        assert_close(&eval_cosine_similarity(lhs, rhs, 1)?, expected);
         Ok(())
     }
 
-    #[test]
-    fn non_unit_vectors() -> VortexResult<()> {
-        let lhs = tensor_array(&[2], &[3.0, 4.0])?;
-        let rhs = tensor_array(&[2], &[4.0, 3.0])?;
-
-        // dot=24, both magnitudes=5 → 24/25 = 0.96.
-        assert_close(&eval_cosine_similarity(lhs, rhs, 1)?, &[0.96]);
-        Ok(())
-    }
-
-    #[test]
-    fn zero_norm_produces_nan() -> VortexResult<()> {
-        let lhs = tensor_array(&[2], &[0.0, 0.0])?;
-        let rhs = tensor_array(&[2], &[1.0, 0.0])?;
-
-        // Zero vector → 0/0 → NaN.
-        assert_close(&eval_cosine_similarity(lhs, rhs, 1)?, &[f64::NAN]);
-        Ok(())
-    }
-
-    #[test]
-    fn matrix_2d() -> VortexResult<()> {
-        // Each tensor is a 2x3 matrix, flattened to 6 elements.
-        let lhs = tensor_array(
-            &[2, 3],
-            &[
-                1.0, 0.0, 0.0, // Row 1
-                0.0, 0.0, 0.0, // Row 2
-            ],
-        )?;
-        let rhs = tensor_array(
-            &[2, 3],
-            &[
-                1.0, 0.0, 0.0, // Row 1
-                0.0, 0.0, 0.0, // Row 2
-            ],
-        )?;
-
-        // Identical flat buffers → 1.0.
-        assert_close(&eval_cosine_similarity(lhs, rhs, 1)?, &[1.0]);
-        Ok(())
-    }
-
-    #[test]
-    fn tensor_3d() -> VortexResult<()> {
-        // shape: [2, 2, 2] — 8 elements per tensor, all ones.
-        let lhs = tensor_array(&[2, 2, 2], &[1.0; 8])?;
-        let rhs = tensor_array(&[2, 2, 2], &[1.0; 8])?;
-
-        // Identical → 1.0.
+    /// Self-similarity across various tensor shapes should always produce 1.0.
+    #[rstest]
+    // 2x3 matrix, flattened to 6 elements.
+    #[case::matrix_2d(
+        &[2, 3],
+        &[
+            1.0, 0.0, 0.0, // row 0
+            0.0, 0.0, 0.0, // row 1
+        ],
+    )]
+    // 2x2x2 tensor, 8 elements.
+    #[case::tensor_3d(&[2, 2, 2], &[1.0; 8])]
+    fn self_similarity(#[case] shape: &[usize], #[case] elements: &[f64]) -> VortexResult<()> {
+        let lhs = tensor_array(shape, elements)?;
+        let rhs = tensor_array(shape, elements)?;
         assert_close(&eval_cosine_similarity(lhs, rhs, 1)?, &[1.0]);
         Ok(())
     }
