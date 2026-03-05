@@ -301,7 +301,6 @@ mod tests {
     use super::*;
     use crate::Canonical;
     use crate::IntoArray;
-    use crate::ToCanonical;
     use crate::VortexSessionExecute as _;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
@@ -639,8 +638,8 @@ mod tests {
             lit(0i32),
         );
 
-        let result = evaluate_expr(&expr, &test_array).to_primitive();
-        assert_eq!(result.as_slice::<i32>(), &[0, 0, 100, 100, 100]);
+        let result = evaluate_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![0i32, 0, 100, 100, 100].into_array());
     }
 
     #[test]
@@ -659,8 +658,8 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = evaluate_expr(&expr, &test_array).to_primitive();
-        assert_eq!(result.as_slice::<i32>(), &[10, 0, 30, 0, 0]);
+        let result = evaluate_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![10i32, 0, 30, 0, 0].into_array());
     }
 
     #[test]
@@ -679,8 +678,8 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = evaluate_expr(&expr, &test_array).to_primitive();
-        assert_eq!(result.as_slice::<i32>(), &[0, 0, 100, 100, 100]);
+        let result = evaluate_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![0i32, 0, 100, 100, 100].into_array());
     }
 
     #[test]
@@ -694,26 +693,10 @@ mod tests {
 
         let result = evaluate_expr(&expr, &test_array);
         assert!(result.dtype().is_nullable());
-
-        assert_eq!(
-            result.scalar_at(0).unwrap(),
-            Scalar::null(result.dtype().clone())
-        );
-        assert_eq!(
-            result.scalar_at(1).unwrap(),
-            Scalar::null(result.dtype().clone())
-        );
-        assert_eq!(
-            result.scalar_at(2).unwrap(),
-            Scalar::null(result.dtype().clone())
-        );
-        assert_eq!(
-            result.scalar_at(3).unwrap(),
-            Scalar::from(100i32).cast(result.dtype()).unwrap()
-        );
-        assert_eq!(
-            result.scalar_at(4).unwrap(),
-            Scalar::from(100i32).cast(result.dtype()).unwrap()
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([None::<i32>, None, None, Some(100), Some(100)])
+                .into_array()
         );
     }
 
@@ -730,8 +713,8 @@ mod tests {
             lit(0i32),
         );
 
-        let result = evaluate_expr(&expr, &test_array).to_primitive();
-        assert_eq!(result.as_slice::<i32>(), &[0, 0, 0, 0, 0]);
+        let result = evaluate_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![0i32, 0, 0, 0, 0].into_array());
     }
 
     #[test]
@@ -747,8 +730,8 @@ mod tests {
             lit(0i32),
         );
 
-        let result = evaluate_expr(&expr, &test_array).to_primitive();
-        assert_eq!(result.as_slice::<i32>(), &[100, 100, 100, 100, 100]);
+        let result = evaluate_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![100i32, 100, 100, 100, 100].into_array());
     }
 
     #[test]
@@ -767,9 +750,9 @@ mod tests {
             "result dtype must be Nullable, got {:?}",
             result.dtype()
         );
-        assert_eq!(
-            result.scalar_at(0).unwrap(),
-            Scalar::from(100i32).cast(result.dtype()).unwrap()
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(100i32), Some(100), Some(100)]).into_array()
         );
     }
 
@@ -816,12 +799,7 @@ mod tests {
         let expr = case_when(lit(true), lit(100i32), lit(0i32));
         let result = evaluate_expr(&expr, &test_array);
 
-        if let Some(constant) = result.as_constant() {
-            assert_eq!(constant, Scalar::from(100i32));
-        } else {
-            let prim = result.to_primitive();
-            assert_eq!(prim.as_slice::<i32>(), &[100, 100, 100]);
-        }
+        assert_arrays_eq!(result, buffer![100i32, 100, 100].into_array());
     }
 
     #[test]
@@ -837,10 +815,11 @@ mod tests {
             lit(false),
         );
 
-        let result = evaluate_expr(&expr, &test_array).to_bool();
-        assert_eq!(
-            result.to_bit_buffer().iter().collect::<Vec<_>>(),
-            vec![false, false, true, true, true]
+        let result = evaluate_expr(&expr, &test_array);
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([Some(false), Some(false), Some(true), Some(true), Some(true)])
+                .into_array()
         );
     }
 
@@ -855,8 +834,8 @@ mod tests {
 
         let expr = case_when(get_item("cond", root()), lit(100i32), lit(0i32));
 
-        let result = evaluate_expr(&expr, &test_array).to_primitive();
-        assert_eq!(result.as_slice::<i32>(), &[100, 0, 0, 0, 100]);
+        let result = evaluate_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![100i32, 0, 0, 0, 100].into_array());
     }
 
     #[test]
@@ -879,8 +858,11 @@ mod tests {
         );
 
         let result = evaluate_expr(&expr, &test_array);
-        let prim = result.to_primitive();
-        assert_eq!(prim.as_slice::<i32>(), &[0, 0, 30, 40, 50]);
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(0i32), Some(0), Some(30), Some(40), Some(50)])
+                .into_array()
+        );
     }
 
     #[test]
@@ -894,8 +876,8 @@ mod tests {
 
         let expr = case_when(get_item("cond", root()), lit(100i32), lit(0i32));
 
-        let result = evaluate_expr(&expr, &test_array).to_primitive();
-        assert_eq!(result.as_slice::<i32>(), &[0, 0, 0]);
+        let result = evaluate_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![0i32, 0, 0].into_array());
     }
 
     // ==================== N-ary Evaluate Tests ====================
@@ -918,26 +900,10 @@ mod tests {
 
         let result = evaluate_expr(&expr, &test_array);
         assert!(result.dtype().is_nullable());
-
-        assert_eq!(
-            result.scalar_at(0).unwrap(),
-            Scalar::from(10i32).cast(result.dtype()).unwrap()
-        );
-        assert_eq!(
-            result.scalar_at(1).unwrap(),
-            Scalar::null(result.dtype().clone())
-        );
-        assert_eq!(
-            result.scalar_at(2).unwrap(),
-            Scalar::from(30i32).cast(result.dtype()).unwrap()
-        );
-        assert_eq!(
-            result.scalar_at(3).unwrap(),
-            Scalar::null(result.dtype().clone())
-        );
-        assert_eq!(
-            result.scalar_at(4).unwrap(),
-            Scalar::null(result.dtype().clone())
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), None, None])
+                .into_array()
         );
     }
 
@@ -960,8 +926,8 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = evaluate_expr(&expr, &test_array).to_primitive();
-        assert_eq!(result.as_slice::<i32>(), &[10, 20, 30, 40, 50]);
+        let result = evaluate_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![10i32, 20, 30, 40, 50].into_array());
     }
 
     #[test]
@@ -981,12 +947,10 @@ mod tests {
 
         let result = evaluate_expr(&expr, &test_array);
         assert!(result.dtype().is_nullable());
-        for i in 0..3 {
-            assert_eq!(
-                result.scalar_at(i).unwrap(),
-                Scalar::null(result.dtype().clone())
-            );
-        }
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([None::<i32>, None, None]).into_array()
+        );
     }
 
     #[test]
@@ -1008,9 +972,9 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = evaluate_expr(&expr, &test_array).to_primitive();
+        let result = evaluate_expr(&expr, &test_array);
         // First matching condition always wins
-        assert_eq!(result.as_slice::<i32>(), &[1, 1, 1]);
+        assert_arrays_eq!(result, buffer![1i32, 1, 1].into_array());
     }
 
     #[test]
@@ -1030,8 +994,8 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = evaluate_expr(&expr, &test_array).to_primitive();
-        assert_eq!(result.as_slice::<i32>(), &[100, 100, 100]);
+        let result = evaluate_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![100i32, 100, 100].into_array());
     }
 
     #[test]
@@ -1053,8 +1017,8 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = evaluate_expr(&expr, &test_array).to_primitive();
-        assert_eq!(result.as_slice::<i32>(), &[10, 20, 0]);
+        let result = evaluate_expr(&expr, &test_array);
+        assert_arrays_eq!(result, buffer![10i32, 20, 0].into_array());
     }
 
     #[test]
@@ -1119,10 +1083,10 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = evaluate_expr(&expr, &test_array).to_primitive();
+        let result = evaluate_expr(&expr, &test_array);
         // row 0: cond1=true → 10
         // row 1: cond1=NULL(→false), cond2=true → 20
         // row 2: cond1=false, cond2=NULL(→false) → else=0
-        assert_eq!(result.as_slice::<i32>(), &[10, 20, 0]);
+        assert_arrays_eq!(result, buffer![10i32, 20, 0].into_array());
     }
 }
