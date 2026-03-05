@@ -319,7 +319,7 @@ mod test {
             Some(u64::MAX),
         ];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let packed = BitPackedArray::encode(&uncompressed.to_array(), 1).unwrap();
+        let packed = BitPackedArray::encode(&uncompressed.into_array(), 1).unwrap();
         let expected = PrimitiveArray::from_option_iter(values);
         assert_arrays_eq!(packed.to_primitive(), expected);
     }
@@ -328,9 +328,9 @@ mod test {
     fn test_encode_too_wide() {
         let values = [Some(1u8), None, Some(1), None, Some(1), None];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let _packed = BitPackedArray::encode(&uncompressed.to_array(), 8)
+        let _packed = BitPackedArray::encode(&uncompressed.clone().into_array(), 8)
             .expect_err("Cannot pack value into the same width");
-        let _packed = BitPackedArray::encode(&uncompressed.to_array(), 9)
+        let _packed = BitPackedArray::encode(&uncompressed.into_array(), 9)
             .expect_err("Cannot pack value into larger width");
     }
 

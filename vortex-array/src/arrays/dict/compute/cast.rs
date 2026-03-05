@@ -68,7 +68,7 @@ mod tests {
         let dict = dict_encode(&values).unwrap();
 
         let casted = dict
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -84,10 +84,10 @@ mod tests {
     fn test_cast_dict_nullable() {
         let values =
             PrimitiveArray::from_option_iter([Some(10i32), None, Some(20), Some(10), None]);
-        let dict = dict_encode(&values.to_array()).unwrap();
+        let dict = dict_encode(&values.into_array()).unwrap();
 
         let casted = dict
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -111,7 +111,8 @@ mod tests {
 
         // Cast to NonNullable (should be identity since already NonNullable)
         let non_nullable = dict
-            .to_array()
+            .clone()
+            .into_array()
             .cast(DType::Primitive(PType::I32, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -209,7 +210,7 @@ mod tests {
 
         // Casting to NonNullable should succeed since all logical values are non-null.
         let result = dict
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::F64, Nullability::NonNullable));
         assert!(
             result.is_ok(),

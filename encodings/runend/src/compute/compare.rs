@@ -67,7 +67,7 @@ mod test {
     fn compare_run_end() {
         let arr = ree_array();
         let res = arr
-            .to_array()
+            .into_array()
             .binary(ConstantArray::new(5, 12).into_array(), Operator::Eq)
             .unwrap();
         let expected = BoolArray::from_iter([

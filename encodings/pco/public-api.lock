@@ -12,6 +12,10 @@ pub fn vortex_pco::PcoArray::from_primitive(parray: &vortex_array::arrays::primi
 
 pub fn vortex_pco::PcoArray::new(chunk_metas: alloc::vec::Vec<vortex_buffer::ByteBuffer>, pages: alloc::vec::Vec<vortex_buffer::ByteBuffer>, dtype: vortex_array::dtype::DType, metadata: vortex_pco::PcoMetadata, len: usize, validity: vortex_array::validity::Validity) -> Self
 
+impl vortex_pco::PcoArray
+
+pub fn vortex_pco::PcoArray::to_array(&self) -> vortex_array::array::ArrayRef
+
 impl core::clone::Clone for vortex_pco::PcoArray
 
 pub fn vortex_pco::PcoArray::clone(&self) -> vortex_pco::PcoArray

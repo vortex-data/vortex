@@ -83,7 +83,7 @@ impl CompareKernel for VarBinVTable {
                 ));
             }
 
-            let lhs = Datum::try_new(&lhs.to_array())?;
+            let lhs = Datum::try_new(&lhs.clone().into_array())?;
 
             // Use StringViewArray/BinaryViewArray to match the Utf8View/BinaryView types
             // produced by Datum::try_new (which uses into_arrow_preferred())
@@ -120,9 +120,10 @@ impl CompareKernel for VarBinVTable {
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
             return Ok(Some(
-                lhs.to_array()
+                lhs.clone()
+                    .into_array()
                     .execute::<VarBinViewArray>(ctx)?
-                    .to_array()
+                    .into_array()
                     .binary(rhs.to_array(), Operator::from(operator))?,
             ));
         } else {
@@ -146,6 +147,7 @@ mod test {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::ByteBuffer;
 
+    use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
@@ -163,13 +165,13 @@ mod test {
             DType::Binary(Nullability::Nullable),
         );
         let result = array
-            .to_array()
+            .into_array()
             .binary(
                 ConstantArray::new(
                     Scalar::binary(ByteBuffer::copy_from(b"abc"), Nullability::Nullable),
                     3,
                 )
-                .to_array(),
+                .into_array(),
                 Operator::Eq,
             )
             .unwrap()
@@ -196,8 +198,8 @@ mod test {
             DType::Binary(Nullability::Nullable),
         );
         let result = array
-            .to_array()
-            .binary(vbv.to_array(), Operator::Eq)
+            .into_array()
+            .binary(vbv.into_array(), Operator::Eq)
             .unwrap()
             .to_bool();
 
@@ -215,6 +217,7 @@ mod test {
 #[cfg(test)]
 mod tests {
     use crate::DynArray;
+    use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::builtins::ArrayBuiltins;
@@ -230,8 +233,8 @@ mod tests {
         let const_ = ConstantArray::new(Scalar::utf8("", Nullability::Nullable), 1);
 
         assert_eq!(
-            arr.to_array()
-                .binary(const_.to_array(), Operator::Eq)
+            arr.into_array()
+                .binary(const_.into_array(), Operator::Eq)
                 .unwrap()
                 .dtype(),
             &DType::Bool(Nullability::Nullable)

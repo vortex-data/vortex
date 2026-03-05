@@ -31,7 +31,7 @@ impl CompareKernel for DictVTable {
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(rhs) = rhs.as_constant() {
             let compare_result = lhs.values().to_array().binary(
-                ConstantArray::new(rhs, lhs.values().len()).to_array(),
+                ConstantArray::new(rhs, lhs.values().len()).into_array(),
                 Operator::from(operator),
             )?;
 

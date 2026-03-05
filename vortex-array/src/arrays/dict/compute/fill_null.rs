@@ -31,7 +31,7 @@ impl FillNullKernel for DictVTable {
             .values()
             .to_array()
             .binary(
-                ConstantArray::new(fill_value.clone(), array.values().len()).to_array(),
+                ConstantArray::new(fill_value.clone(), array.values().len()).into_array(),
                 Operator::Eq,
             )?
             .execute::<BoolArray>(ctx)?;
@@ -43,7 +43,8 @@ impl FillNullKernel for DictVTable {
             // No fill values found, so we must canonicalize and fill_null.
             return Ok(Some(
                 array
-                    .to_array()
+                    .clone()
+                    .into_array()
                     .execute::<Canonical>(ctx)?
                     .into_array()
                     .fill_null(fill_value.clone())?,
@@ -112,7 +113,7 @@ mod tests {
         .vortex_expect("operation should succeed in test");
 
         let filled = dict
-            .to_array()
+            .into_array()
             .fill_null(Scalar::primitive(20, Nullability::NonNullable))
             .vortex_expect("operation should succeed in test");
         let filled_primitive = filled.to_primitive();

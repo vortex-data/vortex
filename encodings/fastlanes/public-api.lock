@@ -134,6 +134,10 @@ pub fn vortex_fastlanes::BitPackedArray::try_new(packed: vortex_array::buffer::B
 
 pub fn vortex_fastlanes::BitPackedArray::unpacked_chunks<T: vortex_fastlanes::unpack_iter::BitPacked>(&self) -> vortex_fastlanes::unpack_iter::BitUnpackedChunks<T>
 
+impl vortex_fastlanes::BitPackedArray
+
+pub fn vortex_fastlanes::BitPackedArray::to_array(&self) -> vortex_array::array::ArrayRef
+
 impl core::clone::Clone for vortex_fastlanes::BitPackedArray
 
 pub fn vortex_fastlanes::BitPackedArray::clone(&self) -> vortex_fastlanes::BitPackedArray
@@ -288,6 +292,10 @@ pub fn vortex_fastlanes::DeltaArray::try_from_vec<T: vortex_array::dtype::ptype:
 
 pub fn vortex_fastlanes::DeltaArray::try_new(bases: vortex_array::array::ArrayRef, deltas: vortex_array::array::ArrayRef, offset: usize, logical_len: usize) -> vortex_error::VortexResult<Self>
 
+impl vortex_fastlanes::DeltaArray
+
+pub fn vortex_fastlanes::DeltaArray::to_array(&self) -> vortex_array::array::ArrayRef
+
 impl core::clone::Clone for vortex_fastlanes::DeltaArray
 
 pub fn vortex_fastlanes::DeltaArray::clone(&self) -> vortex_fastlanes::DeltaArray
@@ -403,6 +411,10 @@ pub fn vortex_fastlanes::FoRArray::ptype(&self) -> vortex_array::dtype::ptype::P
 pub fn vortex_fastlanes::FoRArray::reference_scalar(&self) -> &vortex_array::scalar::Scalar
 
 pub fn vortex_fastlanes::FoRArray::try_new(encoded: vortex_array::array::ArrayRef, reference: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<Self>
+
+impl vortex_fastlanes::FoRArray
+
+pub fn vortex_fastlanes::FoRArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_fastlanes::FoRArray
 
@@ -553,6 +565,10 @@ pub fn vortex_fastlanes::RLEArray::values_idx_offsets(&self) -> &vortex_array::a
 impl vortex_fastlanes::RLEArray
 
 pub fn vortex_fastlanes::RLEArray::encode(array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_error::VortexResult<Self>
+
+impl vortex_fastlanes::RLEArray
+
+pub fn vortex_fastlanes::RLEArray::to_array(&self) -> vortex_array::array::ArrayRef
 
 impl core::clone::Clone for vortex_fastlanes::RLEArray
 

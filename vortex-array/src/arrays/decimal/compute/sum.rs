@@ -131,6 +131,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
 
+    use crate::IntoArray;
     use crate::arrays::DecimalArray;
     use crate::compute::sum;
     use crate::dtype::DType;
@@ -150,7 +151,7 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(&decimal.to_array()).unwrap();
+        let result = sum(&decimal.into_array()).unwrap();
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::NonNullable),
@@ -169,7 +170,7 @@ mod tests {
             Validity::from_iter([true, false, true, true]),
         );
 
-        let result = sum(&decimal.to_array()).unwrap();
+        let result = sum(&decimal.into_array()).unwrap();
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::Nullable),
@@ -188,7 +189,7 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(&decimal.to_array()).unwrap();
+        let result = sum(&decimal.into_array()).unwrap();
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::NonNullable),
@@ -209,7 +210,7 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(&decimal.to_array()).unwrap();
+        let result = sum(&decimal.into_array()).unwrap();
 
         // Should use i64 for accumulation since precision increases
         let expected_sum = near_max as i64 + 500 + 400;
@@ -232,7 +233,7 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(&decimal.to_array()).unwrap();
+        let result = sum(&decimal.into_array()).unwrap();
 
         let expected_sum = (large_val as i128) * 4 + 1;
         let expected = Scalar::try_new(
@@ -257,7 +258,7 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(&decimal.to_array()).unwrap();
+        let result = sum(&decimal.into_array()).unwrap();
 
         // Should use i256 for accumulation
         let expected_sum =
@@ -282,7 +283,7 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(&decimal.to_array()).unwrap();
+        let result = sum(&decimal.into_array()).unwrap();
 
         let expected_sum = (large_pos as i128) + (large_neg as i128) + (large_pos as i128) + 1000;
         let expected = Scalar::try_new(
@@ -302,7 +303,7 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(&decimal.to_array()).unwrap();
+        let result = sum(&decimal.into_array()).unwrap();
 
         // Scale should be preserved, precision increased by 10
         let expected = Scalar::try_new(
@@ -319,7 +320,7 @@ mod tests {
         let decimal =
             DecimalArray::new(buffer![42i32], DecimalDType::new(3, 1), Validity::AllValid);
 
-        let result = sum(&decimal.to_array()).unwrap();
+        let result = sum(&decimal.into_array()).unwrap();
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(13, 1), Nullability::NonNullable),
@@ -338,7 +339,7 @@ mod tests {
             Validity::from_iter([false, false, true, false]),
         );
 
-        let result = sum(&decimal.to_array()).unwrap();
+        let result = sum(&decimal.into_array()).unwrap();
 
         let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::Nullable),
@@ -362,7 +363,7 @@ mod tests {
             Validity::AllValid,
         );
 
-        let result = sum(&decimal.to_array()).unwrap();
+        let result = sum(&decimal.into_array()).unwrap();
 
         // Should use i256 for accumulation since 9 * (i128::MAX / 10) fits in i128 but we increase precision
         let expected_sum = i256::from_i128(large_i128).wrapping_pow(1) * i256::from_i128(9);
@@ -389,7 +390,7 @@ mod tests {
         let decimal = DecimalArray::new(buffer![val, val], decimal_dtype, Validity::AllValid);
 
         // Sum = 12 * 10^75 = 1.2 * 10^76, which exceeds precision 76 but fits in `i256`.
-        let result = sum(&decimal.to_array()).unwrap();
+        let result = sum(&decimal.into_array()).unwrap();
         assert_eq!(
             result,
             Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable))
@@ -406,7 +407,7 @@ mod tests {
         );
 
         assert_eq!(
-            sum(&decimal.to_array()).vortex_expect("operation should succeed in test"),
+            sum(&decimal.into_array()).vortex_expect("operation should succeed in test"),
             Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable))
         );
     }

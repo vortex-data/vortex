@@ -45,7 +45,11 @@ pub(crate) fn new_exporter(
         .map(|child| {
             if validity.to_bit_buffer().true_count() != validity.len() {
                 // TODO(joe): use new mask.
-                new_array_exporter(child.clone().mask(validity.to_array())?, cache, ctx)
+                new_array_exporter(
+                    child.clone().mask(validity.clone().into_array())?,
+                    cache,
+                    ctx,
+                )
             } else {
                 new_array_exporter(child.clone().into_array(), cache, ctx)
             }

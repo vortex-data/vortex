@@ -55,6 +55,6 @@ mod test {
     #[case(buffer![42.42f64].into_array())]
     fn test_take_alp_conformance(#[case] array: vortex_array::ArrayRef) {
         let alp = alp_encode(&array.to_primitive(), None).unwrap();
-        test_take_conformance(&alp.to_array());
+        test_take_conformance(&alp.into_array());
     }
 }

@@ -339,6 +339,14 @@ macro_rules! vtable {
                     value.into_array()
                 }
             }
+
+            impl [<$V Array>] {
+                #[deprecated(note = "use `.into_array()` (owned) or `.clone().into_array()` (ref) to make clones explicit")]
+                pub fn to_array(&self) -> $crate::ArrayRef {
+                    use $crate::IntoArray;
+                    self.clone().into_array()
+                }
+            }
         }
     };
 }

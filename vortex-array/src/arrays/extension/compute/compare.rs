@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
@@ -28,7 +29,7 @@ impl CompareKernel for ExtensionVTable {
                 .storage()
                 .to_array()
                 .binary(
-                    ConstantArray::new(storage_scalar, lhs.len()).to_array(),
+                    ConstantArray::new(storage_scalar, lhs.len()).into_array(),
                     Operator::from(operator),
                 )
                 .map(Some);

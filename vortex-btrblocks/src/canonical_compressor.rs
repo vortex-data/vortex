@@ -278,11 +278,11 @@ impl CanonicalCompressor for BtrBlocksCompressor {
             }
             Canonical::Extension(ext_array) => {
                 // We compress Timestamp-level arrays with DateTimeParts compression
-                if let Ok(temporal_array) = TemporalArray::try_from(ext_array.to_array())
+                if let Ok(temporal_array) = TemporalArray::try_from(ext_array.clone().into_array())
                     && let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata()
                 {
                     if is_constant_opts(
-                        &ext_array.to_array(),
+                        &ext_array.clone().into_array(),
                         &IsConstantOpts {
                             cost: Cost::Canonicalize,
                         },

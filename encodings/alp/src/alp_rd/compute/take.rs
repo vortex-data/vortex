@@ -57,6 +57,7 @@ impl TakeExecute for ALPRDVTable {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -109,7 +110,7 @@ mod test {
         );
 
         let taken = encoded
-            .take(PrimitiveArray::from_option_iter([Some(0), Some(2), None]).to_array())
+            .take(PrimitiveArray::from_option_iter([Some(0), Some(2), None]).into_array())
             .unwrap()
             .to_primitive();
 
@@ -126,7 +127,7 @@ mod test {
         test_take_conformance(
             &RDEncoder::new(&[a, b])
                 .encode(&PrimitiveArray::from_iter([a, b, outlier, b, outlier]))
-                .to_array(),
+                .into_array(),
         );
     }
 
@@ -143,7 +144,7 @@ mod test {
                     Some(a),
                     None,
                 ]))
-                .to_array(),
+                .into_array(),
         );
     }
 }

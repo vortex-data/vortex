@@ -188,7 +188,7 @@ mod test {
             Some(3),
             None,
         ]);
-        let dict = dict_encode(&arr.to_array()).unwrap();
+        let dict = dict_encode(&arr.into_array()).unwrap();
 
         let expected_codes = buffer![0u8, 0, 1, 2, 2, 1, 2, 1].into_array();
         assert_arrays_eq!(dict.codes(), expected_codes);

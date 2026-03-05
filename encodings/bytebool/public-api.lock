@@ -12,6 +12,10 @@ pub fn vortex_bytebool::ByteBoolArray::from_vec<V: core::convert::Into<vortex_ar
 
 pub fn vortex_bytebool::ByteBoolArray::new(buffer: vortex_array::buffer::BufferHandle, validity: vortex_array::validity::Validity) -> Self
 
+impl vortex_bytebool::ByteBoolArray
+
+pub fn vortex_bytebool::ByteBoolArray::to_array(&self) -> vortex_array::array::ArrayRef
+
 impl core::clone::Clone for vortex_bytebool::ByteBoolArray
 
 pub fn vortex_bytebool::ByteBoolArray::clone(&self) -> vortex_bytebool::ByteBoolArray

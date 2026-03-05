@@ -46,6 +46,7 @@ impl CastReduce for DeltaVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -63,7 +64,7 @@ mod tests {
         let array = DeltaArray::try_from_primitive_array(&primitive).unwrap();
 
         let casted = array
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -86,7 +87,7 @@ mod tests {
         let array = DeltaArray::try_from_primitive_array(&values).unwrap();
 
         let casted = array
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -122,6 +123,6 @@ mod tests {
     )]
     fn test_cast_delta_conformance(#[case] primitive: PrimitiveArray) {
         let delta_array = DeltaArray::try_from_primitive_array(&primitive).unwrap();
-        test_cast_conformance(&delta_array.to_array());
+        test_cast_conformance(&delta_array.into_array());
     }
 }

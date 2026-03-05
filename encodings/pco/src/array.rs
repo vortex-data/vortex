@@ -293,7 +293,7 @@ pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {
 
 fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
     let mask = parray.validity_mask()?;
-    Ok(parray.to_array().filter(mask)?.to_primitive())
+    Ok(parray.clone().into_array().filter(mask)?.to_primitive())
 }
 
 pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {

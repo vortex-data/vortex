@@ -115,7 +115,7 @@ fn take_non_nullable_fsl<I: IntegerPType>(
     debug_assert_eq!(elements_indices.len(), new_len * list_size);
 
     let elements_indices_array = PrimitiveArray::new(elements_indices, Validity::NonNullable);
-    let new_elements = array.elements().take(elements_indices_array.to_array())?;
+    let new_elements = array.elements().take(elements_indices_array.into_array())?;
     debug_assert_eq!(new_elements.len(), new_len * list_size);
 
     // Both inputs are non-nullable, so the result is non-nullable.
@@ -182,7 +182,7 @@ fn take_nullable_fsl<I: IntegerPType>(
     debug_assert_eq!(elements_indices.len(), new_len * list_size);
 
     let elements_indices_array = PrimitiveArray::new(elements_indices, Validity::NonNullable);
-    let new_elements = array.elements().take(elements_indices_array.to_array())?;
+    let new_elements = array.elements().take(elements_indices_array.into_array())?;
     debug_assert_eq!(new_elements.len(), new_len * list_size);
 
     // At least one input was nullable, so the result is nullable.

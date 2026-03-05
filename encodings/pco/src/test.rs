@@ -89,7 +89,7 @@ fn test_validity_and_multiple_chunks_and_pages() {
     validity[101] = false;
     let array = PrimitiveArray::new(
         Buffer::from(data),
-        Validity::Array(BoolArray::from_iter(validity).to_array()),
+        Validity::Array(BoolArray::from_iter(validity).into_array()),
     );
     let compression_level = 3;
     let values_per_chunk = 33;
@@ -119,7 +119,7 @@ fn test_validity_and_multiple_chunks_and_pages() {
     let primitive = slice.to_primitive();
     assert_eq!(
         primitive.validity(),
-        &Validity::Array(BoolArray::from_iter(vec![true, false, true]).to_array())
+        &Validity::Array(BoolArray::from_iter(vec![true, false, true]).into_array())
     );
 }
 
@@ -129,7 +129,7 @@ fn test_validity_vtable() {
     let mask_bools = vec![false, true, true, false, true];
     let array = PrimitiveArray::new(
         Buffer::from(data),
-        Validity::Array(BoolArray::from_iter(mask_bools.clone()).to_array()),
+        Validity::Array(BoolArray::from_iter(mask_bools.clone()).into_array()),
     );
     let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
     assert_eq!(
@@ -145,7 +145,7 @@ fn test_validity_vtable() {
 #[test]
 fn test_serde() -> VortexResult<()> {
     let data: PrimitiveArray = (0i32..1_000_000).collect();
-    let pco = PcoArray::from_primitive(&data, 3, 100)?.to_array();
+    let pco = PcoArray::from_primitive(&data, 3, 100)?.into_array();
 
     let context = ArrayContext::empty();
 

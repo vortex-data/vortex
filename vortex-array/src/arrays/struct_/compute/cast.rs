@@ -115,7 +115,7 @@ mod tests {
     #[case(create_nested_struct())]
     #[case(create_simple_struct())]
     fn test_cast_struct_conformance(#[case] array: StructArray) {
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 
     fn create_test_struct(nullable: bool) -> StructArray {
@@ -179,12 +179,12 @@ mod tests {
     fn cast_nullable_all_invalid() {
         let empty_struct = StructArray::try_new(
             FieldNames::from(["a"]),
-            vec![PrimitiveArray::new::<i32>(buffer![], Validity::AllInvalid).to_array()],
+            vec![PrimitiveArray::new::<i32>(buffer![], Validity::AllInvalid).into_array()],
             0,
             Validity::AllInvalid,
         )
         .unwrap()
-        .to_array();
+        .into_array();
 
         let target_dtype = DType::struct_(
             [("a", DType::Primitive(PType::I32, Nullability::NonNullable))],
@@ -207,7 +207,10 @@ mod tests {
 
         let target_dtype = struct_array.dtype().as_nullable();
 
-        let result = struct_array.to_array().cast(target_dtype.clone()).unwrap();
+        let result = struct_array
+            .into_array()
+            .cast(target_dtype.clone())
+            .unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
         assert_eq!(result.to_struct().unmasked_fields().len(), 2);
@@ -233,7 +236,10 @@ mod tests {
         let struct_array =
             StructArray::try_new(names, vec![field1, field2], 3, Validity::NonNullable).unwrap();
 
-        let result = struct_array.to_array().cast(target_dtype.clone()).unwrap();
+        let result = struct_array
+            .into_array()
+            .cast(target_dtype.clone())
+            .unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
         assert_eq!(result.to_struct().unmasked_fields().len(), 3);

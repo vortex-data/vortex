@@ -268,14 +268,14 @@ mod tests {
         let idx1: PrimitiveArray = (0..1).collect();
 
         assert_eq!(
-            arr.take(idx1.to_array()).unwrap().dtype(),
+            arr.take(idx1.into_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::NonNullable)
         );
 
         let idx2: PrimitiveArray = PrimitiveArray::from_option_iter(vec![Some(0)]);
 
         assert_eq!(
-            arr.take(idx2.to_array()).unwrap().dtype(),
+            arr.take(idx2.into_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::Nullable)
         );
     }
@@ -295,7 +295,7 @@ mod tests {
     ))]
     #[case(VarBinArray::from_iter(["single"].map(Some), DType::Utf8(Nullability::NonNullable)))]
     fn test_take_varbin_conformance(#[case] array: VarBinArray) {
-        test_take_conformance(&array.to_array());
+        test_take_conformance(&array.into_array());
     }
 
     #[test]

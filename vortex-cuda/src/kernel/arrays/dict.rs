@@ -9,6 +9,7 @@ use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::IntoArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::DecimalArrayParts;
 use vortex::array::arrays::DictArray;
@@ -99,7 +100,7 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
         validity: values_validity,
         ..
     } = values.into_parts();
-    let output_validity = values_validity.take(&codes.to_array())?;
+    let output_validity = values_validity.take(&codes.clone().into_array())?;
     let PrimitiveArrayParts {
         buffer: codes_buffer,
         ..
@@ -184,7 +185,7 @@ async fn execute_dict_decimal_typed<
         validity: values_validity,
         ..
     } = values.into_parts();
-    let output_validity = values_validity.take(&codes.to_array())?;
+    let output_validity = values_validity.take(&codes.clone().into_array())?;
 
     let PrimitiveArrayParts {
         buffer: codes_buffer,
@@ -252,7 +253,7 @@ async fn execute_dict_varbinview(
         validity: values_validity,
         ..
     } = values_vbv.into_parts();
-    let output_validity = values_validity.take(&codes_prim.to_array())?;
+    let output_validity = values_validity.take(&codes_prim.clone().into_array())?;
 
     let PrimitiveArrayParts {
         buffer: codes_buffer,
