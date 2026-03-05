@@ -15,10 +15,10 @@ const __dirname = path.dirname(__filename);
 const PORT = process.env.PORT || 3000;
 const DATA_URL =
   process.env.DATA_URL ||
-  "https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz";
+  "https://vortex-ci-benchmark-results.s3.amazonaws.com/data.json.gz";
 const COMMITS_URL =
   process.env.COMMITS_URL ||
-  "https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json";
+  "https://vortex-ci-benchmark-results.s3.amazonaws.com/commits.json";
 const REFRESH_INTERVAL = process.env.REFRESH_INTERVAL || 5 * 60 * 1000;
 const MAX_POINTS = 200;
 const USE_LOCAL_DATA = process.env.USE_LOCAL_DATA === "true";

@@ -28,8 +28,11 @@ use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::pco::PcoArray;
 use vortex::encodings::runend::RunEndArray;
+use vortex::encodings::sequence::sequence_encode;
 use vortex::encodings::zigzag::zigzag_encode;
 use vortex::encodings::zstd::ZstdArray;
+use vortex_array::dtype::Nullability;
+use vortex_sequence::SequenceArray;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -208,6 +211,29 @@ fn bench_zigzag_compress_i32(bencher: Bencher) {
 fn bench_zigzag_decompress_i32(bencher: Bencher) {
     let (_, int_array, _) = setup_primitive_arrays();
     let compressed = zigzag_encode(int_array).unwrap();
+
+    with_byte_counter(bencher, NUM_VALUES * 4)
+        .with_inputs(|| &compressed)
+        .bench_refs(|a| a.to_canonical());
+}
+
+#[expect(clippy::cast_possible_truncation)]
+#[divan::bench(name = "sequence_compress_u32")]
+fn bench_sequence_compress_u32(bencher: Bencher) {
+    let seq_array = PrimitiveArray::from_iter(0..NUM_VALUES as u32);
+
+    with_byte_counter(bencher, NUM_VALUES * 4)
+        .with_inputs(|| seq_array.clone())
+        .bench_values(|a| sequence_encode(&a).unwrap().unwrap());
+}
+
+#[expect(clippy::cast_possible_truncation)]
+#[divan::bench(name = "sequence_decompress_u32")]
+fn bench_sequence_decompress_u32(bencher: Bencher) {
+    let compressed =
+        SequenceArray::try_new_typed(0, 1, Nullability::NonNullable, NUM_VALUES as usize)
+            .unwrap()
+            .into_array();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| &compressed)
