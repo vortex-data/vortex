@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 pub use builder::MAX_IS_TRUNCATED;
 pub use builder::MIN_IS_TRUNCATED;
-use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::dtype::DType;
@@ -22,6 +21,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
+use vortex_session::registry::ReadContext;
 use vortex_session::VortexSession;
 
 use crate::LayoutChildType;
@@ -116,7 +116,7 @@ impl VTable for ZonedVTable {
         metadata: &ZonedMetadata,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        _ctx: &ArrayContext,
+        _ctx: &ReadContext,
     ) -> VortexResult<Self::Layout> {
         Ok(ZonedLayout {
             dtype: dtype.clone(),

@@ -26,6 +26,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_session::registry::ReadContext;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -166,7 +167,7 @@ fn test_serde() -> VortexResult<()> {
     let decoded = parts.decode(
         &DType::Primitive(PType::I32, Nullability::NonNullable),
         1_000_000,
-        &context,
+        &ReadContext::new(context.to_ids()),
         &SESSION,
     )?;
     let mut ctx = SESSION.create_execution_ctx();

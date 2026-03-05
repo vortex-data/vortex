@@ -8,7 +8,6 @@ use flatbuffers::FlatBufferBuilder;
 use flatbuffers::VerifierOptions;
 use flatbuffers::WIPOffset;
 use flatbuffers::root_with_opts;
-use vortex_array::ArrayContext;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -16,7 +15,7 @@ use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::layout;
-
+use vortex_session::registry::ReadContext;
 use crate::Layout;
 use crate::LayoutContext;
 use crate::LayoutRef;
@@ -46,7 +45,7 @@ pub fn layout_from_flatbuffer(
     flatbuffer: FlatBuffer,
     dtype: &DType,
     layout_ctx: &LayoutContext,
-    ctx: &ArrayContext,
+    ctx: &ReadContext,
     layouts: &LayoutRegistry,
 ) -> VortexResult<LayoutRef> {
     let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;

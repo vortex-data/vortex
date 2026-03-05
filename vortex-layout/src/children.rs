@@ -7,14 +7,13 @@ use std::sync::Arc;
 
 use flatbuffers::Follow;
 use itertools::Itertools;
-use vortex_array::ArrayContext;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::layout as fbl;
-
+use vortex_session::registry::ReadContext;
 use crate::LayoutContext;
 use crate::LayoutRef;
 use crate::segments::SegmentId;
@@ -101,7 +100,7 @@ impl LayoutChildren for OwnedLayoutChildren {
 pub(crate) struct ViewedLayoutChildren {
     flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
-    array_ctx: ArrayContext,
+    read_ctx: ReadContext,
     layout_ctx: LayoutContext,
     layouts: LayoutRegistry,
 }
@@ -115,14 +114,14 @@ impl ViewedLayoutChildren {
     pub(super) unsafe fn new_unchecked(
         flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
-        array_ctx: ArrayContext,
+        read_ctx: ReadContext,
         layout_ctx: LayoutContext,
         layouts: LayoutRegistry,
     ) -> Self {
         Self {
             flatbuffer,
             flatbuffer_loc,
-            array_ctx,
+            read_ctx,
             layout_ctx,
             layouts,
         }
@@ -151,7 +150,7 @@ impl LayoutChildren for ViewedLayoutChildren {
         let viewed_children = ViewedLayoutChildren {
             flatbuffer: self.flatbuffer.clone(),
             flatbuffer_loc: fb_child._tab.loc(),
-            array_ctx: self.array_ctx.clone(),
+            read_ctx: self.read_ctx.clone(),
             layout_ctx: self.layout_ctx.clone(),
             layouts: self.layouts.clone(),
         };
@@ -178,7 +177,7 @@ impl LayoutChildren for ViewedLayoutChildren {
                 .map(SegmentId::from)
                 .collect_vec(),
             &viewed_children,
-            &self.array_ctx,
+            &self.read_ctx,
         )
     }
 

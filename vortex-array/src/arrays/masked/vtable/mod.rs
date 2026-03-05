@@ -217,7 +217,7 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::ByteBufferMut;
     use vortex_error::VortexError;
-
+    use vortex_session::registry::ReadContext;
     use crate::ArrayContext;
     use crate::Canonical;
     use crate::IntoArray;
@@ -269,7 +269,7 @@ mod tests {
         let concat = concat.freeze();
 
         let parts = ArrayParts::try_from(concat).unwrap();
-        let decoded = parts.decode(&dtype, len, &ctx, &LEGACY_SESSION).unwrap();
+        let decoded = parts.decode(&dtype, len, &ReadContext::new(ctx.to_ids()), &LEGACY_SESSION).unwrap();
 
         assert!(decoded.is::<MaskedVTable>());
         assert_eq!(

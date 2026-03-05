@@ -24,7 +24,6 @@ pub use file_statistics::FileStatistics;
 use flatbuffers::root;
 use itertools::Itertools;
 pub use segment::*;
-use vortex_array::ArrayContext;
 use vortex_array::dtype::DType;
 use vortex_array::vtable::ArrayId;
 use vortex_buffer::ByteBuffer;
@@ -38,6 +37,7 @@ use vortex_layout::LayoutEncodingId;
 use vortex_layout::LayoutRef;
 use vortex_layout::layout_from_flatbuffer;
 use vortex_layout::session::LayoutSessionExt;
+use vortex_session::registry::ReadContext;
 use vortex_session::VortexSession;
 
 /// Captures the layout information of a Vortex file.
@@ -47,7 +47,7 @@ pub struct Footer {
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
     // The specific arrays used within the file, in the order they were registered.
-    array_ctx: ArrayContext,
+    read_ctx: ReadContext,
     // The approximate size of the footer in bytes, used for caching and memory management.
     approx_byte_size: Option<usize>,
 }
@@ -57,13 +57,13 @@ impl Footer {
         root_layout: LayoutRef,
         segments: Arc<[SegmentSpec]>,
         statistics: Option<FileStatistics>,
-        array_ctx: ArrayContext,
+        read_ctx: ReadContext,
     ) -> Self {
         Self {
             root_layout,
             segments,
             statistics,
-            array_ctx,
+            read_ctx,
             approx_byte_size: None,
         }
     }
@@ -95,18 +95,18 @@ impl Footer {
 
         // Create an ArrayContext from the registry.
         let array_specs = fb_footer.array_specs();
-        let array_ids = array_specs
+        let array_ids: Arc<[_]> = array_specs
             .iter()
             .flat_map(|e| e.iter())
             .map(|encoding| ArrayId::new_arc(Arc::from(encoding.id())))
             .collect();
-        let array_ctx = ArrayContext::new(array_ids);
+        let read_ctx = ReadContext::new(array_ids);
 
         let root_layout = layout_from_flatbuffer(
             layout_bytes,
             &dtype,
             &layout_ctx,
-            &array_ctx,
+            &read_ctx,
             session.layouts().registry(),
         )?;
 
@@ -126,7 +126,7 @@ impl Footer {
             root_layout,
             segments,
             statistics,
-            array_ctx,
+            read_ctx,
             approx_byte_size: Some(approx_byte_size),
         })
     }
