@@ -122,11 +122,7 @@ fn download_with_retries(url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error
             }
             Ok(response) => {
                 // Client errors (4xx) are not retryable
-                return Err(format!(
-                    "Failed to download {url}: HTTP {}",
-                    response.status()
-                )
-                .into());
+                return Err(format!("Failed to download {url}: HTTP {}", response.status()).into());
             }
             Err(e) => {
                 println!(
