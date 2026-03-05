@@ -257,6 +257,7 @@ impl<'a> LikeVariant<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
@@ -278,7 +279,7 @@ mod tests {
         let not_expr = not(root());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_arrays_eq!(
-            bools.to_array().apply(&not_expr).unwrap(),
+            bools.into_array().apply(&not_expr).unwrap(),
             BoolArray::from_iter([true, false, true, true, false, false])
         );
     }

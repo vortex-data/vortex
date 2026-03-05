@@ -16,6 +16,7 @@ use vortex_session::VortexSession;
 use crate::ArrayAdapter;
 use crate::ArrayRef;
 use crate::DynArray;
+use crate::IntoArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
@@ -90,13 +91,13 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         let array = V::build(dtype, len, &metadata, buffers, children)?;
         assert_eq!(array.len(), len, "Array length mismatch after building");
         assert_eq!(array.dtype(), dtype, "Array dtype mismatch after building");
-        Ok(array.to_array())
+        Ok(array.into_array())
     }
 
     fn with_children(&self, array: &ArrayRef, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
         let mut array = array.as_::<V>().clone();
         V::with_children(&mut array, children)?;
-        Ok(array.to_array())
+        Ok(array.into_array())
     }
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

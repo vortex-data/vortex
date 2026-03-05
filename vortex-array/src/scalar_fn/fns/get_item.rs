@@ -246,7 +246,7 @@ mod tests {
     fn get_item_by_name() {
         let st = test_array();
         let get_item = get_item("a", root());
-        let item = st.to_array().apply(&get_item).unwrap();
+        let item = st.into_array().apply(&get_item).unwrap();
         assert_eq!(item.dtype(), &DType::from(PType::I32))
     }
 
@@ -254,7 +254,7 @@ mod tests {
     fn get_item_by_name_none() {
         let st = test_array();
         let get_item = get_item("c", root());
-        assert!(st.to_array().apply(&get_item).is_err());
+        assert!(st.into_array().apply(&get_item).is_err());
     }
 
     #[test]
@@ -267,7 +267,7 @@ mod tests {
             Validity::AllInvalid,
         )
         .unwrap()
-        .to_array();
+        .into_array();
 
         let get_item_expr = get_item("a", root());
         let item = st.apply(&get_item_expr).unwrap();
@@ -370,6 +370,6 @@ mod tests {
         )
         .unwrap();
 
-        st.to_array().apply(&get_item("data", root())).unwrap();
+        st.into_array().apply(&get_item("data", root())).unwrap();
     }
 }

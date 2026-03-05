@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::compute::IsSortedKernel;
 use vortex_array::compute::IsSortedKernelAdapter;
@@ -76,7 +77,7 @@ impl IsSortedKernel for FoRVTable {
         is_sorted(
             &encoded
                 .reinterpret_cast(encoded.ptype().to_unsigned())
-                .to_array(),
+                .into_array(),
         )
     }
 
@@ -85,7 +86,7 @@ impl IsSortedKernel for FoRVTable {
         is_strict_sorted(
             &encoded
                 .reinterpret_cast(encoded.ptype().to_unsigned())
-                .to_array(),
+                .into_array(),
         )
     }
 }

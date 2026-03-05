@@ -30,6 +30,7 @@ impl MaskReduce for VarBinVTable {
 
 #[cfg(test)]
 mod test {
+    use crate::IntoArray;
     use crate::arrays::VarBinArray;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::dtype::DType;
@@ -41,12 +42,12 @@ mod test {
             vec!["hello", "world", "filter", "good", "bye"],
             DType::Utf8(Nullability::NonNullable),
         );
-        test_mask_conformance(&array.to_array());
+        test_mask_conformance(&array.into_array());
 
         let array = VarBinArray::from_iter(
             vec![Some("hello"), None, Some("filter"), Some("good"), None],
             DType::Utf8(Nullability::Nullable),
         );
-        test_mask_conformance(&array.to_array());
+        test_mask_conformance(&array.into_array());
     }
 }

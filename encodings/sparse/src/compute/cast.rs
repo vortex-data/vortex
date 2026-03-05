@@ -54,7 +54,7 @@ mod tests {
         .unwrap();
 
         let casted = sparse
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
             .unwrap();
         assert_eq!(
@@ -77,7 +77,7 @@ mod tests {
         .unwrap();
 
         let casted = sparse
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::I64, Nullability::Nullable))
             .unwrap();
         assert_eq!(
@@ -112,6 +112,6 @@ mod tests {
         Scalar::from(0u8)
     ).unwrap())]
     fn test_cast_sparse_conformance(#[case] array: SparseArray) {
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 }

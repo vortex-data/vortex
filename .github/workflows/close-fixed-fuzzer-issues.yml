@@ -2,7 +2,7 @@ name: Close Fixed Fuzzer Issues
 
 on:
   schedule:
-    - cron: "0 0 * * 0"  # every Sunday at midnight UTC
+    - cron: "0 0 * * *"  # every night at midnight UTC
   workflow_dispatch:
     inputs:
       dry_run:

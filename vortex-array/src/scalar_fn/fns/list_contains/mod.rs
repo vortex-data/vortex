@@ -267,7 +267,7 @@ fn constant_list_scalar_contains(
         .into_iter()
         .try_reduce_balanced(|acc, res| acc.binary(res, Operator::Or))?;
 
-    Ok(result.unwrap_or_else(|| ConstantArray::new(false_scalar, len).to_array()))
+    Ok(result.unwrap_or_else(|| ConstantArray::new(false_scalar, len).into_array()))
 }
 
 /// Returns a [`BoolArray`] where each bit represents if a list contains the scalar.
@@ -292,8 +292,11 @@ fn list_contains_scalar(
     }
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
-    let matching_elements =
-        Binary.try_new_array(elems.len(), Operator::Eq, &[elems.clone(), rhs.to_array()])?;
+    let matching_elements = Binary.try_new_array(
+        elems.len(),
+        Operator::Eq,
+        &[elems.clone(), rhs.clone().into_array()],
+    )?;
     let matches = matching_elements.execute::<BoolArray>(ctx)?;
 
     // Fast path: no elements match.

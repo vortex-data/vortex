@@ -71,6 +71,6 @@ mod tests {
     )).unwrap())]
 
     fn test_datetime_parts_consistency(#[case] array: DateTimePartsArray) {
-        test_array_consistency(&array.to_array());
+        test_array_consistency(&array.into_array());
     }
 }

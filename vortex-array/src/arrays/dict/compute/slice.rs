@@ -32,7 +32,7 @@ impl SliceReduce for DictVTable {
             } else {
                 Ok(Some(
                     ConstantArray::new(Scalar::null(array.dtype().clone()), sliced_code.len())
-                        .to_array(),
+                        .into_array(),
                 ))
             };
         }

@@ -126,7 +126,7 @@ mod test {
 
         // to nullable
         let p = p
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::Nullable))
             .unwrap()
             .to_primitive();
@@ -138,7 +138,7 @@ mod test {
 
         // back to non-nullable
         let p = p
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
             .to_primitive();
@@ -147,7 +147,7 @@ mod test {
 
         // to nullable u32
         let p = p
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap()
             .to_primitive();
@@ -159,7 +159,7 @@ mod test {
 
         // to non-nullable u8
         let p = p
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
             .unwrap()
             .to_primitive();
@@ -189,7 +189,7 @@ mod test {
     fn cast_array_with_nulls_to_nonnullable() {
         let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]);
         let err = arr
-            .to_array()
+            .into_array()
             .cast(PType::I32.into())
             .and_then(|a| a.to_canonical().map(|c| c.into_array()))
             .unwrap_err();
@@ -208,7 +208,7 @@ mod test {
             Validity::from_iter([false, true, true]),
         );
         let p = arr
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U32, Nullability::Nullable))
             .unwrap()
             .to_primitive();

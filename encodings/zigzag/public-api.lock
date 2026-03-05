@@ -12,6 +12,10 @@ pub fn vortex_zigzag::ZigZagArray::ptype(&self) -> vortex_array::dtype::ptype::P
 
 pub fn vortex_zigzag::ZigZagArray::try_new(encoded: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<Self>
 
+impl vortex_zigzag::ZigZagArray
+
+pub fn vortex_zigzag::ZigZagArray::to_array(&self) -> vortex_array::array::ArrayRef
+
 impl core::clone::Clone for vortex_zigzag::ZigZagArray
 
 pub fn vortex_zigzag::ZigZagArray::clone(&self) -> vortex_zigzag::ZigZagArray

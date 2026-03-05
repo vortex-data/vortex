@@ -46,7 +46,7 @@ jobs:
             "subcommand": "tpch",
             "name": "TPC-H on S3",
             "local_dir": "vortex-bench/data/tpch/10.0",
-            "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
+            "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/10.0/",
             "targets": "datafusion:parquet,datafusion:vortex,duckdb:parquet,duckdb:vortex",
             "scale_factor": "10.0"
           },
@@ -62,7 +62,7 @@ jobs:
             "subcommand": "tpch",
             "name": "TPC-H on S3",
             "local_dir": "vortex-bench/data/tpch/100.0",
-            "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/tpch/100.0/",
+            "remote_storage": "s3://vortex-ci-benchmark-datasets/${{github.ref_name}}/${{github.run_id}}/tpch/100.0/",
             "targets": "datafusion:parquet,duckdb:parquet,duckdb:vortex",
             "scale_factor": "100.0"
           },

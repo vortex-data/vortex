@@ -112,7 +112,7 @@ impl VTable for ChunkedVTable {
 
     fn child(array: &ChunkedArray, idx: usize) -> ArrayRef {
         match idx {
-            0 => array.chunk_offsets.to_array(),
+            0 => array.chunk_offsets.clone().into_array(),
             n => array.chunks()[n - 1].clone(),
         }
     }

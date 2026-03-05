@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
@@ -26,7 +27,7 @@ pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
             parray.ptype()
         ),
     };
-    ZigZagArray::try_new(encoded.to_array())
+    ZigZagArray::try_new(encoded.into_array())
 }
 
 fn zigzag_encode_primitive<T: ExternalZigZag + NativePType>(

@@ -3,6 +3,7 @@
 
 use vortex_error::VortexResult;
 
+use crate::IntoArray;
 use crate::array::ArrayRef;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
@@ -22,7 +23,7 @@ impl CastReduce for BoolVTable {
             .clone()
             .cast_nullability(new_nullability, array.len())?;
         Ok(Some(
-            BoolArray::new(array.to_bit_buffer(), new_validity).to_array(),
+            BoolArray::new(array.to_bit_buffer(), new_validity).into_array(),
         ))
     }
 }
@@ -31,6 +32,7 @@ impl CastReduce for BoolVTable {
 mod tests {
     use rstest::rstest;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
@@ -41,7 +43,9 @@ mod tests {
     fn try_cast_bool_success() {
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), Some(true)]);
 
-        let res = bool.to_array().cast(DType::Bool(Nullability::NonNullable));
+        let res = bool
+            .into_array()
+            .cast(DType::Bool(Nullability::NonNullable));
         assert!(res.is_ok());
         assert_eq!(res.unwrap().dtype(), &DType::Bool(Nullability::NonNullable));
     }
@@ -50,7 +54,7 @@ mod tests {
     #[should_panic]
     fn try_cast_bool_fail() {
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), None]);
-        bool.to_array()
+        bool.into_array()
             .cast(DType::Bool(Nullability::NonNullable))
             .unwrap();
     }
@@ -61,6 +65,6 @@ mod tests {
     #[case(BoolArray::from_iter(vec![true]))]
     #[case(BoolArray::from_iter(vec![false, false]))]
     fn test_cast_bool_conformance(#[case] array: BoolArray) {
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 }

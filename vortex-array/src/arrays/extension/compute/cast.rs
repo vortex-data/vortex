@@ -57,7 +57,8 @@ mod tests {
         let arr = ExtensionArray::new(ext_dtype.clone(), storage);
 
         let output = arr
-            .to_array()
+            .clone()
+            .into_array()
             .cast(DType::Extension(ext_dtype.clone()))
             .unwrap();
         assert_eq!(arr.len(), output.len());
@@ -75,7 +76,7 @@ mod tests {
 
         let new_dtype = DType::Extension(ext_dtype).with_nullability(Nullability::Nullable);
 
-        let output = arr.to_array().cast(new_dtype.clone()).unwrap();
+        let output = arr.clone().into_array().cast(new_dtype.clone()).unwrap();
         assert_eq!(arr.len(), output.len());
         assert!(arr.dtype().eq_ignore_nullability(output.dtype()));
         assert_eq!(output.dtype(), &new_dtype);
@@ -92,7 +93,7 @@ mod tests {
         let arr = ExtensionArray::new(original_dtype, storage);
 
         assert!(
-            arr.to_array()
+            arr.into_array()
                 .cast(DType::Extension(target_dtype))
                 .and_then(|a| a.to_canonical().map(|c| c.into_array()))
                 .is_err()
@@ -105,7 +106,7 @@ mod tests {
     #[case(create_timestamp_array(TimeUnit::Nanoseconds, false))]
     #[case(create_timestamp_array(TimeUnit::Seconds, true))]
     fn test_cast_extension_conformance(#[case] array: ExtensionArray) {
-        test_cast_conformance(&array.to_array());
+        test_cast_conformance(&array.into_array());
     }
 
     fn create_timestamp_array(time_unit: TimeUnit, nullable: bool) -> ExtensionArray {

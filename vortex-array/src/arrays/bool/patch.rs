@@ -21,7 +21,7 @@ impl BoolArray {
         let patched_validity = self.validity().clone().patch(
             len,
             offset,
-            &indices.to_array(),
+            patches.indices(),
             values.validity(),
             ctx,
         )?;

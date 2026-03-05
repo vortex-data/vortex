@@ -79,6 +79,7 @@ mod test {
     use itertools::Itertools;
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::bool::compute::filter::filter_indices;
     use crate::arrays::bool::compute::filter::filter_slices;
@@ -120,6 +121,6 @@ mod test {
     #[case(BoolArray::from_iter((0..100).map(|i| i % 2 == 0)))]
     #[case(BoolArray::from_iter((0..1024).map(|i| i % 3 != 0)))]
     fn test_filter_bool_conformance(#[case] array: BoolArray) {
-        test_filter_conformance(&array.to_array());
+        test_filter_conformance(&array.into_array());
     }
 }

@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures::pin_mut;
 use vortex_array::ArrayContext;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -60,7 +61,7 @@ impl LayoutStrategy for CollectStrategy {
                 chunks.push(chunk);
             }
 
-            let collected = ChunkedArray::try_new(chunks, _dtype)?.to_array();
+            let collected = ChunkedArray::try_new(chunks, _dtype)?.into_array();
             yield (latest_sequence_id.vortex_expect("must have visited at least one chunk"), collected);
         };
 

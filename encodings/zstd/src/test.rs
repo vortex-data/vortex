@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #![allow(clippy::cast_possible_truncation)]
 
+use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -64,7 +65,7 @@ fn test_zstd_with_validity_and_multi_frame() {
     validity[177] = true;
     let array = PrimitiveArray::new(
         Buffer::from(data),
-        Validity::Array(BoolArray::from_iter(validity).to_array()),
+        Validity::Array(BoolArray::from_iter(validity).into_array()),
     );
 
     let compressed = ZstdArray::from_primitive(&array, 0, 30).unwrap();
@@ -89,7 +90,7 @@ fn test_zstd_with_validity_and_multi_frame() {
     );
     assert_eq!(
         primitive.validity(),
-        &Validity::Array(BoolArray::from_iter(vec![false, true, false]).to_array())
+        &Validity::Array(BoolArray::from_iter(vec![false, true, false]).into_array())
     );
 }
 
@@ -120,7 +121,7 @@ fn test_validity_vtable() {
     let mask_bools = vec![false, true, true, false, true];
     let array = PrimitiveArray::new(
         (0..5).collect::<Buffer<_>>(),
-        Validity::Array(BoolArray::from_iter(mask_bools.clone()).to_array()),
+        Validity::Array(BoolArray::from_iter(mask_bools.clone()).into_array()),
     );
     let compressed = ZstdArray::from_primitive(&array, 3, 0).unwrap();
     assert_eq!(

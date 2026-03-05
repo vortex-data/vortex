@@ -6,6 +6,7 @@ use num_traits::NumCast;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TakeExecute;
@@ -84,7 +85,7 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
         PrimitiveArray::new(buffer, validity.clone())
     });
 
-    array.values().take(physical_indices.to_array())
+    array.values().take(physical_indices.into_array())
 }
 
 #[cfg(test)]
@@ -143,11 +144,11 @@ mod test {
     #[test]
     fn ree_take_nullable() {
         let taken = ree_array()
-            .take(PrimitiveArray::from_option_iter([Some(1), None]).to_array())
+            .take(PrimitiveArray::from_option_iter([Some(1), None]).into_array())
             .unwrap();
 
         let expected = PrimitiveArray::from_option_iter([Some(1i32), None]);
-        assert_arrays_eq!(taken, expected.to_array());
+        assert_arrays_eq!(taken, expected.into_array());
     }
 
     #[rstest]
@@ -182,7 +183,7 @@ mod test {
         RunEndArray::encode(PrimitiveArray::from_iter(values).into_array()).unwrap()
     })]
     fn test_take_runend_conformance(#[case] array: RunEndArray) {
-        test_take_conformance(&array.to_array());
+        test_take_conformance(&array.into_array());
     }
 
     #[rstest]

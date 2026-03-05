@@ -72,7 +72,7 @@ mod test {
     #[test]
     pub fn slice_block() {
         let arr = BitPackedArray::encode(
-            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).to_array(),
+            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
             6,
         )
         .unwrap();
@@ -86,7 +86,7 @@ mod test {
     #[test]
     pub fn slice_within_block() {
         let arr = BitPackedArray::encode(
-            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).to_array(),
+            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
             6,
         )
         .unwrap();
@@ -100,7 +100,7 @@ mod test {
     #[test]
     fn slice_within_block_u8s() {
         let packed = BitPackedArray::encode(
-            &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).to_array(),
+            &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).into_array(),
             7,
         )
         .unwrap();
@@ -113,7 +113,7 @@ mod test {
     #[test]
     fn slice_block_boundary_u8s() {
         let packed = BitPackedArray::encode(
-            &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).to_array(),
+            &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).into_array(),
             7,
         )
         .unwrap();
@@ -126,7 +126,7 @@ mod test {
     #[test]
     fn double_slice_within_block() {
         let arr = BitPackedArray::encode(
-            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).to_array(),
+            &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
             6,
         )
         .unwrap();
@@ -162,7 +162,7 @@ mod test {
         // Check that our take implementation respects the offsets applied after slicing.
 
         let array = BitPackedArray::encode(
-            &PrimitiveArray::from_iter((63u32..).take(3072)).to_array(),
+            &PrimitiveArray::from_iter((63u32..).take(3072)).into_array(),
             6,
         )
         .unwrap();
@@ -197,7 +197,7 @@ mod test {
                         8,
                         0,
                         buffer![1u32].into_array(),
-                        PrimitiveArray::new(buffer![999u32], Validity::AllValid).to_array(),
+                        PrimitiveArray::new(buffer![999u32], Validity::AllValid).into_array(),
                         None,
                     )
                     .unwrap(),

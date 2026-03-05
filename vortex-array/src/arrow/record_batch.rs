@@ -46,7 +46,7 @@ impl StructArray {
     ) -> VortexResult<RecordBatch> {
         let data_type = DataType::Struct(schema.as_ref().fields.clone());
         let array_ref = self
-            .to_array()
+            .into_array()
             .execute_arrow(Some(&data_type), &mut LEGACY_SESSION.create_execution_ctx())?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }

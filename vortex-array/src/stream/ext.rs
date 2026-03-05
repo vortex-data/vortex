@@ -7,6 +7,7 @@ use futures::TryStreamExt;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::stream::ArrayStream;
 use crate::stream::SendableArrayStream;
@@ -33,7 +34,7 @@ pub trait ArrayStreamExt: ArrayStream {
             if chunks.len() == 1 {
                 Ok(chunks.remove(0))
             } else {
-                Ok(ChunkedArray::try_new(chunks, dtype)?.to_array())
+                Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
             }
         }
     }

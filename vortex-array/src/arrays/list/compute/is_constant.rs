@@ -109,7 +109,7 @@ mod tests {
                 .unwrap()
         );
         assert!(
-            is_constant(&struct_of_lists.to_array())
+            is_constant(&struct_of_lists.into_array())
                 .unwrap()
                 .unwrap_or_default()
         );

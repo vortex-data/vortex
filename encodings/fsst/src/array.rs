@@ -193,7 +193,13 @@ impl VTable for FSSTVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            builder.extend_from_array(&array.to_array().execute::<Canonical>(ctx)?.into_array());
+            builder.extend_from_array(
+                &array
+                    .clone()
+                    .into_array()
+                    .execute::<Canonical>(ctx)?
+                    .into_array(),
+            );
             return Ok(());
         };
 
@@ -451,7 +457,7 @@ impl FSSTArray {
             Compressor::rebuild_from(symbols2.as_slice(), symbol_lengths2.as_slice())
         })
             as Box<dyn Fn() -> Compressor + Send>));
-        let codes_array = codes.to_array();
+        let codes_array = codes.clone().into_array();
 
         Self {
             dtype,

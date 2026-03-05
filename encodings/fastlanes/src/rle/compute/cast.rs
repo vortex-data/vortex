@@ -66,7 +66,7 @@ mod tests {
         let rle = RLEArray::encode(&primitive).unwrap();
 
         let casted = rle
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(PType::U16, Nullability::NonNullable))
             .unwrap();
         assert_arrays_eq!(casted, PrimitiveArray::from_iter([10u16, 20, 30, 40, 50]));
@@ -80,7 +80,7 @@ mod tests {
             Validity::from_iter([true, false, true, true, false]),
         );
         let rle = RLEArray::encode(&primitive).unwrap();
-        rle.to_array()
+        rle.into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
             .and_then(|a| a.to_canonical().map(|c| c.into_array()))
             .unwrap();
@@ -137,6 +137,6 @@ mod tests {
     )]
     fn test_cast_rle_conformance(#[case] primitive: PrimitiveArray) {
         let rle_array = RLEArray::encode(&primitive).unwrap();
-        test_cast_conformance(&rle_array.to_array());
+        test_cast_conformance(&rle_array.into_array());
     }
 }

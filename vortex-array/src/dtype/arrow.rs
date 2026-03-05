@@ -200,6 +200,9 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
             DataType::Dictionary(_, value_type) => {
                 Self::from_arrow((value_type.as_ref(), nullability))
             }
+            DataType::RunEndEncoded(_, value_type) => {
+                Self::from_arrow((value_type.data_type(), nullability))
+            }
             _ => unimplemented!("Arrow data type not yet supported: {:?}", data_type),
         }
     }

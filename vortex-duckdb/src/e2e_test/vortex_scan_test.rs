@@ -310,9 +310,9 @@ fn test_vortex_multi_column() {
             vec![true, false, true, true, false].into(),
             Validity::NonNullable,
         )
-        .to_array();
-        let f2 = (0..5).collect::<PrimitiveArray>().to_array();
-        let f3 = (100..105).collect::<PrimitiveArray>().to_array();
+        .into_array();
+        let f2 = (0..5).collect::<PrimitiveArray>().into_array();
+        let f3 = (100..105).collect::<PrimitiveArray>().into_array();
         write_vortex_file([("f1", f1), ("f2", f2), ("f3", f3)].into_iter()).await
     });
 

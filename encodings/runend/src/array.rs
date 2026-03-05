@@ -550,6 +550,6 @@ mod tests {
         // 2, 3, 4 => 2
         // 5, 6, 7, 8, 9 => 3
         let expected = buffer![1, 1, 2, 2, 2, 3, 3, 3, 3, 3].into_array();
-        assert_arrays_eq!(arr.to_array(), expected);
+        assert_arrays_eq!(arr.into_array(), expected);
     }
 }

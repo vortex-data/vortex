@@ -8,6 +8,7 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::DynArray;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrow::FromArrowArray;
@@ -100,7 +101,7 @@ fn constant_boolean(
         .map(|b| Scalar::bool(b, nullable.into()))
         .unwrap_or_else(|| Scalar::null(DType::Bool(nullable.into())));
 
-    Ok(Some(ConstantArray::new(scalar, length).to_array()))
+    Ok(Some(ConstantArray::new(scalar, length).into_array()))
 }
 
 #[cfg(test)]
