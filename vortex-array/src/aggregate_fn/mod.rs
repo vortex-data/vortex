@@ -11,6 +11,9 @@ use arcref::ArcRef;
 mod accumulator;
 pub use accumulator::*;
 
+mod accumulator_grouped;
+pub use accumulator_grouped::*;
+
 mod vtable;
 pub use vtable::*;
 
@@ -27,6 +30,7 @@ mod options;
 pub use options::*;
 
 pub mod fns;
+mod kernels;
 pub mod session;
 
 /// A unique identifier for an aggregate function.

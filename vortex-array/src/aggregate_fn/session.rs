@@ -6,9 +6,14 @@ use std::sync::Arc;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
+use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::kernels::DynAggregateKernel;
+use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
+use crate::vtable::ArrayId;
 
 /// Registry of aggregate function vtables.
 pub type AggregateFnRegistry = Registry<AggregateFnPluginRef>;
@@ -17,6 +22,10 @@ pub type AggregateFnRegistry = Registry<AggregateFnPluginRef>;
 #[derive(Debug, Default)]
 pub struct AggregateFnSession {
     registry: AggregateFnRegistry,
+
+    pub(super) kernels: HashMap<(AggregateFnId, ArrayId), &'static dyn DynAggregateKernel>,
+    pub(super) grouped_kernels:
+        HashMap<(AggregateFnId, ArrayId), &'static dyn DynGroupedAggregateKernel>,
 }
 
 impl AggregateFnSession {

@@ -20,10 +20,13 @@ use std::sync::Arc;
 
 use vortex_error::VortexResult;
 
+use crate::aggregate_fn::Accumulator;
+use crate::aggregate_fn::AccumulatorRef;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::accumulator::Accumulator;
+use crate::aggregate_fn::GroupedAccumulator;
+use crate::aggregate_fn::GroupedAccumulatorRef;
 use crate::dtype::DType;
 
 /// An object-safe, sealed trait for bound aggregate function dispatch.
@@ -37,7 +40,12 @@ pub(super) trait DynAggregateFn: 'static + Send + Sync + super::sealed::Sealed {
 
     fn return_dtype(&self, input_dtype: &DType) -> VortexResult<DType>;
     fn state_dtype(&self, input_dtype: &DType) -> VortexResult<DType>;
-    fn accumulator(&self, input_dtype: &DType) -> VortexResult<Box<dyn Accumulator>>;
+    fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef>;
+    fn accumulator_grouped(
+        &self,
+        input_dtype: &DType,
+        capacity: usize,
+    ) -> VortexResult<GroupedAccumulatorRef>;
 
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>>;
     fn options_eq(&self, other_options: &dyn Any) -> bool;
@@ -79,8 +87,25 @@ impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
         V::state_dtype(&self.vtable, &self.options, input_dtype)
     }
 
-    fn accumulator(&self, input_dtype: &DType) -> VortexResult<Box<dyn Accumulator>> {
-        V::accumulator(&self.vtable, &self.options, input_dtype)
+    fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef> {
+        Ok(Box::new(Accumulator::try_new(
+            self.vtable.clone(),
+            self.options.clone(),
+            input_dtype.clone(),
+        )?))
+    }
+
+    fn accumulator_grouped(
+        &self,
+        input_dtype: &DType,
+        capacity: usize,
+    ) -> VortexResult<GroupedAccumulatorRef> {
+        Ok(Box::new(GroupedAccumulator::try_new_with_capacity(
+            self.vtable.clone(),
+            self.options.clone(),
+            input_dtype.clone(),
+            capacity,
+        )?))
     }
 
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>> {

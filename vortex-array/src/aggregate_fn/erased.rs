@@ -14,9 +14,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 
+use crate::aggregate_fn::AccumulatorRef;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::accumulator::Accumulator;
 use crate::aggregate_fn::options::AggregateFnOptions;
 use crate::aggregate_fn::typed::AggregateFnInner;
 use crate::aggregate_fn::typed::DynAggregateFn;
@@ -84,7 +84,7 @@ impl AggregateFnRef {
     }
 
     /// Create an accumulator for streaming aggregation.
-    pub fn accumulator(&self, input_dtype: &DType) -> VortexResult<Box<dyn Accumulator>> {
+    pub fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef> {
         self.0.accumulator(input_dtype)
     }
 }

@@ -2,74 +2,138 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_session::VortexSession;
 
+use crate::AnyCanonical;
 use crate::ArrayRef;
-use crate::arrays::ListViewArray;
+use crate::Canonical;
+use crate::DynArray;
+use crate::VortexSessionExecute;
+use crate::aggregate_fn::AggregateFn;
+use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::session::AggregateFnSessionExt;
+use crate::dtype::DType;
 use crate::scalar::Scalar;
 
-/// The execution interface for all aggregation.
-///
-/// An accumulator processes one group at a time: the caller feeds element batches via
-/// [`accumulate`](Accumulator::accumulate), then calls [`flush`](Accumulator::flush) to finalize
-/// the group and begin the next. The accumulator owns an output buffer and returns all results
-/// via [`finish`](Accumulator::finish).
-pub trait Accumulator: Send + Sync {
-    /// Feed a batch of elements for the currently open group.
-    ///
-    /// May be called multiple times per group (e.g., chunked elements).
+/// Reference-counted type-erased accumulator.
+pub type AccumulatorRef = Box<dyn DynAccumulator>;
+
+/// An accumulator used for computing aggregates over an entire stream of arrays.
+pub struct Accumulator<V: AggregateFnVTable> {
+    /// The vtable of the aggregate function.
+    vtable: V,
+    /// The options of the aggregate function.
+    options: V::Options,
+    /// Type-erased aggregate function used for kernel dispatch.
+    aggregate_fn: AggregateFnRef,
+    /// The DType of the input.
+    dtype: DType,
+    /// The DType of the aggregate.
+    return_dtype: DType,
+    /// The DType of the accumulator state.
+    state_dtype: DType,
+    /// The current state of the accumulator, updated after each accumulate/merge call.
+    current_state: V::GroupState,
+    /// A session used to lookup custom aggregate kernels.
+    session: VortexSession,
+}
+
+impl<V: AggregateFnVTable> Accumulator<V> {
+    pub fn try_new(
+        vtable: V,
+        options: V::Options,
+        dtype: DType,
+        session: VortexSession,
+    ) -> VortexResult<Self> {
+        let return_dtype = vtable.return_dtype(&options, &dtype)?;
+        let state_dtype = vtable.state_dtype(&options, &dtype)?;
+        let current_state = vtable.state_new(&options, &dtype)?;
+        let aggregate_fn = AggregateFn::new(vtable.clone(), options.clone()).erased();
+
+        Ok(Self {
+            vtable,
+            options,
+            aggregate_fn,
+            dtype,
+            return_dtype,
+            state_dtype,
+            current_state,
+            session,
+        })
+    }
+}
+
+/// A trait object for type-erased accumulators, used for dynamic dispatch when the aggregate
+/// function is not known at compile time.
+pub trait DynAccumulator: 'static + Send {
+    /// Accumulate a new array into the accumulator's state.
     fn accumulate(&mut self, batch: &ArrayRef) -> VortexResult<()>;
 
-    /// Accumulate all groups defined by a [`ListViewArray`] in one call.
+    /// Whether the accumulator's result is fully determined.
+    fn is_saturated(&self) -> bool;
+
+    /// Finish the accumulation and return the final aggregate result as a scalar.
     ///
-    /// Default: for each group, accumulate its elements then flush.
-    /// Override for vectorized fast paths (e.g., segmented sum over the flat
-    /// elements + offsets without per-group slicing).
-    fn accumulate_list(&mut self, list: &ListViewArray) -> VortexResult<()> {
-        for i in 0..list.len() {
-            self.accumulate(&list.list_elements_at(i)?)?;
-            self.flush()?;
+    /// Resets the accumulator state back to the initial state after finishing.
+    fn finish(&mut self) -> Scalar;
+}
+
+impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
+    fn accumulate(&mut self, batch: &ArrayRef) -> VortexResult<()> {
+        if self.is_saturated() {
+            return Ok(());
         }
-        Ok(())
+
+        vortex_ensure!(
+            batch.dtype() == &self.dtype,
+            "Input DType mismatch: expected {}, got {}",
+            self.dtype,
+            batch.dtype()
+        );
+
+        let kernels = self.session.aggregate_fns().kernels;
+
+        let mut ctx = self.session.create_execution_ctx();
+        let mut batch = batch.clone();
+        for _ in 0..64 {
+            if batch.is::<AnyCanonical>() {
+                break;
+            }
+
+            let kernel_key = (self.vtable.id(), batch.encoding_id());
+            if let Some(kernel) = kernels.get(&kernel_key) {
+                if let Some(result) = kernel.aggregate(&self.aggregate_fn, &batch)? {
+                    vortex_ensure!(
+                        result.dtype() == &self.state_dtype,
+                        "Aggregate kernel returned {}, expected {}",
+                        result.dtype(),
+                        self.state_dtype,
+                    );
+                    self.vtable.state_merge(&mut self.current_state, result)?;
+                    return Ok(());
+                }
+            }
+
+            // Execute one step and try again
+            batch = batch.execute(&mut ctx)?;
+        }
+
+        // Otherwise, execute the batch until it is canonical and accumulate it into the state.
+        let canonical = batch.execute::<Canonical>(&mut ctx)?;
+
+        self.vtable
+            .state_accumulate(&mut self.current_state, &canonical, &mut ctx)
     }
 
-    /// Merge pre-computed partial state into the currently open group.
-    ///
-    /// The scalar's dtype must match the aggregate's `state_dtype`.
-    /// This is equivalent to having processed raw elements that would produce
-    /// this state — used by encoding-specific optimizations.
-    fn merge(&mut self, state: &Scalar) -> VortexResult<()>;
-
-    /// Merge an array of pre-computed states, one per group, flushing each.
-    ///
-    /// The array's dtype must match the aggregate's `state_dtype`.
-    /// Default: merge + flush for each element.
-    fn merge_list(&mut self, states: &ArrayRef) -> VortexResult<()> {
-        for i in 0..states.len() {
-            self.merge(&states.scalar_at(i)?)?;
-            self.flush()?;
-        }
-        Ok(())
-    }
-
-    /// Whether the currently open group's result is fully determined.
-    ///
-    /// When true, callers may skip further accumulate/merge calls and proceed
-    /// directly to [`flush`](Accumulator::flush). Resets to false after flush.
     fn is_saturated(&self) -> bool {
-        false
+        self.vtable.state_is_saturated(&self.current_state)
     }
 
-    /// Finalize the currently open group: push its result to the output buffer
-    /// and reset internal state for the next group.
-    ///
-    /// Flushing a group with zero accumulated elements produces the aggregate's
-    /// identity value (e.g., 0 for Sum, u64::MAX for Min) or null if no identity
-    /// exists.
-    fn flush(&mut self) -> VortexResult<()>;
-
-    /// Return all flushed results as a single array.
-    ///
-    /// Length equals the number of [`flush`](Accumulator::flush) calls made over the
-    /// accumulator's lifetime.
-    fn finish(self: Box<Self>) -> VortexResult<ArrayRef>;
+    fn finish(&mut self) -> Scalar {
+        let result = self.vtable.state_result(self.current_state);
+        self.vtable.state_reset(&mut self.current_state);
+        result
+    }
 }

@@ -1,19 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hash;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
+use crate::Canonical;
+use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
-use crate::aggregate_fn::accumulator::Accumulator;
 use crate::dtype::DType;
+use crate::scalar::Scalar;
 
 /// Defines the interface for aggregate function vtables.
 ///
@@ -27,6 +31,9 @@ use crate::dtype::DType;
 pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Options for this aggregate function.
     type Options: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Eq + Hash;
+
+    /// The accumulator state for a group.
+    type GroupState: 'static + Send;
 
     /// Returns the ID of the aggregate function vtable.
     fn id(&self) -> AggregateFnId;
@@ -49,7 +56,7 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         vortex_bail!("Aggregate function {} is not deserializable", self.id());
     }
 
-    /// Compute the return [`DType`] per group given the input element type.
+    /// The return [`DType`] of the aggregate.
     fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType>;
 
     /// DType of the intermediate accumulator state.
@@ -58,12 +65,44 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// (e.g., Mean: `Struct { sum: f64, count: u64 }`).
     fn state_dtype(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType>;
 
-    /// Create an accumulator for streaming aggregation.
-    fn accumulator(
+    /// Return accumulator state for an empty group.
+    fn state_new(
         &self,
         options: &Self::Options,
         input_dtype: &DType,
-    ) -> VortexResult<Box<dyn Accumulator>>;
+    ) -> VortexResult<Self::GroupState>;
+
+    /// Reset the accumulator state back to the empty state.
+    fn state_reset(&self, state: &mut Self::GroupState);
+
+    /// Merge a scalar state into the accumulator, used for merging partial aggregates.
+    fn state_merge(&self, state: &mut Self::GroupState, other: Scalar) -> VortexResult<()>;
+
+    /// Return the aggregate result for the given accumulator state.
+    ///
+    /// The returned scalar must have the same DType as specified by `return_dtype` for the
+    /// options and input dtype used to construct the state.
+    fn state_result(&self, state: &Self::GroupState) -> Scalar;
+
+    /// Is the accumulator state "saturated", i.e. has it reached a state where the final result
+    /// is fully determined.
+    fn state_is_saturated(&self, state: &Self::GroupState) -> bool;
+
+    /// Accumulate a new canonical array into the accumulator state.
+    fn state_accumulate(
+        &self,
+        state: &mut Self::GroupState,
+        batch: &Canonical,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct EmptyOptions;
+impl Display for EmptyOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "")
+    }
 }
 
 /// Factory functions for aggregate vtables.
