@@ -41,9 +41,9 @@ mod tests {
             .collect();
 
         #[cfg(feature = "unstable_encodings")]
-        const EXPECTED_SIZE: usize = 216052;
+        const EXPECTED_SIZE: usize = 216004;
         #[cfg(not(feature = "unstable_encodings"))]
-        const EXPECTED_SIZE: usize = 216020;
+        const EXPECTED_SIZE: usize = 215972;
 
         let sizes = futures::future::try_join_all(futures).await?;
         for (i, size) in sizes.iter().enumerate() {
