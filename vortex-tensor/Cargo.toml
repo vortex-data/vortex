@@ -1,0 +1,22 @@
+[package]
+name = "vortex-tensor"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex tensor extension type"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = "README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+itertools = { workspace = true }
+vortex-array = { workspace = true }
+vortex-error = { workspace = true }
