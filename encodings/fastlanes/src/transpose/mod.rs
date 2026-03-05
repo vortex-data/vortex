@@ -1769,11 +1769,96 @@ pub mod x86 {
 pub mod aarch64 {
     use super::*;
 
+    // ========================================================================
+    // Static permutation tables for TBL-based gather/scatter
+    // ========================================================================
+
+    /// Gather indices for the first half from input[0..64].
+    /// Each group needs 4 bytes at stride 16 (the low half of the stride pattern).
+    /// Layout: [g0_from_lo(4 bytes), pad(4 bytes), g1_from_lo(4 bytes), pad(4 bytes), ...]
+    /// Two groups per 16-byte NEON register.
+    #[rustfmt::skip]
+    static GATHER_FIRST_LO: [[u8; 16]; 4] = [
+        // Groups 0,1 from BASE_PATTERN_FIRST: bases 0, 8
+        [0, 16, 32, 48, 0xFF, 0xFF, 0xFF, 0xFF, 8, 24, 40, 56, 0xFF, 0xFF, 0xFF, 0xFF],
+        // Groups 2,3: bases 4, 12
+        [4, 20, 36, 52, 0xFF, 0xFF, 0xFF, 0xFF, 12, 28, 44, 60, 0xFF, 0xFF, 0xFF, 0xFF],
+        // Groups 4,5: bases 2, 10
+        [2, 18, 34, 50, 0xFF, 0xFF, 0xFF, 0xFF, 10, 26, 42, 58, 0xFF, 0xFF, 0xFF, 0xFF],
+        // Groups 6,7: bases 6, 14
+        [6, 22, 38, 54, 0xFF, 0xFF, 0xFF, 0xFF, 14, 30, 46, 62, 0xFF, 0xFF, 0xFF, 0xFF],
+    ];
+
+    /// Gather indices for the first half from input[64..128].
+    /// These fill in bytes 4-7 of each u64 (the high half of the stride pattern).
+    #[rustfmt::skip]
+    static GATHER_FIRST_HI: [[u8; 16]; 4] = [
+        // Groups 0,1: bases 0, 8 (offset by -64 since table starts at input[64])
+        [0xFF, 0xFF, 0xFF, 0xFF, 0, 16, 32, 48, 0xFF, 0xFF, 0xFF, 0xFF, 8, 24, 40, 56],
+        // Groups 2,3: bases 4, 12
+        [0xFF, 0xFF, 0xFF, 0xFF, 4, 20, 36, 52, 0xFF, 0xFF, 0xFF, 0xFF, 12, 28, 44, 60],
+        // Groups 4,5: bases 2, 10
+        [0xFF, 0xFF, 0xFF, 0xFF, 2, 18, 34, 50, 0xFF, 0xFF, 0xFF, 0xFF, 10, 26, 42, 58],
+        // Groups 6,7: bases 6, 14
+        [0xFF, 0xFF, 0xFF, 0xFF, 6, 22, 38, 54, 0xFF, 0xFF, 0xFF, 0xFF, 14, 30, 46, 62],
+    ];
+
+    /// Gather indices for the second half from input[0..64].
+    /// Uses BASE_PATTERN_SECOND: bases [1, 9, 5, 13, 3, 11, 7, 15]
+    #[rustfmt::skip]
+    static GATHER_SECOND_LO: [[u8; 16]; 4] = [
+        [1, 17, 33, 49, 0xFF, 0xFF, 0xFF, 0xFF, 9, 25, 41, 57, 0xFF, 0xFF, 0xFF, 0xFF],
+        [5, 21, 37, 53, 0xFF, 0xFF, 0xFF, 0xFF, 13, 29, 45, 61, 0xFF, 0xFF, 0xFF, 0xFF],
+        [3, 19, 35, 51, 0xFF, 0xFF, 0xFF, 0xFF, 11, 27, 43, 59, 0xFF, 0xFF, 0xFF, 0xFF],
+        [7, 23, 39, 55, 0xFF, 0xFF, 0xFF, 0xFF, 15, 31, 47, 63, 0xFF, 0xFF, 0xFF, 0xFF],
+    ];
+
+    /// Gather indices for the second half from input[64..128].
+    #[rustfmt::skip]
+    static GATHER_SECOND_HI: [[u8; 16]; 4] = [
+        [0xFF, 0xFF, 0xFF, 0xFF, 1, 17, 33, 49, 0xFF, 0xFF, 0xFF, 0xFF, 9, 25, 41, 57],
+        [0xFF, 0xFF, 0xFF, 0xFF, 5, 21, 37, 53, 0xFF, 0xFF, 0xFF, 0xFF, 13, 29, 45, 61],
+        [0xFF, 0xFF, 0xFF, 0xFF, 3, 19, 35, 51, 0xFF, 0xFF, 0xFF, 0xFF, 11, 27, 43, 59],
+        [0xFF, 0xFF, 0xFF, 0xFF, 7, 23, 39, 55, 0xFF, 0xFF, 0xFF, 0xFF, 15, 31, 47, 63],
+    ];
+
+    /// 8x8 byte transpose (scatter) permutation split into 4 × 16-byte chunks for NEON TBL.
+    /// Input layout:  [g0b0..g0b7, g1b0..g1b7, ..., g7b0..g7b7] (64 bytes, group-major)
+    /// Output layout: [g0b0,g1b0,..,g7b0, g0b1,g1b1,..,g7b1, ...] (64 bytes, row-major)
+    /// Same permutation as x86 SCATTER_8X8, split for 16-byte NEON registers.
+    #[rustfmt::skip]
+    static SCATTER_8X8_NEON: [[u8; 16]; 4] = [
+        [ 0,  8, 16, 24, 32, 40, 48, 56,  1,  9, 17, 25, 33, 41, 49, 57],
+        [ 2, 10, 18, 26, 34, 42, 50, 58,  3, 11, 19, 27, 35, 43, 51, 59],
+        [ 4, 12, 20, 28, 36, 44, 52, 60,  5, 13, 21, 29, 37, 45, 53, 61],
+        [ 6, 14, 22, 30, 38, 46, 54, 62,  7, 15, 23, 31, 39, 47, 55, 63],
+    ];
+
     /// Check if NEON is available (always true on AArch64).
     #[inline]
     pub fn has_neon() -> bool {
         // NEON is mandatory on AArch64
         true
+    }
+
+    /// Perform 8x8 bit transpose on two u64s packed in a uint64x2_t.
+    #[inline(always)]
+    unsafe fn bit_transpose_8x8_neon(
+        mut v: core::arch::aarch64::uint64x2_t,
+    ) -> core::arch::aarch64::uint64x2_t {
+        use core::arch::aarch64::*;
+
+        let mask1 = vdupq_n_u64(0x00AA00AA00AA00AAu64);
+        let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<7>(v)), mask1);
+        v = veorq_u64(veorq_u64(v, t), vshlq_n_u64::<7>(t));
+
+        let mask2 = vdupq_n_u64(0x0000CCCC0000CCCCu64);
+        let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<14>(v)), mask2);
+        v = veorq_u64(veorq_u64(v, t), vshlq_n_u64::<14>(t));
+
+        let mask3 = vdupq_n_u64(0x00000000F0F0F0F0u64);
+        let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<28>(v)), mask3);
+        veorq_u64(veorq_u64(v, t), vshlq_n_u64::<28>(t))
     }
 
     /// Transpose 1024 bits using ARM NEON.
@@ -1987,6 +2072,1175 @@ pub mod aarch64 {
             }
         }
     }
+
+    // ========================================================================
+    // TBL-based NEON implementation (vectorized gather/scatter)
+    // ========================================================================
+
+    /// Transpose 1024 bits using ARM NEON with TBL-based vectorized gather and scatter.
+    ///
+    /// Uses `vqtbl4q_u8` to gather bytes from the 128-byte input in parallel,
+    /// avoiding scalar byte-by-byte loads. Then uses `vqtbl4q_u8` again to perform
+    /// the 8x8 byte transpose for scatter. This is the NEON analog of x86 VBMI's
+    /// `vpermb`/`vpermi2b` byte permutation instructions.
+    ///
+    /// # Safety
+    /// Requires AArch64 with NEON (always available on AArch64).
+    #[target_feature(enable = "neon")]
+    #[inline(never)]
+    pub unsafe fn transpose_1024_neon_tbl(input: &[u8; 128], output: &mut [u8; 128]) {
+        use core::arch::aarch64::*;
+
+        // Load all 128 input bytes into two uint8x16x4_t tables (64 bytes each)
+        let tbl_lo = vld1q_u8_x4(input.as_ptr());
+        let tbl_hi = vld1q_u8_x4(input.as_ptr().add(64));
+
+        // Load scatter permutation indices (4 × 16 bytes)
+        let scatter0 = vld1q_u8(SCATTER_8X8_NEON[0].as_ptr());
+        let scatter1 = vld1q_u8(SCATTER_8X8_NEON[1].as_ptr());
+        let scatter2 = vld1q_u8(SCATTER_8X8_NEON[2].as_ptr());
+        let scatter3 = vld1q_u8(SCATTER_8X8_NEON[3].as_ptr());
+
+        // Process first 64 output bytes (8 groups from BASE_PATTERN_FIRST)
+        // Gather and bit-transpose all 4 pairs, then scatter the full 64 bytes
+        let mut buf = [0u8; 64];
+        for pair in 0..4 {
+            let idx_lo = vld1q_u8(GATHER_FIRST_LO[pair].as_ptr());
+            let idx_hi = vld1q_u8(GATHER_FIRST_HI[pair].as_ptr());
+
+            let from_lo = vqtbl4q_u8(tbl_lo, idx_lo);
+            let from_hi = vqtbl4q_u8(tbl_hi, idx_hi);
+            let gathered = vorrq_u8(from_lo, from_hi);
+
+            let v = bit_transpose_8x8_neon(vreinterpretq_u64_u8(gathered));
+            vst1q_u8(buf.as_mut_ptr().add(pair * 16), vreinterpretq_u8_u64(v));
+        }
+
+        // Load the 64-byte result as a TBL table and apply 8x8 byte transpose
+        let result_tbl = vld1q_u8_x4(buf.as_ptr());
+        vst1q_u8(output.as_mut_ptr(), vqtbl4q_u8(result_tbl, scatter0));
+        vst1q_u8(
+            output.as_mut_ptr().add(16),
+            vqtbl4q_u8(result_tbl, scatter1),
+        );
+        vst1q_u8(
+            output.as_mut_ptr().add(32),
+            vqtbl4q_u8(result_tbl, scatter2),
+        );
+        vst1q_u8(
+            output.as_mut_ptr().add(48),
+            vqtbl4q_u8(result_tbl, scatter3),
+        );
+
+        // Process second 64 output bytes (8 groups from BASE_PATTERN_SECOND)
+        for pair in 0..4 {
+            let idx_lo = vld1q_u8(GATHER_SECOND_LO[pair].as_ptr());
+            let idx_hi = vld1q_u8(GATHER_SECOND_HI[pair].as_ptr());
+
+            let from_lo = vqtbl4q_u8(tbl_lo, idx_lo);
+            let from_hi = vqtbl4q_u8(tbl_hi, idx_hi);
+            let gathered = vorrq_u8(from_lo, from_hi);
+
+            let v = bit_transpose_8x8_neon(vreinterpretq_u64_u8(gathered));
+            vst1q_u8(buf.as_mut_ptr().add(pair * 16), vreinterpretq_u8_u64(v));
+        }
+
+        let result_tbl = vld1q_u8_x4(buf.as_ptr());
+        vst1q_u8(
+            output.as_mut_ptr().add(64),
+            vqtbl4q_u8(result_tbl, scatter0),
+        );
+        vst1q_u8(
+            output.as_mut_ptr().add(80),
+            vqtbl4q_u8(result_tbl, scatter1),
+        );
+        vst1q_u8(
+            output.as_mut_ptr().add(96),
+            vqtbl4q_u8(result_tbl, scatter2),
+        );
+        vst1q_u8(
+            output.as_mut_ptr().add(112),
+            vqtbl4q_u8(result_tbl, scatter3),
+        );
+    }
+
+    /// Untranspose 1024 bits using ARM NEON with TBL-based vectorized operations.
+    ///
+    /// # Safety
+    /// Requires AArch64 with NEON (always available on AArch64).
+    #[target_feature(enable = "neon")]
+    #[inline(never)]
+    pub unsafe fn untranspose_1024_neon_tbl(input: &[u8; 128], output: &mut [u8; 128]) {
+        use core::arch::aarch64::*;
+
+        output.fill(0);
+
+        // Load scatter indices (SCATTER_8X8 is self-inverse, so same table un-scatters)
+        let scatter0 = vld1q_u8(SCATTER_8X8_NEON[0].as_ptr());
+        let scatter1 = vld1q_u8(SCATTER_8X8_NEON[1].as_ptr());
+        let scatter2 = vld1q_u8(SCATTER_8X8_NEON[2].as_ptr());
+        let scatter3 = vld1q_u8(SCATTER_8X8_NEON[3].as_ptr());
+
+        // First half: un-scatter the 64-byte input block to group-major order
+        let in_tbl = vld1q_u8_x4(input.as_ptr());
+        let mut buf = [0u8; 64];
+        vst1q_u8(buf.as_mut_ptr(), vqtbl4q_u8(in_tbl, scatter0));
+        vst1q_u8(buf.as_mut_ptr().add(16), vqtbl4q_u8(in_tbl, scatter1));
+        vst1q_u8(buf.as_mut_ptr().add(32), vqtbl4q_u8(in_tbl, scatter2));
+        vst1q_u8(buf.as_mut_ptr().add(48), vqtbl4q_u8(in_tbl, scatter3));
+
+        // Bit-transpose each pair and scatter to stride-16 output
+        for pair in 0..4 {
+            let base_group_0 = pair * 2;
+            let base_group_1 = pair * 2 + 1;
+
+            let gathered = vld1q_u8(buf.as_ptr().add(pair * 16));
+            let v = bit_transpose_8x8_neon(vreinterpretq_u64_u8(gathered));
+
+            let result_0 = vgetq_lane_u64::<0>(v);
+            let result_1 = vgetq_lane_u64::<1>(v);
+
+            let out_base_0 = BASE_PATTERN_FIRST[base_group_0];
+            let out_base_1 = BASE_PATTERN_FIRST[base_group_1];
+            for i in 0..8 {
+                output[out_base_0 + i * 16] = (result_0 >> (i * 8)) as u8;
+                output[out_base_1 + i * 16] = (result_1 >> (i * 8)) as u8;
+            }
+        }
+
+        // Second half
+        let in_tbl = vld1q_u8_x4(input.as_ptr().add(64));
+        vst1q_u8(buf.as_mut_ptr(), vqtbl4q_u8(in_tbl, scatter0));
+        vst1q_u8(buf.as_mut_ptr().add(16), vqtbl4q_u8(in_tbl, scatter1));
+        vst1q_u8(buf.as_mut_ptr().add(32), vqtbl4q_u8(in_tbl, scatter2));
+        vst1q_u8(buf.as_mut_ptr().add(48), vqtbl4q_u8(in_tbl, scatter3));
+
+        for pair in 0..4 {
+            let base_group_0 = pair * 2;
+            let base_group_1 = pair * 2 + 1;
+
+            let gathered = vld1q_u8(buf.as_ptr().add(pair * 16));
+            let v = bit_transpose_8x8_neon(vreinterpretq_u64_u8(gathered));
+
+            let result_0 = vgetq_lane_u64::<0>(v);
+            let result_1 = vgetq_lane_u64::<1>(v);
+
+            let out_base_0 = BASE_PATTERN_SECOND[base_group_0];
+            let out_base_1 = BASE_PATTERN_SECOND[base_group_1];
+            for i in 0..8 {
+                output[out_base_0 + i * 16] = (result_0 >> (i * 8)) as u8;
+                output[out_base_1 + i * 16] = (result_1 >> (i * 8)) as u8;
+            }
+        }
+    }
+
+    // ========================================================================
+    // Dual-block NEON implementation for ILP
+    // ========================================================================
+
+    /// Transpose two 1024-bit blocks using NEON with interleaved TBL operations.
+    ///
+    /// Processes two blocks in parallel to exploit instruction-level parallelism,
+    /// similar to the x86 dual-block VBMI approach.
+    ///
+    /// # Safety
+    /// Requires AArch64 with NEON (always available on AArch64).
+    #[target_feature(enable = "neon")]
+    #[inline(never)]
+    pub unsafe fn transpose_1024x2_neon(
+        input0: &[u8; 128],
+        input1: &[u8; 128],
+        output0: &mut [u8; 128],
+        output1: &mut [u8; 128],
+    ) {
+        use core::arch::aarch64::*;
+
+        // Load all input bytes for both blocks
+        let tbl0_lo = vld1q_u8_x4(input0.as_ptr());
+        let tbl0_hi = vld1q_u8_x4(input0.as_ptr().add(64));
+        let tbl1_lo = vld1q_u8_x4(input1.as_ptr());
+        let tbl1_hi = vld1q_u8_x4(input1.as_ptr().add(64));
+
+        let scatter0 = vld1q_u8(SCATTER_8X8_NEON[0].as_ptr());
+        let scatter1 = vld1q_u8(SCATTER_8X8_NEON[1].as_ptr());
+        let scatter2 = vld1q_u8(SCATTER_8X8_NEON[2].as_ptr());
+        let scatter3 = vld1q_u8(SCATTER_8X8_NEON[3].as_ptr());
+
+        let mut buf0 = [0u8; 64];
+        let mut buf1 = [0u8; 64];
+
+        // Process first 64 output bytes - interleaved between both blocks
+        for pair in 0..4 {
+            let idx_lo = vld1q_u8(GATHER_FIRST_LO[pair].as_ptr());
+            let idx_hi = vld1q_u8(GATHER_FIRST_HI[pair].as_ptr());
+
+            let g0 = vorrq_u8(vqtbl4q_u8(tbl0_lo, idx_lo), vqtbl4q_u8(tbl0_hi, idx_hi));
+            let g1 = vorrq_u8(vqtbl4q_u8(tbl1_lo, idx_lo), vqtbl4q_u8(tbl1_hi, idx_hi));
+
+            let v0 = bit_transpose_8x8_neon(vreinterpretq_u64_u8(g0));
+            let v1 = bit_transpose_8x8_neon(vreinterpretq_u64_u8(g1));
+
+            vst1q_u8(buf0.as_mut_ptr().add(pair * 16), vreinterpretq_u8_u64(v0));
+            vst1q_u8(buf1.as_mut_ptr().add(pair * 16), vreinterpretq_u8_u64(v1));
+        }
+
+        // 8x8 byte transpose scatter for both blocks
+        let tbl0 = vld1q_u8_x4(buf0.as_ptr());
+        let tbl1 = vld1q_u8_x4(buf1.as_ptr());
+        vst1q_u8(output0.as_mut_ptr(), vqtbl4q_u8(tbl0, scatter0));
+        vst1q_u8(output1.as_mut_ptr(), vqtbl4q_u8(tbl1, scatter0));
+        vst1q_u8(output0.as_mut_ptr().add(16), vqtbl4q_u8(tbl0, scatter1));
+        vst1q_u8(output1.as_mut_ptr().add(16), vqtbl4q_u8(tbl1, scatter1));
+        vst1q_u8(output0.as_mut_ptr().add(32), vqtbl4q_u8(tbl0, scatter2));
+        vst1q_u8(output1.as_mut_ptr().add(32), vqtbl4q_u8(tbl1, scatter2));
+        vst1q_u8(output0.as_mut_ptr().add(48), vqtbl4q_u8(tbl0, scatter3));
+        vst1q_u8(output1.as_mut_ptr().add(48), vqtbl4q_u8(tbl1, scatter3));
+
+        // Process second 64 output bytes - interleaved
+        for pair in 0..4 {
+            let idx_lo = vld1q_u8(GATHER_SECOND_LO[pair].as_ptr());
+            let idx_hi = vld1q_u8(GATHER_SECOND_HI[pair].as_ptr());
+
+            let g0 = vorrq_u8(vqtbl4q_u8(tbl0_lo, idx_lo), vqtbl4q_u8(tbl0_hi, idx_hi));
+            let g1 = vorrq_u8(vqtbl4q_u8(tbl1_lo, idx_lo), vqtbl4q_u8(tbl1_hi, idx_hi));
+
+            let v0 = bit_transpose_8x8_neon(vreinterpretq_u64_u8(g0));
+            let v1 = bit_transpose_8x8_neon(vreinterpretq_u64_u8(g1));
+
+            vst1q_u8(buf0.as_mut_ptr().add(pair * 16), vreinterpretq_u8_u64(v0));
+            vst1q_u8(buf1.as_mut_ptr().add(pair * 16), vreinterpretq_u8_u64(v1));
+        }
+
+        let tbl0 = vld1q_u8_x4(buf0.as_ptr());
+        let tbl1 = vld1q_u8_x4(buf1.as_ptr());
+        vst1q_u8(output0.as_mut_ptr().add(64), vqtbl4q_u8(tbl0, scatter0));
+        vst1q_u8(output1.as_mut_ptr().add(64), vqtbl4q_u8(tbl1, scatter0));
+        vst1q_u8(output0.as_mut_ptr().add(80), vqtbl4q_u8(tbl0, scatter1));
+        vst1q_u8(output1.as_mut_ptr().add(80), vqtbl4q_u8(tbl1, scatter1));
+        vst1q_u8(output0.as_mut_ptr().add(96), vqtbl4q_u8(tbl0, scatter2));
+        vst1q_u8(output1.as_mut_ptr().add(96), vqtbl4q_u8(tbl1, scatter2));
+        vst1q_u8(output0.as_mut_ptr().add(112), vqtbl4q_u8(tbl0, scatter3));
+        vst1q_u8(output1.as_mut_ptr().add(112), vqtbl4q_u8(tbl1, scatter3));
+    }
+
+    /// Untranspose two 1024-bit blocks using NEON with interleaved operations.
+    ///
+    /// # Safety
+    /// Requires AArch64 with NEON (always available on AArch64).
+    #[target_feature(enable = "neon")]
+    #[inline(never)]
+    pub unsafe fn untranspose_1024x2_neon(
+        input0: &[u8; 128],
+        input1: &[u8; 128],
+        output0: &mut [u8; 128],
+        output1: &mut [u8; 128],
+    ) {
+        use core::arch::aarch64::*;
+
+        output0.fill(0);
+        output1.fill(0);
+
+        // Load scatter indices for un-scattering input (SCATTER_8X8 is self-inverse)
+        let scatter0 = vld1q_u8(SCATTER_8X8_NEON[0].as_ptr());
+        let scatter1 = vld1q_u8(SCATTER_8X8_NEON[1].as_ptr());
+        let scatter2 = vld1q_u8(SCATTER_8X8_NEON[2].as_ptr());
+        let scatter3 = vld1q_u8(SCATTER_8X8_NEON[3].as_ptr());
+
+        // First half: un-scatter input, bit-transpose, then scatter to stride-16
+        let in0_tbl = vld1q_u8_x4(input0.as_ptr());
+        let in1_tbl = vld1q_u8_x4(input1.as_ptr());
+
+        // Un-scatter: rearrange from row-major back to group-major
+        let mut buf0 = [0u8; 64];
+        let mut buf1 = [0u8; 64];
+        vst1q_u8(buf0.as_mut_ptr(), vqtbl4q_u8(in0_tbl, scatter0));
+        vst1q_u8(buf0.as_mut_ptr().add(16), vqtbl4q_u8(in0_tbl, scatter1));
+        vst1q_u8(buf0.as_mut_ptr().add(32), vqtbl4q_u8(in0_tbl, scatter2));
+        vst1q_u8(buf0.as_mut_ptr().add(48), vqtbl4q_u8(in0_tbl, scatter3));
+        vst1q_u8(buf1.as_mut_ptr(), vqtbl4q_u8(in1_tbl, scatter0));
+        vst1q_u8(buf1.as_mut_ptr().add(16), vqtbl4q_u8(in1_tbl, scatter1));
+        vst1q_u8(buf1.as_mut_ptr().add(32), vqtbl4q_u8(in1_tbl, scatter2));
+        vst1q_u8(buf1.as_mut_ptr().add(48), vqtbl4q_u8(in1_tbl, scatter3));
+
+        // Now buf contains group-major u64s. Bit-transpose each pair and scatter.
+        for pair in 0..4 {
+            let base_group_0 = pair * 2;
+            let base_group_1 = pair * 2 + 1;
+
+            let g0 = vld1q_u8(buf0.as_ptr().add(pair * 16));
+            let g1 = vld1q_u8(buf1.as_ptr().add(pair * 16));
+
+            let v0 = bit_transpose_8x8_neon(vreinterpretq_u64_u8(g0));
+            let v1 = bit_transpose_8x8_neon(vreinterpretq_u64_u8(g1));
+
+            let r0_0 = vgetq_lane_u64::<0>(v0);
+            let r0_1 = vgetq_lane_u64::<1>(v0);
+            let r1_0 = vgetq_lane_u64::<0>(v1);
+            let r1_1 = vgetq_lane_u64::<1>(v1);
+
+            let out_base_0 = BASE_PATTERN_FIRST[base_group_0];
+            let out_base_1 = BASE_PATTERN_FIRST[base_group_1];
+            for i in 0..8 {
+                output0[out_base_0 + i * 16] = (r0_0 >> (i * 8)) as u8;
+                output0[out_base_1 + i * 16] = (r0_1 >> (i * 8)) as u8;
+                output1[out_base_0 + i * 16] = (r1_0 >> (i * 8)) as u8;
+                output1[out_base_1 + i * 16] = (r1_1 >> (i * 8)) as u8;
+            }
+        }
+
+        // Second half
+        let in0_tbl = vld1q_u8_x4(input0.as_ptr().add(64));
+        let in1_tbl = vld1q_u8_x4(input1.as_ptr().add(64));
+
+        vst1q_u8(buf0.as_mut_ptr(), vqtbl4q_u8(in0_tbl, scatter0));
+        vst1q_u8(buf0.as_mut_ptr().add(16), vqtbl4q_u8(in0_tbl, scatter1));
+        vst1q_u8(buf0.as_mut_ptr().add(32), vqtbl4q_u8(in0_tbl, scatter2));
+        vst1q_u8(buf0.as_mut_ptr().add(48), vqtbl4q_u8(in0_tbl, scatter3));
+        vst1q_u8(buf1.as_mut_ptr(), vqtbl4q_u8(in1_tbl, scatter0));
+        vst1q_u8(buf1.as_mut_ptr().add(16), vqtbl4q_u8(in1_tbl, scatter1));
+        vst1q_u8(buf1.as_mut_ptr().add(32), vqtbl4q_u8(in1_tbl, scatter2));
+        vst1q_u8(buf1.as_mut_ptr().add(48), vqtbl4q_u8(in1_tbl, scatter3));
+
+        for pair in 0..4 {
+            let base_group_0 = pair * 2;
+            let base_group_1 = pair * 2 + 1;
+
+            let g0 = vld1q_u8(buf0.as_ptr().add(pair * 16));
+            let g1 = vld1q_u8(buf1.as_ptr().add(pair * 16));
+
+            let v0 = bit_transpose_8x8_neon(vreinterpretq_u64_u8(g0));
+            let v1 = bit_transpose_8x8_neon(vreinterpretq_u64_u8(g1));
+
+            let r0_0 = vgetq_lane_u64::<0>(v0);
+            let r0_1 = vgetq_lane_u64::<1>(v0);
+            let r1_0 = vgetq_lane_u64::<0>(v1);
+            let r1_1 = vgetq_lane_u64::<1>(v1);
+
+            let out_base_0 = BASE_PATTERN_SECOND[base_group_0];
+            let out_base_1 = BASE_PATTERN_SECOND[base_group_1];
+            for i in 0..8 {
+                output0[out_base_0 + i * 16] = (r0_0 >> (i * 8)) as u8;
+                output0[out_base_1 + i * 16] = (r0_1 >> (i * 8)) as u8;
+                output1[out_base_0 + i * 16] = (r1_0 >> (i * 8)) as u8;
+                output1[out_base_1 + i * 16] = (r1_1 >> (i * 8)) as u8;
+            }
+        }
+    }
+
+    // ========================================================================
+    // SME Streaming SVE implementation (Apple M4+)
+    // ========================================================================
+
+    /// Check if SME (Scalable Matrix Extension) streaming mode is available.
+    ///
+    /// On macOS, this checks the `hw.optional.arm.FEAT_SME2` sysctl. On other
+    /// AArch64 platforms, returns false (SME detection would need platform-specific code).
+    pub fn has_sme() -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            use std::sync::OnceLock;
+
+            unsafe extern "C" {
+                fn sysctlbyname(
+                    name: *const u8,
+                    oldp: *mut core::ffi::c_void,
+                    oldlenp: *mut usize,
+                    newp: *mut core::ffi::c_void,
+                    newlen: usize,
+                ) -> i32;
+            }
+
+            static HAS_SME: OnceLock<bool> = OnceLock::new();
+            *HAS_SME.get_or_init(|| unsafe {
+                let mut val: i32 = 0;
+                let mut size: usize = size_of::<i32>();
+                let ret = sysctlbyname(
+                    c"hw.optional.arm.FEAT_SME2".as_ptr().cast::<u8>(),
+                    (&raw mut val).cast::<core::ffi::c_void>(),
+                    &raw mut size,
+                    std::ptr::null_mut(),
+                    0,
+                );
+                ret == 0 && val != 0
+            })
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
+    }
+
+    // The SVE streaming assembly uses .arch armv9-a+sme2 which requires a
+    // toolchain that supports these directives. We gate compilation on aarch64.
+    //
+    // The assembly implements the same algorithm as the VBMI version:
+    //   1. SMSTART SM - enter streaming SVE mode (VL=512 on Apple M4)
+    //   2. Load 128 bytes into z0,z1
+    //   3. TBL z2.b, {z0.b, z1.b}, z_gather - single-instruction 128-byte gather!
+    //   4. 8x8 bit transpose (3 steps × 6 ops = 18 instructions)
+    //   5. TBL z4.b, z2.b, z_scatter - byte scatter
+    //   6. Store 64 bytes
+    //   7. Repeat for second half
+    //   8. SMSTOP SM - exit streaming mode
+    //
+    // SMSTART zeros all Z/P/FFR registers, so we save/restore d8-d15 (callee-saved).
+
+    // Permutation tables for SVE TBL (same as x86 VBMI tables).
+    // These are 64 bytes each, fitting exactly in one Z register at VL=512.
+    #[rustfmt::skip]
+    static SVE_GATHER_FIRST: [u8; 64] = [
+        0, 16, 32, 48, 64, 80, 96, 112,
+        8, 24, 40, 56, 72, 88, 104, 120,
+        4, 20, 36, 52, 68, 84, 100, 116,
+        12, 28, 44, 60, 76, 92, 108, 124,
+        2, 18, 34, 50, 66, 82, 98, 114,
+        10, 26, 42, 58, 74, 90, 106, 122,
+        6, 22, 38, 54, 70, 86, 102, 118,
+        14, 30, 46, 62, 78, 94, 110, 126,
+    ];
+
+    #[rustfmt::skip]
+    static SVE_GATHER_SECOND: [u8; 64] = [
+        1, 17, 33, 49, 65, 81, 97, 113,
+        9, 25, 41, 57, 73, 89, 105, 121,
+        5, 21, 37, 53, 69, 85, 101, 117,
+        13, 29, 45, 61, 77, 93, 109, 125,
+        3, 19, 35, 51, 67, 83, 99, 115,
+        11, 27, 43, 59, 75, 91, 107, 123,
+        7, 23, 39, 55, 71, 87, 103, 119,
+        15, 31, 47, 63, 79, 95, 111, 127,
+    ];
+
+    #[rustfmt::skip]
+    static SVE_SCATTER_8X8: [u8; 64] = [
+        0,  8, 16, 24, 32, 40, 48, 56,
+        1,  9, 17, 25, 33, 41, 49, 57,
+        2, 10, 18, 26, 34, 42, 50, 58,
+        3, 11, 19, 27, 35, 43, 51, 59,
+        4, 12, 20, 28, 36, 44, 52, 60,
+        5, 13, 21, 29, 37, 45, 53, 61,
+        6, 14, 22, 30, 38, 46, 54, 62,
+        7, 15, 23, 31, 39, 47, 55, 63,
+    ];
+
+    // Bit transpose masks (broadcast to all 8 u64 lanes)
+    static SVE_MASK1: u64 = 0x00AA00AA00AA00AAu64;
+    static SVE_MASK2: u64 = 0x0000CCCC0000CCCCu64;
+    static SVE_MASK3: u64 = 0x00000000F0F0F0F0u64;
+
+    std::arch::global_asm! {
+        ".arch armv9-a+sme2",
+        "",
+        // -----------------------------------------------------------------
+        // vortex_transpose_1024_sve(input: *const u8, output: *mut u8)
+        // x0 = input, x1 = output
+        // x2 = pointer to tables struct {gather_first, gather_second, scatter, mask1, mask2, mask3}
+        // -----------------------------------------------------------------
+        ".global _vortex_transpose_1024_sve",
+        ".p2align 4",
+        "_vortex_transpose_1024_sve:",
+        // Save callee-saved FP regs (SMSTART zeros them)
+        "stp d8, d9, [sp, #-64]!",
+        "stp d10, d11, [sp, #16]",
+        "stp d12, d13, [sp, #32]",
+        "stp d14, d15, [sp, #48]",
+        "",
+        "smstart sm",
+        "ptrue p0.b",
+        "",
+        // Load 128 input bytes into z0, z1
+        "ld1b {{z0.b}}, p0/z, [x0]",
+        "add x3, x0, #64",
+        "ld1b {{z1.b}}, p0/z, [x3]",
+        "",
+        // Load permutation tables from x2
+        "ld1b {{z10.b}}, p0/z, [x2]",         // gather_first
+        "add x3, x2, #64",
+        "ld1b {{z11.b}}, p0/z, [x3]",         // gather_second
+        "add x3, x2, #128",
+        "ld1b {{z12.b}}, p0/z, [x3]",         // scatter_8x8
+        "",
+        // Load bit transpose masks (broadcast u64)
+        "add x3, x2, #192",
+        "ld1rd {{z20.d}}, p0/z, [x3]",        // mask1
+        "add x3, x2, #200",
+        "ld1rd {{z21.d}}, p0/z, [x3]",        // mask2
+        "add x3, x2, #208",
+        "ld1rd {{z22.d}}, p0/z, [x3]",        // mask3
+        "",
+        // ---- First half (64 output bytes) ----
+        // Gather: TBL from {z0, z1} with z10 indices
+        "tbl z2.b, {{z0.b, z1.b}}, z10.b",
+        "",
+        // 8x8 bit transpose step 1: swap 1-bit pairs (shift 7)
+        "lsr z3.d, z2.d, #7",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z20.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #7",
+        "eor z2.d, z2.d, z3.d",
+        "",
+        // 8x8 bit transpose step 2: swap 2-bit pairs (shift 14)
+        "lsr z3.d, z2.d, #14",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z21.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #14",
+        "eor z2.d, z2.d, z3.d",
+        "",
+        // 8x8 bit transpose step 3: swap 4-bit pairs (shift 28)
+        "lsr z3.d, z2.d, #28",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z22.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #28",
+        "eor z2.d, z2.d, z3.d",
+        "",
+        // Byte scatter
+        "tbl z4.b, z2.b, z12.b",
+        "st1b {{z4.b}}, p0, [x1]",
+        "",
+        // ---- Second half (64 output bytes) ----
+        "tbl z2.b, {{z0.b, z1.b}}, z11.b",
+        "",
+        "lsr z3.d, z2.d, #7",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z20.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #7",
+        "eor z2.d, z2.d, z3.d",
+        "",
+        "lsr z3.d, z2.d, #14",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z21.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #14",
+        "eor z2.d, z2.d, z3.d",
+        "",
+        "lsr z3.d, z2.d, #28",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z22.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #28",
+        "eor z2.d, z2.d, z3.d",
+        "",
+        "tbl z4.b, z2.b, z12.b",
+        "add x3, x1, #64",
+        "st1b {{z4.b}}, p0, [x3]",
+        "",
+        "smstop sm",
+        "",
+        // Restore callee-saved FP regs
+        "ldp d14, d15, [sp, #48]",
+        "ldp d12, d13, [sp, #32]",
+        "ldp d10, d11, [sp, #16]",
+        "ldp d8, d9, [sp], #64",
+        "ret",
+        "",
+        // -----------------------------------------------------------------
+        // vortex_untranspose_1024_sve(input: *const u8, output: *mut u8)
+        // x0 = input, x1 = output
+        // x2 = pointer to tables struct
+        // -----------------------------------------------------------------
+        ".global _vortex_untranspose_1024_sve",
+        ".p2align 4",
+        "_vortex_untranspose_1024_sve:",
+        "stp d8, d9, [sp, #-64]!",
+        "stp d10, d11, [sp, #16]",
+        "stp d12, d13, [sp, #32]",
+        "stp d14, d15, [sp, #48]",
+        "",
+        "smstart sm",
+        "ptrue p0.b",
+        "",
+        // Load 128 input bytes
+        "ld1b {{z0.b}}, p0/z, [x0]",
+        "add x3, x0, #64",
+        "ld1b {{z1.b}}, p0/z, [x3]",
+        "",
+        // Load permutation tables
+        "ld1b {{z10.b}}, p0/z, [x2]",         // gather_first
+        "add x3, x2, #64",
+        "ld1b {{z11.b}}, p0/z, [x3]",         // gather_second
+        "add x3, x2, #128",
+        "ld1b {{z12.b}}, p0/z, [x3]",         // scatter_8x8
+        "",
+        // Load bit transpose masks
+        "add x3, x2, #192",
+        "ld1rd {{z20.d}}, p0/z, [x3]",
+        "add x3, x2, #200",
+        "ld1rd {{z21.d}}, p0/z, [x3]",
+        "add x3, x2, #208",
+        "ld1rd {{z22.d}}, p0/z, [x3]",
+        "",
+        // For untranspose, SCATTER_8X8 is self-inverse: un-scatter first
+        // Then bit-transpose, then scatter to stride-16 output.
+        // But stride-16 scatter needs scalar stores (not available in streaming mode).
+        // So: un-scatter + bit-transpose in streaming SVE, then SMSTOP + scalar scatter.
+        "",
+        // ---- First half ----
+        // Un-scatter: reorder from row-major to group-major
+        "tbl z2.b, z0.b, z12.b",
+        "",
+        // 8x8 bit transpose
+        "lsr z3.d, z2.d, #7",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z20.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #7",
+        "eor z2.d, z2.d, z3.d",
+        "",
+        "lsr z3.d, z2.d, #14",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z21.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #14",
+        "eor z2.d, z2.d, z3.d",
+        "",
+        "lsr z3.d, z2.d, #28",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z22.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #28",
+        "eor z2.d, z2.d, z3.d",
+        "",
+        // Store first half result to stack for scalar scatter after SMSTOP
+        "sub sp, sp, #128",
+        "st1b {{z2.b}}, p0, [sp]",
+        "",
+        // ---- Second half ----
+        "tbl z2.b, z1.b, z12.b",
+        "",
+        "lsr z3.d, z2.d, #7",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z20.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #7",
+        "eor z2.d, z2.d, z3.d",
+        "",
+        "lsr z3.d, z2.d, #14",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z21.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #14",
+        "eor z2.d, z2.d, z3.d",
+        "",
+        "lsr z3.d, z2.d, #28",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z22.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #28",
+        "eor z2.d, z2.d, z3.d",
+        "",
+        // Store second half result
+        "add x3, sp, #64",
+        "st1b {{z2.b}}, p0, [x3]",
+        "",
+        "smstop sm",
+        "",
+        // Now scatter from stack to stride-16 output using scalar code.
+        // x1 = output, sp = 128 bytes of bit-transposed results
+        // First half: 8 groups × 8 bytes, scatter to BASE_PATTERN_FIRST[group] + i*16
+        // Load table of base offsets for first half (passed in x2+216)
+        "add x4, x2, #216",  // base_offsets_first pointer
+        "mov x5, sp",         // source pointer for first half
+        "",
+        // Scatter first half (8 groups)
+        "mov x6, #0",         // group counter
+        "1:",
+        "ldrb w7, [x4, x6]", // base offset for this group
+        "lsl x8, x6, #3",    // group * 8 = offset into source
+        "add x9, x5, x8",    // source for this group
+        // Scatter 8 bytes at stride 16
+        "ldrb w10, [x9]",
+        "strb w10, [x1, x7]",
+        "add w11, w7, #16",
+        "ldrb w10, [x9, #1]",
+        "strb w10, [x1, x11]",
+        "add w11, w11, #16",
+        "ldrb w10, [x9, #2]",
+        "strb w10, [x1, x11]",
+        "add w11, w11, #16",
+        "ldrb w10, [x9, #3]",
+        "strb w10, [x1, x11]",
+        "add w11, w11, #16",
+        "ldrb w10, [x9, #4]",
+        "strb w10, [x1, x11]",
+        "add w11, w11, #16",
+        "ldrb w10, [x9, #5]",
+        "strb w10, [x1, x11]",
+        "add w11, w11, #16",
+        "ldrb w10, [x9, #6]",
+        "strb w10, [x1, x11]",
+        "add w11, w11, #16",
+        "ldrb w10, [x9, #7]",
+        "strb w10, [x1, x11]",
+        "",
+        "add x6, x6, #1",
+        "cmp x6, #8",
+        "b.lt 1b",
+        "",
+        // Scatter second half (8 groups)
+        "add x4, x2, #224",  // base_offsets_second pointer
+        "add x5, sp, #64",   // source pointer for second half
+        "mov x6, #0",
+        "2:",
+        "ldrb w7, [x4, x6]",
+        "lsl x8, x6, #3",
+        "add x9, x5, x8",
+        "ldrb w10, [x9]",
+        "strb w10, [x1, x7]",
+        "add w11, w7, #16",
+        "ldrb w10, [x9, #1]",
+        "strb w10, [x1, x11]",
+        "add w11, w11, #16",
+        "ldrb w10, [x9, #2]",
+        "strb w10, [x1, x11]",
+        "add w11, w11, #16",
+        "ldrb w10, [x9, #3]",
+        "strb w10, [x1, x11]",
+        "add w11, w11, #16",
+        "ldrb w10, [x9, #4]",
+        "strb w10, [x1, x11]",
+        "add w11, w11, #16",
+        "ldrb w10, [x9, #5]",
+        "strb w10, [x1, x11]",
+        "add w11, w11, #16",
+        "ldrb w10, [x9, #6]",
+        "strb w10, [x1, x11]",
+        "add w11, w11, #16",
+        "ldrb w10, [x9, #7]",
+        "strb w10, [x1, x11]",
+        "",
+        "add x6, x6, #1",
+        "cmp x6, #8",
+        "b.lt 2b",
+        "",
+        // Clean up stack and restore callee-saved regs
+        "add sp, sp, #128",
+        "ldp d14, d15, [sp, #48]",
+        "ldp d12, d13, [sp, #32]",
+        "ldp d10, d11, [sp, #16]",
+        "ldp d8, d9, [sp], #64",
+        "ret",
+    }
+
+    /// Tables struct passed to the SVE assembly functions via x2.
+    /// Layout: gather_first(64) + gather_second(64) + scatter(64) + mask1(8) + mask2(8) + mask3(8) + base_first(8) + base_second(8)
+    #[repr(C, align(8))]
+    struct SveTables {
+        gather_first: [u8; 64],
+        gather_second: [u8; 64],
+        scatter: [u8; 64],
+        mask1: u64,
+        mask2: u64,
+        mask3: u64,
+        base_offsets_first: [u8; 8],
+        base_offsets_second: [u8; 8],
+    }
+
+    static SVE_TABLES: SveTables = SveTables {
+        gather_first: SVE_GATHER_FIRST,
+        gather_second: SVE_GATHER_SECOND,
+        scatter: SVE_SCATTER_8X8,
+        mask1: SVE_MASK1,
+        mask2: SVE_MASK2,
+        mask3: SVE_MASK3,
+        #[allow(clippy::cast_possible_truncation)]
+        base_offsets_first: [
+            BASE_PATTERN_FIRST[0] as u8,
+            BASE_PATTERN_FIRST[1] as u8,
+            BASE_PATTERN_FIRST[2] as u8,
+            BASE_PATTERN_FIRST[3] as u8,
+            BASE_PATTERN_FIRST[4] as u8,
+            BASE_PATTERN_FIRST[5] as u8,
+            BASE_PATTERN_FIRST[6] as u8,
+            BASE_PATTERN_FIRST[7] as u8,
+        ],
+        #[allow(clippy::cast_possible_truncation)]
+        base_offsets_second: [
+            BASE_PATTERN_SECOND[0] as u8,
+            BASE_PATTERN_SECOND[1] as u8,
+            BASE_PATTERN_SECOND[2] as u8,
+            BASE_PATTERN_SECOND[3] as u8,
+            BASE_PATTERN_SECOND[4] as u8,
+            BASE_PATTERN_SECOND[5] as u8,
+            BASE_PATTERN_SECOND[6] as u8,
+            BASE_PATTERN_SECOND[7] as u8,
+        ],
+    };
+
+    unsafe extern "C" {
+        fn vortex_transpose_1024_sve(input: *const u8, output: *mut u8, tables: *const SveTables);
+        fn vortex_untranspose_1024_sve(input: *const u8, output: *mut u8, tables: *const SveTables);
+    }
+
+    /// Transpose 1024 bits using SME streaming SVE mode.
+    ///
+    /// On Apple M4, streaming SVE provides 512-bit vector length, allowing
+    /// a two-source TBL to gather from 128 bytes in a single instruction.
+    /// This yields ~44 instructions total vs ~80+ for NEON TBL.
+    ///
+    /// # Safety
+    /// Requires SME support (Apple M4 or later). Check with [`has_sme()`] first.
+    #[inline(never)]
+    pub unsafe fn transpose_1024_sve(input: &[u8; 128], output: &mut [u8; 128]) {
+        unsafe {
+            vortex_transpose_1024_sve(input.as_ptr(), output.as_mut_ptr(), &raw const SVE_TABLES);
+        }
+    }
+
+    /// Untranspose 1024 bits using SME streaming SVE mode.
+    ///
+    /// Uses streaming SVE for un-scatter and bit-transpose, then exits streaming
+    /// mode for the stride-16 scalar scatter (scatter stores are not available
+    /// in streaming SVE).
+    ///
+    /// # Safety
+    /// Requires SME support (Apple M4 or later). Check with [`has_sme()`] first.
+    #[inline(never)]
+    pub unsafe fn untranspose_1024_sve(input: &[u8; 128], output: &mut [u8; 128]) {
+        unsafe {
+            vortex_untranspose_1024_sve(input.as_ptr(), output.as_mut_ptr(), &raw const SVE_TABLES);
+        }
+    }
+
+    // ========================================================================
+    // Batch SME Streaming SVE implementation
+    // ========================================================================
+    //
+    // Enters streaming mode ONCE, keeps permutation tables in Z registers,
+    // and loops over all vectors. This amortizes the SMSTART/SMSTOP cost
+    // and eliminates per-vector table reloads.
+    //
+    // For transpose (forward): pure SVE — gather, bit-transpose, scatter-store
+    // are all done in streaming mode.
+    //
+    // For untranspose: un-scatter + bit-transpose in streaming SVE, then
+    // scalar stride-16 scatter (scalar stores work fine in streaming mode).
+
+    std::arch::global_asm! {
+        ".arch armv9-a+sme2",
+        "",
+        // =================================================================
+        // vortex_transpose_1024_batch_sve(
+        //   x0 = inputs: *const [u8; 128],
+        //   x1 = outputs: *mut [u8; 128],
+        //   x2 = count: usize,
+        //   x3 = tables: *const SveTables,
+        // )
+        // =================================================================
+        ".global _vortex_transpose_1024_batch_sve",
+        ".p2align 4",
+        "_vortex_transpose_1024_batch_sve:",
+        "stp d8, d9, [sp, #-64]!",
+        "stp d10, d11, [sp, #16]",
+        "stp d12, d13, [sp, #32]",
+        "stp d14, d15, [sp, #48]",
+        "",
+        "cbz x2, 9f",
+        "",
+        "smstart sm",
+        "ptrue p0.b",
+        "",
+        // Load permutation tables once (persist in Z regs across loop)
+        "ld1b {{z10.b}}, p0/z, [x3]",
+        "ld1b {{z11.b}}, p0/z, [x3, #1, mul vl]",
+        "ld1b {{z12.b}}, p0/z, [x3, #2, mul vl]",
+        "ld1rd {{z20.d}}, p0/z, [x3, #192]",
+        "ld1rd {{z21.d}}, p0/z, [x3, #200]",
+        "ld1rd {{z22.d}}, p0/z, [x3, #208]",
+        "",
+        "mov x4, x0",
+        "mov x5, x1",
+        "mov x6, x2",
+        "",
+        // --- Main loop: one 128-byte vector per iteration ---
+        "1:",
+        "ld1b {{z0.b}}, p0/z, [x4]",
+        "ld1b {{z1.b}}, p0/z, [x4, #1, mul vl]",
+        "",
+        // ---- First half (output bytes 0..63) ----
+        "tbl z2.b, {{z0.b, z1.b}}, z10.b",
+        // 8x8 bit transpose step 1 (shift 7)
+        "lsr z3.d, z2.d, #7",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z20.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #7",
+        "eor z2.d, z2.d, z3.d",
+        // 8x8 bit transpose step 2 (shift 14)
+        "lsr z3.d, z2.d, #14",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z21.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #14",
+        "eor z2.d, z2.d, z3.d",
+        // 8x8 bit transpose step 3 (shift 28)
+        "lsr z3.d, z2.d, #28",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z22.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #28",
+        "eor z2.d, z2.d, z3.d",
+        // Byte scatter + store
+        "tbl z4.b, z2.b, z12.b",
+        "st1b {{z4.b}}, p0, [x5]",
+        "",
+        // ---- Second half (output bytes 64..127) ----
+        "tbl z2.b, {{z0.b, z1.b}}, z11.b",
+        "lsr z3.d, z2.d, #7",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z20.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #7",
+        "eor z2.d, z2.d, z3.d",
+        "lsr z3.d, z2.d, #14",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z21.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #14",
+        "eor z2.d, z2.d, z3.d",
+        "lsr z3.d, z2.d, #28",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z22.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #28",
+        "eor z2.d, z2.d, z3.d",
+        "tbl z4.b, z2.b, z12.b",
+        "st1b {{z4.b}}, p0, [x5, #1, mul vl]",
+        "",
+        "add x4, x4, #128",
+        "add x5, x5, #128",
+        "subs x6, x6, #1",
+        "b.ne 1b",
+        "",
+        "smstop sm",
+        "",
+        "9:",
+        "ldp d14, d15, [sp, #48]",
+        "ldp d12, d13, [sp, #32]",
+        "ldp d10, d11, [sp, #16]",
+        "ldp d8, d9, [sp], #64",
+        "ret",
+        "",
+        // =================================================================
+        // vortex_untranspose_1024_batch_sve(
+        //   x0 = inputs: *const [u8; 128],
+        //   x1 = outputs: *mut [u8; 128],
+        //   x2 = count: usize,
+        //   x3 = tables: *const SveTables,
+        // )
+        // =================================================================
+        ".global _vortex_untranspose_1024_batch_sve",
+        ".p2align 4",
+        "_vortex_untranspose_1024_batch_sve:",
+        // Stack: [sp+0..63] = scratch buffer, [sp+64..127] = saved d8-d15
+        "sub sp, sp, #128",
+        "stp d8, d9, [sp, #64]",
+        "stp d10, d11, [sp, #80]",
+        "stp d12, d13, [sp, #96]",
+        "stp d14, d15, [sp, #112]",
+        "",
+        "cbz x2, 9f",
+        "",
+        "mov x7, x3",
+        "",
+        "smstart sm",
+        "ptrue p0.b",
+        "",
+        // Load tables (only scatter + masks needed for untranspose)
+        "ld1b {{z12.b}}, p0/z, [x7, #2, mul vl]",
+        "ld1rd {{z20.d}}, p0/z, [x7, #192]",
+        "ld1rd {{z21.d}}, p0/z, [x7, #200]",
+        "ld1rd {{z22.d}}, p0/z, [x7, #208]",
+        "",
+        "mov x4, x0",
+        "mov x5, x1",
+        "mov x6, x2",
+        "",
+        // --- Main loop ---
+        "1:",
+        "",
+        // ---- First half: un-scatter + bit-transpose ----
+        "ld1b {{z0.b}}, p0/z, [x4]",
+        "tbl z2.b, z0.b, z12.b",
+        // Bit transpose
+        "lsr z3.d, z2.d, #7",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z20.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #7",
+        "eor z2.d, z2.d, z3.d",
+        "lsr z3.d, z2.d, #14",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z21.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #14",
+        "eor z2.d, z2.d, z3.d",
+        "lsr z3.d, z2.d, #28",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z22.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #28",
+        "eor z2.d, z2.d, z3.d",
+        // Store to scratch buffer for scalar scatter
+        "st1b {{z2.b}}, p0, [sp]",
+        "",
+        // Scalar scatter first half: 8 groups to stride-16 output
+        "add x8, x7, #216",
+        "mov x9, #0",
+        "3:",
+        "ldrb w10, [x8, x9]",
+        "add x11, x5, x10",
+        "lsl x12, x9, #3",
+        "ldr x13, [sp, x12]",
+        "strb w13, [x11]",
+        "lsr x13, x13, #8",
+        "strb w13, [x11, #16]",
+        "lsr x13, x13, #8",
+        "strb w13, [x11, #32]",
+        "lsr x13, x13, #8",
+        "strb w13, [x11, #48]",
+        "lsr x13, x13, #8",
+        "strb w13, [x11, #64]",
+        "lsr x13, x13, #8",
+        "strb w13, [x11, #80]",
+        "lsr x13, x13, #8",
+        "strb w13, [x11, #96]",
+        "lsr x13, x13, #8",
+        "strb w13, [x11, #112]",
+        "add x9, x9, #1",
+        "cmp x9, #8",
+        "b.lt 3b",
+        "",
+        // ---- Second half: un-scatter + bit-transpose ----
+        "ld1b {{z0.b}}, p0/z, [x4, #1, mul vl]",
+        "tbl z2.b, z0.b, z12.b",
+        "lsr z3.d, z2.d, #7",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z20.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #7",
+        "eor z2.d, z2.d, z3.d",
+        "lsr z3.d, z2.d, #14",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z21.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #14",
+        "eor z2.d, z2.d, z3.d",
+        "lsr z3.d, z2.d, #28",
+        "eor z3.d, z3.d, z2.d",
+        "and z3.d, z3.d, z22.d",
+        "eor z2.d, z2.d, z3.d",
+        "lsl z3.d, z3.d, #28",
+        "eor z2.d, z2.d, z3.d",
+        "st1b {{z2.b}}, p0, [sp]",
+        "",
+        // Scalar scatter second half
+        "add x8, x7, #224",
+        "mov x9, #0",
+        "4:",
+        "ldrb w10, [x8, x9]",
+        "add x11, x5, x10",
+        "lsl x12, x9, #3",
+        "ldr x13, [sp, x12]",
+        "strb w13, [x11]",
+        "lsr x13, x13, #8",
+        "strb w13, [x11, #16]",
+        "lsr x13, x13, #8",
+        "strb w13, [x11, #32]",
+        "lsr x13, x13, #8",
+        "strb w13, [x11, #48]",
+        "lsr x13, x13, #8",
+        "strb w13, [x11, #64]",
+        "lsr x13, x13, #8",
+        "strb w13, [x11, #80]",
+        "lsr x13, x13, #8",
+        "strb w13, [x11, #96]",
+        "lsr x13, x13, #8",
+        "strb w13, [x11, #112]",
+        "add x9, x9, #1",
+        "cmp x9, #8",
+        "b.lt 4b",
+        "",
+        "add x4, x4, #128",
+        "add x5, x5, #128",
+        "subs x6, x6, #1",
+        "b.ne 1b",
+        "",
+        "smstop sm",
+        "",
+        "9:",
+        "ldp d14, d15, [sp, #112]",
+        "ldp d12, d13, [sp, #96]",
+        "ldp d10, d11, [sp, #80]",
+        "ldp d8, d9, [sp, #64]",
+        "add sp, sp, #128",
+        "ret",
+    }
+
+    unsafe extern "C" {
+        fn vortex_transpose_1024_batch_sve(
+            inputs: *const u8,
+            outputs: *mut u8,
+            count: usize,
+            tables: *const SveTables,
+        );
+        fn vortex_untranspose_1024_batch_sve(
+            inputs: *const u8,
+            outputs: *mut u8,
+            count: usize,
+            tables: *const SveTables,
+        );
+    }
+
+    /// Batch transpose: enter streaming SVE once, process all vectors, exit.
+    ///
+    /// Permutation tables stay in Z registers across all iterations, eliminating
+    /// per-vector reload overhead. SMSTART/SMSTOP cost is amortized over `count` vectors.
+    ///
+    /// # Safety
+    /// Requires SME support (Apple M4 or later). Check with [`has_sme()`] first.
+    /// `inputs` and `outputs` must have the same length.
+    #[inline(never)]
+    pub unsafe fn transpose_1024_batch_sve(inputs: &[[u8; 128]], outputs: &mut [[u8; 128]]) {
+        debug_assert_eq!(inputs.len(), outputs.len());
+        let count = inputs.len().min(outputs.len());
+        if count == 0 {
+            return;
+        }
+        unsafe {
+            vortex_transpose_1024_batch_sve(
+                inputs.as_ptr() as *const u8,
+                outputs.as_mut_ptr() as *mut u8,
+                count,
+                &raw const SVE_TABLES,
+            );
+        }
+    }
+
+    /// Batch untranspose: enter streaming SVE once, process all vectors, exit.
+    ///
+    /// # Safety
+    /// Requires SME support (Apple M4 or later). Check with [`has_sme()`] first.
+    /// `inputs` and `outputs` must have the same length.
+    #[inline(never)]
+    pub unsafe fn untranspose_1024_batch_sve(inputs: &[[u8; 128]], outputs: &mut [[u8; 128]]) {
+        debug_assert_eq!(inputs.len(), outputs.len());
+        let count = inputs.len().min(outputs.len());
+        if count == 0 {
+            return;
+        }
+        unsafe {
+            vortex_untranspose_1024_batch_sve(
+                inputs.as_ptr() as *const u8,
+                outputs.as_mut_ptr() as *mut u8,
+                count,
+                &raw const SVE_TABLES,
+            );
+        }
+    }
 }
 
 /// Dispatch to the best available implementation at runtime.
@@ -2014,9 +3268,12 @@ pub fn transpose_1024_best(input: &[u8; 128], output: &mut [u8; 128]) {
         transpose_1024_scalar_fast(input, output)
     }
     #[cfg(target_arch = "aarch64")]
-    // NEON is always available on AArch64
-    unsafe {
-        aarch64::transpose_1024_neon(input, output)
+    {
+        if aarch64::has_sme() {
+            return unsafe { aarch64::transpose_1024_sve(input, output) };
+        }
+        // NEON TBL is fastest non-SME path on AArch64
+        unsafe { aarch64::transpose_1024_neon_tbl(input, output) }
     }
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     transpose_1024_scalar_fast(input, output)
@@ -2044,9 +3301,11 @@ pub fn untranspose_1024_best(input: &[u8; 128], output: &mut [u8; 128]) {
         untranspose_1024_scalar_fast(input, output)
     }
     #[cfg(target_arch = "aarch64")]
-    // NEON is always available on AArch64
-    unsafe {
-        aarch64::untranspose_1024_neon(input, output)
+    {
+        if aarch64::has_sme() {
+            return unsafe { aarch64::untranspose_1024_sve(input, output) };
+        }
+        unsafe { aarch64::untranspose_1024_neon_tbl(input, output) }
     }
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     untranspose_1024_scalar_fast(input, output)
@@ -2705,6 +3964,302 @@ mod tests {
                     seed
                 );
             }
+        }
+
+        #[test]
+        fn test_neon_tbl_matches_baseline() {
+            for seed in [0, 42, 123, 255] {
+                let input = generate_test_data(seed);
+                let mut baseline_out = [0u8; 128];
+                let mut tbl_out = [0u8; 128];
+
+                transpose_1024_baseline(&input, &mut baseline_out);
+                unsafe { aarch64::transpose_1024_neon_tbl(&input, &mut tbl_out) };
+
+                assert_eq!(
+                    baseline_out, tbl_out,
+                    "NEON TBL transpose doesn't match baseline for seed {}",
+                    seed
+                );
+            }
+        }
+
+        #[test]
+        fn test_neon_tbl_roundtrip() {
+            for seed in [0, 42, 123, 255] {
+                let input = generate_test_data(seed);
+                let mut transposed = [0u8; 128];
+                let mut roundtrip = [0u8; 128];
+
+                unsafe {
+                    aarch64::transpose_1024_neon_tbl(&input, &mut transposed);
+                    aarch64::untranspose_1024_neon_tbl(&transposed, &mut roundtrip);
+                }
+
+                assert_eq!(
+                    input, roundtrip,
+                    "NEON TBL roundtrip failed for seed {}",
+                    seed
+                );
+            }
+        }
+
+        #[test]
+        fn test_untranspose_neon_tbl_matches_baseline() {
+            for seed in [0, 42, 123, 255] {
+                let input = generate_test_data(seed);
+                let mut baseline_out = [0u8; 128];
+                let mut tbl_out = [0u8; 128];
+
+                untranspose_1024_baseline(&input, &mut baseline_out);
+                unsafe { aarch64::untranspose_1024_neon_tbl(&input, &mut tbl_out) };
+
+                assert_eq!(
+                    baseline_out, tbl_out,
+                    "NEON TBL untranspose doesn't match baseline for seed {}",
+                    seed
+                );
+            }
+        }
+
+        #[test]
+        fn test_dual_block_neon_matches_baseline() {
+            for seed in [0, 42, 123, 255] {
+                let input0 = generate_test_data(seed);
+                let input1 = generate_test_data(seed.wrapping_add(100));
+                let mut baseline_out0 = [0u8; 128];
+                let mut baseline_out1 = [0u8; 128];
+                let mut dual_out0 = [0u8; 128];
+                let mut dual_out1 = [0u8; 128];
+
+                transpose_1024_baseline(&input0, &mut baseline_out0);
+                transpose_1024_baseline(&input1, &mut baseline_out1);
+                unsafe {
+                    aarch64::transpose_1024x2_neon(&input0, &input1, &mut dual_out0, &mut dual_out1)
+                };
+
+                assert_eq!(
+                    baseline_out0, dual_out0,
+                    "dual-block NEON transpose[0] doesn't match baseline for seed {}",
+                    seed
+                );
+                assert_eq!(
+                    baseline_out1, dual_out1,
+                    "dual-block NEON transpose[1] doesn't match baseline for seed {}",
+                    seed
+                );
+            }
+        }
+
+        #[test]
+        fn test_dual_block_neon_roundtrip() {
+            for seed in [0, 42, 123, 255] {
+                let input0 = generate_test_data(seed);
+                let input1 = generate_test_data(seed.wrapping_add(100));
+                let mut transposed0 = [0u8; 128];
+                let mut transposed1 = [0u8; 128];
+                let mut roundtrip0 = [0u8; 128];
+                let mut roundtrip1 = [0u8; 128];
+
+                unsafe {
+                    aarch64::transpose_1024x2_neon(
+                        &input0,
+                        &input1,
+                        &mut transposed0,
+                        &mut transposed1,
+                    );
+                    aarch64::untranspose_1024x2_neon(
+                        &transposed0,
+                        &transposed1,
+                        &mut roundtrip0,
+                        &mut roundtrip1,
+                    );
+                }
+
+                assert_eq!(
+                    input0, roundtrip0,
+                    "dual-block NEON roundtrip[0] failed for seed {}",
+                    seed
+                );
+                assert_eq!(
+                    input1, roundtrip1,
+                    "dual-block NEON roundtrip[1] failed for seed {}",
+                    seed
+                );
+            }
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    mod sme_tests {
+        use super::*;
+
+        #[test]
+        fn test_sve_matches_baseline() {
+            if !aarch64::has_sme() {
+                eprintln!("SME not available, skipping test");
+                return;
+            }
+            for seed in [0, 42, 123, 255] {
+                let input = generate_test_data(seed);
+                let mut baseline_out = [0u8; 128];
+                let mut sve_out = [0u8; 128];
+
+                transpose_1024_baseline(&input, &mut baseline_out);
+                unsafe { aarch64::transpose_1024_sve(&input, &mut sve_out) };
+
+                assert_eq!(
+                    baseline_out, sve_out,
+                    "SVE transpose doesn't match baseline for seed {}",
+                    seed
+                );
+            }
+        }
+
+        #[test]
+        fn test_sve_roundtrip() {
+            if !aarch64::has_sme() {
+                eprintln!("SME not available, skipping test");
+                return;
+            }
+            for seed in [0, 42, 123, 255] {
+                let input = generate_test_data(seed);
+                let mut transposed = [0u8; 128];
+                let mut roundtrip = [0u8; 128];
+
+                unsafe {
+                    aarch64::transpose_1024_sve(&input, &mut transposed);
+                    aarch64::untranspose_1024_sve(&transposed, &mut roundtrip);
+                }
+
+                assert_eq!(input, roundtrip, "SVE roundtrip failed for seed {}", seed);
+            }
+        }
+
+        #[test]
+        fn test_untranspose_sve_matches_baseline() {
+            if !aarch64::has_sme() {
+                eprintln!("SME not available, skipping test");
+                return;
+            }
+            for seed in [0, 42, 123, 255] {
+                let input = generate_test_data(seed);
+                let mut baseline_out = [0u8; 128];
+                let mut sve_out = [0u8; 128];
+
+                untranspose_1024_baseline(&input, &mut baseline_out);
+                unsafe { aarch64::untranspose_1024_sve(&input, &mut sve_out) };
+
+                assert_eq!(
+                    baseline_out, sve_out,
+                    "SVE untranspose doesn't match baseline for seed {}",
+                    seed
+                );
+            }
+        }
+
+        #[test]
+        fn test_batch_sve_transpose_matches_baseline() {
+            if !aarch64::has_sme() {
+                eprintln!("SME not available, skipping test");
+                return;
+            }
+            let inputs: Vec<[u8; 128]> = (0..100u8).map(generate_test_data).collect();
+            let mut baseline_outputs = vec![[0u8; 128]; 100];
+            let mut batch_outputs = vec![[0u8; 128]; 100];
+
+            for (input, output) in inputs.iter().zip(baseline_outputs.iter_mut()) {
+                transpose_1024_baseline(input, output);
+            }
+            unsafe { aarch64::transpose_1024_batch_sve(&inputs, &mut batch_outputs) };
+
+            for i in 0..100 {
+                assert_eq!(
+                    baseline_outputs[i], batch_outputs[i],
+                    "batch SVE transpose doesn't match baseline for vector {}",
+                    i
+                );
+            }
+        }
+
+        #[test]
+        fn test_batch_sve_roundtrip() {
+            if !aarch64::has_sme() {
+                eprintln!("SME not available, skipping test");
+                return;
+            }
+            let inputs: Vec<[u8; 128]> = (0..100u8).map(generate_test_data).collect();
+            let mut transposed = vec![[0u8; 128]; 100];
+            let mut roundtrip = vec![[0u8; 128]; 100];
+
+            unsafe {
+                aarch64::transpose_1024_batch_sve(&inputs, &mut transposed);
+                aarch64::untranspose_1024_batch_sve(&transposed, &mut roundtrip);
+            }
+
+            for i in 0..100 {
+                assert_eq!(
+                    inputs[i], roundtrip[i],
+                    "batch SVE roundtrip failed for vector {}",
+                    i
+                );
+            }
+        }
+
+        #[test]
+        fn test_batch_sve_untranspose_matches_baseline() {
+            if !aarch64::has_sme() {
+                eprintln!("SME not available, skipping test");
+                return;
+            }
+            let inputs: Vec<[u8; 128]> = (0..100u8).map(generate_test_data).collect();
+            let mut baseline_outputs = vec![[0u8; 128]; 100];
+            let mut batch_outputs = vec![[0u8; 128]; 100];
+
+            for (input, output) in inputs.iter().zip(baseline_outputs.iter_mut()) {
+                untranspose_1024_baseline(input, output);
+            }
+            unsafe { aarch64::untranspose_1024_batch_sve(&inputs, &mut batch_outputs) };
+
+            for i in 0..100 {
+                assert_eq!(
+                    baseline_outputs[i], batch_outputs[i],
+                    "batch SVE untranspose doesn't match baseline for vector {}",
+                    i
+                );
+            }
+        }
+
+        #[test]
+        fn test_batch_sve_empty() {
+            if !aarch64::has_sme() {
+                eprintln!("SME not available, skipping test");
+                return;
+            }
+            let inputs: &[[u8; 128]] = &[];
+            let mut outputs: Vec<[u8; 128]> = vec![];
+            // Should not panic
+            unsafe { aarch64::transpose_1024_batch_sve(inputs, &mut outputs) };
+            unsafe { aarch64::untranspose_1024_batch_sve(inputs, &mut outputs) };
+        }
+
+        #[test]
+        fn test_batch_sve_single() {
+            if !aarch64::has_sme() {
+                eprintln!("SME not available, skipping test");
+                return;
+            }
+            let input = generate_test_data(42);
+            let mut single_out = [0u8; 128];
+            let mut batch_out = vec![[0u8; 128]; 1];
+
+            unsafe { aarch64::transpose_1024_sve(&input, &mut single_out) };
+            unsafe { aarch64::transpose_1024_batch_sve(&[input], &mut batch_out) };
+
+            assert_eq!(
+                single_out, batch_out[0],
+                "batch with count=1 should match single"
+            );
         }
     }
 

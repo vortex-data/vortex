@@ -142,6 +142,196 @@ mod x86_benches {
     }
 }
 
+#[cfg(target_arch = "aarch64")]
+mod aarch64_benches {
+    use vortex_fastlanes::transpose::aarch64;
+
+    use super::*;
+
+    #[divan::bench]
+    fn transpose_neon(bencher: Bencher) {
+        let input = generate_test_data(42);
+        let mut output = [0u8; 128];
+
+        bencher.bench_local(|| {
+            unsafe { aarch64::transpose_1024_neon(&input, &mut output) };
+            divan::black_box(&output);
+        });
+    }
+
+    #[divan::bench]
+    fn transpose_neon_tbl(bencher: Bencher) {
+        let input = generate_test_data(42);
+        let mut output = [0u8; 128];
+
+        bencher.bench_local(|| {
+            unsafe { aarch64::transpose_1024_neon_tbl(&input, &mut output) };
+            divan::black_box(&output);
+        });
+    }
+
+    #[divan::bench]
+    fn transpose_neon_tbl_throughput(bencher: Bencher) {
+        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+        let mut outputs = vec![[0u8; 128]; BATCH_SIZE];
+
+        bencher.bench_local(|| {
+            for (input, output) in inputs.iter().zip(outputs.iter_mut()) {
+                unsafe { aarch64::transpose_1024_neon_tbl(&input, output) };
+            }
+            divan::black_box(&outputs);
+        });
+    }
+
+    #[divan::bench]
+    fn untranspose_neon(bencher: Bencher) {
+        let input = generate_test_data(42);
+        let mut output = [0u8; 128];
+
+        bencher.bench_local(|| {
+            unsafe { aarch64::untranspose_1024_neon(&input, &mut output) };
+            divan::black_box(&output);
+        });
+    }
+
+    #[divan::bench]
+    fn untranspose_neon_tbl(bencher: Bencher) {
+        let input = generate_test_data(42);
+        let mut output = [0u8; 128];
+
+        bencher.bench_local(|| {
+            unsafe { aarch64::untranspose_1024_neon_tbl(&input, &mut output) };
+            divan::black_box(&output);
+        });
+    }
+
+    #[divan::bench]
+    fn transpose_neon_dual_block(bencher: Bencher) {
+        let input0 = generate_test_data(42);
+        let input1 = generate_test_data(99);
+        let mut output0 = [0u8; 128];
+        let mut output1 = [0u8; 128];
+
+        bencher.bench_local(|| {
+            unsafe { aarch64::transpose_1024x2_neon(&input0, &input1, &mut output0, &mut output1) };
+            divan::black_box((&output0, &output1));
+        });
+    }
+
+    #[divan::bench]
+    fn transpose_neon_dual_block_throughput(bencher: Bencher) {
+        let inputs0: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+        let inputs1: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+        let mut outputs0 = vec![[0u8; 128]; BATCH_SIZE];
+        let mut outputs1 = vec![[0u8; 128]; BATCH_SIZE];
+
+        bencher.bench_local(|| {
+            for ((input0, input1), (output0, output1)) in inputs0
+                .iter()
+                .zip(inputs1.iter())
+                .zip(outputs0.iter_mut().zip(outputs1.iter_mut()))
+            {
+                unsafe { aarch64::transpose_1024x2_neon(&input0, &input1, output0, output1) };
+                divan::black_box((&output0, &output1));
+            }
+        });
+    }
+
+    #[divan::bench]
+    fn transpose_sve(bencher: Bencher) {
+        if !aarch64::has_sme() {
+            eprintln!("SME not available, skipping benchmark");
+            return;
+        }
+
+        let input = generate_test_data(42);
+        let mut output = [0u8; 128];
+
+        bencher.bench_local(|| {
+            unsafe { aarch64::transpose_1024_sve(&input, &mut output) };
+            divan::black_box(&output);
+        });
+    }
+
+    #[divan::bench]
+    fn transpose_sve_throughput(bencher: Bencher) {
+        if !aarch64::has_sme() {
+            eprintln!("SME not available, skipping benchmark");
+            return;
+        }
+        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+        let mut outputs = vec![[0u8; 128]; BATCH_SIZE];
+
+        bencher.bench_local(|| {
+            for (input, output) in inputs.iter().zip(outputs.iter_mut()) {
+                unsafe { aarch64::transpose_1024_sve(input, output) };
+            }
+            divan::black_box(&outputs);
+        });
+    }
+
+    #[divan::bench]
+    fn untranspose_sve(bencher: Bencher) {
+        if !aarch64::has_sme() {
+            eprintln!("SME not available, skipping benchmark");
+            return;
+        }
+
+        let input = generate_test_data(42);
+        let mut output = [0u8; 128];
+
+        bencher.bench_local(|| {
+            unsafe { aarch64::untranspose_1024_sve(&input, &mut output) };
+            divan::black_box(&output);
+        });
+    }
+
+    #[divan::bench]
+    fn transpose_sve_batch(bencher: Bencher) {
+        if !aarch64::has_sme() {
+            eprintln!("SME not available, skipping benchmark");
+            return;
+        }
+        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+        let mut outputs = vec![[0u8; 128]; BATCH_SIZE];
+
+        bencher.bench_local(|| {
+            unsafe { aarch64::transpose_1024_batch_sve(&inputs, &mut outputs) };
+            divan::black_box(&outputs);
+        });
+    }
+
+    #[divan::bench]
+    fn untranspose_sve_batch(bencher: Bencher) {
+        if !aarch64::has_sme() {
+            eprintln!("SME not available, skipping benchmark");
+            return;
+        }
+        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+        let mut outputs = vec![[0u8; 128]; BATCH_SIZE];
+
+        bencher.bench_local(|| {
+            unsafe { aarch64::untranspose_1024_batch_sve(&inputs, &mut outputs) };
+            divan::black_box(&outputs);
+        });
+    }
+
+    #[divan::bench]
+    fn untranspose_neon_dual_block(bencher: Bencher) {
+        let input0 = generate_test_data(42);
+        let input1 = generate_test_data(99);
+        let mut output0 = [0u8; 128];
+        let mut output1 = [0u8; 128];
+
+        bencher.bench_local(|| {
+            unsafe {
+                aarch64::untranspose_1024x2_neon(&input0, &input1, &mut output0, &mut output1)
+            };
+            divan::black_box((&output0, &output1));
+        });
+    }
+}
+
 // ============================================================================
 // Untranspose benchmarks
 // ============================================================================
