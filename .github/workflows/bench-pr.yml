@@ -94,7 +94,7 @@ jobs:
         if: github.event.pull_request.head.repo.fork == false
         uses: aws-actions/configure-aws-credentials@v5
         with:
-          role-to-assume: arn:aws:iam::375504701696:role/GitHubBenchmarkRole
+          role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
 
       - name: Install uv
@@ -115,7 +115,7 @@ jobs:
             | jq -r '.workflow_runs[].head_sha' \
           )
 
-          python3 scripts/s3-download.py s3://vortex-benchmark-results-database/data.json.gz data.json.gz --no-sign-request
+          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/data.json.gz data.json.gz --no-sign-request
           gzip -d -c data.json.gz | grep $base_commit_sha > base.json
 
           echo '# Benchmarks: ${{ matrix.benchmark.name }}' > comment.md
