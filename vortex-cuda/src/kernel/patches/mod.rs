@@ -134,7 +134,7 @@ mod tests {
     #[case::i64(0_i64)]
     #[case::f32(0_f32)]
     #[case::f64(0_f64)]
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     async fn test_patches<Values: NativePType + DeviceRepr>(#[case] _v: Values) {
         tokio::join!(
             full_test_case::<Values, u8>(),

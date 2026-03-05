@@ -62,7 +62,7 @@ pub fn cub_library() -> Result<&'static sys::CubLibrary, CubError> {
 mod tests {
     use crate::filter;
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_filter_temp_size_u64() -> Result<(), crate::CubError> {
         let temp_bytes = filter::filter_get_temp_size_u64(1000)?;
         // CUB requires some temporary storage
@@ -70,14 +70,14 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_filter_temp_size_f64() -> Result<(), crate::CubError> {
         let temp_bytes = filter::filter_get_temp_size_f64(10000)?;
         assert!(temp_bytes > 0);
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_filter_temp_size_zero_items() -> Result<(), crate::CubError> {
         // Just verify the call doesn't fail with zero items
         let _temp_bytes = filter::filter_get_temp_size_u8(0)?;

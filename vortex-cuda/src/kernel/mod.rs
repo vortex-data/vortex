@@ -295,7 +295,7 @@ mod tests {
     /// This test launches a special config_check kernel that reports the kernel-side
     /// constants, then verifies they match the Rust-side constants used in
     /// `launch_cuda_kernel_impl`.
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_kernel_config_matches_rust_config() {
         // These must match the constants in launch_cuda_kernel_impl
         const THREADS_PER_BLOCK: u32 = 64;

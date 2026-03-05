@@ -64,7 +64,7 @@ mod tests {
         ),
         Mask::from_iter([true, true, true, true, true, true, true, true, false])
     )]
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     async fn test_gpu_filter_strings(
         #[case] input: VarBinViewArray,
         #[case] mask: Mask,

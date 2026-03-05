@@ -220,7 +220,7 @@ mod tests {
     #[case::i64(make_constant_array(-1000000i64, 2050))]
     #[case::f32(make_constant_array(1.23f32, 2050))]
     #[case::f64(make_constant_array(4.56789f64, 2050))]
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     async fn test_cuda_constant_materialization(
         #[case] constant_array: ConstantArray,
     ) -> VortexResult<()> {
@@ -242,7 +242,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     async fn test_cuda_constant_empty_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -263,7 +263,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     async fn test_cuda_constant_small_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");

@@ -72,7 +72,7 @@ mod tests {
     #[case::i16_p10_s2(Buffer::from(vec![100i16, 200, 300, 400, 500]), 10, 2)]
     #[case::i32_p18_s4(Buffer::from(vec![100i32, 200, 300, 400, 500]), 18, 4)]
     #[case::i64_p38_s6(Buffer::from(vec![100i64, 200, 300, 400, 500]), 38, 6)]
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     async fn test_decimal_byte_parts_gpu_decode<T: vortex::dtype::NativePType>(
         #[case] encoded: Buffer<T>,
         #[case] precision: u8,

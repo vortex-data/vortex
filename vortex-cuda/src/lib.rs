@@ -79,6 +79,9 @@ pub use vortex_nvcomp as nvcomp;
 use crate::kernel::SequenceExecutor;
 use crate::kernel::SliceExecutor;
 
+#[cfg(test)]
+use vortex_cuda_macros::test;
+
 /// Checks if CUDA is available on the system by looking for nvcc.
 pub fn cuda_available() -> bool {
     Command::new("nvcc")

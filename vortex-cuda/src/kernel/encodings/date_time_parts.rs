@@ -271,7 +271,7 @@ mod tests {
         vec![123456789i64, 0, 0],
         TimeUnit::Nanoseconds
     )]
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     async fn test_cuda_datetimeparts_decompression(
         #[case] days: Vec<i32>,
         #[case] seconds: Vec<i32>,
@@ -297,7 +297,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     async fn test_cuda_datetimeparts_large_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -323,7 +323,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     async fn test_cuda_datetimeparts_with_nulls() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");

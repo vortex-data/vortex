@@ -103,7 +103,7 @@ mod tests {
     #[case::u16(10u16, 2u16, 100)]
     #[case::u32(10u32, 2u32, 1000)]
     #[case::u64(100u64, 20u64, 500)]
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_sequence<T: NativePType + Into<PValue>>(
         #[case] base: T,
         #[case] multiplier: T,

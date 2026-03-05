@@ -233,7 +233,7 @@ mod tests {
             .vortex_expect("failed to create BitPacked array")
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_max_scalar_ops() -> VortexResult<()> {
         let bit_width: u8 = 6;
         let len = 2050;
@@ -270,7 +270,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_plan_structure() {
         // Stage 0: input dict values (BP→FoR) into smem[0..256)
         // Stage 1: output codes (BP→FoR→DICT) into smem[256..2304), gather from smem[0]
@@ -318,7 +318,7 @@ mod tests {
         Ok((ptr, device_buf))
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_load_for_zigzag_alp() -> VortexResult<()> {
         // Max scalar ops depth with LOAD source: LOAD → FoR → ZigZag → ALP
         // (Exercises all four scalar op types without DICT)
@@ -419,7 +419,7 @@ mod tests {
         Ok(unsafe { std::mem::transmute::<Vec<u32>, Vec<f32>>(actual) })
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_bitpacked() -> VortexResult<()> {
         let bit_width: u8 = 10;
         let len = 3000;
@@ -438,7 +438,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_for_bitpacked() -> VortexResult<()> {
         let bit_width: u8 = 6;
         let len = 3000;
@@ -462,7 +462,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_runend() -> VortexResult<()> {
         let ends: Vec<u32> = vec![1000, 2000, 3000];
         let values: Vec<u32> = vec![10, 20, 30];
@@ -487,7 +487,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_dict_for_bp_values_bp_codes() -> VortexResult<()> {
         // Dict where both codes and values are BitPacked+FoR.
         let dict_reference = 1_000_000u32;
@@ -519,7 +519,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_alp_for_bitpacked() -> VortexResult<()> {
         // ALP(FoR(BitPacked)): encode each layer, then reassemble the tree
         // bottom-up because encode() methods produce flat outputs.
@@ -550,7 +550,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_zigzag_bitpacked() -> VortexResult<()> {
         // ZigZag(BitPacked): unpack then zigzag-decode.
         let bit_width: u8 = 4;
@@ -578,7 +578,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_for_runend() -> VortexResult<()> {
         // FoR(RunEnd): expand runs then add constant.
         let ends: Vec<u32> = vec![500, 1000, 1500, 2000, 2500, 3000];
@@ -606,7 +606,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_for_dict() -> VortexResult<()> {
         // FoR(Dict(codes=Primitive, values=Primitive)): gather then add constant.
         let dict_values: Vec<u32> = vec![100, 200, 300, 400];
@@ -634,7 +634,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_dict_for_bp_codes() -> VortexResult<()> {
         // Dict(codes=FoR(BitPacked), values=primitive)
         let dict_values: Vec<u32> = (0..8).map(|i| i * 1000 + 7).collect();
@@ -661,7 +661,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_dict_primitive_values_bp_codes() -> VortexResult<()> {
         let dict_values: Vec<u32> = vec![100, 200, 300, 400];
         let dict_size = dict_values.len();

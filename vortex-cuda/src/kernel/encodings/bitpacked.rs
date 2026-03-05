@@ -190,7 +190,7 @@ mod tests {
     #[case::u32((0u16..128u16).cycle().take(2048), 6)]
     #[case::u16((0u32..128u32).cycle().take(2048), 6)]
     #[case::u16((0u64..128u64).cycle().take(2048), 6)]
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_patched<T: NativePType>(
         #[case] iter: impl Iterator<Item = T>,
         #[case] bw: u8,
@@ -221,7 +221,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_patches() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -260,7 +260,7 @@ mod tests {
     #[case::bw_5(5)]
     #[case::bw_6(6)]
     #[case::bw_7(7)]
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_cuda_bitunpack_u8(#[case] bit_width: u8) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -309,7 +309,7 @@ mod tests {
     #[case::bw_13(13)]
     #[case::bw_14(14)]
     #[case::bw_15(15)]
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_cuda_bitunpack_u16(#[case] bit_width: u8) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -374,7 +374,7 @@ mod tests {
     #[case::bw_29(29)]
     #[case::bw_30(30)]
     #[case::bw_31(31)]
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_cuda_bitunpack_u32(#[case] bit_width: u8) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -471,7 +471,7 @@ mod tests {
     #[case::bw_61(61)]
     #[case::bw_62(62)]
     #[case::bw_63(63)]
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_cuda_bitunpack_u64(#[case] bit_width: u8) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -503,7 +503,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn test_cuda_bitunpack_sliced() -> VortexResult<()> {
         let bit_width = 32;
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())

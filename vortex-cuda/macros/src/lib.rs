@@ -19,7 +19,7 @@
 //! fn fallback_function() { /* ... */ }
 //!
 //! // Ignore tests when CUDA is not available
-//! #[vortex_cuda_macros::test]
+//! #[crate::test]
 //! async fn my_test() {
 //! ...
 //! }

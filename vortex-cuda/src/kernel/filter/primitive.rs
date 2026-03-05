@@ -78,7 +78,7 @@ mod tests {
         PrimitiveArray::from_iter([1u32, 2, 3, 4, 5]),
         Mask::from_iter([false, false, false, false, false])
     )]
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     async fn test_gpu_filter(
         #[case] input: PrimitiveArray,
         #[case] mask: Mask,
@@ -103,7 +103,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     async fn test_gpu_filter_large_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create CUDA execution context");

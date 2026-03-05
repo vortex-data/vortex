@@ -371,7 +371,7 @@ mod tests {
         Ok((pool, stream))
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn transfer_to_device_round_trip() -> VortexResult<()> {
         let (pool, stream) = setup()?;
         let data: Vec<u8> = (0..=255u8).collect();
@@ -386,7 +386,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn transfer_puts_buffer_inflight() -> VortexResult<()> {
         let (pool, stream) = setup()?;
 
@@ -410,7 +410,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn pool_reclaims_after_transfer_completes() -> VortexResult<()> {
         let (pool, stream) = setup()?;
 
@@ -443,7 +443,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn drop_returns_buffer_to_pool() -> VortexResult<()> {
         let (pool, _stream) = setup()?;
 
@@ -465,7 +465,7 @@ mod tests {
         Ok(())
     }
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     fn transfer_consumes_inner_so_drop_is_noop() -> VortexResult<()> {
         let (pool, stream) = setup()?;
 

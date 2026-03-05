@@ -110,7 +110,7 @@ mod tests {
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
-    #[vortex_cuda_macros::test]
+    #[crate::test]
     async fn test_cuda_zigzag_decompression_u32() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
