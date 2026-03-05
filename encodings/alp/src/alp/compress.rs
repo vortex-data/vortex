@@ -73,6 +73,8 @@ where
     let (exponents, encoded, exceptional_positions, exceptional_values, mut chunk_offsets) =
         T::encode(values_slice, exponents);
 
+    let chunk_offsets_slice = &mut *chunk_offsets;
+
     let encoded_array = PrimitiveArray::new(encoded, values.validity().clone()).into_array();
 
     let validity = values.validity_mask()?;
@@ -93,8 +95,8 @@ where
                         let is_valid = is_valid.value(*index as usize);
                         if !is_valid {
                             let patch_chunk = *index as usize / 1024;
-                            for chunk_idx in (patch_chunk + 1)..chunk_offsets.len() {
-                                chunk_offsets[chunk_idx] -= 1;
+                            for chunk_idx in (patch_chunk + 1)..chunk_offsets_slice.len() {
+                                chunk_offsets_slice[chunk_idx] -= 1;
                             }
                         }
                         is_valid

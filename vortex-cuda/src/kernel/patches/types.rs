@@ -194,6 +194,7 @@ fn transpose<I: IntegerPType, V: NativePType>(
 
     let n_lanes = patch_lanes::<V>();
     let mut chunks: Vec<Chunk<V>> = vec![Chunk::default(); n_chunks];
+    let chunks_slice = chunks.as_mut_slice();
 
     // For each chunk, for each lane, push new values
     for (index, &value) in std::iter::zip(indices, values) {
@@ -202,7 +203,7 @@ fn transpose<I: IntegerPType, V: NativePType>(
         let chunk = index / 1024;
         let lane = index % n_lanes;
 
-        chunks[chunk].lanes[lane].push((index % 1024) as u16, value);
+        chunks_slice[chunk].lanes[lane].push((index % 1024) as u16, value);
     }
 
     // Reshuffle the different containers into a single contiguous buffer each for indices/values
