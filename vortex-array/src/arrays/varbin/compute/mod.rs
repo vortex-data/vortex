@@ -18,6 +18,7 @@ mod take;
 mod tests {
     use rstest::rstest;
 
+    use crate::IntoArray;
     use crate::arrays::VarBinArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::DType;

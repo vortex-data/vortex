@@ -292,8 +292,11 @@ fn list_contains_scalar(
     }
 
     let rhs = ConstantArray::new(value.clone(), elems.len());
-    let matching_elements =
-        Binary.try_new_array(elems.len(), Operator::Eq, &[elems.clone(), rhs.clone().into_array()])?;
+    let matching_elements = Binary.try_new_array(
+        elems.len(),
+        Operator::Eq,
+        &[elems.clone(), rhs.clone().into_array()],
+    )?;
     let matches = matching_elements.execute::<BoolArray>(ctx)?;
 
     // Fast path: no elements match.

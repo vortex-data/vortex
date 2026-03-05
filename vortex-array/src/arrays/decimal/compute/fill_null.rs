@@ -91,6 +91,7 @@ fn fill_buffer<T: NativeDecimalType>(
 mod tests {
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::arrays::decimal::DecimalArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;

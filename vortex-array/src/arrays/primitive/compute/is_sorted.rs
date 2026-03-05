@@ -95,6 +95,7 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use super::*;
+    use crate::IntoArray;
     use crate::compute::is_sorted;
     use crate::compute::is_strict_sorted;
 

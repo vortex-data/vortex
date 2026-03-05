@@ -227,11 +227,18 @@ mod test {
     fn compare_date_time_parts_eq(#[case] lhs_validity: Validity, #[case] rhs_validity: Validity) {
         let lhs = dtp_array_from_timestamp(86400i64, lhs_validity); // January 2, 1970, 00:00:00 UTC
         let rhs = dtp_array_from_timestamp(86400i64, rhs_validity.clone()); // January 2, 1970, 00:00:00 UTC
-        let comparison = lhs.into_array().binary(rhs.into_array(), Operator::Eq).unwrap();
+        let comparison = lhs
+            .clone()
+            .into_array()
+            .binary(rhs.into_array(), Operator::Eq)
+            .unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
 
         let rhs = dtp_array_from_timestamp(0i64, rhs_validity); // January 1, 1970, 00:00:00 UTC
-        let comparison = lhs.into_array().binary(rhs.into_array(), Operator::Eq).unwrap();
+        let comparison = lhs
+            .into_array()
+            .binary(rhs.into_array(), Operator::Eq)
+            .unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 0);
     }
 
@@ -244,6 +251,7 @@ mod test {
         let lhs = dtp_array_from_timestamp(86400i64, lhs_validity); // January 2, 1970, 00:00:00 UTC
         let rhs = dtp_array_from_timestamp(86401i64, rhs_validity.clone()); // January 2, 1970, 00:00:01 UTC
         let comparison = lhs
+            .clone()
             .into_array()
             .binary(rhs.into_array(), Operator::NotEq)
             .unwrap();
@@ -266,7 +274,10 @@ mod test {
         let lhs = dtp_array_from_timestamp(0i64, lhs_validity); // January 1, 1970, 01:00:00 UTC
         let rhs = dtp_array_from_timestamp(86400i64, rhs_validity); // January 2, 1970, 00:00:00 UTC
 
-        let comparison = lhs.into_array().binary(rhs.into_array(), Operator::Lt).unwrap();
+        let comparison = lhs
+            .into_array()
+            .binary(rhs.into_array(), Operator::Lt)
+            .unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
     }
 
@@ -279,7 +290,10 @@ mod test {
         let lhs = dtp_array_from_timestamp(86400i64, lhs_validity); // January 2, 1970, 02:00:00 UTC
         let rhs = dtp_array_from_timestamp(0i64, rhs_validity); // January 1, 1970, 01:00:00 UTC
 
-        let comparison = lhs.into_array().binary(rhs.into_array(), Operator::Gt).unwrap();
+        let comparison = lhs
+            .into_array()
+            .binary(rhs.into_array(), Operator::Gt)
+            .unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
     }
 
@@ -309,16 +323,25 @@ mod test {
         // Timestamp with a value larger than i32::MAX.
         let rhs = dtp_array_from_timestamp(i64::MAX, rhs_validity);
 
-        let comparison = lhs.into_array().binary(rhs.into_array(), Operator::Eq).unwrap();
+        let comparison = lhs
+            .clone()
+            .into_array()
+            .binary(rhs.clone().into_array(), Operator::Eq)
+            .unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 0);
 
         let comparison = lhs
+            .clone()
             .into_array()
-            .binary(rhs.into_array(), Operator::NotEq)
+            .binary(rhs.clone().into_array(), Operator::NotEq)
             .unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
 
-        let comparison = lhs.into_array().binary(rhs.into_array(), Operator::Lt).unwrap();
+        let comparison = lhs
+            .clone()
+            .into_array()
+            .binary(rhs.clone().into_array(), Operator::Lt)
+            .unwrap();
         assert_eq!(comparison.as_bool_typed().true_count().unwrap(), 1);
 
         let comparison = lhs

@@ -111,6 +111,7 @@ mod tests {
 
         // Cast to NonNullable (should be identity since already NonNullable)
         let non_nullable = dict
+            .clone()
             .into_array()
             .cast(DType::Primitive(PType::I32, Nullability::NonNullable))
             .unwrap();

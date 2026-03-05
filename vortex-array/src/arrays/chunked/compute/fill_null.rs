@@ -31,6 +31,7 @@ impl FillNullReduce for ChunkedVTable {
 mod tests {
     use vortex_buffer::BitBuffer;
 
+    use crate::IntoArray;
     use crate::array::DynArray;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;

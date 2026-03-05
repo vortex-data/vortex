@@ -28,6 +28,7 @@ register_kernel!(MinMaxKernelAdapter(ConstantVTable).lift());
 
 #[cfg(test)]
 mod test {
+    use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::compute::min_max;
     use crate::dtype::Nullability;

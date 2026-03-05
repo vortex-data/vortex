@@ -33,6 +33,7 @@ mod test {
     use rstest::rstest;
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::filter::LARGE_SIZE;

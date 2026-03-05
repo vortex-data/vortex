@@ -100,7 +100,9 @@ impl TakeExecute for PrimitiveVTable {
                 .execute::<PrimitiveArray>(ctx)?
         };
 
-        let validity = array.validity().take(&unsigned_indices.clone().into_array())?;
+        let validity = array
+            .validity()
+            .take(&unsigned_indices.clone().into_array())?;
         // Delegate to the best kernel based on the target CPU
         PRIMITIVE_TAKE_KERNEL
             .take(array, &unsigned_indices, validity)

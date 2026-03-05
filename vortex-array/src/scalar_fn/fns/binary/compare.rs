@@ -269,15 +269,17 @@ mod tests {
         );
 
         let matches = arr
+            .clone()
             .into_array()
-            .binary(arr.into_array(), Operator::Eq)
+            .binary(arr.clone().into_array(), Operator::Eq)
             .unwrap()
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [1u64, 2, 3, 4]);
 
         let matches = arr
+            .clone()
             .into_array()
-            .binary(arr.into_array(), Operator::NotEq)
+            .binary(arr.clone().into_array(), Operator::NotEq)
             .unwrap()
             .to_bool();
         let empty: [u64; 0] = [];
@@ -289,22 +291,25 @@ mod tests {
         );
 
         let matches = arr
+            .clone()
             .into_array()
-            .binary(other.into_array(), Operator::Lte)
+            .binary(other.clone().into_array(), Operator::Lte)
             .unwrap()
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
 
         let matches = arr
+            .clone()
             .into_array()
-            .binary(other.into_array(), Operator::Lt)
+            .binary(other.clone().into_array(), Operator::Lt)
             .unwrap()
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [4u64]);
 
         let matches = other
+            .clone()
             .into_array()
-            .binary(arr.into_array(), Operator::Gte)
+            .binary(arr.clone().into_array(), Operator::Gte)
             .unwrap()
             .to_bool();
         assert_eq!(to_int_indices(matches).unwrap(), [2u64, 3, 4]);
@@ -364,15 +369,17 @@ mod tests {
         .unwrap();
 
         let result = list1
+            .clone()
             .into_array()
-            .binary(list2.into_array(), Operator::Eq)
+            .binary(list2.clone().into_array(), Operator::Eq)
             .unwrap();
         let expected = BoolArray::from_iter([true, true, false]);
         assert_arrays_eq!(result, expected);
 
         let result = list1
+            .clone()
             .into_array()
-            .binary(list2.into_array(), Operator::NotEq)
+            .binary(list2.clone().into_array(), Operator::NotEq)
             .unwrap();
         let expected = BoolArray::from_iter([false, false, true]);
         assert_arrays_eq!(result, expected);
@@ -433,8 +440,9 @@ mod tests {
         .unwrap();
 
         let result = struct1
+            .clone()
             .into_array()
-            .binary(struct2.into_array(), Operator::Eq)
+            .binary(struct2.clone().into_array(), Operator::Eq)
             .unwrap();
         let expected = BoolArray::from_iter([true, true, false]);
         assert_arrays_eq!(result, expected);
@@ -483,6 +491,7 @@ mod tests {
         );
 
         let result = list
+            .clone()
             .into_array()
             .binary(list.into_array(), Operator::Eq)
             .unwrap();

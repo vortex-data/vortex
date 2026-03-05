@@ -76,6 +76,7 @@ where
 mod tests {
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::min_max;
     use crate::validity::Validity;

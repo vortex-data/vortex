@@ -31,6 +31,7 @@ register_kernel!(IsConstantKernelAdapter(DecimalVTable).lift());
 mod tests {
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::arrays::DecimalArray;
     use crate::compute::is_constant;
     use crate::dtype::DecimalDType;

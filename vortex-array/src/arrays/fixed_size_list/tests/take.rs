@@ -85,7 +85,7 @@ fn test_take_degenerate_lists(
     let elements = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
     let fsl = FixedSizeListArray::new(elements.into_array(), 0, validity, 5);
 
-    test_take_conformance(&fsl.into_array());
+    test_take_conformance(&fsl.clone().into_array());
 
     // Also test the specific behavior.
     let indices_array = PrimitiveArray::from_option_iter(indices);

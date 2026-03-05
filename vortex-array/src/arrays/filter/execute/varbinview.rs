@@ -40,6 +40,7 @@ fn arrow_filter_fn(array: &ArrayRef, mask: &Mask) -> vortex_error::VortexResult<
 
 #[cfg(test)]
 mod test {
+    use crate::IntoArray;
     use crate::arrays::VarBinViewArray;
     use crate::compute::conformance::filter::test_filter_conformance;
 

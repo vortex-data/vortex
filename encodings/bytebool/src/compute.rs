@@ -66,7 +66,7 @@ impl TakeExecute for ByteBoolVTable {
         let bools = array.as_slice();
 
         // This handles combining validity from both source array and nullable indices
-        let validity = array.validity().take(&indices.into_array())?;
+        let validity = array.validity().take(&indices.clone().into_array())?;
 
         let taken_bools = match_each_integer_ptype!(indices.ptype(), |I| {
             indices
@@ -117,7 +117,10 @@ mod tests {
         let lhs = ByteBoolArray::from(vec![true; 5]);
         let rhs = ByteBoolArray::from(vec![true; 5]);
 
-        let arr = lhs.into_array().binary(rhs.into_array(), Operator::Eq).unwrap();
+        let arr = lhs
+            .into_array()
+            .binary(rhs.into_array(), Operator::Eq)
+            .unwrap();
 
         let expected = ByteBoolArray::from(vec![true; 5]);
         assert_arrays_eq!(arr, expected.into_array());
@@ -128,7 +131,10 @@ mod tests {
         let lhs = ByteBoolArray::from(vec![false; 5]);
         let rhs = ByteBoolArray::from(vec![true; 5]);
 
-        let arr = lhs.into_array().binary(rhs.into_array(), Operator::Eq).unwrap();
+        let arr = lhs
+            .into_array()
+            .binary(rhs.into_array(), Operator::Eq)
+            .unwrap();
 
         let expected = ByteBoolArray::from(vec![false; 5]);
         assert_arrays_eq!(arr, expected.into_array());
@@ -139,7 +145,10 @@ mod tests {
         let lhs = ByteBoolArray::from(vec![true; 5]);
         let rhs = ByteBoolArray::from(vec![Some(true), Some(true), Some(true), Some(false), None]);
 
-        let arr = lhs.into_array().binary(rhs.into_array(), Operator::Eq).unwrap();
+        let arr = lhs
+            .into_array()
+            .binary(rhs.into_array(), Operator::Eq)
+            .unwrap();
 
         let expected =
             ByteBoolArray::from(vec![Some(true), Some(true), Some(true), Some(false), None]);
@@ -152,7 +161,8 @@ mod tests {
             &ByteBoolArray::from(vec![true, false, true, true, false]).into_array(),
         );
         test_mask_conformance(
-            &ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]).into_array(),
+            &ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None])
+                .into_array(),
         );
     }
 
@@ -162,7 +172,8 @@ mod tests {
             &ByteBoolArray::from(vec![true, false, true, true, false]).into_array(),
         );
         test_filter_conformance(
-            &ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]).into_array(),
+            &ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None])
+                .into_array(),
         );
     }
 

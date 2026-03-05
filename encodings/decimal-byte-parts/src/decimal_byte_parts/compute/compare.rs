@@ -6,6 +6,7 @@ use num_traits::NumCast;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::IntegerPType;
@@ -230,11 +231,11 @@ mod tests {
             lhs.len(),
         );
 
-        let res = lhs.binary(rhs.into_array(), Operator::Eq).unwrap();
+        let res = lhs.binary(rhs.clone().into_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected);
 
-        let res = lhs.binary(rhs.into_array(), Operator::Gt).unwrap();
+        let res = lhs.binary(rhs.clone().into_array(), Operator::Gt).unwrap();
         let expected = BoolArray::from_iter([Some(true), Some(true), Some(true)]).into_array();
         assert_arrays_eq!(res, expected);
 
@@ -248,11 +249,11 @@ mod tests {
             lhs.len(),
         );
 
-        let res = lhs.binary(rhs.into_array(), Operator::Eq).unwrap();
+        let res = lhs.binary(rhs.clone().into_array(), Operator::Eq).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected);
 
-        let res = lhs.binary(rhs.into_array(), Operator::Gt).unwrap();
+        let res = lhs.binary(rhs.clone().into_array(), Operator::Gt).unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(false)]).into_array();
         assert_arrays_eq!(res, expected);
 

@@ -46,6 +46,7 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::bitbuffer;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;

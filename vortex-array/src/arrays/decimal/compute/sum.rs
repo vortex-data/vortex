@@ -131,6 +131,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
 
+    use crate::IntoArray;
     use crate::arrays::DecimalArray;
     use crate::compute::sum;
     use crate::dtype::DType;

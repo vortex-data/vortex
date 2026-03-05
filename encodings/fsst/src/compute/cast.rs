@@ -20,6 +20,7 @@ impl CastReduce for FSSTVTable {
             // Cast codes array to handle nullability
             let new_codes = array
                 .codes()
+                .clone()
                 .into_array()
                 .cast(array.codes().dtype().with_nullability(dtype.nullability()))?;
 
@@ -42,6 +43,7 @@ impl CastReduce for FSSTVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;

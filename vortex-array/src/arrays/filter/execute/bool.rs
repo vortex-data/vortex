@@ -26,6 +26,7 @@ mod test {
     use rstest::rstest;
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::filter::test_filter_conformance;

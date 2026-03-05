@@ -6,6 +6,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
+use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
 use vortex_array::compute::sum;
@@ -156,6 +157,7 @@ impl ZoneMap {
     pub fn prune(&self, predicate: &Expression, session: &VortexSession) -> VortexResult<Mask> {
         let mut ctx = session.create_execution_ctx();
         self.array
+            .clone()
             .into_array()
             .apply(predicate)?
             .execute::<Mask>(&mut ctx)

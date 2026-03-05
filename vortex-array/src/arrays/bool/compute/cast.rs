@@ -32,6 +32,7 @@ impl CastReduce for BoolVTable {
 mod tests {
     use rstest::rstest;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
@@ -42,7 +43,9 @@ mod tests {
     fn try_cast_bool_success() {
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), Some(true)]);
 
-        let res = bool.into_array().cast(DType::Bool(Nullability::NonNullable));
+        let res = bool
+            .into_array()
+            .cast(DType::Bool(Nullability::NonNullable));
         assert!(res.is_ok());
         assert_eq!(res.unwrap().dtype(), &DType::Bool(Nullability::NonNullable));
     }

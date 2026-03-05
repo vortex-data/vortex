@@ -101,7 +101,7 @@ mod test {
         let unique_values: Vec<i32> = (0..32).collect();
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 32]));
 
-        let dict = dict_encode(&expected.into_array()).unwrap();
+        let dict = dict_encode(&expected.clone().into_array()).unwrap();
         let actual = dict.to_primitive();
 
         assert_arrays_eq!(actual, expected);
@@ -112,7 +112,7 @@ mod test {
         let unique_values: Vec<i32> = (0..100).collect();
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 100]));
 
-        let dict = dict_encode(&expected.into_array()).unwrap();
+        let dict = dict_encode(&expected.clone().into_array()).unwrap();
         let actual = dict.to_primitive();
 
         assert_arrays_eq!(actual, expected);
@@ -125,7 +125,7 @@ mod test {
             DType::Utf8(Nullability::Nullable),
         );
         assert_eq!(reference.len(), 6);
-        let dict = dict_encode(&reference.into_array()).unwrap();
+        let dict = dict_encode(&reference.clone().into_array()).unwrap();
         let flattened_dict = dict.to_varbinview();
         assert_eq!(
             flattened_dict.with_iterator(|iter| iter

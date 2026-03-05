@@ -135,7 +135,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
         unpatched_taken = unpatched_taken.reinterpret_cast(array.ptype());
     }
     if let Some(patches) = array.patches()
-        && let Some(patches) = patches.take(&indices.into_array(), ctx)?
+        && let Some(patches) = patches.take(&indices.clone().into_array(), ctx)?
     {
         let cast_patches = patches.cast_values(unpatched_taken.dtype())?;
         return unpatched_taken.patch(&cast_patches, ctx);
@@ -217,7 +217,7 @@ mod test {
         let range = Uniform::new(0, values.len()).unwrap();
         let random_indices =
             PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
-        let taken = packed.take(random_indices.into_array()).unwrap();
+        let taken = packed.take(random_indices.clone().into_array()).unwrap();
 
         // sanity check
         random_indices
@@ -258,7 +258,9 @@ mod test {
             BitPackedArray::encode(&buffer![1i32, 2i32, 3i32, 4i32].into_array(), 1).unwrap();
 
         let taken_primitive = start
-            .take(PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]).into_array())
+            .take(
+                PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]).into_array(),
+            )
             .unwrap();
         assert_arrays_eq!(
             taken_primitive,

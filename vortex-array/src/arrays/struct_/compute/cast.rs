@@ -207,7 +207,10 @@ mod tests {
 
         let target_dtype = struct_array.dtype().as_nullable();
 
-        let result = struct_array.into_array().cast(target_dtype.clone()).unwrap();
+        let result = struct_array
+            .into_array()
+            .cast(target_dtype.clone())
+            .unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
         assert_eq!(result.to_struct().unmasked_fields().len(), 2);
@@ -233,7 +236,10 @@ mod tests {
         let struct_array =
             StructArray::try_new(names, vec![field1, field2], 3, Validity::NonNullable).unwrap();
 
-        let result = struct_array.into_array().cast(target_dtype.clone()).unwrap();
+        let result = struct_array
+            .into_array()
+            .cast(target_dtype.clone())
+            .unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
         assert_eq!(result.to_struct().unmasked_fields().len(), 3);

@@ -4,6 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::NativePType;
@@ -135,6 +136,7 @@ fn find_intersection<P: NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
@@ -149,7 +151,10 @@ mod tests {
     fn test_compare_match() {
         let lhs = SequenceArray::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(4i64, lhs.len());
-        let result = lhs.into_array().binary(rhs.into_array(), Operator::Eq).unwrap();
+        let result = lhs
+            .into_array()
+            .binary(rhs.into_array(), Operator::Eq)
+            .unwrap();
         let expected = BoolArray::from_iter([false, false, true, false]);
         assert_arrays_eq!(result, expected);
     }
@@ -158,7 +163,10 @@ mod tests {
     fn test_compare_match_scale() {
         let lhs = SequenceArray::try_new_typed(2i64, 3, Nullable, 4).unwrap();
         let rhs = ConstantArray::new(8i64, lhs.len());
-        let result = lhs.into_array().binary(rhs.into_array(), Operator::Eq).unwrap();
+        let result = lhs
+            .into_array()
+            .binary(rhs.into_array(), Operator::Eq)
+            .unwrap();
         let expected = BoolArray::from_iter([Some(false), Some(false), Some(true), Some(false)]);
         assert_arrays_eq!(result, expected);
     }
@@ -167,7 +175,10 @@ mod tests {
     fn test_compare_no_match() {
         let lhs = SequenceArray::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(1i64, lhs.len());
-        let result = lhs.into_array().binary(rhs.into_array(), Operator::Eq).unwrap();
+        let result = lhs
+            .into_array()
+            .binary(rhs.into_array(), Operator::Eq)
+            .unwrap();
         let expected = BoolArray::from_iter([false, false, false, false]);
         assert_arrays_eq!(result, expected);
     }

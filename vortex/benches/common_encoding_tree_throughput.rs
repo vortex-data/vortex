@@ -69,11 +69,13 @@ mod setup {
         let uint_array =
             PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(42u32..256)));
         let int_array = uint_array
+            .clone()
             .into_array()
             .cast(PType::I32.into())
             .unwrap()
             .to_primitive();
         let float_array = uint_array
+            .clone()
             .into_array()
             .cast(PType::F64.into())
             .unwrap()

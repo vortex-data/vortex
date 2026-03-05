@@ -13,6 +13,7 @@ mod take;
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::dtype::Nullability;
 

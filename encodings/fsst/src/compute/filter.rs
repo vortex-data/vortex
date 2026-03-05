@@ -41,6 +41,7 @@ impl FilterKernel for FSSTVTable {
 
 #[cfg(test)]
 mod test {
+    use vortex_array::IntoArray;
     use vortex_array::arrays::builder::VarBinBuilder;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::dtype::DType;

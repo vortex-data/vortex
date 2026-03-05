@@ -63,6 +63,7 @@ fn make_scalar(dtype: &DType, value: &[u8]) -> Scalar {
 mod tests {
     use vortex_buffer::BufferString;
 
+    use crate::IntoArray;
     use crate::arrays::VarBinArray;
     use crate::compute::MinMaxResult;
     use crate::compute::min_max;

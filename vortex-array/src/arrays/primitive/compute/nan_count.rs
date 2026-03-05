@@ -40,6 +40,7 @@ fn compute_nan_count_with_validity<T: NativePType>(values: &[T], validity: Mask)
 mod tests {
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::nan_count;
     use crate::validity::Validity;

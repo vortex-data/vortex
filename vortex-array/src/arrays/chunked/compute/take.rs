@@ -183,7 +183,10 @@ mod test {
             StructArray::try_new(FieldNames::default(), vec![], 100, Validity::NonNullable)
                 .unwrap();
 
-        let arr = ChunkedArray::from_iter(vec![struct_array.into_array(), struct_array.into_array()]);
+        let arr = ChunkedArray::from_iter(vec![
+            struct_array.clone().into_array(),
+            struct_array.into_array(),
+        ]);
 
         let result = arr
             .take(PrimitiveArray::from_option_iter(vec![Some(0), None, Some(101)]).into_array())

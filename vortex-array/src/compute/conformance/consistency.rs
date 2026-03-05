@@ -786,7 +786,7 @@ fn test_comparison_inverse_consistency(array: &ArrayRef) {
             .binary(const_array.clone().into_array(), Operator::Lt),
         array
             .to_array()
-            .binary(const_array.clone().into_array(), Operator::Gte),
+            .binary(const_array.into_array(), Operator::Gte),
     ) {
         let inverted_lt = lt_result
             .not()
@@ -884,7 +884,6 @@ fn test_comparison_symmetry_consistency(array: &ArrayRef) {
             .to_array()
             .binary(const_array.clone().into_array(), Operator::Eq),
         const_array
-            .clone()
             .into_array()
             .binary(array.to_array(), Operator::Eq),
     ) {

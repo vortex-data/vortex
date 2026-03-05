@@ -234,11 +234,11 @@ mod tests {
         assert_eq!(actual_array.validity(), &Validity::NonNullable);
 
         assert_arrays_eq!(
-            primitive_field(&actual_array.into_array(), &["one"]).unwrap(),
+            primitive_field(&actual_array.clone().into_array(), &["one"]).unwrap(),
             PrimitiveArray::from_iter([0i32, 1, 2])
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array.into_array(), &["two"]).unwrap(),
+            primitive_field(&actual_array.clone().into_array(), &["two"]).unwrap(),
             PrimitiveArray::from_iter([4i32, 5, 6])
         );
         assert_arrays_eq!(
@@ -272,15 +272,15 @@ mod tests {
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
 
         assert_arrays_eq!(
-            primitive_field(&actual_array.into_array(), &["one"]).unwrap(),
+            primitive_field(&actual_array.clone().into_array(), &["one"]).unwrap(),
             PrimitiveArray::from_iter([0i32, 1, 2])
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array.into_array(), &["two", "two_one"]).unwrap(),
+            primitive_field(&actual_array.clone().into_array(), &["two", "two_one"]).unwrap(),
             PrimitiveArray::from_iter([4i32, 5, 6])
         );
         assert_arrays_eq!(
-            primitive_field(&actual_array.into_array(), &["two", "two_two"]).unwrap(),
+            primitive_field(&actual_array.clone().into_array(), &["two", "two_two"]).unwrap(),
             PrimitiveArray::from_iter([4i32, 5, 6])
         );
         assert_arrays_eq!(

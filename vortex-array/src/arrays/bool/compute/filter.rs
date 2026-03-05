@@ -79,6 +79,7 @@ mod test {
     use itertools::Itertools;
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::bool::compute::filter::filter_indices;
     use crate::arrays::bool::compute::filter::filter_slices;

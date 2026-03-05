@@ -32,6 +32,7 @@ impl MaskReduce for PrimitiveVTable {
 mod test {
     use rstest::rstest;
 
+    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::mask::test_mask_conformance;
 

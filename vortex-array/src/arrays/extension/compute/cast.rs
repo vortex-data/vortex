@@ -57,6 +57,7 @@ mod tests {
         let arr = ExtensionArray::new(ext_dtype.clone(), storage);
 
         let output = arr
+            .clone()
             .into_array()
             .cast(DType::Extension(ext_dtype.clone()))
             .unwrap();
@@ -75,7 +76,7 @@ mod tests {
 
         let new_dtype = DType::Extension(ext_dtype).with_nullability(Nullability::Nullable);
 
-        let output = arr.into_array().cast(new_dtype.clone()).unwrap();
+        let output = arr.clone().into_array().cast(new_dtype.clone()).unwrap();
         assert_eq!(arr.len(), output.len());
         assert!(arr.dtype().eq_ignore_nullability(output.dtype()));
         assert_eq!(output.dtype(), &new_dtype);

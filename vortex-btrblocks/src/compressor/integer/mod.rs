@@ -251,7 +251,7 @@ impl Scheme for UncompressedScheme {
         _ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        Ok(stats.source().into_array())
+        Ok(stats.source().clone().into_array())
     }
 }
 
@@ -601,7 +601,7 @@ impl Scheme for SparseScheme {
         }
 
         let sparse_encoded = SparseArray::encode(
-            &stats.src.into_array(),
+            &stats.src.clone().into_array(),
             Some(Scalar::primitive_value(
                 top_pvalue,
                 top_pvalue.ptype(),

@@ -382,7 +382,8 @@ mod tests {
                 DictLayoutOptions::default(),
             );
 
-            let array = VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).into_array();
+            let array =
+                VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).into_array();
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();

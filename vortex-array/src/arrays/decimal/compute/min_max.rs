@@ -74,6 +74,7 @@ where
 mod tests {
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::arrays::DecimalArray;
     use crate::compute::MinMaxResult;
     use crate::compute::min_max;
@@ -91,7 +92,7 @@ mod tests {
             Validity::from_iter([true, false, true]),
         );
 
-        let min_max = min_max(&decimal.into_array()).unwrap();
+        let min_max = min_max(&decimal.clone().into_array()).unwrap();
 
         let non_nullable_dtype = decimal.dtype().as_nonnullable();
         let expected = MinMaxResult {

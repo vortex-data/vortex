@@ -485,6 +485,7 @@ mod tests {
 
         let ctx = ArrayContext::empty();
         let serialized = sliced
+            .clone()
             .into_array()
             .serialize(&ctx, &SerializeOptions::default())
             .unwrap();

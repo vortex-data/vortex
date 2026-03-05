@@ -206,6 +206,7 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
 mod test {
     use std::str;
 
+    use crate::IntoArray;
     use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinArray;

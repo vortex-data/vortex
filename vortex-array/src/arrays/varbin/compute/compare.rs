@@ -120,7 +120,8 @@ impl CompareKernel for VarBinVTable {
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
             return Ok(Some(
-                lhs.clone().into_array()
+                lhs.clone()
+                    .into_array()
                     .execute::<VarBinViewArray>(ctx)?
                     .into_array()
                     .binary(rhs.to_array(), Operator::from(operator))?,
@@ -146,6 +147,7 @@ mod test {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::ByteBuffer;
 
+    use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
@@ -215,6 +217,7 @@ mod test {
 #[cfg(test)]
 mod tests {
     use crate::DynArray;
+    use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::builtins::ArrayBuiltins;

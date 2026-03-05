@@ -121,6 +121,7 @@ impl ScalarFnVTable for Not {
 
 #[cfg(test)]
 mod tests {
+    use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::BoolArray;
     use crate::dtype::DType;

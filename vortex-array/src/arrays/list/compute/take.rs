@@ -106,7 +106,10 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     Ok(ListArray::try_new(
         new_elements,
         new_offsets,
-        array.validity().clone().take(&indices_array.clone().into_array())?,
+        array
+            .validity()
+            .clone()
+            .take(&indices_array.clone().into_array())?,
     )?
     .into_array())
 }
@@ -175,7 +178,10 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
     Ok(ListArray::try_new(
         new_elements,
         new_offsets,
-        array.validity().clone().take(&indices_array.clone().into_array())?,
+        array
+            .validity()
+            .clone()
+            .take(&indices_array.clone().into_array())?,
     )?
     .into_array())
 }

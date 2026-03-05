@@ -29,6 +29,7 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::IntoArray;
     use crate::compute::is_constant;
 
     #[rstest]

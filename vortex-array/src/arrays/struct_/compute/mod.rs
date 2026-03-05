@@ -179,7 +179,7 @@ mod tests {
             vec![
                 StructArray::try_new(
                     ["left", "right"].into(),
-                    vec![xs.into_array(), xs.into_array()],
+                    vec![xs.clone().into_array(), xs.into_array()],
                     5,
                     Validity::AllValid,
                 )

@@ -30,6 +30,7 @@ impl MaskReduce for VarBinVTable {
 
 #[cfg(test)]
 mod test {
+    use crate::IntoArray;
     use crate::arrays::VarBinArray;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::dtype::DType;

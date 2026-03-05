@@ -54,6 +54,7 @@ impl TakeExecute for FSSTVTable {
 mod tests {
     use rstest::rstest;
     use vortex_array::DynArray;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;

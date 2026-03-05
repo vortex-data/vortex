@@ -48,6 +48,7 @@ impl CastReduce for ALPRDVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builtins::ArrayBuiltins;
@@ -91,6 +92,7 @@ mod tests {
 
         // Cast to NonNullable should fail since we have nulls
         let result = alprd
+            .clone()
             .into_array()
             .cast(DType::Primitive(PType::F64, Nullability::NonNullable));
         assert!(result.is_err());

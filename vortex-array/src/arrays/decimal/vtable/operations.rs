@@ -27,6 +27,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::DynArray;
+    use crate::IntoArray;
     use crate::arrays::DecimalArray;
     use crate::arrays::DecimalVTable;
     use crate::dtype::DecimalDType;

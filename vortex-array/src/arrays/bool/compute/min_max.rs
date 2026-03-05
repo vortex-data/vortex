@@ -78,6 +78,7 @@ register_kernel!(MinMaxKernelAdapter(BoolVTable).lift());
 mod tests {
     use Nullability::NonNullable;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::compute::MinMaxResult;
     use crate::compute::min_max;
@@ -96,7 +97,8 @@ mod tests {
         );
 
         assert_eq!(
-            min_max(&BoolArray::from_iter(vec![None, Some(true), Some(true)]).into_array()).unwrap(),
+            min_max(&BoolArray::from_iter(vec![None, Some(true), Some(true)]).into_array())
+                .unwrap(),
             Some(MinMaxResult {
                 min: Scalar::bool(true, NonNullable),
                 max: Scalar::bool(true, NonNullable),

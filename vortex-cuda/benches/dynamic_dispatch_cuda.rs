@@ -308,8 +308,8 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
     // Dict values: residuals 0..63 bitpacked, FoR adds 1_000_000
     let dict_residuals: Vec<u32> = (0..dict_size as u32).collect();
     let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
-    let dict_bp =
-        BitPackedArray::encode(&dict_prim.into_array(), dict_bit_width).vortex_expect("bitpack dict");
+    let dict_bp = BitPackedArray::encode(&dict_prim.into_array(), dict_bit_width)
+        .vortex_expect("bitpack dict");
     let dict_for = FoRArray::try_new(dict_bp.into_array(), Scalar::from(dict_reference))
         .vortex_expect("for dict");
 
@@ -321,7 +321,7 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
         let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), codes_bit_width)
             .vortex_expect("bitpack codes");
 
-        let dict = DictArray::new(codes_bp.into_array(), dict_for.into_array());
+        let dict = DictArray::new(codes_bp.into_array(), dict_for.clone().into_array());
         let array = dict.into_array();
 
         group.bench_with_input(

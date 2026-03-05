@@ -66,7 +66,11 @@ mod tests {
             Nullability::Nullable,
         );
 
-        let result = list.into_array().cast(target_dtype.clone()).unwrap();
+        let result = list
+            .clone()
+            .into_array()
+            .cast(target_dtype.clone())
+            .unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), list.len());
     }

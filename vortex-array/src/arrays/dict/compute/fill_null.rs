@@ -43,7 +43,8 @@ impl FillNullKernel for DictVTable {
             // No fill values found, so we must canonicalize and fill_null.
             return Ok(Some(
                 array
-                    .clone().into_array()
+                    .clone()
+                    .into_array()
                     .execute::<Canonical>(ctx)?
                     .into_array()
                     .fill_null(fill_value.clone())?,
