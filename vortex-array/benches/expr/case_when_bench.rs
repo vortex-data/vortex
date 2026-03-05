@@ -18,6 +18,7 @@ use vortex_array::expr::eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::gt;
 use vortex_array::expr::lit;
+use vortex_array::expr::lt;
 use vortex_array::expr::nested_case_when;
 use vortex_array::expr::root;
 use vortex_array::session::ArraySession;
@@ -171,6 +172,39 @@ fn case_when_all_true(bencher: Bencher, size: usize) {
         gt(get_item("value", root()), lit(-1i32)),
         lit(100i32),
         lit(0i32),
+    );
+
+    bencher
+        .with_inputs(|| (&expr, &array))
+        .bench_refs(|(expr, array)| {
+            let mut ctx = SESSION.create_execution_ctx();
+            array
+                .apply(expr)
+                .unwrap()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
+        });
+}
+
+/// Benchmark n-ary CASE WHEN where the first branch dominates (~90% of rows).
+/// This highlights the early-exit and deferred-merge optimizations: subsequent conditions
+/// match no remaining rows and are skipped entirely.
+#[divan::bench(args = [1000, 10000, 100000])]
+fn case_when_nary_early_dominant(bencher: Bencher, size: usize) {
+    let array = make_struct_array(size);
+
+    // CASE WHEN value < 90% THEN 1 WHEN value < 95% THEN 2 WHEN value < 97.5% THEN 3 ELSE 4
+    let t1 = (size as i32 * 9) / 10;
+    let t2 = (size as i32 * 19) / 20;
+    let t3 = (size as i32 * 39) / 40;
+
+    let expr = nested_case_when(
+        vec![
+            (lt(get_item("value", root()), lit(t1)), lit(1i32)),
+            (lt(get_item("value", root()), lit(t2)), lit(2i32)),
+            (lt(get_item("value", root()), lit(t3)), lit(3i32)),
+        ],
+        Some(lit(4i32)),
     );
 
     bencher

@@ -126,11 +126,6 @@ impl ScalarFnVTable for Zip {
             return if_true.cast(return_dtype)?.execute(ctx);
         }
 
-        let return_dtype = if_true
-            .dtype()
-            .clone()
-            .union_nullability(if_false.dtype().nullability());
-
         if mask.all_false() {
             return if_false.cast(return_dtype)?.execute(ctx);
         }
@@ -204,8 +199,14 @@ fn zip_impl_with_builder(
     mut builder: Box<dyn ArrayBuilder>,
 ) -> VortexResult<ArrayRef> {
     match mask.slices() {
-        AllOr::All => Ok(if_true.to_array()),
-        AllOr::None => Ok(if_false.to_array()),
+        AllOr::All => {
+            builder.extend_from_array(if_true);
+            Ok(builder.finish())
+        }
+        AllOr::None => {
+            builder.extend_from_array(if_false);
+            Ok(builder.finish())
+        }
         AllOr::Some(slices) => {
             for (start, end) in slices {
                 builder.extend_from_array(&if_false.slice(builder.len()..*start)?);
@@ -294,6 +295,24 @@ mod tests {
 
         // result must be nullable even if_true was not
         assert_eq!(result.dtype(), if_false.dtype())
+    }
+
+    /// When the mask is all-false and `if_true` is Nullable, the result dtype must be Nullable
+    /// even though `if_false` is NonNullable.
+    #[test]
+    fn test_zip_all_false_widens_nullability() {
+        let mask = Mask::new_false(4);
+        let if_true =
+            PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), None]).into_array();
+        let if_false = buffer![1i32, 2, 3, 4].into_array();
+
+        let result = mask.into_array().zip(if_true.clone(), if_false).unwrap();
+        let expected =
+            PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), Some(4)]).into_array();
+
+        assert_arrays_eq!(result, expected);
+        // result must be nullable even though if_false was not
+        assert_eq!(result.dtype(), if_true.dtype());
     }
 
     #[test]
