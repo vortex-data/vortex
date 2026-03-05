@@ -28,7 +28,6 @@ use vortex::error::vortex_err;
 use vortex::extension::datetime::TimeUnit;
 use vortex::extension::datetime::Timestamp;
 use vortex::scalar::Scalar;
-use vortex_cuda_macros::cuda_tests;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -199,7 +198,7 @@ where
     ))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
@@ -272,7 +271,7 @@ mod tests {
         vec![123456789i64, 0, 0],
         TimeUnit::Nanoseconds
     )]
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_datetimeparts_decompression(
         #[case] days: Vec<i32>,
         #[case] seconds: Vec<i32>,
@@ -298,7 +297,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_datetimeparts_large_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -324,7 +323,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_datetimeparts_with_nulls() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");

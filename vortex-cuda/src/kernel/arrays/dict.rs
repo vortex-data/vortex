@@ -29,7 +29,6 @@ use vortex::dtype::NativePType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex_cuda_macros::cuda_tests;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -301,7 +300,7 @@ async fn execute_dict_varbinview(
     }))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::DecimalArray;
@@ -329,7 +328,7 @@ mod tests {
         ))
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_u32_values_u8_codes() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -361,7 +360,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_u64_values_u16_codes() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -396,7 +395,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_i32_values_u32_codes() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -427,7 +426,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_large_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -459,7 +458,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_values_with_validity() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -491,7 +490,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_codes_with_validity() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -528,7 +527,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_both_with_validity() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -572,7 +571,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_i64_values_with_validity() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -617,7 +616,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_all_valid_matches_baseline() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -660,7 +659,7 @@ mod tests {
         ))
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_decimal_i8_values() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -688,7 +687,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_decimal_i16_values() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -716,7 +715,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_decimal_i32_values() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -744,7 +743,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_decimal_i64_values() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -775,7 +774,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_decimal_i128_values() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -819,7 +818,7 @@ mod tests {
             .into_varbinview())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_string_values_u8_codes() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -844,7 +843,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_string_values_u16_codes() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -869,7 +868,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_string_max_inlined_12_bytes() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -896,7 +895,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_string_outlined_views() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -926,7 +925,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_string_empty_strings() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -951,7 +950,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_string_values_with_validity() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -977,7 +976,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_string_outlined_with_validity() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -1010,7 +1009,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_dict_decimal_i256_values() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");

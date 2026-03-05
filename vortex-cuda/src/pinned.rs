@@ -14,7 +14,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex_cuda_macros::cuda_tests;
 
 use crate::CudaDeviceBuffer;
 use crate::stream::VortexCudaStream;
@@ -351,7 +350,7 @@ impl Drop for PooledPinnedBuffer {
     }
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
@@ -372,7 +371,7 @@ mod tests {
         Ok((pool, stream))
     }
 
-    #[test]
+    #[vortex_cuda_macros::test]
     fn transfer_to_device_round_trip() -> VortexResult<()> {
         let (pool, stream) = setup()?;
         let data: Vec<u8> = (0..=255u8).collect();
@@ -387,7 +386,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[vortex_cuda_macros::test]
     fn transfer_puts_buffer_inflight() -> VortexResult<()> {
         let (pool, stream) = setup()?;
 
@@ -411,7 +410,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[vortex_cuda_macros::test]
     fn pool_reclaims_after_transfer_completes() -> VortexResult<()> {
         let (pool, stream) = setup()?;
 
@@ -444,7 +443,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[vortex_cuda_macros::test]
     fn drop_returns_buffer_to_pool() -> VortexResult<()> {
         let (pool, _stream) = setup()?;
 
@@ -466,7 +465,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[vortex_cuda_macros::test]
     fn transfer_consumes_inner_so_drop_is_noop() -> VortexResult<()> {
         let (pool, stream) = setup()?;
 

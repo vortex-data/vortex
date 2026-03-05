@@ -19,7 +19,6 @@ use vortex::array::vtable::ValidityHelper;
 use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
-use vortex_cuda_macros::cuda_tests;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -98,7 +97,7 @@ pub(crate) async fn execute_patches<
     Ok(target)
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
@@ -135,7 +134,7 @@ mod tests {
     #[case::i64(0_i64)]
     #[case::f32(0_f32)]
     #[case::f64(0_f64)]
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_patches<Values: NativePType + DeviceRepr>(#[case] _v: Values) {
         tokio::join!(
             full_test_case::<Values, u8>(),

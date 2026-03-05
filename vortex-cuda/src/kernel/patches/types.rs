@@ -235,7 +235,7 @@ mod tests {
 
     use crate::kernel::patches::types::transpose;
 
-    #[test]
+    #[vortex_cuda_macros::test]
     fn test_transpose_patches() {
         let patch_values = buffer![0u32, 10, 20, 30, 40, 50, 60, 70, 80];
 

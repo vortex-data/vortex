@@ -18,10 +18,10 @@
 //! #[cuda_not_available]
 //! fn fallback_function() { /* ... */ }
 //!
-//! // Only compiled in test builds when CUDA is available
-//! #[cuda_test]
-//! mod tests {
-//!     // ...
+//! // Ignore tests when CUDA is not available
+//! #[vortex_cuda_macros::test]
+//! async fn my_test() {
+//! ...
 //! }
 //! ```
 
@@ -61,17 +61,39 @@ pub fn cuda_not_available(_attr: TokenStream, item: TokenStream) -> TokenStream 
     }
 }
 
-/// Conditionally compiles the annotated item only in test builds when CUDA is available.
+/// Test attribute to ignore tests if CUDA isn't available. Supports both sync and async tests (using tokio).
+///
+/// Must be named `test` to work with frameworks like `rstest`.
 #[proc_macro_attribute]
-pub fn cuda_tests(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn test(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = parse_macro_input!(item as syn::ItemFn);
     if *NVCC_AVAILABLE {
-        let item = parse_macro_input!(item as Item);
-        quote! {
-            #[cfg(test)]
-            #item
+        if item.sig.asyncness.is_some() {
+            quote! {
+                #[tokio::test]
+                #item
+            }
+        } else {
+            quote! {
+                #[test]
+                #item
+            }
         }
         .into()
     } else {
-        TokenStream::new()
+        if item.sig.asyncness.is_some() {
+            quote! {
+                #[tokio::test]
+                #[ignore]
+                #item
+            }
+        } else {
+            quote! {
+                #[test]
+                #[ignore]
+                #item
+            }
+        }
+        .into()
     }
 }

@@ -26,7 +26,6 @@ use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::scalar::Scalar;
-use vortex_cuda_macros::cuda_tests;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -157,8 +156,7 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
     )))
 }
 
-#[cuda_tests]
-#[allow(clippy::cast_possible_truncation)]
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
@@ -194,7 +192,7 @@ mod tests {
     #[case::u8_ends_i32_values(make_runend_array(vec![2u8, 5, 10], vec![1i32, 2, 3]))]
     #[case::u32_ends_i32_values(make_runend_array(vec![2u32, 5, 10], vec![1i32, 2, 3]))]
     #[case::u64_ends_i32_values(make_runend_array(vec![2u64, 5, 10], vec![1i32, 2, 3]))]
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_runend_types(#[case] runend_array: RunEndArray) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -214,7 +212,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_runend_large_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -224,7 +222,7 @@ mod tests {
         let total_len = num_runs * run_length;
 
         let ends: Vec<u64> = (1..=num_runs).map(|i| (i * run_length) as u64).collect();
-        let values: Vec<i32> = (0..num_runs).map(|i| i as i32).collect();
+        let values: Vec<i32> = (0..num_runs).map(|i| i32::try_from(i).unwrap()).collect();
 
         let runend_array = make_runend_array(ends, values);
         assert_eq!(runend_array.len(), total_len);
@@ -244,7 +242,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_runend_single_run() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -266,7 +264,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_runend_many_small_runs() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");

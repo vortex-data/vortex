@@ -20,7 +20,6 @@ use vortex::encodings::zstd::ZstdBuffersArray;
 use vortex::encodings::zstd::ZstdBuffersVTable;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex_cuda_macros::cuda_tests;
 use vortex_nvcomp::sys;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
@@ -218,7 +217,7 @@ async fn validate_decompress_results(
     Ok(())
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;

@@ -26,7 +26,6 @@ use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
-use vortex_cuda_macros::cuda_tests;
 
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
@@ -190,7 +189,7 @@ where
     )))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
@@ -221,7 +220,7 @@ mod tests {
     #[case::i64(make_constant_array(-1000000i64, 2050))]
     #[case::f32(make_constant_array(1.23f32, 2050))]
     #[case::f64(make_constant_array(4.56789f64, 2050))]
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_constant_materialization(
         #[case] constant_array: ConstantArray,
     ) -> VortexResult<()> {
@@ -243,7 +242,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_constant_empty_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -264,7 +263,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[vortex_cuda_macros::test]
     async fn test_cuda_constant_small_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");

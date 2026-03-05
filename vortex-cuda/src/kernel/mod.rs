@@ -20,7 +20,6 @@ use tracing::trace;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::utils::aliases::dash_map::DashMap;
-use vortex_cuda_macros::cuda_tests;
 
 mod arrays;
 mod encodings;
@@ -282,9 +281,8 @@ impl KernelLoader {
     }
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
-    #![allow(clippy::expect_used)]
 
     use cudarc::driver::CudaContext;
     use cudarc::driver::PushKernelArg;
@@ -297,7 +295,7 @@ mod tests {
     /// This test launches a special config_check kernel that reports the kernel-side
     /// constants, then verifies they match the Rust-side constants used in
     /// `launch_cuda_kernel_impl`.
-    #[test]
+    #[vortex_cuda_macros::test]
     fn test_kernel_config_matches_rust_config() {
         // These must match the constants in launch_cuda_kernel_impl
         const THREADS_PER_BLOCK: u32 = 64;
