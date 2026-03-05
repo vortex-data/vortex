@@ -51,7 +51,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8i+m8i-flex+m8a
-      - cpu=8
+      - cpu=4
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=python-lint
@@ -200,7 +200,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8i+m8i-flex+m8a
-      - cpu=8
+      - cpu=${{ matrix.config.cpu }}
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=${{ matrix.config.name }}
@@ -212,13 +212,17 @@ jobs:
       matrix:
         config:
           - name: "all-features"
+            cpu: 8
             args: "--all-features --all-targets"
           - name: "default features"
+            cpu: 8
             args: "--all-targets"
           - name: "with tokio dispatcher"
+            cpu: 4
             # Only build the crates that have the tokio features, not re-building other crates with no-default-features
             args: "--no-default-features --features tokio --all-targets -p vortex -p vortex-io -p vortex-file -p vortex-layout"
           - name: "wasm32 with default features"
+            cpu: 4
             target: wasm32-unknown-unknown
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"wasm_js\"'"
@@ -250,7 +254,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8i+m8i-flex+m8a
-      - cpu=8
+      - cpu=4
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-min-deps
@@ -343,7 +347,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8i+m8i-flex+m8a
-      - cpu=8
+      - cpu=4
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=public-api
@@ -834,7 +838,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8i+m8i-flex+m8a
-      - cpu=8
+      - cpu=4
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=cxx-build
@@ -864,7 +868,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8i+m8i-flex+m8a
-      - cpu=8
+      - cpu=4
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=sql-logic-test
@@ -988,7 +992,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8i+m8i-flex+m8a
-      - cpu=8
+      - cpu=4
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-publish-dry-run
