@@ -51,7 +51,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8i+m8i-flex+m8a
-      - cpu=16
+      - cpu=8
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=python-lint
@@ -343,7 +343,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8i+m8i-flex+m8a
-      - cpu=16
+      - cpu=8
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=public-api
@@ -765,20 +765,20 @@ jobs:
     strategy:
       matrix:
         include:
-          - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-error" }
-          - { shard: 2, name: "Arrays", packages: "vortex-array", features: "--features _test-harness" }
-          - { shard: 3, name: "Main library", packages: "vortex" }
-          - { shard: 4, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
-          - { shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }
-          - { shard: 6, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }
-          - { shard: 7, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd" }
-          - { shard: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
+          - { shard: 1, cpu: 8, name: "Core foundation", packages: "vortex-buffer vortex-error" }
+          - { shard: 2, cpu: 16, name: "Arrays", packages: "vortex-array", features: "--features _test-harness" }
+          - { shard: 3, cpu: 16, name: "Main library", packages: "vortex" }
+          - { shard: 4, cpu: 8, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
+          - { shard: 5, cpu: 16, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }
+          - { shard: 6, cpu: 8, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }
+          - { shard: 7, cpu: 8, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd" }
+          - { shard: 8, cpu: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8i
-      - cpu=16
+      - cpu=${{ matrix.cpu }}
       - extras=s3-cache
       - image=ubuntu24-full-x64
       - tag=bench-codspeed-${{ matrix.shard }}
