@@ -46,6 +46,21 @@ impl BitOr for &Mask {
     }
 }
 
+impl Mask {
+    /// Computes `self & !rhs` (AND NOT), equivalent to set difference.
+    pub fn andnot(&self, rhs: &Mask) -> Mask {
+        if self.len() != rhs.len() {
+            vortex_panic!("Masks must have the same length");
+        }
+        match (self.bit_buffer(), rhs.bit_buffer()) {
+            (AllOr::None, _) | (_, AllOr::All) => Mask::new_false(self.len()),
+            (_, AllOr::None) => self.clone(),
+            (AllOr::All, _) => !rhs,
+            (AllOr::Some(lhs), AllOr::Some(rhs)) => Mask::from_buffer(lhs & !rhs),
+        }
+    }
+}
+
 impl Not for Mask {
     type Output = Mask;
 
@@ -351,6 +366,35 @@ mod tests {
         assert!(!result.value(1)); // (!(!false) | true) & !true = (false | true) & false = false
         assert!(result.value(2)); // (!(!true) | false) & !false = (true | false) & true = true
         assert!(!result.value(3)); // (!(!false) | false) & !true = (false | false) & false = false
+    }
+
+    #[test]
+    fn test_andnot() {
+        let a = Mask::from_buffer(BitBuffer::from_iter([true, true, false, false]));
+        let b = Mask::from_buffer(BitBuffer::from_iter([true, false, true, false]));
+        let result = a.andnot(&b);
+        assert!(!result.value(0)); // true & !true  = false
+        assert!(result.value(1)); // true & !false = true
+        assert!(!result.value(2)); // false & !true  = false
+        assert!(!result.value(3)); // false & !false = false
+
+        // andnot(All) = None
+        let all = Mask::new_true(4);
+        assert!(a.andnot(&all).all_false());
+
+        // andnot(None) = self
+        let none = Mask::new_false(4);
+        assert_eq!(a.andnot(&none).true_count(), a.true_count());
+
+        // None.andnot(_) = None
+        assert!(none.andnot(&a).all_false());
+
+        // All.andnot(x) = !x
+        let not_b = !&b;
+        let all_andnot_b = Mask::new_true(4).andnot(&b);
+        for i in 0..4 {
+            assert_eq!(all_andnot_b.value(i), not_b.value(i));
+        }
     }
 
     #[test]

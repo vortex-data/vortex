@@ -214,7 +214,7 @@ impl ScalarFnVTable for CaseWhen {
             }
 
             let then_value = args.get(i * 2 + 1)?;
-            remaining = &remaining & &(!&cond_mask);
+            remaining = remaining.andnot(&cond_mask);
             branches.push((effective_mask, then_value));
         }
 
@@ -818,8 +818,7 @@ mod tests {
         let result = evaluate_expr(&expr, &test_array);
         assert_arrays_eq!(
             result,
-            BoolArray::from_iter([Some(false), Some(false), Some(true), Some(true), Some(true)])
-                .into_array()
+            BoolArray::from_iter([false, false, true, true, true]).into_array()
         );
     }
 
