@@ -10106,6 +10106,10 @@ pub fn vortex_array::expr::and_collect<I>(iter: I) -> core::option::Option<vorte
 
 pub fn vortex_array::expr::between(arr: vortex_array::expr::Expression, lower: vortex_array::expr::Expression, upper: vortex_array::expr::Expression, options: vortex_array::scalar_fn::fns::between::BetweenOptions) -> vortex_array::expr::Expression
 
+pub fn vortex_array::expr::case_when(condition: vortex_array::expr::Expression, then_value: vortex_array::expr::Expression, else_value: vortex_array::expr::Expression) -> vortex_array::expr::Expression
+
+pub fn vortex_array::expr::case_when_no_else(condition: vortex_array::expr::Expression, then_value: vortex_array::expr::Expression) -> vortex_array::expr::Expression
+
 pub fn vortex_array::expr::cast(child: vortex_array::expr::Expression, target: vortex_array::dtype::DType) -> vortex_array::expr::Expression
 
 pub fn vortex_array::expr::checked_add(lhs: vortex_array::expr::Expression, rhs: vortex_array::expr::Expression) -> vortex_array::expr::Expression
@@ -10159,6 +10163,8 @@ pub fn vortex_array::expr::mask(array: vortex_array::expr::Expression, mask: vor
 pub fn vortex_array::expr::merge(elements: impl core::iter::traits::collect::IntoIterator<Item = impl core::convert::Into<vortex_array::expr::Expression>>) -> vortex_array::expr::Expression
 
 pub fn vortex_array::expr::merge_opts(elements: impl core::iter::traits::collect::IntoIterator<Item = impl core::convert::Into<vortex_array::expr::Expression>>, duplicate_handling: vortex_array::scalar_fn::fns::merge::DuplicateHandling) -> vortex_array::expr::Expression
+
+pub fn vortex_array::expr::nested_case_when(when_then_pairs: alloc::vec::Vec<(vortex_array::expr::Expression, vortex_array::expr::Expression)>, else_value: core::option::Option<vortex_array::expr::Expression>) -> vortex_array::expr::Expression
 
 pub fn vortex_array::expr::not(operand: vortex_array::expr::Expression) -> vortex_array::expr::Expression
 
@@ -13210,6 +13216,86 @@ pub fn vortex_array::scalar_fn::fns::binary::or_kleene(lhs: &vortex_array::Array
 
 pub fn vortex_array::scalar_fn::fns::binary::scalar_cmp(lhs: &vortex_array::scalar::Scalar, rhs: &vortex_array::scalar::Scalar, operator: vortex_array::scalar_fn::fns::operators::CompareOperator) -> vortex_array::scalar::Scalar
 
+pub mod vortex_array::scalar_fn::fns::case_when
+
+pub struct vortex_array::scalar_fn::fns::case_when::CaseWhen
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::case_when::CaseWhen
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::clone(&self) -> vortex_array::scalar_fn::fns::case_when::CaseWhen
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::case_when::CaseWhen
+
+pub type vortex_array::scalar_fn::fns::case_when::CaseWhen::Options = vortex_array::scalar_fn::fns::case_when::CaseWhenOptions
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::arity(&self, options: &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::child_name(&self, options: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::deserialize(&self, metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::is_fallible(&self, _options: &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::is_null_sensitive(&self, _options: &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::reduce(&self, options: &Self::Options, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::return_dtype(&self, options: &Self::Options, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::simplify_untyped(&self, options: &Self::Options, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub struct vortex_array::scalar_fn::fns::case_when::CaseWhenOptions
+
+pub vortex_array::scalar_fn::fns::case_when::CaseWhenOptions::has_else: bool
+
+pub vortex_array::scalar_fn::fns::case_when::CaseWhenOptions::num_when_then_pairs: u32
+
+impl vortex_array::scalar_fn::fns::case_when::CaseWhenOptions
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhenOptions::num_children(&self) -> usize
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::case_when::CaseWhenOptions
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhenOptions::clone(&self) -> vortex_array::scalar_fn::fns::case_when::CaseWhenOptions
+
+impl core::cmp::Eq for vortex_array::scalar_fn::fns::case_when::CaseWhenOptions
+
+impl core::cmp::PartialEq for vortex_array::scalar_fn::fns::case_when::CaseWhenOptions
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhenOptions::eq(&self, other: &vortex_array::scalar_fn::fns::case_when::CaseWhenOptions) -> bool
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::case_when::CaseWhenOptions
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhenOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::scalar_fn::fns::case_when::CaseWhenOptions
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhenOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::scalar_fn::fns::case_when::CaseWhenOptions
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhenOptions::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_array::scalar_fn::fns::case_when::CaseWhenOptions
+
+impl core::marker::StructuralPartialEq for vortex_array::scalar_fn::fns::case_when::CaseWhenOptions
+
 pub mod vortex_array::scalar_fn::fns::cast
 
 pub struct vortex_array::scalar_fn::fns::cast::Cast
@@ -15041,6 +15127,42 @@ pub fn vortex_array::scalar_fn::fns::binary::Binary::stat_expression(&self, opti
 pub fn vortex_array::scalar_fn::fns::binary::Binary::stat_falsification(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::validity(&self, operator: &vortex_array::scalar_fn::fns::operators::Operator, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::case_when::CaseWhen
+
+pub type vortex_array::scalar_fn::fns::case_when::CaseWhen::Options = vortex_array::scalar_fn::fns::case_when::CaseWhenOptions
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::arity(&self, options: &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::child_name(&self, options: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::deserialize(&self, metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::execute(&self, options: &Self::Options, args: &dyn vortex_array::scalar_fn::ExecutionArgs, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::fmt_sql(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::is_fallible(&self, _options: &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::is_null_sensitive(&self, _options: &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::reduce(&self, options: &Self::Options, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::return_dtype(&self, options: &Self::Options, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::simplify_untyped(&self, options: &Self::Options, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::cast::Cast
 

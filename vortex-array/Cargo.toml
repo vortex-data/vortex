@@ -128,6 +128,11 @@ path = "benches/expr/large_struct_pack.rs"
 harness = false
 
 [[bench]]
+name = "expr_case_when"
+path = "benches/expr/case_when_bench.rs"
+harness = false
+
+[[bench]]
 name = "chunked_dict_builder"
 harness = false
 required-features = ["_test-harness"]
