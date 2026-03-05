@@ -30,7 +30,6 @@
 
 use std::any::Any;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
@@ -211,11 +210,7 @@ pub trait ArrayBuilder: Send {
     /// This method provides a default implementation that creates an [`ArrayRef`] via `finish` and
     /// then converts it to canonical form. Specific builders can override this with optimized
     /// implementations that avoid the intermediate [`ArrayRef`] creation.
-    fn finish_into_canonical(&mut self) -> Canonical {
-        self.finish()
-            .to_canonical()
-            .vortex_expect("finish_into_canonical failed")
-    }
+    fn finish_into_canonical(&mut self) -> Canonical;
 }
 
 /// Construct a new canonical builder for the given [`DType`].
