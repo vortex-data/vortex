@@ -45,15 +45,23 @@ impl FixedShapeTensorMetadata {
         }
     }
 
-    /// Sets the dimension names for this tensor.
+    /// Sets the dimension names for this tensor. An empty vec is normalized to `None` since a
+    /// 0-dimensional tensor has no dimensions to name.
     pub fn with_dim_names(mut self, names: Vec<String>) -> Self {
-        self.dim_names = Some(names);
+        self.dim_names = if names.is_empty() { None } else { Some(names) };
+
         self
     }
 
-    /// Sets the permutation for this tensor.
+    /// Sets the permutation for this tensor. An empty vec is normalized to `None` since a
+    /// 0-dimensional tensor has no dimensions to permute.
     pub fn with_permutation(mut self, permutation: Vec<usize>) -> Self {
-        self.permutation = Some(permutation);
+        self.permutation = if permutation.is_empty() {
+            None
+        } else {
+            Some(permutation)
+        };
+
         self
     }
 
@@ -127,7 +135,7 @@ impl FixedShapeTensorMetadata {
         let phys = perm[i];
 
         // Each call scans the full permutation, making `strides()` O(ndim^2) overall. Tensor rank
-        // is typically small (2–5), so avoiding a Vec allocation is a net win.
+        // is typically small, so avoiding a Vec allocation is a net win.
         perm.iter()
             .enumerate()
             .filter(|&(_, &p)| p > phys)
