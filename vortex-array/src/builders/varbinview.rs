@@ -316,11 +316,21 @@ impl VarBinViewBuilder {
     /// the `execute::<Canonical>` round-trip, skipping K Arc clones per call when the source
     /// array's buffers are already available.
     pub fn extend_from_varbinview(&mut self, array: &VarBinViewArray) {
+        self.extend_from_varbinview_slice(array, 0..array.len());
+    }
+
+    /// Like [`extend_from_varbinview`] but operates on a sub-range of the source array.
+    ///
+    /// This avoids constructing an intermediate sliced [`VarBinViewArray`]: the source's K
+    /// backing buffers are registered once with the deduplicator (O(K) hash lookups), and
+    /// only the views within `range` are appended.
+    pub fn extend_from_varbinview_slice(&mut self, array: &VarBinViewArray, range: Range<usize>) {
         self.flush_in_progress();
 
         let mask = array
             .validity_mask()
-            .vortex_expect("validity_mask in extend_from_varbinview");
+            .vortex_expect("validity_mask in extend_from_varbinview_slice")
+            .slice(range.clone());
         self.push_only_validity_mask(mask.clone());
 
         let view_adjustment =
@@ -330,32 +340,31 @@ impl VarBinViewBuilder {
                     self.compaction_threshold,
                 ));
 
+        let offset = range.start;
+        let views = &array.views()[range];
         match view_adjustment {
-            ViewAdjustment::Precomputed(adjustment) => self.views_builder.extend_trusted(
-                array
-                    .views()
-                    .iter()
-                    .map(|view| adjustment.adjust_view(view)),
-            ),
+            ViewAdjustment::Precomputed(adjustment) => self
+                .views_builder
+                .extend_trusted(views.iter().map(|view| adjustment.adjust_view(view))),
             ViewAdjustment::Rewriting(adjustment) => match mask {
                 Mask::AllTrue(_) => {
-                    for (idx, &view) in array.views().iter().enumerate() {
-                        let new_view = self.push_view(view, &adjustment, array, idx);
+                    for (local_idx, &view) in views.iter().enumerate() {
+                        let new_view = self.push_view(view, &adjustment, array, offset + local_idx);
                         self.views_builder.push(new_view);
                     }
                 }
                 Mask::AllFalse(_) => {
                     self.views_builder
-                        .push_n(BinaryView::empty_view(), array.len());
+                        .push_n(BinaryView::empty_view(), views.len());
                 }
                 Mask::Values(v) => {
-                    for (idx, (&view, is_valid)) in
-                        array.views().iter().zip(v.bit_buffer().iter()).enumerate()
+                    for (local_idx, (&view, is_valid)) in
+                        views.iter().zip(v.bit_buffer().iter()).enumerate()
                     {
                         let new_view = if !is_valid {
                             BinaryView::empty_view()
                         } else {
-                            self.push_view(view, &adjustment, array, idx)
+                            self.push_view(view, &adjustment, array, offset + local_idx)
                         };
                         self.views_builder.push(new_view);
                     }

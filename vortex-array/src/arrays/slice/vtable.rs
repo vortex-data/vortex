@@ -20,10 +20,13 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
+use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::slice::array::SliceArray;
 use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
+use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::scalar::Scalar;
@@ -169,6 +172,23 @@ impl VTable for SliceVTable {
         Canonical::from(canonical)
             .as_ref()
             .slice(array.range.clone())
+    }
+
+    fn append_to_builder(
+        array: &Self::Array,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        if let Some(vbv_builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>()
+            && let Some(any_canonical) = array.child.as_opt::<AnyCanonical>()
+            && let Canonical::VarBinView(vbv) = Canonical::from(any_canonical)
+        {
+            vbv_builder.extend_from_varbinview_slice(&vbv, array.range.clone());
+            return Ok(());
+        }
+        let canonical = array.to_array().execute::<Canonical>(ctx)?.into_array();
+        builder.extend_from_array(&canonical);
+        Ok(())
     }
 
     fn reduce_parent(

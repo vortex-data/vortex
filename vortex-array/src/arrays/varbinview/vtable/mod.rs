@@ -15,10 +15,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::BinaryView;
 use crate::arrays::varbinview::VarBinViewArray;
@@ -252,14 +250,13 @@ impl VTable for VarBinViewVTable {
     fn append_to_builder(
         array: &VarBinViewArray,
         builder: &mut dyn ArrayBuilder,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         if let Some(vbv_builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() {
             vbv_builder.extend_from_varbinview(array);
             Ok(())
         } else {
-            let canonical = array.to_array().execute::<Canonical>(ctx)?.into_array();
-            builder.extend_from_array(&canonical);
+            builder.extend_from_array(&array.to_array());
             Ok(())
         }
     }
