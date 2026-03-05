@@ -761,50 +761,50 @@ jobs:
       - run: ./gradlew test --parallel
         working-directory: ./java
 
-#  bench-codspeed:
-#    strategy:
-#      matrix:
-#        include:
-#          - { shard: 1, cpu: 8, name: "Core foundation", packages: "vortex-buffer vortex-error" }
-#          - { shard: 2, cpu: 16, name: "Arrays", packages: "vortex-array", features: "--features _test-harness" }
-#          - { shard: 3, cpu: 16, name: "Main library", packages: "vortex" }
-#          - { shard: 4, cpu: 8, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
-#          - { shard: 5, cpu: 16, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }
-#          - { shard: 6, cpu: 8, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }
-#          - { shard: 7, cpu: 8, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd" }
-#          - { shard: 8, cpu: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
-#    name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
-#    timeout-minutes: 120
-#    runs-on:
-#      - runs-on=${{ github.run_id }}
-#      - family=m8i
-#      - cpu=${{ matrix.cpu }}
-#      - extras=s3-cache
-#      - image=ubuntu24-full-x64
-#      - tag=bench-codspeed-${{ matrix.shard }}
-#    steps:
-#      - uses: runs-on/action@v2
-#        with:
-#          sccache: s3
-#      - uses: actions/checkout@v6
-#      - uses: ./.github/actions/setup-rust
-#        with:
-#          repo-token: ${{ secrets.GITHUB_TOKEN }}
-#      - uses: ./.github/actions/system-info
-#      - name: Install Codspeed
-#        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
-#        with:
-#          tool: cargo-codspeed
-#      - name: Build benchmarks
-#        env:
-#          RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
-#        run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
-#      - name: Run benchmarks
-#        uses: CodSpeedHQ/action@2ac572851726409c88c02a307f1ea2632a9ea59b
-#        with:
-#          run: cargo codspeed run
-#          token: ${{ secrets.CODSPEED_TOKEN }}
-#          mode: "simulation"
+  bench-codspeed:
+    strategy:
+      matrix:
+        include:
+          # - { shard: 1, cpu: 8, name: "Core foundation", packages: "vortex-buffer vortex-error" }
+          - { shard: 2, cpu: 16, name: "Arrays", packages: "vortex-array", features: "--features _test-harness" }
+          # - { shard: 3, cpu: 16, name: "Main library", packages: "vortex" }
+          # - { shard: 4, cpu: 8, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
+          # - { shard: 5, cpu: 16, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }
+          # - { shard: 6, cpu: 8, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }
+          # - { shard: 7, cpu: 8, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd" }
+          # - { shard: 8, cpu: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
+    name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m8i
+      - cpu=${{ matrix.cpu }}
+      - extras=s3-cache
+      - image=ubuntu24-full-x64
+      - tag=bench-codspeed-${{ matrix.shard }}
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/system-info
+      - name: Install Codspeed
+        uses: taiki-e/cache-cargo-install-action@2bfc3cedaf2ee5e7fa5d0ae034ccd5fb50cf8e1f
+        with:
+          tool: cargo-codspeed
+      - name: Build benchmarks
+        env:
+          RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
+        run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@2ac572851726409c88c02a307f1ea2632a9ea59b
+        with:
+          run: cargo codspeed run
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          mode: "simulation"
 
   license-check-and-audit-check:
     name: License Check and Audit Check
