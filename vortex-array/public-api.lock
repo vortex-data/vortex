@@ -8056,6 +8056,10 @@ impl num_traits::cast::AsPrimitive<i8> for vortex_array::dtype::i256
 
 pub fn vortex_array::dtype::i256::as_(self) -> i8
 
+impl num_traits::cast::AsPrimitive<vortex_array::dtype::i256> for bool
+
+pub fn bool::as_(self) -> vortex_array::dtype::i256
+
 impl num_traits::cast::AsPrimitive<vortex_array::dtype::i256> for i128
 
 pub fn i128::as_(self) -> vortex_array::dtype::i256

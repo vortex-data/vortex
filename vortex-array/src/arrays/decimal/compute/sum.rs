@@ -4,6 +4,7 @@
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use num_traits::CheckedAdd;
+use num_traits::NumOps;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -81,7 +82,8 @@ fn sum_to_scalar<T, O>(
 ) -> Scalar
 where
     T: AsPrimitive<O>,
-    O: Copy + CheckedAdd + Into<DecimalValue> + 'static,
+    O: CheckedAdd + NumOps + Into<DecimalValue> + Copy + 'static,
+    bool: AsPrimitive<O>,
 {
     let raw_sum = match validity {
         Some(v) => sum_decimal_with_validity(values, v, initial),
@@ -109,17 +111,17 @@ fn sum_decimal<T: AsPrimitive<I>, I: Copy + CheckedAdd + 'static>(
     Some(sum)
 }
 
-fn sum_decimal_with_validity<T: AsPrimitive<I>, I: Copy + CheckedAdd + 'static>(
-    values: Buffer<T>,
-    validity: &BitBuffer,
-    initial: I,
-) -> Option<I> {
+fn sum_decimal_with_validity<T, I>(values: Buffer<T>, validity: &BitBuffer, initial: I) -> Option<I>
+where
+    T: AsPrimitive<I>,
+    I: NumOps + CheckedAdd + Copy + 'static,
+    bool: AsPrimitive<I>,
+{
     let mut sum = initial;
     for (v, valid) in values.iter().zip_eq(validity) {
-        if valid {
-            let v: I = v.as_();
-            sum = CheckedAdd::checked_add(&sum, &v)?;
-        }
+        let v: I = v.as_() * valid.as_();
+
+        sum = CheckedAdd::checked_add(&sum, &v)?;
     }
     Some(sum)
 }
