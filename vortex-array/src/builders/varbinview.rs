@@ -343,6 +343,9 @@ impl VarBinViewBuilder {
         let offset = range.start;
         let views = &array.views()[range];
         match view_adjustment {
+            ViewAdjustment::Precomputed(adjustment) if adjustment.is_identity() => {
+                self.views_builder.extend_from_slice(views);
+            }
             ViewAdjustment::Precomputed(adjustment) => self
                 .views_builder
                 .extend_trusted(views.iter().map(|view| adjustment.adjust_view(view))),
@@ -766,6 +769,28 @@ enum PrecomputedViewAdjustment {
 }
 
 impl PrecomputedViewAdjustment {
+    /// Returns `true` when this adjustment is a no-op: buffer indices and byte offsets are
+    /// unchanged, so views can be bulk-copied instead of adjusted one by one.
+    #[inline]
+    fn is_identity(&self) -> bool {
+        match self {
+            Self::Shift {
+                buffer_offset,
+                offsets,
+            } => *buffer_offset == 0 && offsets.is_none(),
+            Self::Lookup {
+                buffer_lookup,
+                offsets,
+            } => {
+                offsets.is_none()
+                    && buffer_lookup
+                        .iter()
+                        .enumerate()
+                        .all(|(i, &b)| u32::try_from(i).is_ok_and(|i32| b == i32))
+            }
+        }
+    }
+
     #[inline]
     fn adjust_view(&self, view: &BinaryView) -> BinaryView {
         if view.is_inlined() {
