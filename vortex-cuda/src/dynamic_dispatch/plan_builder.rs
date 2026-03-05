@@ -156,8 +156,12 @@ impl PlanBuilderState<'_> {
             self.walk_runend(array)
         } else if id == Primitive::ID {
             self.walk_primitive(array)
-        } else if id == Slice::ID {
+        } else if id == SliceVTable::ID {
             self.walk_slice(array)
+        } else if id == ChunkedVTable::ID {
+            self.walk_chunked(array)
+        } else if id == SequenceVTable::ID {
+            self.walk_sequence(array)
         } else {
             vortex_bail!(
                 "Encoding {:?} not supported by dynamic dispatch plan builder",

@@ -60,10 +60,16 @@ union SourceParams {
         uint64_t num_runs;
         uint64_t offset;
     } runend;
+
+    /// Generate a linear sequence: value[i] = base + i * multiplier.
+    struct SequenceParams {
+        uint64_t base;
+        uint64_t multiplier;
+    } sequence;
 };
 
 struct SourceOp {
-    enum SourceOpCode { BITUNPACK, LOAD, RUNEND } op_code;
+    enum SourceOpCode { BITUNPACK, LOAD, RUNEND, SEQUENCE } op_code;
     union SourceParams params;
 };
 
@@ -117,9 +123,20 @@ struct Stage {
 /// offsets are assigned with a simple bump allocator.
 ///
 /// The last stage is the output pipeline which directly writes to global memory.
+///
+/// For multi-chunk dispatch (`dynamic_dispatch_multi`), `output_ptr` and
+/// `array_len` are embedded in the plan so a single 2D-grid kernel launch
+/// can process an array of plans — one per chunk — without per-chunk
+/// kernel launch overhead.
 struct DynamicDispatchPlan {
     uint8_t num_stages;
     struct Stage stages[MAX_STAGES];
+    /// Global memory pointer to the output buffer for this plan.
+    /// Used by `dynamic_dispatch_multi`; ignored by `dynamic_dispatch`.
+    uint64_t output_ptr;
+    /// Number of output elements for this plan.
+    /// Used by `dynamic_dispatch_multi`; ignored by `dynamic_dispatch`.
+    uint64_t array_len;
 };
 
 #ifdef __cplusplus

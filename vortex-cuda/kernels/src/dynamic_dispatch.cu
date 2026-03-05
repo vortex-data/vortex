@@ -114,6 +114,17 @@ __device__ inline void dynamic_source_op(const T *__restrict input,
         return;
     }
 
+    case SourceOp::SEQUENCE: {
+        // Generate a linear sequence: value[i] = base + i * multiplier.
+        // Used for SequenceArray (e.g. monotonic run-end endpoints).
+        const T base = static_cast<T>(source_op.params.sequence.base);
+        const T mul  = static_cast<T>(source_op.params.sequence.multiplier);
+        for (uint32_t i = threadIdx.x; i < chunk_len; i += blockDim.x) {
+            smem_output[i] = base + static_cast<T>(chunk_start + i) * mul;
+        }
+        break;
+    }
+
     default:
         __builtin_unreachable();
     }
@@ -353,3 +364,38 @@ __device__ void dynamic_dispatch(T *__restrict output,
     }
 
 FOR_EACH_UNSIGNED_INT(GENERATE_DYNAMIC_DISPATCH_KERNEL)
+
+/// Multi-chunk dispatch: process an array of plans in a single kernel launch.
+///
+/// Uses a 2D grid where `blockIdx.y` selects the chunk (plan) and
+/// `blockIdx.x` selects the block within that chunk. Each plan embeds its
+/// own `output_ptr` and `array_len`, so no per-chunk kernel arguments are
+/// needed.
+///
+/// Blocks beyond a chunk's length (when chunks have different sizes) exit
+/// early. The grid.x dimension must be `max(ceil(array_len / 2048))` across
+/// all chunks, and grid.y must equal the number of plans.
+template <typename T>
+__device__ void dynamic_dispatch_multi_impl(const struct DynamicDispatchPlan *__restrict plans) {
+    const uint32_t chunk_idx = blockIdx.y;
+    const struct DynamicDispatchPlan *plan = &plans[chunk_idx];
+
+    const uint64_t array_len = plan->array_len;
+    const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * ELEMENTS_PER_BLOCK;
+
+    // Early exit for excess blocks (chunks may have different sizes).
+    if (block_start >= array_len) {
+        return;
+    }
+
+    T *output = reinterpret_cast<T *>(plan->output_ptr);
+    dynamic_dispatch_impl<T>(output, array_len, plan);
+}
+
+#define GENERATE_DYNAMIC_DISPATCH_MULTI_KERNEL(suffix, Type)                                                 \
+    extern "C" __global__ void dynamic_dispatch_multi_##suffix(                                              \
+        const struct DynamicDispatchPlan *__restrict plans) {                                                \
+        dynamic_dispatch_multi_impl<Type>(plans);                                                            \
+    }
+
+FOR_EACH_UNSIGNED_INT(GENERATE_DYNAMIC_DISPATCH_MULTI_KERNEL)

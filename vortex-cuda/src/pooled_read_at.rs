@@ -119,6 +119,92 @@ impl VortexReadAt for PooledFileReadAt {
     }
 }
 
+/// File reader that uses CUDA pinned host memory for zero-copy GPU access
+/// on GH200.
+///
+/// Reads into a pooled pinned (page-locked) buffer and returns a **host**
+/// `BufferHandle` backed by the pinned memory. On GH200 the GPU reads this
+/// memory directly over NVLink-C2C, avoiding both:
+/// - ATS page faults from pageable memory (what `FileReadAt` does)
+/// - Explicit H2D copy latency (what `PooledFileReadAt` does)
+///
+/// When the returned `BufferHandle` (and all its clones/slices) are dropped,
+/// the pinned memory is returned to the pool for reuse.
+#[derive(Clone)]
+pub struct PinnedHostFileReadAt {
+    uri: Arc<str>,
+    file: Arc<File>,
+    handle: Handle,
+    pool: Arc<PinnedByteBufferPool>,
+}
+
+impl PinnedHostFileReadAt {
+    /// Open a file for pooled reading with pinned host-memory zero-copy.
+    pub fn open(
+        path: impl AsRef<Path>,
+        handle: Handle,
+        pool: Arc<PinnedByteBufferPool>,
+    ) -> VortexResult<Self> {
+        let path = path.as_ref();
+        let uri = Arc::from(path.to_string_lossy().to_string());
+        let file = Arc::new(File::open(path)?);
+        Ok(Self {
+            uri,
+            file,
+            handle,
+            pool,
+        })
+    }
+}
+
+impl VortexReadAt for PinnedHostFileReadAt {
+    fn uri(&self) -> Option<&Arc<str>> {
+        Some(&self.uri)
+    }
+
+    fn coalesce_config(&self) -> Option<CoalesceConfig> {
+        Some(CoalesceConfig::file())
+    }
+
+    fn concurrency(&self) -> usize {
+        DEFAULT_FILE_CONCURRENCY
+    }
+
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        let file = Arc::clone(&self.file);
+        async move {
+            let metadata = file.metadata()?;
+            Ok(metadata.len())
+        }
+        .boxed()
+    }
+
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        _alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let file = Arc::clone(&self.file);
+        let handle = self.handle.clone();
+        let pool = Arc::clone(&self.pool);
+
+        async move {
+            let mut target = pool.get(length)?;
+            let target = handle
+                .spawn_blocking(move || {
+                    read_exact_at(&file, target.as_mut_slice(), offset)?;
+                    Ok::<_, io::Error>(target)
+                })
+                .await
+                .map_err(VortexError::from)?;
+
+            Ok(BufferHandle::new_host(target.into_byte_buffer()))
+        }
+        .boxed()
+    }
+}
+
 /// Object store reader that uses CUDA pinned host memory for I/O buffers and
 /// transfers directly to the GPU.
 ///

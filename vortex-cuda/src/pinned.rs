@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use bytes::Bytes;
 use cudarc::driver::CudaContext;
 use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaStream;
@@ -10,6 +11,7 @@ use cudarc::driver::HostSlice;
 use cudarc::driver::PinnedHostSlice;
 use cudarc::driver::SyncOnDrop;
 use parking_lot::Mutex;
+use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
@@ -302,6 +304,39 @@ impl PooledPinnedBuffer {
             .unwrap_or_else(|e| vortex_panic!("failed to access pinned host buffer: {e}"))
     }
 
+    /// Convert this pinned buffer into a host [`ByteBuffer`] for zero-copy
+    /// GPU access on GH200.
+    ///
+    /// Instead of copying to device memory via [`transfer_to_device`][Self::transfer_to_device],
+    /// this returns a `ByteBuffer` backed by pinned host memory. On GH200 the
+    /// GPU reads this memory directly over NVLink-C2C, avoiding both the ATS
+    /// page faults of pageable memory and the latency of an explicit H2D copy.
+    ///
+    /// When the returned `ByteBuffer` (and all its clones/slices) are dropped,
+    /// the pinned memory is returned to the pool for reuse.
+    pub fn into_byte_buffer(mut self) -> ByteBuffer {
+        let mut inner = self
+            .inner
+            .take()
+            .unwrap_or_else(|| vortex_panic!("buffer already consumed"));
+        let (ptr, len) = {
+            let slice = inner
+                .as_mut_slice()
+                .unwrap_or_else(|e| vortex_panic!("failed to access pinned buffer: {e}"));
+            (slice.as_ptr(), slice.len())
+        };
+        let pool = self.pool.clone();
+
+        let owner = PinnedAsBytes {
+            ptr,
+            len,
+            buffer: Some(inner),
+            pool,
+        };
+
+        ByteBuffer::from(Bytes::from_owner(owner))
+    }
+
     /// Submits a non-blocking H2D DMA transfer and returns a device buffer.
     ///
     /// The pinned buffer is placed in the pool's inflight queue, gated on a `CudaEvent` marking
@@ -346,6 +381,42 @@ impl Drop for PooledPinnedBuffer {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.take() {
             self.pool.put(inner);
+        }
+    }
+}
+
+/// Wrapper enabling pinned CUDA host memory to back a [`ByteBuffer`].
+///
+/// Used on GH200 for zero-copy GPU access: the GPU reads pinned host
+/// memory directly over NVLink-C2C, avoiding both ATS page faults
+/// (pageable) and explicit H2D copies.
+///
+/// When dropped (via [`Bytes`] reference counting), the pinned buffer
+/// is returned to its [`PinnedByteBufferPool`] for reuse.
+struct PinnedAsBytes {
+    /// Cached data pointer, valid for the lifetime of `buffer`.
+    ptr: *const u8,
+    len: usize,
+    buffer: Option<PinnedByteBuffer>,
+    pool: Arc<PinnedByteBufferPool>,
+}
+
+// SAFETY: PinnedHostSlice is Send + Sync and the pinned memory remains
+// valid for the lifetime of the PinnedByteBuffer held in `buffer`.
+unsafe impl Send for PinnedAsBytes {}
+
+impl AsRef<[u8]> for PinnedAsBytes {
+    fn as_ref(&self) -> &[u8] {
+        // SAFETY: ptr and len were validated in PooledPinnedBuffer::into_byte_buffer
+        // and the backing memory is kept alive by self.buffer.
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    }
+}
+
+impl Drop for PinnedAsBytes {
+    fn drop(&mut self) {
+        if let Some(buf) = self.buffer.take() {
+            self.pool.put(buf);
         }
     }
 }

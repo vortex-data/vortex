@@ -75,6 +75,17 @@ impl SourceOp {
             },
         }
     }
+
+    /// Generate a linear sequence: value[i] = base + i * multiplier.
+    /// Used for SequenceArray (e.g. monotonic run-end endpoints).
+    pub fn sequence(base: u64, multiplier: u64) -> Self {
+        Self {
+            op_code: SourceOp_SourceOpCode_SEQUENCE,
+            params: SourceParams {
+                sequence: SourceParams_SequenceParams { base, multiplier },
+            },
+        }
+    }
 }
 
 impl ScalarOp {

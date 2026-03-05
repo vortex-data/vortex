@@ -4074,6 +4074,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpu-scan-bench"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "clap",
+ "cudarc",
+ "futures",
+ "memmap2",
+ "mimalloc",
+ "tokio",
+ "tracing",
+ "tracing-perfetto",
+ "tracing-subscriber",
+ "vortex",
+ "vortex-cuda",
+ "vortex-cuda-macros",
+]
+
+[[package]]
 name = "gpu-scan-cli"
 version = "0.1.0"
 dependencies = [

@@ -192,7 +192,7 @@ impl CudaExecutionCtx {
     /// # Errors
     ///
     /// Returns an error if kernel loading fails.
-    pub(crate) fn load_function_with_suffixes(
+    pub fn load_function_with_suffixes(
         &self,
         module_name: &str,
         type_suffixes: &[&str],

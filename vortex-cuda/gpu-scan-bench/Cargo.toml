@@ -1,0 +1,32 @@
+[package]
+name = "gpu-scan-bench"
+authors = { workspace = true }
+description = "CUDA GPU scan benchmarks"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+bytes = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+mimalloc = { workspace = true }
+cudarc = { workspace = true }
+futures = { workspace = true, features = ["executor"] }
+memmap2 = { workspace = true }
+tokio = { workspace = true, features = ["macros", "full"] }
+tracing = { workspace = true, features = ["std", "attributes"] }
+tracing-perfetto = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+
+vortex = { workspace = true, features = ["tokio", "unstable_encodings"] }
+vortex-cuda = { workspace = true, features = ["_test-harness", "unstable_encodings"] }
+vortex-cuda-macros = { workspace = true }
