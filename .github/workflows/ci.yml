@@ -508,6 +508,7 @@ jobs:
       - family=g5+g4dn+g6
       - cpu=8
       - image=ubuntu24-gpu-x64
+      - spot=true
       - extras=s3-cache
       - tag=cuda-build
     steps:
@@ -535,6 +536,7 @@ jobs:
       - family=g5+g4dn+g6
       - cpu=8
       - image=ubuntu24-gpu-x64
+      - spot=true
       - extras=s3-cache
       - tag=cuda-lint
     steps:
@@ -563,6 +565,7 @@ jobs:
       - family=g5+g4dn+g6
       - cpu=8
       - image=ubuntu24-gpu-x64
+      - spot=true
       - extras=s3-cache
       - tag=cuda-tests
     steps:
@@ -606,6 +609,7 @@ jobs:
       - family=g5+g4dn+g6
       - cpu=8
       - image=ubuntu24-gpu-x64
+      - spot=true
       - extras=s3-cache
       - tag=cuda-test-sanitizer
     steps:
@@ -647,6 +651,7 @@ jobs:
       - family=g5+g4dn+g6
       - cpu=8
       - image=ubuntu24-gpu-x64
+      - spot=true
       - extras=s3-cache
       - tag=cuda-test-cudf
     steps:
