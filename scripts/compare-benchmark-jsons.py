@@ -64,31 +64,22 @@ improvement_threshold = 1.0 - (threshold_pct / 100.0)  # e.g., 0.7 for 30%, 0.9 
 regression_threshold = 1.0 + (threshold_pct / 100.0)  # e.g., 1.3 for 30%, 1.1 for 10%
 
 
-def compute_abs_z_score(runtimes):
-    """Compute |median - mean| / stddev from a list of runtimes."""
+def compute_variance(runtimes):
+    """Compute sample variance from a list of runtimes."""
     if not isinstance(runtimes, list) or len(runtimes) < 2:
         return float("nan")
     n = len(runtimes)
     mean = sum(runtimes) / n
-    variance = sum((x - mean) ** 2 for x in runtimes) / (n - 1)
-    stddev = math.sqrt(variance)
-    if stddev == 0:
-        return 0.0
-    sorted_rt = sorted(runtimes)
-    if n % 2 == 1:
-        median = sorted_rt[n // 2]
-    else:
-        median = (sorted_rt[n // 2 - 1] + sorted_rt[n // 2]) / 2
-    return abs((median - mean) / stddev)
+    return sum((x - mean) ** 2 for x in runtimes) / (n - 1)
 
 
-# Compute |z-score| from all_runtimes when available
+# Compute variance from all_runtimes when available
 has_z_pr = "all_runtimes_pr" in df3.columns
 has_z_base = "all_runtimes_base" in df3.columns
 if has_z_pr:
-    df3["abs_z_score_pr"] = df3["all_runtimes_pr"].apply(compute_abs_z_score)
+    df3["variance_pr"] = df3["all_runtimes_pr"].apply(compute_variance)
 if has_z_base:
-    df3["abs_z_score_base"] = df3["all_runtimes_base"].apply(compute_abs_z_score)
+    df3["variance_base"] = df3["all_runtimes_base"].apply(compute_variance)
 
 # Generate summary statistics
 df3["ratio"] = df3["value_pr"] / df3["value_base"]
@@ -219,9 +210,9 @@ table_dict = {
 }
 
 if has_z_pr:
-    table_dict["abs(z-score) PR"] = df3["abs_z_score_pr"]
+    table_dict["variance PR"] = df3["variance_pr"]
 if has_z_base:
-    table_dict["abs(z-score) base"] = df3["abs_z_score_base"]
+    table_dict["variance base"] = df3["variance_base"]
 
 table_dict["remark"] = df3["remark"]
 table_df = pd.DataFrame(table_dict)
