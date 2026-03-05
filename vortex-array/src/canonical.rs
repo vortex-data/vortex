@@ -528,6 +528,7 @@ impl Executable for CanonicalValidity {
                 })))
             }
             Canonical::List(l) => {
+                let zctl = l.is_zero_copy_to_list();
                 let ListViewArrayParts {
                     elements,
                     offsets,
@@ -537,6 +538,7 @@ impl Executable for CanonicalValidity {
                 } = l.into_parts();
                 Ok(CanonicalValidity(Canonical::List(unsafe {
                     ListViewArray::new_unchecked(elements, offsets, sizes, validity.execute(ctx)?)
+                        .with_zero_copy_to_list(zctl)
                 })))
             }
             Canonical::FixedSizeList(fsl) => {
