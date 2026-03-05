@@ -229,7 +229,7 @@ mod tests {
             .map(|i| ((i as u64) % (max_val + 1)) as u32)
             .collect();
         let primitive = PrimitiveArray::new(Buffer::from(values), NonNullable);
-        BitPackedArray::encode(&primitive.to_array(), bit_width)
+        BitPackedArray::encode(&primitive.into_array(), bit_width)
             .vortex_expect("failed to create BitPacked array")
     }
 
@@ -430,7 +430,7 @@ mod tests {
 
         let bp = make_bitpacked_array_u32(bit_width, len);
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&bp.to_array(), &cuda_ctx)?;
+        let (plan, _bufs) = build_plan(&bp.into_array(), &cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
         assert_eq!(actual, expected);
@@ -454,7 +454,7 @@ mod tests {
         let for_arr = FoRArray::try_new(bp.into_array(), Scalar::from(reference))?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&for_arr.to_array(), &cuda_ctx)?;
+        let (plan, _bufs) = build_plan(&for_arr.into_array(), &cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
         assert_eq!(actual, expected);
@@ -479,7 +479,7 @@ mod tests {
         let re = RunEndArray::new(ends_arr, values_arr);
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&re.to_array(), &cuda_ctx)?;
+        let (plan, _bufs) = build_plan(&re.into_array(), &cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
         assert_eq!(actual, expected);
@@ -501,17 +501,17 @@ mod tests {
 
         // BitPack+FoR the dict values
         let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
-        let dict_bp = BitPackedArray::encode(&dict_prim.to_array(), 6)?;
+        let dict_bp = BitPackedArray::encode(&dict_prim.into_array(), 6)?;
         let dict_for = FoRArray::try_new(dict_bp.into_array(), Scalar::from(dict_reference))?;
 
         // BitPack the codes
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(&codes_prim.to_array(), 6)?;
+        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), 6)?;
 
         let dict = DictArray::try_new(codes_bp.into_array(), dict_for.into_array())?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&dict.to_array(), &cuda_ctx)?;
+        let (plan, _bufs) = build_plan(&dict.into_array(), &cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
         assert_eq!(actual, expected);
@@ -542,7 +542,7 @@ mod tests {
         );
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&tree.to_array(), &cuda_ctx)?;
+        let (plan, _bufs) = build_plan(&tree.into_array(), &cuda_ctx)?;
 
         let actual = run_dispatch_plan_f32(&cuda_ctx, len, &plan)?;
         assert_eq!(actual, floats);
@@ -566,11 +566,11 @@ mod tests {
             .collect();
 
         let prim = PrimitiveArray::new(Buffer::from(raw), NonNullable);
-        let bp = BitPackedArray::encode(&prim.to_array(), bit_width)?;
+        let bp = BitPackedArray::encode(&prim.into_array(), bit_width)?;
         let zz = ZigZagArray::try_new(bp.into_array())?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&zz.to_array(), &cuda_ctx)?;
+        let (plan, _bufs) = build_plan(&zz.into_array(), &cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
         assert_eq!(actual, expected);
@@ -598,7 +598,7 @@ mod tests {
         let for_arr = FoRArray::try_new(re.into_array(), Scalar::from(reference))?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&for_arr.to_array(), &cuda_ctx)?;
+        let (plan, _bufs) = build_plan(&for_arr.into_array(), &cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
         assert_eq!(actual, expected);
@@ -626,7 +626,7 @@ mod tests {
         let for_arr = FoRArray::try_new(dict.into_array(), Scalar::from(reference))?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&for_arr.to_array(), &cuda_ctx)?;
+        let (plan, _bufs) = build_plan(&for_arr.into_array(), &cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
         assert_eq!(actual, expected);
@@ -646,14 +646,14 @@ mod tests {
         // BitPack codes, then wrap in FoR (reference=0 so values unchanged)
         let bit_width: u8 = 3;
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(&codes_prim.to_array(), bit_width)?;
+        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), bit_width)?;
         let codes_for = FoRArray::try_new(codes_bp.into_array(), Scalar::from(0u32))?;
 
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
         let dict = DictArray::try_new(codes_for.into_array(), values_prim.into_array())?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&dict.to_array(), &cuda_ctx)?;
+        let (plan, _bufs) = build_plan(&dict.into_array(), &cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
         assert_eq!(actual, expected);
@@ -671,13 +671,13 @@ mod tests {
 
         let bit_width: u8 = 2;
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(&codes_prim.to_array(), bit_width)?;
+        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), bit_width)?;
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
 
         let dict = DictArray::try_new(codes_bp.into_array(), values_prim.into_array())?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&dict.to_array(), &cuda_ctx)?;
+        let (plan, _bufs) = build_plan(&dict.into_array(), &cuda_ctx)?;
 
         let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
         assert_eq!(actual, expected);

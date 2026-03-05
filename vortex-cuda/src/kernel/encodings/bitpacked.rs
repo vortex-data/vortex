@@ -201,14 +201,14 @@ mod tests {
         let array = PrimitiveArray::new(iter.collect::<Buffer<_>>(), NonNullable);
 
         // Last two items should be patched
-        let bp_with_patches = BitPackedArray::encode(&array.to_array(), bw)?;
+        let bp_with_patches = BitPackedArray::encode(&array.into_array(), bw)?;
         assert!(bp_with_patches.patches().is_some());
 
         let cpu_result = bp_with_patches.to_canonical()?.into_array();
 
         let gpu_result = block_on(async {
             BitPackedExecutor
-                .execute(bp_with_patches.to_array(), &mut cuda_ctx)
+                .execute(bp_with_patches.into_array(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
                 .into_host()
@@ -232,14 +232,14 @@ mod tests {
         );
 
         // Last two items should be patched
-        let bp_with_patches = BitPackedArray::encode(&array.to_array(), 9)?;
+        let bp_with_patches = BitPackedArray::encode(&array.into_array(), 9)?;
         assert!(bp_with_patches.patches().is_some());
 
         let cpu_result = bp_with_patches.to_canonical()?.into_array();
 
         let gpu_result = block_on(async {
             BitPackedExecutor
-                .execute(bp_with_patches.to_array(), &mut cuda_ctx)
+                .execute(bp_with_patches.into_array(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
                 .into_host()
@@ -274,13 +274,13 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPackedArray::encode(&primitive_array.to_array(), bit_width)
+        let bitpacked_array = BitPackedArray::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
 
         let gpu_result = block_on(async {
             BitPackedExecutor
-                .execute(bitpacked_array.to_array(), &mut cuda_ctx)
+                .execute(bitpacked_array.into_array(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
                 .into_host()
@@ -323,13 +323,13 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPackedArray::encode(&primitive_array.to_array(), bit_width)
+        let bitpacked_array = BitPackedArray::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
 
         let gpu_result = block_on(async {
             BitPackedExecutor
-                .execute(bitpacked_array.to_array(), &mut cuda_ctx)
+                .execute(bitpacked_array.into_array(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
                 .into_host()
@@ -388,13 +388,13 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPackedArray::encode(&primitive_array.to_array(), bit_width)
+        let bitpacked_array = BitPackedArray::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
 
         let gpu_result = block_on(async {
             BitPackedExecutor
-                .execute(bitpacked_array.to_array(), &mut cuda_ctx)
+                .execute(bitpacked_array.into_array(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
                 .into_host()
@@ -485,12 +485,12 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPackedArray::encode(&primitive_array.to_array(), bit_width)
+        let bitpacked_array = BitPackedArray::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
         let gpu_result = block_on(async {
             BitPackedExecutor
-                .execute(bitpacked_array.to_array(), &mut cuda_ctx)
+                .execute(bitpacked_array.into_array(), &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
                 .into_host()
@@ -518,7 +518,7 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPackedArray::encode(&primitive_array.to_array(), bit_width)
+        let bitpacked_array = BitPackedArray::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let slice_ref = bitpacked_array.clone().into_array().slice(67..3969)?;
         let mut exec_ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());

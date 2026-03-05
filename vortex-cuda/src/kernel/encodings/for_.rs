@@ -158,7 +158,7 @@ mod tests {
         let cpu_result = for_array.to_canonical()?;
 
         let gpu_result = FoRExecutor
-            .execute(for_array.to_array(), &mut cuda_ctx)
+            .execute(for_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
@@ -186,7 +186,7 @@ mod tests {
         let cpu_result = for_array.to_canonical().unwrap();
 
         let gpu_result = FoRExecutor
-            .execute(for_array.to_array(), &mut cuda_ctx)
+            .execute(for_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()

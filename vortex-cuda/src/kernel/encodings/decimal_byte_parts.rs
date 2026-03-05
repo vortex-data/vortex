@@ -91,7 +91,7 @@ mod tests {
         let cpu_result = dbp_array.to_canonical().vortex_expect("CPU canonicalize");
 
         let gpu_result = DecimalBytePartsExecutor
-            .execute(dbp_array.to_array(), &mut cuda_ctx)
+            .execute(dbp_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decode");
 

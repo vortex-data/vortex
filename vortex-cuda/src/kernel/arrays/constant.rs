@@ -230,7 +230,7 @@ mod tests {
         let cpu_result = constant_array.to_canonical()?;
 
         let gpu_result = ConstantNumericExecutor
-            .execute(constant_array.to_array(), &mut cuda_ctx)
+            .execute(constant_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU materialization failed")
             .into_host()
@@ -251,7 +251,7 @@ mod tests {
         let cpu_result = constant_array.to_canonical()?;
 
         let gpu_result = ConstantNumericExecutor
-            .execute(constant_array.to_array(), &mut cuda_ctx)
+            .execute(constant_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU materialization failed")
             .into_host()
@@ -273,7 +273,7 @@ mod tests {
         let cpu_result = constant_array.to_canonical()?;
 
         let gpu_result = ConstantNumericExecutor
-            .execute(constant_array.to_array(), &mut cuda_ctx)
+            .execute(constant_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU materialization failed")
             .into_host()

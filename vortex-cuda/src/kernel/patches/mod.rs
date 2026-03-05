@@ -202,7 +202,7 @@ mod tests {
 
     fn force_cast<T: NativePType>(array: PrimitiveArray) -> PrimitiveArray {
         array
-            .to_array()
+            .into_array()
             .cast(DType::Primitive(T::PTYPE, Nullability::NonNullable))
             .unwrap()
             .to_primitive()

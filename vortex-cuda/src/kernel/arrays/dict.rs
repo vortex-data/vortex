@@ -348,7 +348,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -383,7 +383,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -415,7 +415,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -446,7 +446,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -516,7 +516,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -560,7 +560,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -605,7 +605,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -638,7 +638,7 @@ mod tests {
 
         // Execute on CUDA
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
@@ -677,7 +677,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
@@ -705,7 +705,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
@@ -733,7 +733,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
@@ -764,7 +764,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
@@ -800,7 +800,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
@@ -833,7 +833,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
@@ -858,7 +858,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
@@ -885,7 +885,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
@@ -915,7 +915,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
@@ -940,7 +940,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
@@ -966,7 +966,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
@@ -999,7 +999,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_varbinview();
@@ -1035,7 +1035,7 @@ mod tests {
         let baseline = dict_array.to_canonical()?;
 
         let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .execute(dict_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();

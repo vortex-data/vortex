@@ -200,7 +200,7 @@ mod tests {
         let cpu_result = runend_array.to_canonical()?;
 
         let gpu_result = RunEndExecutor
-            .execute(runend_array.to_array(), &mut cuda_ctx)
+            .execute(runend_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
@@ -230,7 +230,7 @@ mod tests {
         let cpu_result = runend_array.to_canonical()?;
 
         let gpu_result = RunEndExecutor
-            .execute(runend_array.to_array(), &mut cuda_ctx)
+            .execute(runend_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
@@ -252,7 +252,7 @@ mod tests {
         let cpu_result = runend_array.to_canonical()?;
 
         let gpu_result = RunEndExecutor
-            .execute(runend_array.to_array(), &mut cuda_ctx)
+            .execute(runend_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
@@ -279,7 +279,7 @@ mod tests {
         let cpu_result = runend_array.to_canonical()?;
 
         let gpu_result = RunEndExecutor
-            .execute(runend_array.to_array(), &mut cuda_ctx)
+            .execute(runend_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()

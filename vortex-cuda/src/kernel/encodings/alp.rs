@@ -165,7 +165,7 @@ mod tests {
         let cpu_result = alp_array.to_canonical()?.into_array();
 
         let gpu_result = ALPExecutor
-            .execute(alp_array.to_array(), &mut cuda_ctx)
+            .execute(alp_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()

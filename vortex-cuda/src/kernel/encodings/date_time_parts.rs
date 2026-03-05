@@ -285,7 +285,7 @@ mod tests {
         let cpu_result = dtp_array.to_canonical()?;
 
         let gpu_result = DateTimePartsExecutor
-            .execute(dtp_array.to_array(), &mut cuda_ctx)
+            .execute(dtp_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
@@ -311,7 +311,7 @@ mod tests {
         let cpu_result = dtp_array.to_canonical()?;
 
         let gpu_result = DateTimePartsExecutor
-            .execute(dtp_array.to_array(), &mut cuda_ctx)
+            .execute(dtp_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
@@ -359,7 +359,7 @@ mod tests {
         let cpu_result = dtp_array.to_canonical()?;
 
         let gpu_result = DateTimePartsExecutor
-            .execute(dtp_array.to_array(), &mut cuda_ctx)
+            .execute(dtp_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()

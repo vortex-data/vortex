@@ -126,7 +126,7 @@ mod tests {
         let cpu_result = zigzag_array.to_canonical()?;
 
         let gpu_result = ZigZagExecutor
-            .execute(zigzag_array.to_array(), &mut cuda_ctx)
+            .execute(zigzag_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()
