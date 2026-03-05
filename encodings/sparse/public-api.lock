@@ -36,6 +36,10 @@ pub fn vortex_sparse::SparseArray::try_new(indices: vortex_array::array::ArrayRe
 
 pub fn vortex_sparse::SparseArray::try_new_from_patches(patches: vortex_array::patches::Patches, fill_value: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<Self>
 
+impl vortex_sparse::SparseArray
+
+pub fn vortex_sparse::SparseArray::to_array(&self) -> vortex_array::array::ArrayRef
+
 impl core::clone::Clone for vortex_sparse::SparseArray
 
 pub fn vortex_sparse::SparseArray::clone(&self) -> vortex_sparse::SparseArray

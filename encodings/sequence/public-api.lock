@@ -18,6 +18,10 @@ pub fn vortex_sequence::SequenceArray::try_new(base: vortex_array::scalar::typed
 
 pub fn vortex_sequence::SequenceArray::try_new_typed<T: vortex_array::dtype::ptype::NativePType + core::convert::Into<vortex_array::scalar::typed_view::primitive::pvalue::PValue>>(base: T, multiplier: T, nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
 
+impl vortex_sequence::SequenceArray
+
+pub fn vortex_sequence::SequenceArray::to_array(&self) -> vortex_array::array::ArrayRef
+
 impl core::clone::Clone for vortex_sequence::SequenceArray
 
 pub fn vortex_sequence::SequenceArray::clone(&self) -> vortex_sequence::SequenceArray

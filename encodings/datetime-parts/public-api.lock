@@ -14,6 +14,10 @@ pub fn vortex_datetime_parts::DateTimePartsArray::subseconds(&self) -> &vortex_a
 
 pub fn vortex_datetime_parts::DateTimePartsArray::try_new(dtype: vortex_array::dtype::DType, days: vortex_array::array::ArrayRef, seconds: vortex_array::array::ArrayRef, subseconds: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<Self>
 
+impl vortex_datetime_parts::DateTimePartsArray
+
+pub fn vortex_datetime_parts::DateTimePartsArray::to_array(&self) -> vortex_array::array::ArrayRef
+
 impl core::clone::Clone for vortex_datetime_parts::DateTimePartsArray
 
 pub fn vortex_datetime_parts::DateTimePartsArray::clone(&self) -> vortex_datetime_parts::DateTimePartsArray
