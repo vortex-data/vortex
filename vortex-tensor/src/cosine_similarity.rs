@@ -5,11 +5,21 @@
 
 use std::fmt::Formatter;
 
+use num_traits::Float;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
+use vortex::array::IntoArray;
+use vortex::array::ToCanonical;
+use vortex::array::arrays::ConstantArray;
+use vortex::array::arrays::ConstantVTable;
+use vortex::array::arrays::ExtensionVTable;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::match_each_float_ptype;
 use vortex::dtype::DType;
+use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
@@ -113,10 +123,50 @@ impl ScalarFnVTable for CosineSimilarity {
     fn execute(
         &self,
         _options: &Self::Options,
-        _args: &dyn ExecutionArgs,
+        args: &dyn ExecutionArgs,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        todo!("execute")
+        let lhs = args.get(0)?;
+        let rhs = args.get(1)?;
+        let row_count = args.row_count();
+
+        // Get list size from the dtype. Both sides should have the same dtype.
+        let ext = lhs.dtype().as_extension_opt().ok_or_else(|| {
+            vortex_err!(
+                "cosine_similarity input must be an extension type, got {}",
+                lhs.dtype()
+            )
+        })?;
+        let DType::FixedSizeList(_, list_size, _) = ext.storage_dtype() else {
+            vortex_bail!("expected FixedSizeList storage dtype");
+        };
+        let list_size = *list_size as usize;
+
+        // Extract the storage array from each extension input. We pass the storage (FSL) rather
+        // than the extension array to avoid canonicalizing the extension wrapper.
+        let lhs_storage = extension_storage(&lhs)?;
+        let rhs_storage = extension_storage(&rhs)?;
+
+        // Extract the flat primitive elements from each tensor column. When an input is a
+        // `ConstantArray` (e.g., a literal query vector), we materialize only a single row
+        // instead of expanding it to the full row count.
+        let (lhs_elems, lhs_stride) = extract_flat_elements(&lhs_storage, list_size);
+        let (rhs_elems, rhs_stride) = extract_flat_elements(&rhs_storage, list_size);
+
+        match_each_float_ptype!(lhs_elems.ptype(), |T| {
+            let lhs_slice = lhs_elems.as_slice::<T>();
+            let rhs_slice = rhs_elems.as_slice::<T>();
+
+            let result: PrimitiveArray = (0..row_count)
+                .map(|i| {
+                    let a = &lhs_slice[i * lhs_stride..i * lhs_stride + list_size];
+                    let b = &rhs_slice[i * rhs_stride..i * rhs_stride + list_size];
+                    cosine_similarity_row(a, b)
+                })
+                .collect();
+
+            Ok(result.into_array())
+        })
     }
 
     fn validity(
@@ -139,4 +189,48 @@ impl ScalarFnVTable for CosineSimilarity {
         // TODO(connor): Is this correct since we need to canonicalize?
         false
     }
+}
+
+/// Extracts the storage array from an extension array without canonicalizing.
+fn extension_storage(array: &ArrayRef) -> VortexResult<ArrayRef> {
+    let ext = array
+        .as_opt::<ExtensionVTable>()
+        .ok_or_else(|| vortex_err!("cosine_similarity input must be an extension array"))?;
+    Ok(ext.storage().clone())
+}
+
+/// Extracts the flat primitive elements from a tensor storage array (FixedSizeList).
+///
+/// When the input is a [`ConstantArray`] (e.g., a literal query vector), only a single row is
+/// materialized to avoid expanding it to the full column length. Returns `(elements, stride)`
+/// where `stride` is `list_size` for a full array and `0` for a constant.
+fn extract_flat_elements(storage: &ArrayRef, list_size: usize) -> (PrimitiveArray, usize) {
+    if let Some(constant) = storage.as_opt::<ConstantVTable>() {
+        // Rewrite the array as a length 1 array so when we canonicalize, we do not duplicate a
+        // huge amount of data.
+        let single = ConstantArray::new(constant.scalar().clone(), 1).into_array();
+        let elems = single.to_fixed_size_list().elements().to_primitive();
+        (elems, 0)
+    } else {
+        // Otherwise we have to fully expand all of the data.
+        let elems = storage.to_fixed_size_list().elements().to_primitive();
+        (elems, list_size)
+    }
+}
+
+// TODO(connor): We should try to use a more performant library instead of doing this ourselves.
+/// Computes cosine similarity between two equal-length float slices.
+///
+/// Returns `dot(a, b) / (||a|| * ||b||)`. When either vector has zero norm, this naturally
+/// produces `NaN` via `0.0 / 0.0`, matching standard floating-point semantics.
+fn cosine_similarity_row<T: Float + NativePType>(a: &[T], b: &[T]) -> T {
+    let mut dot = T::zero();
+    let mut norm_a = T::zero();
+    let mut norm_b = T::zero();
+    for i in 0..a.len() {
+        dot = dot + a[i] * b[i];
+        norm_a = norm_a + a[i] * a[i];
+        norm_b = norm_b + b[i] * b[i];
+    }
+    dot / (norm_a.sqrt() * norm_b.sqrt())
 }
