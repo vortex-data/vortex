@@ -387,7 +387,7 @@ jobs:
       matrix:
         include:
           - suite: tests
-            cpu: 24
+            cpu: 12
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8azn
@@ -448,7 +448,7 @@ jobs:
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m8azn
-      - cpu=12
+      - cpu=4
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-test-sanitizer
@@ -692,7 +692,7 @@ jobs:
             runner:
               - runs-on=${{ github.run_id }}
               - family=m8g
-              - cpu=8
+              - cpu=4
               - image=ubuntu24-full-arm64
               - extras=s3-cache
               - tag=rust-test-linux-arm64
@@ -775,7 +775,7 @@ jobs:
       matrix:
         include:
           # - { shard: 1, cpu: 8, name: "Core foundation", packages: "vortex-buffer vortex-error" }
-          - { shard: 2, cpu: 16, name: "Arrays", packages: "vortex-array", features: "--features _test-harness" }
+          - { shard: 2, cpu: 2, name: "Arrays", packages: "vortex-array", features: "--features _test-harness" }
           # - { shard: 3, cpu: 16, name: "Main library", packages: "vortex" }
           # - { shard: 4, cpu: 8, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
           # - { shard: 5, cpu: 16, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }

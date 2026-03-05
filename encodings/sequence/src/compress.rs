@@ -9,10 +9,35 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::PValue;
+use vortex_array::validity::Validity;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::SequenceArray;
+
+/// Decompresses a [`SequenceArray`] into a [`PrimitiveArray`].
+pub fn sequence_decompress(array: &SequenceArray) -> VortexResult<ArrayRef> {
+    let prim = match_each_native_ptype!(array.ptype(), |P| {
+        let base = array.base().cast::<P>()?;
+        let multiplier = array.multiplier().cast::<P>()?;
+        let len = array.len();
+        // Construction validates len-1 fits in P (via try_last), so we
+        // can use an accumulator without per-element overflow checks.
+        let mut values = BufferMut::<P>::with_capacity(len);
+        let spare = values.spare_capacity_mut();
+        let mut acc = base;
+        for v in &mut spare[..len] {
+            v.write(acc);
+            acc += multiplier;
+        }
+        // SAFETY: we initialized exactly `len` elements above.
+        unsafe { values.set_len(len) };
+        PrimitiveArray::new(values, Validity::from(array.dtype().nullability()))
+    });
+    Ok(prim.into_array())
+}
 
 /// Encodes a primitive array into a sequence array, this is possible if:
 /// 1. The array is not empty, and contains no nulls
