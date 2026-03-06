@@ -185,7 +185,7 @@ impl FileOpener for VortexOpener {
                 .with_labels(labels);
 
             if let Some(file_metadata_cache) = file_metadata_cache
-                && let Some(entry) = file_metadata_cache.get(&file.path())
+                && let Some(entry) = file_metadata_cache.get(file.path())
                 && entry.is_valid_for(&file.object_meta)
                 && let Some(vortex_metadata) = entry
                     .file_metadata
