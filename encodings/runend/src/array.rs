@@ -544,7 +544,7 @@ mod tests {
         let expected =
             VarBinViewArray::from_iter_str(["a", "a", "b", "b", "b", "c", "c", "c", "c", "c"])
                 .into_array();
-        assert_arrays_eq!(arr.to_array(), expected);
+        assert_arrays_eq!(arr.into_array(), expected);
     }
 
     #[test]
@@ -560,6 +560,6 @@ mod tests {
         let expected =
             VarBinViewArray::from_iter_str(["x", "x", "y", "y", "y", "z", "z", "z", "z", "z"])
                 .into_array();
-        assert_arrays_eq!(arr.to_array(), expected);
+        assert_arrays_eq!(arr.into_array(), expected);
     }
 }
