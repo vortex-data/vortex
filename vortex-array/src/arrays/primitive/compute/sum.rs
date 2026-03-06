@@ -10,8 +10,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 
-use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::primitive::PrimitiveVTable;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::dtype::NativePType;

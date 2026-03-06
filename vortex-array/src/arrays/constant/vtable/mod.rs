@@ -15,7 +15,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::Precision;
-use crate::arrays::constant::ConstantArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
@@ -287,7 +287,7 @@ mod tests {
 
     use crate::ExecutionCtx;
     use crate::IntoArray;
-    use crate::arrays::constant::ConstantArray;
+    use crate::arrays::ConstantArray;
     use crate::arrays::constant::vtable::canonical::constant_canonicalize;
     use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity;

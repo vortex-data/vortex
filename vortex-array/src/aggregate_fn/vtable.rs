@@ -19,7 +19,7 @@ use crate::IntoArray;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
-use crate::arrays::constant::ConstantArray;
+use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 

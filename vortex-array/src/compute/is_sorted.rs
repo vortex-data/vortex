@@ -13,8 +13,8 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray as _;
-use crate::arrays::constant::ConstantVTable;
-use crate::arrays::null::NullVTable;
+use crate::arrays::ConstantVTable;
+use crate::arrays::NullVTable;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
@@ -315,8 +315,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::bool::BoolArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::is_sorted;
     use crate::compute::is_strict_sorted;
     use crate::validity::Validity;

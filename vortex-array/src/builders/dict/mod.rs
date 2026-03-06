@@ -11,10 +11,10 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::ToCanonical;
-use crate::arrays::dict::DictArray;
-use crate::arrays::primitive::PrimitiveVTable;
-use crate::arrays::varbin::VarBinVTable;
-use crate::arrays::varbinview::VarBinViewVTable;
+use crate::arrays::DictArray;
+use crate::arrays::PrimitiveVTable;
+use crate::arrays::VarBinVTable;
+use crate::arrays::VarBinViewVTable;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 

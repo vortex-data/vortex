@@ -105,7 +105,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::ToCanonical;
     use vortex::array::VortexSessionExecute;
-    use vortex::array::arrays::primitive::PrimitiveArray;
+    use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::primitive::PrimitiveArrayParts;
     use vortex::array::assert_arrays_eq;
     use vortex::array::buffer::BufferHandle;

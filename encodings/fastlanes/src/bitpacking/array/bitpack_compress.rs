@@ -5,7 +5,7 @@ use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::PrimInt;
 use vortex_array::IntoArray;
-use vortex_array::arrays::primitive::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
@@ -427,7 +427,7 @@ mod test {
     use rand::rngs::StdRng;
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::chunked::ChunkedArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;

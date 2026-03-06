@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::struct_::StructArray;
-use crate::arrays::struct_::StructVTable;
+use crate::arrays::StructArray;
+use crate::arrays::StructVTable;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;

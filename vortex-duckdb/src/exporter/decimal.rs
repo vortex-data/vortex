@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 
 use num_traits::ToPrimitive;
 use vortex::array::ExecutionCtx;
-use vortex::array::arrays::decimal::DecimalArray;
+use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::decimal::DecimalArrayParts;
 use vortex::array::match_each_decimal_value_type;
 use vortex::buffer::Buffer;
@@ -138,7 +138,7 @@ pub fn precision_to_duckdb_storage_size(decimal_dtype: &DecimalDType) -> VortexR
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::arrays::decimal::DecimalArray;
+    use vortex::array::arrays::DecimalArray;
     use vortex::dtype::DecimalDType;
     use vortex::error::VortexExpect;
     use vortex_array::VortexSessionExecute;

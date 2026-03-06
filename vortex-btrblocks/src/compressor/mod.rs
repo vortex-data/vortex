@@ -5,7 +5,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::constant::ConstantArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;

@@ -3,9 +3,9 @@
 
 use vortex_error::VortexResult;
 
+use crate::arrays::VarBinViewArray;
+use crate::arrays::VarBinViewVTable;
 use crate::arrays::varbin::varbin_compute_min_max;
-use crate::arrays::varbinview::VarBinViewArray;
-use crate::arrays::varbinview::VarBinViewVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;

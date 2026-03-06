@@ -17,7 +17,7 @@ mod test {
     use rstest::rstest;
 
     use crate::IntoArray;
-    use crate::arrays::constant::ConstantArray;
+    use crate::arrays::ConstantArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;

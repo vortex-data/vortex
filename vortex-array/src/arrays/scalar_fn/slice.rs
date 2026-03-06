@@ -7,8 +7,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::scalar_fn::ScalarFnArray;
-use crate::arrays::scalar_fn::ScalarFnVTable;
+use crate::arrays::ScalarFnArray;
+use crate::arrays::ScalarFnVTable;
 use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for ScalarFnVTable {

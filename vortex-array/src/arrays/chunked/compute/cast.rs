@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::chunked::ChunkedArray;
-use crate::arrays::chunked::ChunkedVTable;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
@@ -33,8 +33,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::chunked::ChunkedArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;

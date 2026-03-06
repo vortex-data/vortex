@@ -201,12 +201,12 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::bool::BoolArray;
-    use vortex_array::arrays::dict::DictArray;
-    use vortex_array::arrays::dict::DictVTable;
-    use vortex_array::arrays::primitive::PrimitiveArray;
-    use vortex_array::arrays::primitive::PrimitiveVTable;
-    use vortex_array::arrays::struct_::StructArray;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::DictArray;
+    use vortex_array::arrays::DictVTable;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveVTable;
+    use vortex_array::arrays::StructArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::DType;

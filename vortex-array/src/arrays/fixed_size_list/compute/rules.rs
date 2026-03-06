@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::fixed_size_list::FixedSizeListVTable;
+use crate::arrays::FixedSizeListVTable;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;

@@ -71,7 +71,7 @@ pub fn is_root(expr: &Expression) -> bool {
 /// ## Example usage
 ///
 /// ```
-/// use vortex_array::arrays::primitive::PrimitiveArray;
+/// use vortex_array::arrays::PrimitiveArray;
 /// use vortex_array::dtype::Nullability;
 /// use vortex_array::expr::lit;
 /// use vortex_array::scalar_fn::fns::literal::Literal;
@@ -317,7 +317,7 @@ pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
 /// ## Example usage
 ///
 /// ```
-/// # use vortex_array::arrays::bool::BoolArray;
+/// # use vortex_array::arrays::BoolArray;
 /// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::expr::{root, lit, or};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
@@ -352,7 +352,7 @@ where
 /// ## Example usage
 ///
 /// ```
-/// # use vortex_array::arrays::bool::BoolArray;
+/// # use vortex_array::arrays::BoolArray;
 /// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::expr::{and, root, lit};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);

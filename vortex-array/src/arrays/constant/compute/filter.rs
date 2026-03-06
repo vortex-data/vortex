@@ -6,8 +6,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::constant::ConstantArray;
-use crate::arrays::constant::ConstantVTable;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::arrays::filter::FilterReduce;
 
 impl FilterReduce for ConstantVTable {

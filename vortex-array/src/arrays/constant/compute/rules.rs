@@ -5,12 +5,12 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::constant::ConstantArray;
-use crate::arrays::constant::ConstantVTable;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::arrays::FilterArray;
+use crate::arrays::FilterVTable;
 use crate::arrays::dict::TakeReduceAdaptor;
-use crate::arrays::filter::FilterArray;
 use crate::arrays::filter::FilterReduceAdaptor;
-use crate::arrays::filter::FilterVTable;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;

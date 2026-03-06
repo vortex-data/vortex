@@ -7,8 +7,8 @@ use vortex_buffer::BufferMut;
 use vortex_error::vortex_panic;
 
 use crate::IntoArray;
-use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::varbin::VarBinArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinArray;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::expr::stats::Precision;

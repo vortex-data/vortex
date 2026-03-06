@@ -4,8 +4,8 @@
 use vortex_error::VortexResult;
 
 use crate::accessor::ArrayAccessor;
-use crate::arrays::varbinview::VarBinViewArray;
-use crate::arrays::varbinview::VarBinViewVTable;
+use crate::arrays::VarBinViewArray;
+use crate::arrays::VarBinViewVTable;
 use crate::compute::IsSortedIteratorExt;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;

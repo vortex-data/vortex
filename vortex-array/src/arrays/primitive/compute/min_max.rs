@@ -5,8 +5,8 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::primitive::PrimitiveVTable;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
@@ -77,7 +77,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::min_max;
     use crate::validity::Validity;
 

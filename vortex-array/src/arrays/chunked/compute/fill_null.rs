@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::chunked::ChunkedArray;
-use crate::arrays::chunked::ChunkedVTable;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullReduce;
@@ -33,8 +33,8 @@ mod tests {
 
     use crate::IntoArray;
     use crate::array::DynArray;
-    use crate::arrays::bool::BoolArray;
-    use crate::arrays::chunked::ChunkedArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ChunkedArray;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

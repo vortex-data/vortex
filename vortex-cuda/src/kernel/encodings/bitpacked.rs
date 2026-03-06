@@ -11,7 +11,7 @@ use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::arrays::primitive::PrimitiveArray;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBufferExt;
 use vortex::array::match_each_integer_ptype;
@@ -171,7 +171,7 @@ mod tests {
     use rstest::rstest;
     use vortex::array::ExecutionCtx;
     use vortex::array::IntoArray;
-    use vortex::array::arrays::primitive::PrimitiveArray;
+    use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::dtype::NativePType;
     use vortex::array::session::ArraySession;

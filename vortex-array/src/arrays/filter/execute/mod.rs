@@ -16,10 +16,10 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::constant::ConstantArray;
-use crate::arrays::extension::ExtensionArray;
-use crate::arrays::filter::FilterArray;
-use crate::arrays::null::NullArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ExtensionArray;
+use crate::arrays::FilterArray;
+use crate::arrays::NullArray;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 

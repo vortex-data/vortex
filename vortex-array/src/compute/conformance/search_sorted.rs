@@ -13,7 +13,7 @@ use crate::ArrayRef;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::IntoArray;
-use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::PrimitiveArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
 

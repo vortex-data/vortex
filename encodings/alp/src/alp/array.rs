@@ -497,7 +497,7 @@ mod tests {
     use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::session::ArraySession;
     use vortex_array::vtable::ValidityHelper;

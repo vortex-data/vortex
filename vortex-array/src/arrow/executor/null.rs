@@ -9,7 +9,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::null::NullArray;
+use crate::arrays::NullArray;
 
 /// Convert a canonical NullArray directly to Arrow.
 pub fn canonical_null_to_arrow(array: &NullArray) -> ArrowArrayRef {

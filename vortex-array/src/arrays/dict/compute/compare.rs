@@ -10,7 +10,7 @@ use crate::Canonical;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::constant::ConstantArray;
+use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;

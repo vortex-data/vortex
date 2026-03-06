@@ -14,11 +14,11 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::bool::BoolArray;
-use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::varbin::VarBinArray;
-use crate::arrays::varbin::VarBinVTable;
-use crate::arrays::varbinview::VarBinViewArray;
+use crate::arrays::BoolArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinArray;
+use crate::arrays::VarBinVTable;
+use crate::arrays::VarBinViewArray;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
 use crate::builtins::ArrayBuiltins;
@@ -149,9 +149,9 @@ mod test {
 
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::constant::ConstantArray;
-    use crate::arrays::varbin::VarBinArray;
-    use crate::arrays::varbinview::VarBinViewArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::VarBinArray;
+    use crate::arrays::VarBinViewArray;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -218,8 +218,8 @@ mod test {
 mod tests {
     use crate::DynArray;
     use crate::IntoArray;
-    use crate::arrays::constant::ConstantArray;
-    use crate::arrays::varbin::VarBinArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::VarBinArray;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

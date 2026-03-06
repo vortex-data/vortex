@@ -9,8 +9,8 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::chunked::ChunkedArray;
-use crate::arrays::chunked::ChunkedVTable;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
 use crate::arrays::slice::SliceKernel;
 
 impl SliceKernel for ChunkedVTable {

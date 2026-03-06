@@ -27,8 +27,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::bool::BoolArray;
-use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::BoolArray;
+use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -717,7 +717,7 @@ fn test_comparison_inverse_consistency(array: &ArrayRef) {
     };
 
     // Test Eq vs NotEq
-    let const_array = crate::arrays::constant::ConstantArray::new(test_scalar, len);
+    let const_array = crate::arrays::ConstantArray::new(test_scalar, len);
     if let (Ok(eq_result), Ok(neq_result)) = (
         array
             .to_array()
@@ -845,7 +845,7 @@ fn test_comparison_symmetry_consistency(array: &ArrayRef) {
     };
 
     // Create a constant array with the test scalar for reverse comparison
-    let const_array = crate::arrays::constant::ConstantArray::new(test_scalar, len);
+    let const_array = crate::arrays::ConstantArray::new(test_scalar, len);
 
     // Test Gt vs Lt symmetry
     if let (Ok(arr_gt_scalar), Ok(scalar_lt_arr)) = (

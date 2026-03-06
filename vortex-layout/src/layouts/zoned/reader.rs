@@ -401,7 +401,7 @@ mod test {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
-    use vortex_array::arrays::chunked::ChunkedArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;

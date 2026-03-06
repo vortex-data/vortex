@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::listview::ListViewArray;
-use crate::arrays::listview::ListViewVTable;
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewVTable;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;

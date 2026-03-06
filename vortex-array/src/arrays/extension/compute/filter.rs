@@ -6,8 +6,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::extension::ExtensionArray;
-use crate::arrays::extension::ExtensionVTable;
+use crate::arrays::ExtensionArray;
+use crate::arrays::ExtensionVTable;
 use crate::arrays::filter::FilterReduce;
 
 impl FilterReduce for ExtensionVTable {

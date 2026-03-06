@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::IntoArray;
-use vortex_array::arrays::primitive::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;

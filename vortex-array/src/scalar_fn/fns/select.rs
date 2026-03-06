@@ -18,7 +18,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::struct_::StructArray;
+use crate::arrays::StructArray;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;

@@ -5,11 +5,11 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
 use crate::IntoArray;
-use crate::arrays::bool::BoolArray;
-use crate::arrays::constant::ConstantArray;
-use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::struct_::StructArray;
-use crate::arrays::varbin::VarBinArray;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::StructArray;
+use crate::arrays::VarBinArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
 use crate::dtype::FieldName;

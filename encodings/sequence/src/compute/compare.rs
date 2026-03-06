@@ -5,8 +5,8 @@ use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::bool::BoolArray;
-use vortex_array::arrays::constant::ConstantArray;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
@@ -137,8 +137,8 @@ fn find_intersection<P: NativePType>(
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::arrays::bool::BoolArray;
-    use vortex_array::arrays::constant::ConstantArray;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::Nullability::NonNullable;

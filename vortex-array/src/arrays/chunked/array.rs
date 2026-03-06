@@ -17,7 +17,7 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::iter::ArrayIterator;
 use crate::iter::ArrayIteratorAdapter;
@@ -228,8 +228,8 @@ mod test {
 
     use crate::IntoArray;
     use crate::array::DynArray;
-    use crate::arrays::chunked::ChunkedArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

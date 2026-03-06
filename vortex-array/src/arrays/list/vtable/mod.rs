@@ -16,7 +16,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
-use crate::arrays::list::ListArray;
+use crate::arrays::ListArray;
 use crate::arrays::list::compute::PARENT_KERNELS;
 use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::listview::list_view_from_list;

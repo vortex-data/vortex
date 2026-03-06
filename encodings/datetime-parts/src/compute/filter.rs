@@ -27,8 +27,8 @@ impl FilterReduce for DateTimePartsVTable {
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    use vortex_array::arrays::datetime::TemporalArray;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_buffer::buffer;

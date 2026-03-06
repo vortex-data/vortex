@@ -62,10 +62,10 @@ mod test {
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
-    use crate::arrays::constant::ConstantArray;
-    use crate::arrays::primitive::PrimitiveArray;
-    use crate::arrays::varbin::VarBinArray;
-    use crate::arrays::varbinview::VarBinViewArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinArray;
+    use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
     use crate::builtins::ArrayBuiltins;
@@ -152,7 +152,7 @@ mod test {
 
     #[test]
     fn compare_sliced_dict() {
-        use crate::arrays::bool::BoolArray;
+        use crate::arrays::BoolArray;
         let sliced = sliced_dict_array();
         let compared = sliced
             .binary(ConstantArray::new(42, 3).into_array(), Operator::Eq)
@@ -269,9 +269,9 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::dict::DictArray;
-    use crate::arrays::primitive::PrimitiveArray;
-    use crate::arrays::varbin::VarBinArray;
+    use crate::arrays::DictArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinArray;
     use crate::builders::dict::dict_encode;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::DType;

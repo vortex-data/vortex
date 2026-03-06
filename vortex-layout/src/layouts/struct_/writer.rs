@@ -220,8 +220,8 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::Canonical;
     use vortex_array::IntoArray as _;
-    use vortex_array::arrays::chunked::ChunkedArray;
-    use vortex_array::arrays::struct_::StructArray;
+    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldNames;
     use vortex_array::dtype::Nullability;

@@ -9,8 +9,8 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::fixed_size_list::FixedSizeListArray;
-use crate::arrays::fixed_size_list::FixedSizeListVTable;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::FixedSizeListVTable;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::vtable::ValidityHelper;

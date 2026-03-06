@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::IntoArray;
-use vortex_array::arrays::constant::ConstantArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::BoolBuilder;
 use vortex_array::builders::builder_with_capacity;

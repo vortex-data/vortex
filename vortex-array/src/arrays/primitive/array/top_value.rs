@@ -10,8 +10,8 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::NativeValue;
-use crate::arrays::primitive::PrimitiveArray;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::scalar::PValue;

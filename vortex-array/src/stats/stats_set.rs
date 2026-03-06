@@ -558,7 +558,7 @@ mod test {
     use enum_iterator::all;
     use itertools::Itertools;
 
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;

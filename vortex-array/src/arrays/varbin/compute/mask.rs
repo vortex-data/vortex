@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::varbin::VarBinArray;
-use crate::arrays::varbin::VarBinVTable;
+use crate::arrays::VarBinArray;
+use crate::arrays::VarBinVTable;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -31,7 +31,7 @@ impl MaskReduce for VarBinVTable {
 #[cfg(test)]
 mod test {
     use crate::IntoArray;
-    use crate::arrays::varbin::VarBinArray;
+    use crate::arrays::VarBinArray;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

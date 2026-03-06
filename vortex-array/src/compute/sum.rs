@@ -271,9 +271,9 @@ mod test {
     use vortex_error::VortexExpect;
 
     use crate::IntoArray as _;
-    use crate::arrays::bool::BoolArray;
-    use crate::arrays::chunked::ChunkedArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::sum;
     use crate::compute::sum_with_accumulator;
     use crate::dtype::DType;

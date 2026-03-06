@@ -3,7 +3,7 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::constant::ConstantVTable;
+use crate::arrays::ConstantVTable;
 use crate::arrays::constant::vtable::ConstantArray;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;

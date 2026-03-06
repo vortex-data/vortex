@@ -4,8 +4,8 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::arrays::masked::MaskedArray;
-use crate::arrays::masked::MaskedVTable;
+use crate::arrays::MaskedArray;
+use crate::arrays::MaskedVTable;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
@@ -35,8 +35,8 @@ mod tests {
     use rstest::rstest;
 
     use crate::IntoArray;
-    use crate::arrays::masked::MaskedArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::MaskedArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::validity::Validity;
 

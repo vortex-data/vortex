@@ -10,8 +10,8 @@ use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
-use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
@@ -156,7 +156,7 @@ mod test {
     use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;

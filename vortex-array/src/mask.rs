@@ -12,8 +12,8 @@ use crate::DynArray;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::bool::BoolArray;
-use crate::arrays::constant::ConstantVTable;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantVTable;
 use crate::columnar::Columnar;
 use crate::dtype::DType;
 

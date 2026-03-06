@@ -62,7 +62,7 @@ use crate::validity::Validity;
 /// # Examples
 ///
 /// ```
-/// use vortex_array::arrays::varbinview::VarBinViewArray;
+/// use vortex_array::arrays::VarBinViewArray;
 /// use vortex_array::dtype::{DType, Nullability};
 /// use vortex_array::IntoArray;
 ///

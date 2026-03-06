@@ -11,7 +11,7 @@ use vortex::array::ArrayRef;
 use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
-use vortex::array::arrays::chunked::ChunkedArray;
+use vortex::array::arrays::ChunkedArray;
 use vortex::dtype::Nullability::NonNullable;
 use vortex::expr::col;
 use vortex::expr::pack;

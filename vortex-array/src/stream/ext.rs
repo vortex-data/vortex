@@ -8,7 +8,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::chunked::ChunkedArray;
+use crate::arrays::ChunkedArray;
 use crate::stream::ArrayStream;
 use crate::stream::SendableArrayStream;
 

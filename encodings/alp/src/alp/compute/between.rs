@@ -5,7 +5,7 @@ use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::constant::ConstantArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativeDType;
 use vortex_array::dtype::NativePType;
@@ -93,8 +93,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::bool::BoolArray;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar_fn::fns::between::BetweenOptions;

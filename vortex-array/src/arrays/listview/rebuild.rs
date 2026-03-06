@@ -9,8 +9,8 @@ use vortex_error::VortexResult;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::ToCanonical;
-use crate::arrays::constant::ConstantArray;
-use crate::arrays::listview::ListViewArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ListViewArray;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::compute;
@@ -29,7 +29,7 @@ pub enum ListViewRebuildMode {
     /// This mode will deduplicate all overlapping list views, such that the [`ListViewArray`] looks
     /// like a [`ListArray`] but with an additional `sizes` array.
     ///
-    /// [`ListArray`]: crate::arrays::list::ListArray
+    /// [`ListArray`]: crate::arrays::ListArray
     MakeZeroCopyToList,
 
     /// Removes any leading or trailing elements that are unused / not referenced by any views in
@@ -41,7 +41,7 @@ pub enum ListViewRebuildMode {
     /// This is useful when concatenating multiple [`ListViewArray`]s together to create a new
     /// [`ListViewArray`] that is also zero-copy to a [`ListArray`].
     ///
-    /// [`ListArray`]: crate::arrays::list::ListArray
+    /// [`ListArray`]: crate::arrays::ListArray
     MakeExact,
 
     // TODO(connor)[ListView]: Implement some version of this.
@@ -74,7 +74,7 @@ impl ListViewArray {
     /// overlapping, duplicate, and garbage data, and we want to have fully sequential data like
     /// a [`ListArray`].
     ///
-    /// [`ListArray`]: crate::arrays::list::ListArray
+    /// [`ListArray`]: crate::arrays::ListArray
     fn rebuild_zero_copy_to_list(&self) -> VortexResult<ListViewArray> {
         if self.is_zero_copy_to_list() {
             // Note that since everything in `ListViewArray` is `Arc`ed, this is quite cheap.
@@ -375,8 +375,8 @@ mod tests {
     use super::ListViewRebuildMode;
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::listview::ListViewArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::ListViewArray;
+    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
     use crate::validity::Validity;
@@ -420,7 +420,7 @@ mod tests {
 
     #[test]
     fn test_rebuild_flatten_with_nullable() -> VortexResult<()> {
-        use crate::arrays::bool::BoolArray;
+        use crate::arrays::BoolArray;
 
         // Create a nullable list view with a null list
         let elements = PrimitiveArray::from_iter(vec![1i32, 2, 3]).into_array();

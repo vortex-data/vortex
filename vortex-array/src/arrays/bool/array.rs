@@ -33,7 +33,7 @@ use crate::validity::Validity;
 ///
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
-/// use vortex_array::arrays::bool::BoolArray;
+/// use vortex_array::arrays::BoolArray;
 /// use vortex_array::IntoArray;
 ///
 /// // Create from iterator using FromIterator impl
@@ -311,8 +311,8 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::arrays::bool::BoolArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::patches::Patches;
     use crate::validity::Validity;

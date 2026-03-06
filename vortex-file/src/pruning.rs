@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::constant::ConstantArray;
-use vortex_array::arrays::struct_::StructArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;

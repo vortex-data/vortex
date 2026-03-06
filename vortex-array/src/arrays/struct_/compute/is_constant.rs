@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::struct_::StructArray;
-use crate::arrays::struct_::StructVTable;
+use crate::arrays::StructArray;
+use crate::arrays::StructVTable;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;

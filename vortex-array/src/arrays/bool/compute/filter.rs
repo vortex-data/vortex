@@ -11,8 +11,8 @@ use vortex_mask::MaskIter;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::bool::BoolArray;
-use crate::arrays::bool::BoolVTable;
+use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
 use crate::arrays::filter::FilterReduce;
 use crate::vtable::ValidityHelper;
 
@@ -80,7 +80,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::arrays::bool::BoolArray;
+    use crate::arrays::BoolArray;
     use crate::arrays::bool::compute::filter::filter_indices;
     use crate::arrays::bool::compute::filter::filter_slices;
     use crate::assert_arrays_eq;

@@ -18,7 +18,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::decimal::DecimalArray;
+    use crate::arrays::DecimalArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::DecimalDType;
     use crate::validity::Validity;

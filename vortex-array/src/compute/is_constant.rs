@@ -13,8 +13,8 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray as _;
-use crate::arrays::constant::ConstantVTable;
-use crate::arrays::null::NullVTable;
+use crate::arrays::ConstantVTable;
+use crate::arrays::NullVTable;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
@@ -47,7 +47,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 ///
 /// An array is constant IFF at least one of the following conditions apply:
 /// 1. It has at least one element (**Note** - an empty array isn't constant).
-/// 1. It's encoded as a [`crate::arrays::constant::ConstantArray`] or [`crate::arrays::null::NullArray`]
+/// 1. It's encoded as a [`crate::arrays::ConstantArray`] or [`crate::arrays::NullArray`]
 /// 1. Has an exact statistic attached to it, saying its constant.
 /// 1. Is all invalid.
 /// 1. Is all valid AND has minimum and maximum statistics that are equal.
@@ -309,7 +309,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray as _;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::is_constant;
     use crate::expr::stats::Stat;
 

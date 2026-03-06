@@ -10,7 +10,7 @@ use itertools::Itertools;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::struct_::StructArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;

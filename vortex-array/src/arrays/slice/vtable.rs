@@ -205,8 +205,8 @@ mod tests {
 
     use crate::DynArray;
     use crate::IntoArray;
-    use crate::arrays::primitive::PrimitiveArray;
-    use crate::arrays::slice::SliceArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::SliceArray;
     use crate::assert_arrays_eq;
 
     #[test]

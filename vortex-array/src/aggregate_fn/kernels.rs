@@ -10,8 +10,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::aggregate_fn::AggregateFnRef;
-use crate::arrays::fixed_size_list::FixedSizeListArray;
-use crate::arrays::listview::ListViewArray;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::ListViewArray;
 use crate::scalar::Scalar;
 
 /// A pluggable kernel for an aggregate function.

@@ -5,8 +5,8 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
-use crate::arrays::bool::BoolArray;
-use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::BoolArray;
+use crate::arrays::PrimitiveArray;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 use crate::vtable::ValidityHelper;
@@ -46,7 +46,7 @@ impl BoolArray {
 mod tests {
     use vortex_buffer::BitBuffer;
 
-    use crate::arrays::bool::BoolArray;
+    use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
 
     #[test]

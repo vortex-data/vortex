@@ -7,9 +7,9 @@ use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::arrays::primitive::NativeValue;
-use vortex_array::arrays::primitive::PrimitiveArray;
-use vortex_array::arrays::primitive::PrimitiveVTable;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
@@ -454,7 +454,7 @@ fn inner_loop_naive<T: IntegerPType>(
 mod tests {
     use std::iter;
 
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::Buffer;

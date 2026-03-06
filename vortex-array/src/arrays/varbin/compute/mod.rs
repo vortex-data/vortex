@@ -19,7 +19,7 @@ mod tests {
     use rstest::rstest;
 
     use crate::IntoArray;
-    use crate::arrays::varbin::VarBinArray;
+    use crate::arrays::VarBinArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

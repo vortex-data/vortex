@@ -10,14 +10,14 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
-use vortex::array::arrays::decimal::DecimalArray;
+use vortex::array::arrays::DecimalArray;
+use vortex::array::arrays::DictArray;
+use vortex::array::arrays::DictVTable;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::decimal::DecimalArrayParts;
-use vortex::array::arrays::dict::DictArray;
 use vortex::array::arrays::dict::DictArrayParts;
-use vortex::array::arrays::dict::DictVTable;
-use vortex::array::arrays::primitive::PrimitiveArray;
 use vortex::array::arrays::primitive::PrimitiveArrayParts;
-use vortex::array::arrays::varbinview::VarBinViewArray;
 use vortex::array::arrays::varbinview::VarBinViewArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_decimal_value_type;
@@ -303,10 +303,10 @@ async fn execute_dict_varbinview(
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
-    use vortex::array::arrays::decimal::DecimalArray;
-    use vortex::array::arrays::dict::DictArray;
-    use vortex::array::arrays::primitive::PrimitiveArray;
-    use vortex::array::arrays::varbinview::VarBinViewArray;
+    use vortex::array::arrays::DecimalArray;
+    use vortex::array::arrays::DictArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::VarBinViewArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;

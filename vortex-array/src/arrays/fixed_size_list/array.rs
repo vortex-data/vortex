@@ -29,7 +29,7 @@ use crate::validity::Validity;
 ///
 /// The list at index `i` contains elements from `elements[i * list_size..(i + 1) * list_size]`.
 ///
-/// [`ListArray`]: crate::arrays::list::ListArray
+/// [`ListArray`]: crate::arrays::ListArray
 ///
 /// # Examples
 ///

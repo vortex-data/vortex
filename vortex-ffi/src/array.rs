@@ -191,9 +191,9 @@ mod tests {
     use std::ptr;
 
     use vortex::array::IntoArray;
-    use vortex::array::arrays::primitive::PrimitiveArray;
-    use vortex::array::arrays::struct_::StructArray;
-    use vortex::array::arrays::varbinview::VarBinViewArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::VarBinViewArray;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;

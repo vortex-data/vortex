@@ -3,7 +3,7 @@
 
 use cudarc::driver::DeviceRepr;
 use vortex::array::Canonical;
-use vortex::array::arrays::decimal::DecimalArray;
+use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::decimal::DecimalArrayParts;
 use vortex::dtype::NativeDecimalType;
 use vortex::error::VortexResult;
@@ -40,8 +40,8 @@ pub(super) async fn filter_decimal<D: NativeDecimalType + DeviceRepr + CubFilter
 mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
-    use vortex::array::arrays::decimal::DecimalArray;
-    use vortex::array::arrays::filter::FilterArray;
+    use vortex::array::arrays::DecimalArray;
+    use vortex::array::arrays::FilterArray;
     use vortex::array::assert_arrays_eq;
     use vortex::dtype::DecimalDType;
     use vortex::dtype::i256;

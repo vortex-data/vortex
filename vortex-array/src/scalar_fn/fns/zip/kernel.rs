@@ -6,9 +6,9 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::arrays::ScalarFnVTable;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
-use crate::arrays::scalar_fn::ScalarFnVTable;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::fns::zip::Zip as ZipExpr;

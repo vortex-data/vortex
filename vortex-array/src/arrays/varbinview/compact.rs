@@ -11,8 +11,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::IntoArray;
+use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::Ref;
-use crate::arrays::varbinview::VarBinViewArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 
@@ -190,8 +190,8 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::arrays::varbin::VarBinArray;
-    use crate::arrays::varbinview::VarBinViewArray;
+    use crate::arrays::VarBinArray;
+    use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

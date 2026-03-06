@@ -5,8 +5,8 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::decimal::DecimalArray;
-use crate::arrays::decimal::DecimalVTable;
+use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
@@ -75,7 +75,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::decimal::DecimalArray;
+    use crate::arrays::DecimalArray;
     use crate::compute::MinMaxResult;
     use crate::compute::min_max;
     use crate::dtype::DecimalDType;

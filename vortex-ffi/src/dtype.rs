@@ -331,7 +331,7 @@ mod tests {
 
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
-    use vortex::array::arrays::struct_::StructArray;
+    use vortex::array::arrays::StructArray;
     use vortex::buffer::Buffer;
     use vortex::dtype::DType;
     use vortex::dtype::DecimalDType;

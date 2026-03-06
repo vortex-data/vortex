@@ -10,9 +10,9 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::DynArray;
-use vortex::array::arrays::primitive::PrimitiveArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::SliceVTable;
 use vortex::array::arrays::primitive::PrimitiveArrayParts;
-use vortex::array::arrays::slice::SliceVTable;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_native_simd_ptype;
 use vortex::dtype::NativePType;
@@ -122,7 +122,7 @@ where
 mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
-    use vortex::array::arrays::primitive::PrimitiveArray;
+    use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;

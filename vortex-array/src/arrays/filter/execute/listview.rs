@@ -6,9 +6,9 @@ use std::sync::Arc;
 use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
+use crate::arrays::ListViewArray;
 use crate::arrays::filter::execute::filter_validity;
 use crate::arrays::filter::execute::values_to_mask;
-use crate::arrays::listview::ListViewArray;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::vtable::ValidityHelper;
 
@@ -81,9 +81,9 @@ mod test {
 
     use crate::IntoArray;
     use crate::ToCanonical;
+    use crate::arrays::ListViewArray;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::filter::execute::ConstantArray;
-    use crate::arrays::listview::ListViewArray;
-    use crate::arrays::primitive::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::validity::Validity;

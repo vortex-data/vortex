@@ -7,9 +7,9 @@ use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::constant::ConstantArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::TakeExecute;
-use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
@@ -108,7 +108,7 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::Nullability;
 
     use crate::SequenceArray;
@@ -171,7 +171,7 @@ mod test {
     #[should_panic(expected = "out of bounds")]
     fn test_bounds_check() {
         let array = SequenceArray::try_new_typed(0i32, 1i32, Nullability::NonNullable, 10).unwrap();
-        let indices = vortex_array::arrays::primitive::PrimitiveArray::from_iter([0i32, 20]);
+        let indices = vortex_array::arrays::PrimitiveArray::from_iter([0i32, 20]);
         let _array = array
             .take(indices.into_array())
             .unwrap()

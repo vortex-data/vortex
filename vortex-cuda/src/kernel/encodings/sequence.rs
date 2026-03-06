@@ -9,7 +9,7 @@ use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::arrays::primitive::PrimitiveArray;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_native_ptype;
 use vortex::dtype::NativePType;

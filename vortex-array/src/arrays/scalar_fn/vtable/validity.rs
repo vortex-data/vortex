@@ -34,9 +34,7 @@ fn execute_expr(expr: &Expression, row_count: usize) -> VortexResult<ArrayRef> {
     // Handle Literal expression - create a constant array
     if expr.is::<Literal>() {
         let scalar = expr.as_::<Literal>();
-        return Ok(
-            crate::arrays::constant::ConstantArray::new(scalar.clone(), row_count).into_array(),
-        );
+        return Ok(crate::arrays::ConstantArray::new(scalar.clone(), row_count).into_array());
     }
 
     // Recursively execute child expressions to get input arrays

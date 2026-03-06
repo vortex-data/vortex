@@ -61,7 +61,7 @@ pub enum DisplayOptions {
     /// ";
     /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: true, stats: true })), expected);
     ///
-    /// # use vortex_array::arrays::struct_::StructArray;
+    /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
     ///     ("x", buffer![1, 2].into_array()),
     ///     ("y", buffer![3, 4].into_array()),
@@ -90,7 +90,7 @@ pub enum DisplayOptions {
     /// ";
     /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: true, stats: true })), expected);
     ///
-    /// # use vortex_array::arrays::struct_::StructArray;
+    /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
     ///     ("x", buffer![1, 2].into_array()),
     ///     ("y", buffer![3, 4].into_array()),
@@ -118,7 +118,7 @@ pub enum DisplayOptions {
     /// ";
     /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: true, stats: false })), expected);
     ///
-    /// # use vortex_array::arrays::struct_::StructArray;
+    /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
     ///     ("x", buffer![1, 2].into_array()),
     ///     ("y", buffer![3, 4].into_array()),
@@ -147,7 +147,7 @@ pub enum DisplayOptions {
     /// ";
     /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: false, stats: true })), expected);
     ///
-    /// # use vortex_array::arrays::struct_::StructArray;
+    /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
     ///     ("x", buffer![1, 2].into_array()),
     ///     ("y", buffer![3, 4].into_array()),
@@ -173,7 +173,7 @@ pub enum DisplayOptions {
     /// ";
     /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: false, stats: false })), expected);
     ///
-    /// # use vortex_array::arrays::struct_::StructArray;
+    /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
     ///     ("x", buffer![1, 2].into_array()),
     ///     ("y", buffer![3, 4].into_array()),
@@ -199,7 +199,7 @@ pub enum DisplayOptions {
     /// ";
     /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: true, stats: false })), expected);
     ///
-    /// # use vortex_array::arrays::struct_::StructArray;
+    /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
     ///     ("x", buffer![1, 2].into_array()),
     ///     ("y", buffer![3, 4].into_array()),
@@ -225,7 +225,7 @@ pub enum DisplayOptions {
     /// ";
     /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: false, stats: true })), expected);
     ///
-    /// # use vortex_array::arrays::struct_::StructArray;
+    /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
     ///     ("x", buffer![1, 2].into_array()),
     ///     ("y", buffer![3, 4].into_array()),
@@ -247,7 +247,7 @@ pub enum DisplayOptions {
     /// let expected = "root: vortex.primitive(i16, len=5)\n";
     /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: false, stats: false })), expected);
     ///
-    /// # use vortex_array::arrays::struct_::StructArray;
+    /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
     ///     ("x", buffer![1, 2].into_array()),
     ///     ("y", buffer![3, 4].into_array()),
@@ -270,7 +270,7 @@ pub enum DisplayOptions {
     ///
     /// ```
     /// # use vortex_array::display::DisplayOptions;
-    /// # use vortex_array::arrays::struct_::StructArray;
+    /// # use vortex_array::arrays::StructArray;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
     /// let s = StructArray::from_fields(&[
@@ -378,7 +378,7 @@ impl dyn DynArray + '_ {
     /// let expected = "root: vortex.primitive(i16, len=5)\n";
     /// assert_eq!(format!("{}", array.display_tree_encodings_only()), expected);
     ///
-    /// # use vortex_array::arrays::struct_::StructArray;
+    /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
     ///     ("x", buffer![1, 2].into_array()),
     ///     ("y", buffer![3, 4].into_array()),
@@ -439,7 +439,7 @@ impl dyn DynArray + '_ {
     /// ```
     /// # #[cfg(feature = "table-display")]
     /// # {
-    /// # use vortex_array::arrays::struct_::StructArray;
+    /// # use vortex_array::arrays::StructArray;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
     /// let s = StructArray::from_fields(&[
@@ -577,9 +577,9 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray as _;
-    use crate::arrays::bool::BoolArray;
-    use crate::arrays::list::ListArray;
-    use crate::arrays::struct_::StructArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ListArray;
+    use crate::arrays::StructArray;
     use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
@@ -663,7 +663,7 @@ mod test {
     fn test_table_display() {
         use crate::display::DisplayOptions;
 
-        let array = crate::arrays::primitive::PrimitiveArray::from_option_iter(vec![
+        let array = crate::arrays::PrimitiveArray::from_option_iter(vec![
             Some(-1),
             Some(-2),
             Some(-3),

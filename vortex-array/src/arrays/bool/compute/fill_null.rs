@@ -7,8 +7,8 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::bool::BoolArray;
-use crate::arrays::bool::BoolVTable;
+use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::validity::Validity;
@@ -47,7 +47,7 @@ mod tests {
     use vortex_buffer::bitbuffer;
 
     use crate::IntoArray;
-    use crate::arrays::bool::BoolArray;
+    use crate::arrays::BoolArray;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
     use crate::dtype::DType;

@@ -7,7 +7,7 @@ use super::DictArray;
 use super::DictVTable;
 use crate::DynArray as _;
 use crate::IntoArray;
-use crate::arrays::bool::BoolArray;
+use crate::arrays::BoolArray;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
@@ -49,7 +49,7 @@ mod tests {
     use super::DictArray;
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use crate::builders::dict::dict_encode;
     use crate::compute::min_max;
 

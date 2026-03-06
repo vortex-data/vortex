@@ -48,7 +48,7 @@ impl FilterReduce for FoRVTable {
 mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
@@ -96,7 +96,7 @@ mod test {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::scalar::Scalar;

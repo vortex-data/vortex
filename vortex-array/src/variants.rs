@@ -12,7 +12,7 @@ use vortex_mask::Mask;
 
 use crate::DynArray;
 use crate::ExecutionCtx;
-use crate::arrays::bool::BoolArray;
+use crate::arrays::BoolArray;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::sum;
 use crate::dtype::DType;

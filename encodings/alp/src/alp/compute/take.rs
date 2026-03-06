@@ -42,7 +42,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_buffer::buffer;
 

@@ -4,7 +4,7 @@
 use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::constant::ConstantArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 

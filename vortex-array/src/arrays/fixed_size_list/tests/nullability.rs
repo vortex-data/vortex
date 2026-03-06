@@ -6,9 +6,9 @@ use std::sync::Arc;
 use vortex_buffer::buffer;
 
 use crate::IntoArray;
-use crate::arrays::bool::BoolArray;
-use crate::arrays::fixed_size_list::FixedSizeListArray;
-use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::BoolArray;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;

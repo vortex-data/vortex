@@ -5,11 +5,11 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::extension::ExtensionArray;
-use crate::arrays::extension::ExtensionVTable;
-use crate::arrays::filter::FilterArray;
+use crate::arrays::ExtensionArray;
+use crate::arrays::ExtensionVTable;
+use crate::arrays::FilterArray;
+use crate::arrays::FilterVTable;
 use crate::arrays::filter::FilterReduceAdaptor;
-use crate::arrays::filter::FilterVTable;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -57,11 +57,11 @@ mod tests {
     use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::constant::ConstantArray;
-    use crate::arrays::extension::ExtensionArray;
-    use crate::arrays::extension::ExtensionVTable;
-    use crate::arrays::filter::FilterArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::ExtensionArray;
+    use crate::arrays::ExtensionVTable;
+    use crate::arrays::FilterArray;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::scalar_fn::ScalarFnArrayExt;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -236,9 +236,7 @@ mod tests {
         let optimized = scalar_fn_array.optimize().unwrap();
 
         // The first child should still be an ExtensionArray (no pushdown happened)
-        let scalar_fn = optimized
-            .as_opt::<crate::arrays::scalar_fn::ScalarFnVTable>()
-            .unwrap();
+        let scalar_fn = optimized.as_opt::<crate::arrays::ScalarFnVTable>().unwrap();
         assert!(
             scalar_fn.children()[0]
                 .as_opt::<ExtensionVTable>()
@@ -265,9 +263,7 @@ mod tests {
         let optimized = scalar_fn_array.optimize().unwrap();
 
         // No pushdown should happen because sibling is not a constant
-        let scalar_fn = optimized
-            .as_opt::<crate::arrays::scalar_fn::ScalarFnVTable>()
-            .unwrap();
+        let scalar_fn = optimized.as_opt::<crate::arrays::ScalarFnVTable>().unwrap();
         assert!(
             scalar_fn.children()[0]
                 .as_opt::<ExtensionVTable>()
@@ -292,9 +288,7 @@ mod tests {
         let optimized = scalar_fn_array.optimize().unwrap();
 
         // No pushdown should happen because constant is not an extension scalar
-        let scalar_fn = optimized
-            .as_opt::<crate::arrays::scalar_fn::ScalarFnVTable>()
-            .unwrap();
+        let scalar_fn = optimized.as_opt::<crate::arrays::ScalarFnVTable>().unwrap();
         assert!(
             scalar_fn.children()[0]
                 .as_opt::<ExtensionVTable>()

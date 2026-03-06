@@ -13,7 +13,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::constant::ConstantArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::dtype::DType;
 use crate::dtype::FieldName;

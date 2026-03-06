@@ -27,9 +27,9 @@ mod tests {
     use rstest::rstest;
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
-    use vortex::array::arrays::chunked::ChunkedArray;
-    use vortex::array::arrays::struct_::StructArray;
-    use vortex::array::arrays::varbin::VarBinArray;
+    use vortex::array::arrays::ChunkedArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::VarBinArray;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
     use vortex::file::WriteOptionsSessionExt;

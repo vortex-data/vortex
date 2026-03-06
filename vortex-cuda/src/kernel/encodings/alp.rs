@@ -11,7 +11,7 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::DynArray;
-use vortex::array::arrays::primitive::PrimitiveArray;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_unsigned_integer_ptype;
@@ -118,7 +118,7 @@ where
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
-    use vortex::array::arrays::primitive::PrimitiveArray;
+    use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::patches::Patches;
     use vortex::array::validity::Validity;

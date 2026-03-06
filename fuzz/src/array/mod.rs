@@ -40,8 +40,8 @@ pub(crate) use take::*;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::IntoArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
-use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::compute::MinMaxResult;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -552,7 +552,7 @@ pub fn compress_array(array: &ArrayRef, _strategy: CompressorStrategy) -> ArrayR
 /// - `Err(_)` - a bug was found
 #[allow(clippy::result_large_err)]
 pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzzResult<bool> {
-    use vortex_array::arrays::constant::ConstantArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::min_max;
     use vortex_array::compute::sum;

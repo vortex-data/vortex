@@ -10,8 +10,8 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::decimal::DecimalArray;
-use crate::arrays::decimal::DecimalVTable;
+use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
@@ -147,7 +147,7 @@ mod tests {
 
     use super::upcast_decimal_values;
     use crate::IntoArray;
-    use crate::arrays::decimal::DecimalArray;
+    use crate::arrays::DecimalArray;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::cast::test_cast_conformance;

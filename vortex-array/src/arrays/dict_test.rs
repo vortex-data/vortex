@@ -16,9 +16,9 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::chunked::ChunkedArray;
-use crate::arrays::dict::DictArray;
-use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::ChunkedArray;
+use crate::arrays::DictArray;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::NativePType;
 use crate::validity::Validity;
 

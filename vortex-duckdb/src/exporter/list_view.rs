@@ -7,9 +7,9 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
-use vortex::array::arrays::listview::ListViewArray;
+use vortex::array::arrays::ListViewArray;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::listview::ListViewArrayParts;
-use vortex::array::arrays::primitive::PrimitiveArray;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::DType;
 use vortex::dtype::IntegerPType;
@@ -172,7 +172,7 @@ impl<O: IntegerPType, S: IntegerPType> ColumnExporter for ListViewExporter<O, S>
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray as _;
-    use vortex::array::arrays::varbin::VarBinArray;
+    use vortex::array::arrays::VarBinArray;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;

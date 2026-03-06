@@ -9,7 +9,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::bool::BoolArray;
+use crate::arrays::BoolArray;
 use crate::arrow::null_buffer::to_null_buffer;
 
 /// Convert a canonical BoolArray directly to Arrow.

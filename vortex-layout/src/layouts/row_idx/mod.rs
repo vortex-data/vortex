@@ -299,7 +299,7 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
-    use vortex_array::arrays::bool::BoolArray;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::eq;
     use vortex_array::expr::gt;

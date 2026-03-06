@@ -5,9 +5,9 @@
 
 use divan::Bencher;
 use vortex_array::IntoArray;
-use vortex_array::arrays::listview::ListViewArray;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewRebuildMode;
-use vortex_array::arrays::varbinview::VarBinViewArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_zstd::ZstdArray;

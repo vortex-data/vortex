@@ -6,9 +6,9 @@ use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::constant::ConstantArray;
-use crate::arrays::null::NullArray;
-use crate::arrays::null::NullVTable;
+use crate::arrays::ConstantArray;
+use crate::arrays::NullArray;
+use crate::arrays::NullVTable;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastReduce;
@@ -32,7 +32,7 @@ mod tests {
     use rstest::rstest;
 
     use crate::IntoArray;
-    use crate::arrays::null::NullArray;
+    use crate::arrays::NullArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;

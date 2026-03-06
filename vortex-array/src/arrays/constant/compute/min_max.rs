@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::constant::ConstantArray;
-use crate::arrays::constant::ConstantVTable;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
@@ -29,7 +29,7 @@ register_kernel!(MinMaxKernelAdapter(ConstantVTable).lift());
 #[cfg(test)]
 mod test {
     use crate::IntoArray;
-    use crate::arrays::constant::ConstantArray;
+    use crate::arrays::ConstantArray;
     use crate::compute::min_max;
     use crate::dtype::Nullability;
     use crate::dtype::half::f16;

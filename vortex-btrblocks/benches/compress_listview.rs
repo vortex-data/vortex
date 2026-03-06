@@ -15,9 +15,9 @@ mod benchmarks {
     use rand::prelude::StdRng;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::listview::ListViewArray;
-    use vortex_array::arrays::struct_::StructArray;
-    use vortex_array::arrays::varbinview::VarBinViewArray;
+    use vortex_array::arrays::ListViewArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::VarBinViewArray;
     use vortex_array::dtype::FieldNames;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::BtrBlocksCompressor;

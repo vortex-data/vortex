@@ -24,7 +24,7 @@ use crate::Canonical;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::Precision;
-use crate::arrays::constant::ConstantArray;
+use crate::arrays::ConstantArray;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;

@@ -89,7 +89,7 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     ///
     /// If the input arguments cannot be directly used for execution (for example, an expression
     /// may require canonical input arrays), then the implementation should perform a single
-    /// child execution and return a new [`crate::arrays::scalar_fn::ScalarFnArray`] wrapping up the new child.
+    /// child execution and return a new [`crate::arrays::ScalarFnArray`] wrapping up the new child.
     ///
     /// This provides maximum opportunities for array-level optimizations using execute_parent
     /// kernels.

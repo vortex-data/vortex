@@ -5,7 +5,7 @@ use fastlanes::FoR;
 use num_traits::PrimInt;
 use num_traits::WrappingAdd;
 use vortex_array::ExecutionCtx;
-use vortex_array::arrays::primitive::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PhysicalPType;

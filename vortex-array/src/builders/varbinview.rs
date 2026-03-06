@@ -20,7 +20,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::varbinview::VarBinViewArray;
+use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::build_views::BinaryView;
 use crate::arrays::varbinview::compact::BufferUtilization;
 use crate::builders::ArrayBuilder;

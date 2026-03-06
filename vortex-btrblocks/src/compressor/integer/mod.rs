@@ -13,11 +13,11 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::constant::ConstantArray;
-use vortex_array::arrays::dict::DictArray;
-use vortex_array::arrays::masked::MaskedArray;
-use vortex_array::arrays::primitive::PrimitiveArray;
-use vortex_array::arrays::primitive::PrimitiveVTable;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::MaskedArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
@@ -892,8 +892,8 @@ mod tests {
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::dict::DictVTable;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::DictVTable;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
@@ -1074,9 +1074,9 @@ mod tests {
 mod scheme_selection_tests {
     use std::iter;
 
-    use vortex_array::arrays::constant::ConstantVTable;
-    use vortex_array::arrays::dict::DictVTable;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::ConstantVTable;
+    use vortex_array::arrays::DictVTable;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;

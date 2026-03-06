@@ -52,8 +52,8 @@ mod tests {
 
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::dict::DictVTable;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::DictVTable;
+    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
     use crate::builtins::ArrayBuiltins;
@@ -188,7 +188,7 @@ mod tests {
 
     #[test]
     fn test_cast_dict_with_unreferenced_null_values_to_nonnullable() {
-        use crate::arrays::dict::DictArray;
+        use crate::arrays::DictArray;
         use crate::validity::Validity;
 
         // Create a dict with nullable values that have unreferenced null entries.

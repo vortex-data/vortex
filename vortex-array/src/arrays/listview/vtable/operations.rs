@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use vortex_error::VortexResult;
 
-use crate::arrays::listview::ListViewVTable;
+use crate::arrays::ListViewVTable;
 use crate::arrays::listview::vtable::ListViewArray;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;

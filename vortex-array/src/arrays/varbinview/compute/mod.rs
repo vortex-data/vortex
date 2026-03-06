@@ -18,7 +18,7 @@ mod tests {
     use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
     use crate::array::DynArray;
-    use crate::arrays::varbinview::VarBinViewArray;
+    use crate::arrays::VarBinViewArray;
     use crate::canonical::ToCanonical;
     #[test]
     fn take_nullable() {

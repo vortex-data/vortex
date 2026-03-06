@@ -96,7 +96,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;

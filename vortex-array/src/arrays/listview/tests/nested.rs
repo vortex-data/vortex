@@ -5,10 +5,10 @@ use vortex_buffer::buffer;
 
 use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::listview::ListViewArray;
-use crate::arrays::listview::ListViewVTable;
-use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::struct_::StructArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewVTable;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::StructArray;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;

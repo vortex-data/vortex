@@ -5,7 +5,7 @@ use std::mem::transmute;
 
 use vortex_array::ExecutionCtx;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::primitive::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::chunk_range;
 use vortex_array::arrays::primitive::patch_chunk;
 use vortex_array::dtype::DType;

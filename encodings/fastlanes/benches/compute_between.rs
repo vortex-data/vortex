@@ -10,7 +10,7 @@ use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::primitive::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::dtype::NativePType;
 use vortex_error::VortexExpect;
@@ -70,7 +70,7 @@ mod primitive {
     use vortex_array::LEGACY_SESSION;
     use vortex_array::RecursiveCanonical;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::constant::ConstantArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::NativePType;
     use vortex_array::scalar_fn::fns::between::BetweenOptions;
@@ -163,7 +163,7 @@ mod bitpack {
     use vortex_array::LEGACY_SESSION;
     use vortex_array::RecursiveCanonical;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::constant::ConstantArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::NativePType;
     use vortex_array::scalar_fn::fns::between::BetweenOptions;
@@ -254,7 +254,7 @@ mod alp {
     use vortex_array::LEGACY_SESSION;
     use vortex_array::RecursiveCanonical;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::constant::ConstantArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::NativePType;
     use vortex_array::scalar_fn::fns::between::BetweenOptions;

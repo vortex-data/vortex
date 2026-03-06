@@ -25,7 +25,7 @@ use vortex::array::ArrayRef;
 use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
-use vortex::array::arrays::chunked::ChunkedVTable;
+use vortex::array::arrays::ChunkedVTable;
 use vortex::array::arrow::IntoArrowArray;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_integer_ptype;

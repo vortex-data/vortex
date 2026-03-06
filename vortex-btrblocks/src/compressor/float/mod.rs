@@ -16,11 +16,11 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::constant::ConstantArray;
-use vortex_array::arrays::dict::DictArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::MaskedArray;
+use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::arrays::dict::DictArrayParts;
-use vortex_array::arrays::masked::MaskedArray;
-use vortex_array::arrays::primitive::PrimitiveVTable;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
@@ -183,7 +183,7 @@ impl rle::RLEConfig for FloatRLEConfig {
 
     fn compress_values(
         compressor: &BtrBlocksCompressor,
-        values: &vortex_array::arrays::primitive::PrimitiveArray,
+        values: &vortex_array::arrays::PrimitiveArray,
         ctx: CompressorContext,
         excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
@@ -562,7 +562,7 @@ mod tests {
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
@@ -674,9 +674,9 @@ mod tests {
 mod scheme_selection_tests {
 
     use vortex_alp::ALPVTable;
-    use vortex_array::arrays::constant::ConstantVTable;
-    use vortex_array::arrays::dict::DictVTable;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::ConstantVTable;
+    use vortex_array::arrays::DictVTable;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
     use vortex_array::dtype::Nullability;

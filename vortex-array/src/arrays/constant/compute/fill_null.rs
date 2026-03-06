@@ -4,8 +4,8 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::arrays::constant::ConstantArray;
-use crate::arrays::constant::ConstantVTable;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullReduce;
 use crate::scalar_fn::fns::fill_null::fill_null_constant;
@@ -19,7 +19,7 @@ impl FillNullReduce for ConstantVTable {
 #[cfg(test)]
 mod test {
     use crate::IntoArray as _;
-    use crate::arrays::constant::ConstantArray;
+    use crate::arrays::ConstantArray;
     use crate::arrow::IntoArrowArray as _;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;

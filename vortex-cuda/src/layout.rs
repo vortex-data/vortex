@@ -22,7 +22,7 @@ use vortex::array::DynArray;
 use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrays::constant::ConstantVTable;
+use vortex::array::arrays::ConstantVTable;
 use vortex::array::expr::Expression;
 use vortex::array::expr::stats::Precision;
 use vortex::array::expr::stats::Stat;

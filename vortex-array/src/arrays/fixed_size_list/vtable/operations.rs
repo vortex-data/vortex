@@ -3,7 +3,7 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::fixed_size_list::FixedSizeListVTable;
+use crate::arrays::FixedSizeListVTable;
 use crate::arrays::fixed_size_list::vtable::FixedSizeListArray;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;

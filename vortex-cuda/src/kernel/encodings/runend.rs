@@ -9,8 +9,8 @@ use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::arrays::constant::ConstantArray;
-use vortex::array::arrays::primitive::PrimitiveArray;
+use vortex::array::arrays::ConstantArray;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_native_ptype;
@@ -160,7 +160,7 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
 mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
-    use vortex::array::arrays::primitive::PrimitiveArray;
+    use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;

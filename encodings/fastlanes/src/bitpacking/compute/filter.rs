@@ -8,8 +8,8 @@ use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::filter::FilterKernel;
-use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::UnsignedPType;
@@ -164,7 +164,7 @@ mod test {
     use vortex_array::DynArray;
     use vortex_array::IntoArray as _;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::validity::Validity;

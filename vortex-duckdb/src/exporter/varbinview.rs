@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex::array::ExecutionCtx;
+use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::arrays::varbinview::Inlined;
-use vortex::array::arrays::varbinview::VarBinViewArray;
 use vortex::array::arrays::varbinview::VarBinViewArrayParts;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
@@ -149,7 +149,7 @@ mod tests {
     use vortex::dtype::Nullability;
     use vortex::error::VortexResult;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::varbinview::VarBinViewArray;
+    use vortex_array::arrays::VarBinViewArray;
 
     use crate::SESSION;
     use crate::duckdb::DataChunk;

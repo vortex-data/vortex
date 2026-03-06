@@ -19,7 +19,7 @@ use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::fixed_size_list::FixedSizeListArray;
+use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 

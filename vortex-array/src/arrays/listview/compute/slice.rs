@@ -7,8 +7,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::listview::ListViewArray;
-use crate::arrays::listview::ListViewVTable;
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewVTable;
 use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for ListViewVTable {

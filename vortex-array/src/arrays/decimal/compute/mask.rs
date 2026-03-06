@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::decimal::DecimalArray;
-use crate::arrays::decimal::DecimalVTable;
+use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
 use crate::match_each_decimal_value_type;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;

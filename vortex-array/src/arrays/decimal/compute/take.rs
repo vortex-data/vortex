@@ -6,10 +6,10 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::decimal::DecimalArray;
-use crate::arrays::decimal::DecimalVTable;
+use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::primitive::PrimitiveArray;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativeDecimalType;
 use crate::executor::ExecutionCtx;
@@ -54,8 +54,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::decimal::DecimalArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::DecimalArray;
+    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DecimalDType;

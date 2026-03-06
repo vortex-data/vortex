@@ -11,7 +11,7 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray as _;
-use crate::arrays::constant::ConstantVTable;
+use crate::arrays::ConstantVTable;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
@@ -241,9 +241,9 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray as _;
-    use crate::arrays::bool::BoolArray;
-    use crate::arrays::null::NullArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::NullArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::MinMaxResult;
     use crate::compute::min_max;
     use crate::validity::Validity;

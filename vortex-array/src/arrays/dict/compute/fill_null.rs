@@ -10,8 +10,8 @@ use crate::Canonical;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::bool::BoolArray;
-use crate::arrays::constant::ConstantArray;
+use crate::arrays::BoolArray;
+use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
@@ -92,8 +92,8 @@ mod tests {
 
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::dict::DictArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::DictArray;
+    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::Nullability;

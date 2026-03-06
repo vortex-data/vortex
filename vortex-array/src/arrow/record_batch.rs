@@ -15,7 +15,7 @@ use crate::DynArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::IntoArray;
-use crate::arrays::struct_::StructArray;
+use crate::arrays::StructArray;
 use crate::arrow::ArrowArrayExecutor;
 
 impl TryFrom<&dyn DynArray> for RecordBatch {

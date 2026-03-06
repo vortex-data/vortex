@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::DynArray;
-use crate::arrays::chunked::ChunkedArray;
-use crate::arrays::chunked::ChunkedVTable;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;
 use crate::compute::is_sorted;

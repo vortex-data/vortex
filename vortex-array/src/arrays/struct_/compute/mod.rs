@@ -24,10 +24,10 @@ mod tests {
     use crate::IntoArray as _;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::arrays::bool::BoolArray;
-    use crate::arrays::primitive::PrimitiveArray;
-    use crate::arrays::struct_::StructArray;
-    use crate::arrays::varbin::VarBinArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::consistency::test_array_consistency;

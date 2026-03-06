@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::chunked::ChunkedArray;
-use crate::arrays::chunked::ChunkedVTable;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::compute::sum_with_accumulator;
@@ -29,10 +29,10 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::array::IntoArray;
-    use crate::arrays::chunked::ChunkedArray;
-    use crate::arrays::constant::ConstantArray;
-    use crate::arrays::decimal::DecimalArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::DecimalArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::sum;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;

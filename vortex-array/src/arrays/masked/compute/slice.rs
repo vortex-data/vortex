@@ -7,8 +7,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::masked::MaskedArray;
-use crate::arrays::masked::MaskedVTable;
+use crate::arrays::MaskedArray;
+use crate::arrays::MaskedVTable;
 use crate::arrays::slice::SliceReduce;
 use crate::stats::ArrayStats;
 

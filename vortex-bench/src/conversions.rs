@@ -20,7 +20,7 @@ use tracing::trace;
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrays::chunked::ChunkedArray;
+use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::builders::builder_with_capacity;
 use vortex::array::stream::ArrayStreamAdapter;

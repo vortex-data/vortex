@@ -23,8 +23,8 @@ use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayVisitor;
-use crate::arrays::constant::ConstantArray;
-use crate::arrays::constant::ConstantVTable;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::arrow::ArrowArrayExecutor;
 
 /// The encoding ID used by `vortex-runend`. We match on this string to avoid a crate dependency.
@@ -195,7 +195,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::executor::run_end::ConstantArray;
     use crate::dtype::DType;

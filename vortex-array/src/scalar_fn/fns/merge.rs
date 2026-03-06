@@ -16,7 +16,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray as _;
-use crate::arrays::struct_::StructArray;
+use crate::arrays::StructArray;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -292,7 +292,7 @@ mod tests {
     use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;

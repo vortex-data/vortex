@@ -9,8 +9,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::arrays::constant::ConstantArray;
-use crate::arrays::constant::ConstantVTable;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::dtype::DType;
@@ -173,7 +173,7 @@ mod tests {
 
     use crate::DynArray;
     use crate::IntoArray;
-    use crate::arrays::constant::ConstantArray;
+    use crate::arrays::ConstantArray;
     use crate::compute::sum;
     use crate::compute::sum_with_accumulator;
     use crate::dtype::DType;

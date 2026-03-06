@@ -6,7 +6,7 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::bool::BoolVTable;
+use crate::arrays::BoolVTable;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;

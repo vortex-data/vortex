@@ -6,8 +6,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::accessor::ArrayAccessor;
-use crate::arrays::varbin::VarBinArray;
-use crate::arrays::varbin::VarBinVTable;
+use crate::arrays::VarBinArray;
+use crate::arrays::VarBinVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
@@ -64,7 +64,7 @@ mod tests {
     use vortex_buffer::BufferString;
 
     use crate::IntoArray;
-    use crate::arrays::varbin::VarBinArray;
+    use crate::arrays::VarBinArray;
     use crate::compute::MinMaxResult;
     use crate::compute::min_max;
     use crate::dtype::DType::Utf8;

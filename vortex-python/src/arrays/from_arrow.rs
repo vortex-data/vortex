@@ -11,7 +11,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
-use vortex::array::arrays::chunked::ChunkedArray;
+use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;

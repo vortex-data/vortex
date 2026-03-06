@@ -215,8 +215,8 @@ mod tests {
 
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::bool::BoolArray;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::dtype::DType;

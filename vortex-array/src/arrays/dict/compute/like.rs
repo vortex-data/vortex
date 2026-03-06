@@ -8,7 +8,7 @@ use super::DictVTable;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::constant::ConstantArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::like::Like;
@@ -54,11 +54,11 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::arrays::bool::BoolArray;
-    use crate::arrays::dict::DictArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::DictArray;
+    use crate::arrays::VarBinArray;
     use crate::arrays::dict::compute::like::ConstantArray;
     use crate::arrays::scalar_fn::ScalarFnArrayExt;
-    use crate::arrays::varbin::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar_fn::fns::like::Like;

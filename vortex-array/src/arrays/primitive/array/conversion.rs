@@ -10,7 +10,7 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::NativePType;
 use crate::validity::Validity;
 

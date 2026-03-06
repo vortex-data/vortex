@@ -3,7 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::varbin::VarBinVTable;
+use vortex_array::arrays::VarBinVTable;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
@@ -44,7 +44,7 @@ impl CastReduce for FSSTVTable {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::varbin::VarBinArray;
+    use vortex_array::arrays::VarBinArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::dtype::DType;

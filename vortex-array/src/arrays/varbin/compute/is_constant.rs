@@ -4,8 +4,8 @@
 use vortex_error::VortexResult;
 
 use crate::accessor::ArrayAccessor;
-use crate::arrays::varbin::VarBinArray;
-use crate::arrays::varbin::VarBinVTable;
+use crate::arrays::VarBinArray;
+use crate::arrays::VarBinVTable;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;

@@ -5,10 +5,10 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::masked::MaskedArray;
-use crate::arrays::masked::MaskedVTable;
-use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::primitive::PrimitiveVTable;
+use crate::arrays::MaskedArray;
+use crate::arrays::MaskedVTable;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;

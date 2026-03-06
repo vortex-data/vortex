@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::IntoArray;
 use crate::array::ArrayRef;
-use crate::arrays::bool::BoolArray;
-use crate::arrays::bool::BoolVTable;
+use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 use crate::vtable::ValidityHelper;
@@ -33,7 +33,7 @@ mod tests {
     use rstest::rstest;
 
     use crate::IntoArray;
-    use crate::arrays::bool::BoolArray;
+    use crate::arrays::BoolArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;

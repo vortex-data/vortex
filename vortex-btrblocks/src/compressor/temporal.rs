@@ -7,7 +7,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::datetime::TemporalArray;
+use vortex_array::arrays::TemporalArray;
 use vortex_datetime_parts::DateTimePartsArray;
 use vortex_datetime_parts::TemporalParts;
 use vortex_datetime_parts::split_temporal;

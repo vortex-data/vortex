@@ -12,9 +12,9 @@ use super::cast::upcast_decimal_values;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::bool::BoolArray;
-use crate::arrays::decimal::DecimalArray;
-use crate::arrays::decimal::DecimalVTable;
+use crate::arrays::BoolArray;
+use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
@@ -92,7 +92,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::decimal::DecimalArray;
+    use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;

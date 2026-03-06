@@ -10,9 +10,9 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
-use vortex::array::arrays::constant::ConstantArray;
-use vortex::array::arrays::datetime::TemporalArray;
-use vortex::array::arrays::primitive::PrimitiveArray;
+use vortex::array::arrays::ConstantArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_signed_integer_ptype;
@@ -202,8 +202,8 @@ where
 mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
-    use vortex::array::arrays::datetime::TemporalArray;
-    use vortex::array::arrays::primitive::PrimitiveArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::TemporalArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;

@@ -12,7 +12,7 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::PrimitiveArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;

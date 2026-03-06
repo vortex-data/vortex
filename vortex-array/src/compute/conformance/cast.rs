@@ -323,12 +323,12 @@ mod tests {
 
     use super::*;
     use crate::IntoArray;
-    use crate::arrays::bool::BoolArray;
-    use crate::arrays::list::ListArray;
-    use crate::arrays::null::NullArray;
-    use crate::arrays::primitive::PrimitiveArray;
-    use crate::arrays::struct_::StructArray;
-    use crate::arrays::varbin::VarBinArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ListArray;
+    use crate::arrays::NullArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::arrays::VarBinArray;
     use crate::dtype::DType;
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;

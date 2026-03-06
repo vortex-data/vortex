@@ -11,10 +11,10 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::listview::ListViewArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewVTable;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewArrayParts;
-use crate::arrays::listview::ListViewVTable;
-use crate::arrays::primitive::PrimitiveArray;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;

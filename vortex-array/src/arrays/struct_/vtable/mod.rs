@@ -16,7 +16,7 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::struct_::StructArray;
+use crate::arrays::StructArray;
 use crate::arrays::struct_::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;

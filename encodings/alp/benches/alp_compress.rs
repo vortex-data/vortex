@@ -14,7 +14,7 @@ use vortex_alp::alp_encode;
 use vortex_alp::decompress_into_array;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::primitive::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::dtype::NativePType;
 use vortex_array::validity::Validity;

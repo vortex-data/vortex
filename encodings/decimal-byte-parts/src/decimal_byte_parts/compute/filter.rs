@@ -20,7 +20,7 @@ impl FilterReduce for DecimalBytePartsVTable {
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::dtype::DecimalDType;
     use vortex_buffer::buffer;

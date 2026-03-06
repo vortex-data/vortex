@@ -8,13 +8,13 @@
 
 use divan::Bencher;
 use vortex_array::IntoArray;
-use vortex_array::arrays::fixed_size_list::FixedSizeListArray;
-use vortex_array::arrays::list::ListArray;
-use vortex_array::arrays::listview::ListViewArray;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::ListArray;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewRebuildMode;
-use vortex_array::arrays::primitive::PrimitiveArray;
-use vortex_array::arrays::struct_::StructArray;
-use vortex_array::arrays::varbinview::VarBinViewArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;

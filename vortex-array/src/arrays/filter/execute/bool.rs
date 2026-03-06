@@ -6,7 +6,7 @@ use std::sync::Arc;
 use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
-use crate::arrays::bool::BoolArray;
+use crate::arrays::BoolArray;
 use crate::arrays::filter::execute::bitbuffer;
 use crate::arrays::filter::execute::filter_validity;
 

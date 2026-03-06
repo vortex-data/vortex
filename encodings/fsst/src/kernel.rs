@@ -23,7 +23,7 @@ mod tests {
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::filter::FilterArray;
+    use vortex_array::arrays::FilterArray;
     use vortex_array::arrays::varbin::builder::VarBinBuilder;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;

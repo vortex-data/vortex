@@ -20,7 +20,7 @@ impl OperationsVTable<DeltaVTable> for DeltaVTable {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;

@@ -17,9 +17,9 @@ use crate::ArrayRef;
 use crate::CanonicalView;
 use crate::ColumnarView;
 use crate::ExecutionCtx;
-use crate::arrays::bool::BoolVTable;
-use crate::arrays::decimal::DecimalVTable;
-use crate::arrays::primitive::PrimitiveVTable;
+use crate::arrays::BoolVTable;
+use crate::arrays::DecimalVTable;
+use crate::arrays::PrimitiveVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::Expression;
@@ -189,8 +189,8 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use crate::IntoArray;
-    use crate::arrays::primitive::PrimitiveArray;
-    use crate::arrays::struct_::StructArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

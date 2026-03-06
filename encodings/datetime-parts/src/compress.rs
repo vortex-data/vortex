@@ -4,8 +4,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::datetime::TemporalArray;
-use vortex_array::arrays::primitive::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::TemporalArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
@@ -78,8 +78,8 @@ mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::datetime::TemporalArray;
-    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::TemporalArray;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;

@@ -17,9 +17,9 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::primitive::PrimitiveVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -144,8 +144,8 @@ mod test {
 
     use crate::DynArray;
     use crate::IntoArray;
-    use crate::arrays::bool::BoolArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::primitive::compute::take::take_primitive_scalar;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::scalar::Scalar;

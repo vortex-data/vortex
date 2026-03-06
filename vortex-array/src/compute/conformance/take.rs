@@ -8,7 +8,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
 use crate::IntoArray as _;
-use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::Nullability;
 
 /// Test conformance of the take compute function for an array.

@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::extension::ExtensionArray;
-use crate::arrays::extension::ExtensionVTable;
+use crate::arrays::ExtensionArray;
+use crate::arrays::ExtensionVTable;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;
 use crate::compute::{self};

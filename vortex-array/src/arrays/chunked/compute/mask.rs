@@ -6,8 +6,8 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::chunked::ChunkedArray;
-use crate::arrays::chunked::ChunkedVTable;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedVTable;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
@@ -44,8 +44,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::chunked::ChunkedArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

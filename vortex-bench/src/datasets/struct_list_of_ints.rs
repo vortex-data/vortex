@@ -13,11 +13,11 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
-use vortex::array::arrays::chunked::ChunkedArray;
-use vortex::array::arrays::list::ListArray;
+use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::ListArray;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::StructArray;
 use vortex::array::arrays::listview::recursive_list_from_list_view;
-use vortex::array::arrays::primitive::PrimitiveArray;
-use vortex::array::arrays::struct_::StructArray;
 use vortex::array::validity::Validity;
 use vortex::dtype::FieldNames;
 
@@ -115,7 +115,7 @@ impl Dataset for StructListOfInts {
             let array = self.to_vortex_array().await?;
 
             // Convert to Arrow RecordBatches and write to parquet
-            let chunked = array.as_::<vortex::array::arrays::chunked::ChunkedVTable>();
+            let chunked = array.as_::<vortex::array::arrays::ChunkedVTable>();
             let chunks = chunked.chunks();
 
             let file = File::create(&temp_path)?;

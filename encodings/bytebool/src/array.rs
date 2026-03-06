@@ -11,7 +11,7 @@ use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::arrays::bool::BoolArray;
+use vortex_array::arrays::BoolArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;

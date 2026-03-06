@@ -436,17 +436,17 @@ mod tests {
     #[test]
     fn test_struct_comparison() {
         use crate::IntoArray;
-        use crate::arrays::struct_::StructArray;
+        use crate::arrays::StructArray;
 
         // Create a struct array with one element for testing.
         let lhs_struct = StructArray::from_fields(&[
             (
                 "a",
-                crate::arrays::primitive::PrimitiveArray::from_iter([1i32]).into_array(),
+                crate::arrays::PrimitiveArray::from_iter([1i32]).into_array(),
             ),
             (
                 "b",
-                crate::arrays::primitive::PrimitiveArray::from_iter([3i32]).into_array(),
+                crate::arrays::PrimitiveArray::from_iter([3i32]).into_array(),
             ),
         ])
         .unwrap()
@@ -455,11 +455,11 @@ mod tests {
         let rhs_struct_equal = StructArray::from_fields(&[
             (
                 "a",
-                crate::arrays::primitive::PrimitiveArray::from_iter([1i32]).into_array(),
+                crate::arrays::PrimitiveArray::from_iter([1i32]).into_array(),
             ),
             (
                 "b",
-                crate::arrays::primitive::PrimitiveArray::from_iter([3i32]).into_array(),
+                crate::arrays::PrimitiveArray::from_iter([3i32]).into_array(),
             ),
         ])
         .unwrap()
@@ -468,11 +468,11 @@ mod tests {
         let rhs_struct_different = StructArray::from_fields(&[
             (
                 "a",
-                crate::arrays::primitive::PrimitiveArray::from_iter([1i32]).into_array(),
+                crate::arrays::PrimitiveArray::from_iter([1i32]).into_array(),
             ),
             (
                 "b",
-                crate::arrays::primitive::PrimitiveArray::from_iter([4i32]).into_array(),
+                crate::arrays::PrimitiveArray::from_iter([4i32]).into_array(),
             ),
         ])
         .unwrap()
@@ -499,8 +499,8 @@ mod tests {
     #[test]
     fn test_or_kleene_validity() {
         use crate::IntoArray;
-        use crate::arrays::bool::BoolArray;
-        use crate::arrays::struct_::StructArray;
+        use crate::arrays::BoolArray;
+        use crate::arrays::StructArray;
         use crate::expr::col;
 
         let struct_arr = StructArray::from_fields(&[
@@ -524,8 +524,8 @@ mod tests {
         use vortex_buffer::buffer;
 
         use crate::IntoArray;
-        use crate::arrays::constant::ConstantArray;
-        use crate::arrays::primitive::PrimitiveArray;
+        use crate::arrays::ConstantArray;
+        use crate::arrays::PrimitiveArray;
 
         let values = buffer![1u16, 2, 3].into_array();
         let rhs = ConstantArray::new(Scalar::from(1u16), 3).into_array();
@@ -538,8 +538,8 @@ mod tests {
         use vortex_buffer::buffer;
 
         use crate::IntoArray;
-        use crate::arrays::constant::ConstantArray;
-        use crate::arrays::primitive::PrimitiveArray;
+        use crate::arrays::ConstantArray;
+        use crate::arrays::PrimitiveArray;
 
         let values = buffer![1i64, 2, 3].into_array();
         let rhs = ConstantArray::new(Scalar::from(-1i64), 3).into_array();
@@ -550,8 +550,8 @@ mod tests {
     #[test]
     fn test_scalar_subtract_nullable() {
         use crate::IntoArray;
-        use crate::arrays::constant::ConstantArray;
-        use crate::arrays::primitive::PrimitiveArray;
+        use crate::arrays::ConstantArray;
+        use crate::arrays::PrimitiveArray;
 
         let values = PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]);
         let rhs = ConstantArray::new(Scalar::from(Some(1u16)), 4).into_array();
@@ -567,8 +567,8 @@ mod tests {
         use vortex_buffer::buffer;
 
         use crate::IntoArray;
-        use crate::arrays::constant::ConstantArray;
-        use crate::arrays::primitive::PrimitiveArray;
+        use crate::arrays::ConstantArray;
+        use crate::arrays::PrimitiveArray;
 
         let values = buffer![1.0f64, 2.0, 3.0].into_array();
         let rhs = ConstantArray::new(Scalar::from(-1f64), 3).into_array();
@@ -581,7 +581,7 @@ mod tests {
         use vortex_buffer::buffer;
 
         use crate::IntoArray;
-        use crate::arrays::constant::ConstantArray;
+        use crate::arrays::ConstantArray;
 
         let values = buffer![f32::MIN, 2.0, 3.0].into_array();
         let rhs1 = ConstantArray::new(Scalar::from(1.0f32), 3).into_array();

@@ -17,7 +17,7 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::listview::ListViewArray;
+use crate::arrays::ListViewArray;
 use crate::arrays::listview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;

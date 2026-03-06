@@ -7,10 +7,10 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::constant::ConstantArray;
-use crate::arrays::constant::ConstantVTable;
-use crate::arrays::dict::DictArray;
-use crate::arrays::dict::DictVTable;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::arrays::DictArray;
+use crate::arrays::DictVTable;
 use crate::arrays::slice::SliceReduce;
 use crate::scalar::Scalar;
 
@@ -50,9 +50,9 @@ mod tests {
 
     use crate::DynArray;
     use crate::IntoArray;
-    use crate::arrays::dict::DictArray;
+    use crate::arrays::DictArray;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::compute::slice::ConstantArray;
-    use crate::arrays::primitive::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;

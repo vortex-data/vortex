@@ -6,10 +6,10 @@ use vortex_buffer::buffer;
 use super::DictArray;
 use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::bool::BoolArray;
-use crate::arrays::list::ListArray;
-use crate::arrays::primitive::PrimitiveArray;
-use crate::arrays::varbin::VarBinArray;
+use crate::arrays::BoolArray;
+use crate::arrays::ListArray;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinArray;
 use crate::assert_arrays_eq;
 use crate::validity::Validity;
 

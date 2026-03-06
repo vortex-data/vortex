@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use ::vortex::array::arrays::chunked::ChunkedArray;
+use ::vortex::array::arrays::ChunkedArray;
 use ::vortex::array::arrays::listview::recursive_list_from_list_view;
 use arrow_array::RecordBatch;
 use arrow_schema::Schema;

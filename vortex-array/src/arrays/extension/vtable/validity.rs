@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::ArrayRef;
-use crate::arrays::extension::ExtensionArray;
-use crate::arrays::extension::ExtensionVTable;
+use crate::arrays::ExtensionArray;
+use crate::arrays::ExtensionVTable;
 use crate::vtable::ValidityChild;
 
 impl ValidityChild<ExtensionVTable> for ExtensionVTable {

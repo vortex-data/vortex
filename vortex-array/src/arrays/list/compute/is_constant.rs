@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::list::ListArray;
-use crate::arrays::list::ListVTable;
+use crate::arrays::ListArray;
+use crate::arrays::ListVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
@@ -80,9 +80,9 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::list::ListArray;
-    use crate::arrays::primitive::PrimitiveArray;
-    use crate::arrays::struct_::StructArray;
+    use crate::arrays::ListArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
     use crate::compute::is_constant;
     use crate::dtype::FieldNames;
     use crate::validity::Validity;

@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
-use vortex::array::arrays::primitive::PrimitiveArray;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::search_sorted::SearchSorted;
 use vortex::array::search_sorted::SearchSortedSide;

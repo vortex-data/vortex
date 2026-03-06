@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use vortex_mask::MaskValues;
 
-use crate::arrays::decimal::DecimalArray;
+use crate::arrays::DecimalArray;
 use crate::arrays::filter::execute::buffer;
 use crate::arrays::filter::execute::filter_validity;
 use crate::match_each_decimal_value_type;

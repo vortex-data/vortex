@@ -15,7 +15,7 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::null::NullArray;
+use vortex_array::arrays::NullArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::dtype::FieldPath;
@@ -200,7 +200,7 @@ mod tests {
 
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
-    use vortex_array::arrays::struct_::StructArray;
+    use vortex_array::arrays::StructArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
