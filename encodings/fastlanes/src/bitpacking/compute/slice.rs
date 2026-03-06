@@ -71,7 +71,7 @@ mod tests {
 
     #[test]
     fn test_execute_parent_returns_bitpacked_slice() -> VortexResult<()> {
-        let values = vortex_array::arrays::PrimitiveArray::from_iter(0u32..2048);
+        let values = PrimitiveArray::from_iter(0u32..2048);
         let bitpacked = bitpack_encode(&values, 11, None)?;
 
         let slice_array = SliceArray::new(bitpacked.clone().into_array(), 500..1500);
