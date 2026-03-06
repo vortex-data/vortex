@@ -208,6 +208,7 @@ impl Canonical {
                         .into_array(),
                     Validity::from(n),
                 )
+                .with_zero_copy_to_list(true)
             }),
             DType::FixedSizeList(elem_dtype, list_size, null) => Canonical::FixedSizeList(unsafe {
                 FixedSizeListArray::new_unchecked(
