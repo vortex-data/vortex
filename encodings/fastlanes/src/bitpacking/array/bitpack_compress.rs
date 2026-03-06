@@ -385,12 +385,12 @@ pub mod test_harness {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::BufferMut;
     use vortex_error::VortexResult;
 
     use super::bitpack_encode;
-    use crate::bitpack_compress::PrimitiveArray;
 
     pub fn make_array(
         rng: &mut StdRng,

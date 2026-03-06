@@ -97,12 +97,12 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_buffer::buffer;
 
     use crate::RunEndArray;
-    use crate::compute::take::PrimitiveArray;
 
     fn ree_array() -> RunEndArray {
         RunEndArray::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array()).unwrap()

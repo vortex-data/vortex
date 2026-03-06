@@ -48,13 +48,13 @@ impl CompareKernel for RunEndVTable {
 mod test {
     use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::scalar_fn::fns::operators::Operator;
 
     use crate::RunEndArray;
-    use crate::compute::compare::ConstantArray;
 
     fn ree_array() -> RunEndArray {
         RunEndArray::encode(

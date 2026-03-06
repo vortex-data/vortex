@@ -55,6 +55,7 @@ mod tests {
     use vortex_array::DynArray;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
+    use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::kernel::ExecuteParentKernel;
@@ -63,7 +64,6 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::RunEndArray;
-    use crate::compute::take_from::DictArray;
     use crate::compute::take_from::RunEndVTableTakeFrom;
 
     /// Build a DictArray whose codes are run-end encoded.

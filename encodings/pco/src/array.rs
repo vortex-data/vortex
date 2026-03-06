@@ -570,12 +570,12 @@ impl OperationsVTable<PcoVTable> for PcoVTable {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
     use crate::PcoArray;
-    use crate::array::PrimitiveArray;
 
     #[test]
     fn test_slice_nullable() {
