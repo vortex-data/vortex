@@ -22,8 +22,7 @@ pub struct ArbitraryRunEndArray(pub RunEndArray);
 
 impl<'a> Arbitrary<'a> for ArbitraryRunEndArray {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-        // RunEnd supports Bool or Primitive types for values
-        // Pick a random primitive type for values
+        // Pick a random primitive type for values.
         let ptype: PType = u.arbitrary()?;
         let nullability: Nullability = u.arbitrary()?;
         let dtype = DType::Primitive(ptype, nullability);
