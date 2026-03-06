@@ -5,7 +5,7 @@ use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::StructArrayParts;
+use vortex::array::arrays::struct_::StructArrayParts;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::error::VortexResult;
 

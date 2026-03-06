@@ -16,9 +16,9 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
-use crate::arrays::ExactScalarFn;
-use crate::arrays::ScalarFnArrayView;
 use crate::arrays::ScalarFnVTable;
+use crate::arrays::scalar_fn::ExactScalarFn;
+use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrow::Datum;
 use crate::arrow::IntoArrowArray;
 use crate::arrow::from_arrow_array_with_len;
@@ -240,7 +240,6 @@ mod tests {
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::BoolArray;
-    use crate::arrays::ConstantArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
@@ -255,6 +254,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::binary::compare::ConstantArray;
     use crate::scalar_fn::fns::operators::Operator;
     use crate::test_harness::to_int_indices;
     use crate::validity::Validity;

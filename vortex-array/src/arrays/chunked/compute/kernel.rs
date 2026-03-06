@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::arrays::ChunkedVTable;
-use crate::arrays::FilterExecuteAdaptor;
-use crate::arrays::SliceExecuteAdaptor;
-use crate::arrays::TakeExecuteAdaptor;
+use crate::arrays::dict::TakeExecuteAdaptor;
+use crate::arrays::filter::FilterExecuteAdaptor;
+use crate::arrays::slice::SliceExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 use crate::scalar_fn::fns::mask::MaskExecuteAdaptor;
 use crate::scalar_fn::fns::zip::ZipExecuteAdaptor;

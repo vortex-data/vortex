@@ -5,7 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::builder::VarBinBuilder;
+use vortex_array::arrays::varbin::builder::VarBinBuilder;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
 use vortex_array::dtype::DType;

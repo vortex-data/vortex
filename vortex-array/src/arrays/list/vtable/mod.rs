@@ -19,7 +19,7 @@ use crate::ProstMetadata;
 use crate::arrays::ListArray;
 use crate::arrays::list::compute::PARENT_KERNELS;
 use crate::arrays::list::compute::rules::PARENT_RULES;
-use crate::arrays::list_view_from_list;
+use crate::arrays::listview::list_view_from_list;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;

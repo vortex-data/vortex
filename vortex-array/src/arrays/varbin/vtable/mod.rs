@@ -13,7 +13,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::varbin::VarBinArray;
+use crate::arrays::VarBinArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;

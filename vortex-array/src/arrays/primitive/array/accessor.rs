@@ -5,7 +5,7 @@ use std::iter;
 
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
-use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::NativePType;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;

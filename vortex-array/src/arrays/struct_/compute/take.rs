@@ -8,7 +8,7 @@ use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
-use crate::arrays::TakeReduce;
+use crate::arrays::dict::TakeReduce;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 use crate::validity::Validity;

@@ -278,9 +278,9 @@ mod tests {
     use crate::IntoArray as _;
     use crate::ToCanonical;
     use crate::array::DynArray;
-    use crate::arrays::FixedSizeListArray;
     use crate::arrays::PrimitiveArray;
     use crate::builders::ArrayBuilder;
+    use crate::builders::fixed_size_list::FixedSizeListArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::Nullability::Nullable;

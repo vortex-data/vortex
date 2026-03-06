@@ -205,9 +205,9 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array::IntoArray;
-    use crate::arrays::DecimalArray;
     use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::IntoArrowArray;
+    use crate::arrow::executor::decimal::DecimalArray;
     use crate::builders::ArrayBuilder;
     use crate::builders::DecimalBuilder;
     use crate::dtype::DecimalDType;

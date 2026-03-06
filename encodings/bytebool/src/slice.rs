@@ -5,7 +5,7 @@ use std::ops::Range;
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::SliceReduce;
+use vortex_array::arrays::slice::SliceReduce;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 

@@ -9,8 +9,8 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::NullArray;
 use crate::arrays::NullVTable;
-use crate::arrays::TakeReduce;
-use crate::arrays::TakeReduceAdaptor;
+use crate::arrays::dict::TakeReduce;
+use crate::arrays::dict::TakeReduceAdaptor;
 use crate::match_each_integer_ptype;
 use crate::optimizer::rules::ParentRuleSet;
 

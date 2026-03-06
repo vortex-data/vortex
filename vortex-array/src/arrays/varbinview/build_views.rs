@@ -8,7 +8,7 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 
-pub use crate::arrays::BinaryView;
+pub use crate::arrays::varbinview::BinaryView;
 use crate::dtype::NativePType;
 
 /// Convert an offsets buffer to a buffer of element lengths.
@@ -69,8 +69,8 @@ mod tests {
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
 
-    use crate::arrays::BinaryView;
-    use crate::arrays::build_views::build_views;
+    use crate::arrays::varbinview::BinaryView;
+    use crate::arrays::varbinview::build_views::build_views;
 
     #[test]
     fn test_to_canonical_large() {

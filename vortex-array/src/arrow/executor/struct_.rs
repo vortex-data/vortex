@@ -19,8 +19,8 @@ use crate::IntoArray;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::StructArray;
-use crate::arrays::StructArrayParts;
 use crate::arrays::StructVTable;
+use crate::arrays::struct_::StructArrayParts;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
@@ -288,7 +288,8 @@ mod tests {
                 ),
                 (
                     "b",
-                    arrays::VarBinViewArray::from_iter_str(vec!["a", "b", "c"]).into_array(),
+                    arrays::varbinview::VarBinViewArray::from_iter_str(vec!["a", "b", "c"])
+                        .into_array(),
                 ),
             ]
             .as_slice(),
@@ -331,7 +332,8 @@ mod tests {
                 ),
                 (
                     "b",
-                    arrays::VarBinViewArray::from_iter_str(vec!["a", "b", "c"]).into_array(),
+                    arrays::varbinview::VarBinViewArray::from_iter_str(vec!["a", "b", "c"])
+                        .into_array(),
                 ),
             ]
             .as_slice(),

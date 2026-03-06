@@ -19,7 +19,7 @@ use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
-use crate::arrays::masked::MaskedArray;
+use crate::arrays::MaskedArray;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;

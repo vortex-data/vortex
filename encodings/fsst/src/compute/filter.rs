@@ -4,8 +4,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::FilterKernel;
 use vortex_array::arrays::VarBinVTable;
+use vortex_array::arrays::filter::FilterKernel;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -42,7 +42,7 @@ impl FilterKernel for FSSTVTable {
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    use vortex_array::arrays::builder::VarBinBuilder;
+    use vortex_array::arrays::varbin::builder::VarBinBuilder;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
