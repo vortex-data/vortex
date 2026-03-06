@@ -106,17 +106,17 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             }
 
             let kernel_key = (self.vtable.id(), batch.encoding_id());
-            if let Some(kernel) = kernels.read().get(&kernel_key) {
-                if let Some(result) = kernel.aggregate(&self.aggregate_fn, &batch)? {
-                    vortex_ensure!(
-                        result.dtype() == &self.state_dtype,
-                        "Aggregate kernel returned {}, expected {}",
-                        result.dtype(),
-                        self.state_dtype,
-                    );
-                    self.vtable.state_merge(&mut self.current_state, result)?;
-                    return Ok(());
-                }
+            if let Some(kernel) = kernels.read().get(&kernel_key)
+                && let Some(result) = kernel.aggregate(&self.aggregate_fn, &batch)?
+            {
+                vortex_ensure!(
+                    result.dtype() == &self.state_dtype,
+                    "Aggregate kernel returned {}, expected {}",
+                    result.dtype(),
+                    self.state_dtype,
+                );
+                self.vtable.state_merge(&mut self.current_state, result)?;
+                return Ok(());
             }
 
             // Execute one step and try again

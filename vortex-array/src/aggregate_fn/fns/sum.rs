@@ -204,7 +204,7 @@ impl AggregateFnVTable for Sum {
     }
 
     fn finalize_scalar(&self, state: Scalar) -> VortexResult<Scalar> {
-        Ok(state.clone())
+        Ok(state)
     }
 }
 
@@ -792,8 +792,7 @@ mod tests {
     #[test]
     fn grouped_sum_finish_resets() -> VortexResult<()> {
         let elem_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut acc =
-            GroupedAccumulator::try_new(Sum, checked_opts(), elem_dtype.clone(), session())?;
+        let mut acc = GroupedAccumulator::try_new(Sum, checked_opts(), elem_dtype, session())?;
 
         // First batch: [[1, 2], [3, 4]]
         let elements1 =

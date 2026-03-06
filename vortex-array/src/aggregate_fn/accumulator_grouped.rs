@@ -129,7 +129,7 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
     }
 
     fn flush(&mut self) -> VortexResult<ArrayRef> {
-        let states = std::mem::replace(&mut self.states, vec![]);
+        let states = std::mem::take(&mut self.states);
         Ok(ChunkedArray::try_new(states, self.state_dtype.clone())?.into_array())
     }
 
