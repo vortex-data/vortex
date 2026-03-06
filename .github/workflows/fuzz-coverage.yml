@@ -16,14 +16,13 @@ jobs:
       matrix:
         fuzz_target: [array_ops, file_io, compress_roundtrip]
     timeout-minutes: 60
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m8g.large
-      - image=ubuntu24-full-arm64
-      - disk=large
-      - extras=s3-cache
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=arm64-medium/disk=large', github.run_id)
+          || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
 
