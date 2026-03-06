@@ -3,6 +3,7 @@
 
 use std::ffi::CStr;
 
+use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -77,16 +78,10 @@ impl QueryResultRef {
             let precision = unsafe { cpp::duckdb_decimal_width(lt) };
             let scale = unsafe { cpp::duckdb_decimal_scale(lt) };
 
-            LogicalType::decimal_type(precision, scale).expect("valid decimal")
+            LogicalType::decimal_type(precision, scale).vortex_expect("valid decimal")
         } else {
             LogicalType::new(dtype)
         }
-    }
-
-    /// Get the type of a column by index.
-    pub fn raw_column_type(&self, col_idx: usize) -> DUCKDB_TYPE {
-        let dtype = unsafe { cpp::duckdb_column_type(self.as_ptr(), col_idx as u64) };
-        dtype
     }
 }
 

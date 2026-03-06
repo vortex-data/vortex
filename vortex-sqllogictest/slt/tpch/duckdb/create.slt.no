@@ -2,25 +2,25 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 statement ok
-CREATE TABLE supplier AS SELECT * FROM read_vortex('./slt/tpch/data/supplier.vortex');
+CREATE TABLE supplier AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/supplier.vortex');
 
 statement ok
-CREATE TABLE part AS SELECT * FROM read_vortex('./slt/tpch/data/part.vortex');
+CREATE TABLE part AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/part.vortex');
 
 statement ok
-CREATE TABLE partsupp AS SELECT * FROM read_vortex('./slt/tpch/data/partsupp.vortex');
+CREATE TABLE partsupp AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/partsupp.vortex');
 
 statement ok
-CREATE TABLE customer AS SELECT * FROM read_vortex('./slt/tpch/data/customer.vortex');
+CREATE TABLE customer AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/customer.vortex');
 
 statement ok
-CREATE TABLE orders AS SELECT * FROM read_vortex('./slt/tpch/data/orders.vortex');
+CREATE TABLE orders AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/orders.vortex');
 
 statement ok
-CREATE TABLE lineitem AS SELECT * FROM read_vortex('./slt/tpch/data/lineitem.vortex');
+CREATE TABLE lineitem AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/lineitem.vortex');
 
 statement ok
-CREATE TABLE nation AS SELECT * FROM read_vortex('./slt/tpch/data/nation.vortex');
+CREATE TABLE nation AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/nation.vortex');
 
 statement ok
-CREATE TABLE region AS SELECT * FROM read_vortex('./slt/tpch/data/region.vortex');
+CREATE TABLE region AS SELECT * FROM read_vortex('${PWD}/vortex-sqllogictest/slt/tpch/data/region.vortex');

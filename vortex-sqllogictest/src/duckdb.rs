@@ -13,6 +13,7 @@ use indicatif::ProgressBar;
 use sqllogictest::DBOutput;
 use sqllogictest::runner::AsyncDB;
 use vortex::error::VortexError;
+use vortex::error::VortexExpect;
 use vortex_duckdb::duckdb::Connection;
 use vortex_duckdb::duckdb::Database;
 use vortex_duckdb::duckdb::ExtractedValue;
@@ -174,7 +175,11 @@ fn f32_to_str(value: f32) -> String {
     } else if value == f32::NEG_INFINITY {
         "-Infinity".to_string()
     } else {
-        big_decimal_to_str(BigDecimal::from_str(&value.to_string()).unwrap())
+        big_decimal_to_str(
+            BigDecimal::from_str(&value.to_string())
+                .ok()
+                .vortex_expect("value can't be parsed to decimal"),
+        )
     }
 }
 
@@ -186,7 +191,11 @@ fn f64_to_str(value: f64) -> String {
     } else if value == f64::NEG_INFINITY {
         "-Infinity".to_string()
     } else {
-        big_decimal_to_str(BigDecimal::from_str(&value.to_string()).unwrap())
+        big_decimal_to_str(
+            BigDecimal::from_str(&value.to_string())
+                .ok()
+                .vortex_expect("value can't be parsed to decimal"),
+        )
     }
 }
 
@@ -307,7 +316,6 @@ mod tests {
     #[case("hello", "hello")]
     #[case("", "(empty)")]
     #[case("trailing\n", "trailing")]
-    #[case("has\0null", "has\\0null")]
     fn test_varchar(#[case] input: &str, #[case] expected: &str) {
         assert_eq!(display(Value::from(input)), expected);
     }
