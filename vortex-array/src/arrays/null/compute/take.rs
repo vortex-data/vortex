@@ -7,10 +7,10 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
-use crate::arrays::NullArray;
-use crate::arrays::NullVTable;
-use crate::arrays::TakeReduce;
-use crate::arrays::TakeReduceAdaptor;
+use crate::arrays::dict::TakeReduce;
+use crate::arrays::dict::TakeReduceAdaptor;
+use crate::arrays::null::NullArray;
+use crate::arrays::null::NullVTable;
 use crate::match_each_integer_ptype;
 use crate::optimizer::rules::ParentRuleSet;
 

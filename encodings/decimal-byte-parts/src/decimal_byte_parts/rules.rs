@@ -4,10 +4,10 @@
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::IntoArray;
-use vortex_array::arrays::FilterArray;
-use vortex_array::arrays::FilterReduceAdaptor;
-use vortex_array::arrays::FilterVTable;
-use vortex_array::arrays::SliceReduceAdaptor;
+use vortex_array::arrays::filter::FilterArray;
+use vortex_array::arrays::filter::FilterReduceAdaptor;
+use vortex_array::arrays::filter::FilterVTable;
+use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;

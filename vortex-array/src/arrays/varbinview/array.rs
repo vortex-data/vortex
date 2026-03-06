@@ -13,7 +13,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
-use crate::arrays::BinaryView;
+use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
@@ -62,7 +62,7 @@ use crate::validity::Validity;
 /// # Examples
 ///
 /// ```
-/// use vortex_array::arrays::VarBinViewArray;
+/// use vortex_array::arrays::varbinview::VarBinViewArray;
 /// use vortex_array::dtype::{DType, Nullability};
 /// use vortex_array::IntoArray;
 ///

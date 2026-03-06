@@ -19,7 +19,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use vortex::VortexSessionDefault;
 use vortex::array::ToCanonical;
-use vortex::array::arrays::DictVTable;
+use vortex::array::arrays::dict::DictVTable;
 use vortex::buffer::ByteBufferMut;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;

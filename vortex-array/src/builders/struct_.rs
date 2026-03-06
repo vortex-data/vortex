@@ -13,7 +13,7 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
@@ -206,11 +206,11 @@ impl ArrayBuilder for StructBuilder {
 #[cfg(test)]
 mod tests {
     use crate::IntoArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
-    use crate::arrays::VarBinArray;
+    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::varbin::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::builders::struct_::StructArray;
     use crate::builders::struct_::StructBuilder;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

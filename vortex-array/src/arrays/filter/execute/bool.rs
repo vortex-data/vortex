@@ -6,7 +6,7 @@ use std::sync::Arc;
 use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
-use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArray;
 use crate::arrays::filter::execute::bitbuffer;
 use crate::arrays::filter::execute::filter_validity;
 
@@ -27,7 +27,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::arrays::BoolArray;
+    use crate::arrays::filter::execute::bool::BoolArray;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::filter::test_filter_conformance;
 

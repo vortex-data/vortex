@@ -13,7 +13,7 @@ use vortex_error::vortex_panic;
 
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::BigCast;
 use crate::dtype::DType;
@@ -71,7 +71,7 @@ use crate::vtable::ValidityHelper;
 /// # Examples
 ///
 /// ```
-/// use vortex_array::arrays::DecimalArray;
+/// use vortex_array::arrays::decimal::DecimalArray;
 /// use vortex_array::dtype::DecimalDType;
 /// use vortex_buffer::{buffer, Buffer};
 /// use vortex_array::validity::Validity;

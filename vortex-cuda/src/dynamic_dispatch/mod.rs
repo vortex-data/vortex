@@ -194,8 +194,8 @@ mod tests {
     use cudarc::driver::PushKernelArg;
     use vortex::array::IntoArray;
     use vortex::array::ToCanonical;
-    use vortex::array::arrays::DictArray;
-    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::dict::DictArray;
+    use vortex::array::arrays::primitive::PrimitiveArray;
     use vortex::array::scalar::Scalar;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;

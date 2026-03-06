@@ -14,7 +14,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
-use crate::arrays::DecimalArray;
+use crate::arrays::decimal::DecimalArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
@@ -300,10 +300,10 @@ impl Default for DecimalBuffer {
 
 #[cfg(test)]
 mod tests {
-    use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::DecimalBuilder;
+    use crate::builders::decimal::DecimalArray;
     use crate::dtype::DecimalDType;
 
     #[test]

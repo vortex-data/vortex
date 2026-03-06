@@ -19,7 +19,7 @@ use criterion::Criterion;
 use criterion::Throughput;
 use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
-use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::primitive::PrimitiveArray;
 use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;

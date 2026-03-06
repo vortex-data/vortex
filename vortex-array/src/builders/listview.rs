@@ -8,7 +8,7 @@
 //! Unlike [`ListArray`] which only tracks offsets, [`ListViewArray`] stores both offsets and sizes
 //! in separate arrays for better compression.
 //!
-//! [`ListArray`]: crate::arrays::ListArray
+//! [`ListArray`]: crate::arrays::list::ListArray
 
 use std::sync::Arc;
 
@@ -23,9 +23,9 @@ use crate::ToCanonical;
 use crate::array::ArrayRef;
 use crate::array::DynArray;
 use crate::array::IntoArray;
-use crate::arrays::ListViewArray;
-use crate::arrays::ListViewRebuildMode;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::listview::ListViewArray;
+use crate::arrays::listview::ListViewRebuildMode;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::PrimitiveBuilder;
@@ -53,7 +53,7 @@ pub struct ListViewBuilder<O: IntegerPType, S: IntegerPType> {
     /// The [`DType`] of the [`ListViewArray`]. This **must** be a [`DType::List`].
     dtype: DType,
 
-    /// The builder for the underlying elements of the [`ListArray`](crate::arrays::ListArray).
+    /// The builder for the underlying elements of the [`ListArray`](crate::arrays::list::ListArray).
     elements_builder: Box<dyn ArrayBuilder>,
 
     /// The builder for the `offsets` into the `elements` array.
@@ -432,10 +432,10 @@ mod tests {
     use super::ListViewBuilder;
     use crate::IntoArray;
     use crate::array::DynArray;
-    use crate::arrays::ListArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::list::ListArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::builders::listview::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::Nullability::Nullable;

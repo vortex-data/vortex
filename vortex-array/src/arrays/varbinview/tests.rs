@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::ToCanonical;
-use crate::arrays::BinaryView;
-use crate::arrays::VarBinViewArray;
+use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::VarBinViewArray;
 use crate::assert_arrays_eq;
 
 #[test]

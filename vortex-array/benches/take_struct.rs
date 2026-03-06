@@ -13,7 +13,7 @@ use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::StructArray;
+use vortex_array::arrays::struct_::StructArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;

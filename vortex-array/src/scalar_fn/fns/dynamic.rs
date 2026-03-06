@@ -17,7 +17,7 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::ConstantArray;
+use crate::arrays::constant::ConstantArray;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -321,7 +321,7 @@ mod tests {
 
     use super::*;
     use crate::IntoArray;
-    use crate::arrays::BoolArray;
+    use crate::arrays::bool::BoolArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

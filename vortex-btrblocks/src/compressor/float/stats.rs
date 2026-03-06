@@ -8,9 +8,9 @@ use num_traits::Float;
 use rustc_hash::FxBuildHasher;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::NativeValue;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::arrays::primitive::NativeValue;
+use vortex_array::arrays::primitive::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveVTable;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::half::f16;
@@ -231,7 +231,7 @@ where
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 

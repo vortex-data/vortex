@@ -26,7 +26,7 @@ use num_traits::One;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::DynArray;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_integer_ptype;

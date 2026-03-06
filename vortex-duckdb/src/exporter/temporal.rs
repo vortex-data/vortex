@@ -3,7 +3,7 @@
 
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
-use vortex::array::arrays::TemporalArray;
+use vortex::array::arrays::datetime::TemporalArray;
 use vortex::error::VortexResult;
 
 use crate::duckdb::VectorRef;
@@ -46,8 +46,8 @@ pub(crate) fn new_exporter(
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray as _;
-    use vortex::array::arrays::PrimitiveArray;
-    use vortex::array::arrays::TemporalArray;
+    use vortex::array::arrays::datetime::TemporalArray;
+    use vortex::array::arrays::primitive::PrimitiveArray;
     use vortex::buffer::buffer;
     use vortex::extension::datetime::TimeUnit;
     use vortex_array::VortexSessionExecute;

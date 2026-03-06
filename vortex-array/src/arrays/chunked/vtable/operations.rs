@@ -4,8 +4,8 @@
 use vortex_error::VortexResult;
 
 use crate::DynArray;
-use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
+use crate::arrays::chunked::ChunkedVTable;
+use crate::arrays::chunked::vtable::ChunkedArray;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
@@ -25,8 +25,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::ChunkedArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::chunked::ChunkedArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

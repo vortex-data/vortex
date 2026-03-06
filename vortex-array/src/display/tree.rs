@@ -11,7 +11,7 @@ use vortex_error::VortexExpect as _;
 use crate::ArrayRef;
 use crate::ArrayVisitor;
 use crate::DynArray;
-use crate::arrays::ChunkedVTable;
+use crate::arrays::chunked::ChunkedVTable;
 use crate::display::DisplayOptions;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;

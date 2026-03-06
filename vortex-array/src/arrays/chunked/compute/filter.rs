@@ -11,10 +11,10 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::chunked::ChunkedArray;
+use crate::arrays::chunked::ChunkedVTable;
 use crate::arrays::filter::FilterKernel;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;
 use crate::validity::Validity;
@@ -206,8 +206,8 @@ mod test {
 
     use crate::IntoArray;
     use crate::array::DynArray;
-    use crate::arrays::ChunkedArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::chunked::ChunkedArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

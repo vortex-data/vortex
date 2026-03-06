@@ -7,7 +7,7 @@ use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::constant::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::NativePType;
 use vortex_array::scalar::Scalar;
@@ -152,9 +152,8 @@ mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::ConstantArray;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::bool::BoolArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::dtype::DType;
@@ -165,6 +164,7 @@ mod tests {
     use vortex_array::scalar_fn::fns::operators::Operator;
 
     use super::*;
+    use crate::alp::compute::compare::ConstantArray;
     use crate::alp_encode;
 
     fn test_alp_compare<F: ALPFloat + Into<Scalar>>(

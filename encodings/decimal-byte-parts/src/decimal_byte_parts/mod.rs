@@ -17,8 +17,8 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::arrays::DecimalArray;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::decimal::DecimalArray;
+use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
@@ -327,8 +327,8 @@ impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 mod tests {
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::bool::BoolArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
     use vortex_array::dtype::Nullability;

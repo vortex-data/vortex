@@ -15,8 +15,8 @@ use tracing::debug;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::arrays::BinaryView;
-use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrays::varbinview::BinaryView;
+use vortex::array::arrays::varbinview::VarBinViewArray;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
 use vortex::buffer::Alignment;
@@ -343,7 +343,7 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
-    use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::arrays::varbinview::VarBinViewArray;
     use vortex::array::assert_arrays_eq;
     use vortex::encodings::zstd::ZstdArray;
     use vortex::error::VortexResult;

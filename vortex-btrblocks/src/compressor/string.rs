@@ -9,12 +9,12 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::DictArray;
-use vortex_array::arrays::MaskedArray;
-use vortex_array::arrays::VarBinArray;
-use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::VarBinViewVTable;
+use vortex_array::arrays::constant::ConstantArray;
+use vortex_array::arrays::dict::DictArray;
+use vortex_array::arrays::masked::MaskedArray;
+use vortex_array::arrays::varbin::VarBinArray;
+use vortex_array::arrays::varbinview::VarBinViewArray;
+use vortex_array::arrays::varbinview::VarBinViewVTable;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::compute::is_constant;
 use vortex_array::scalar::Scalar;
@@ -572,7 +572,7 @@ impl Scheme for ZstdBuffersScheme {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::varbinview::VarBinViewArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::display::DisplayOptions;
@@ -633,9 +633,9 @@ mod tests {
 #[cfg(test)]
 mod scheme_selection_tests {
     use vortex_array::IntoArray;
-    use vortex_array::arrays::ConstantVTable;
-    use vortex_array::arrays::DictVTable;
-    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::constant::ConstantVTable;
+    use vortex_array::arrays::dict::DictVTable;
+    use vortex_array::arrays::varbinview::VarBinViewArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_error::VortexResult;

@@ -15,7 +15,7 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -513,7 +513,6 @@ mod test {
     use rstest::rstest;
     use vortex_array::ProstMetadata;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::PType;
     use vortex_array::patches::PatchesMetadata;
@@ -522,6 +521,7 @@ mod test {
     use super::ALPRDMetadata;
     use crate::ALPRDFloat;
     use crate::alp_rd;
+    use crate::alp_rd::PrimitiveArray;
 
     #[rstest]
     #[case(vec![0.1f32.next_up(); 1024], 1.123_848_f32)]

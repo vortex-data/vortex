@@ -12,7 +12,7 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::PType;

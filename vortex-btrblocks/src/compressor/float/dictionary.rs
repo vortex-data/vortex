@@ -6,8 +6,8 @@
 //! Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for external compatibility.
 
 use vortex_array::IntoArray;
-use vortex_array::arrays::DictArray;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::dict::DictArray;
+use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::dtype::half::f16;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
@@ -100,8 +100,8 @@ impl_encode!(f64, u64);
 mod tests {
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::bool::BoolArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;

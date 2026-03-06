@@ -9,8 +9,8 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::FilterKernel;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::filter::FilterKernel;
+use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
@@ -117,12 +117,12 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 mod tests {
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
     use crate::RunEndArray;
+    use crate::compute::filter::PrimitiveArray;
 
     fn ree_array() -> RunEndArray {
         RunEndArray::encode(

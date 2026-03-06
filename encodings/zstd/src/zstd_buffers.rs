@@ -501,8 +501,8 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::varbinview::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;

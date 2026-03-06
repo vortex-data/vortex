@@ -8,7 +8,7 @@ use vortex_error::vortex_panic;
 
 use crate::IntoArray;
 use crate::ToCanonical;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::min_max;
 use crate::dtype::DType;
@@ -153,7 +153,7 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
 
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;

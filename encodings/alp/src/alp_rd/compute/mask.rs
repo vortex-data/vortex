@@ -3,7 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ScalarFnArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::fns::mask::Mask as MaskExpr;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
@@ -37,11 +37,11 @@ impl MaskReduce for ALPRDVTable {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
 
     use crate::ALPRDFloat;
     use crate::RDEncoder;
+    use crate::alp_rd::PrimitiveArray;
 
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]

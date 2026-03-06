@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::PrimitiveVTable;
-use crate::arrays::TakeExecuteAdaptor;
+use crate::arrays::dict::TakeExecuteAdaptor;
+use crate::arrays::primitive::PrimitiveVTable;
 use crate::kernel::ParentKernelSet;
 use crate::scalar_fn::fns::between::BetweenExecuteAdaptor;
 use crate::scalar_fn::fns::cast::CastExecuteAdaptor;

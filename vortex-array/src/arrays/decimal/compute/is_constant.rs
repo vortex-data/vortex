@@ -4,8 +4,8 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
-use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
+use crate::arrays::decimal::DecimalArray;
+use crate::arrays::decimal::DecimalVTable;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;
@@ -32,7 +32,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::DecimalArray;
+    use crate::arrays::decimal::DecimalArray;
     use crate::compute::is_constant;
     use crate::dtype::DecimalDType;
     use crate::validity::Validity;

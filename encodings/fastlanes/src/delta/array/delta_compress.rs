@@ -7,13 +7,14 @@ use fastlanes::Delta;
 use fastlanes::FastLanes;
 use fastlanes::Transpose;
 use num_traits::WrappingSub;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+
+use crate::delta::array::PrimitiveArray;
 
 pub fn delta_compress(array: &PrimitiveArray) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
     // TODO(ngates): fill forward nulls?
@@ -95,7 +96,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::session::ArraySession;
     use vortex_error::VortexResult;

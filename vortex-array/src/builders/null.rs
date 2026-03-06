@@ -10,7 +10,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::NullArray;
+use crate::arrays::null::NullArray;
 use crate::builders::ArrayBuilder;
 use crate::canonical::Canonical;
 use crate::dtype::DType;

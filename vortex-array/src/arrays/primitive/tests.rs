@@ -5,8 +5,8 @@ use vortex_buffer::buffer;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::BoolArray;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArray;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::conformance::filter::test_filter_conformance;
 use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::conformance::search_sorted::rstest_reuse::apply;

@@ -11,8 +11,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveVTable;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
@@ -104,7 +104,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;

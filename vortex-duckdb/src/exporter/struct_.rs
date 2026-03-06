@@ -3,9 +3,9 @@
 
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
-use vortex::array::arrays::BoolArray;
-use vortex::array::arrays::StructArray;
-use vortex::array::arrays::StructArrayParts;
+use vortex::array::arrays::bool::BoolArray;
+use vortex::array::arrays::struct_::StructArray;
+use vortex::array::arrays::struct_::StructArrayParts;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::error::VortexResult;
 
@@ -81,10 +81,10 @@ mod tests {
     use std::ffi::CString;
 
     use vortex::array::IntoArray;
-    use vortex::array::arrays::ConstantArray;
-    use vortex::array::arrays::DictArray;
-    use vortex::array::arrays::PrimitiveArray;
-    use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::arrays::constant::ConstantArray;
+    use vortex::array::arrays::dict::DictArray;
+    use vortex::array::arrays::primitive::PrimitiveArray;
+    use vortex::array::arrays::varbinview::VarBinViewArray;
     use vortex::array::validity::Validity;
     use vortex::buffer::BitBuffer;
     use vortex::buffer::buffer;

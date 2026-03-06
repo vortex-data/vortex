@@ -11,9 +11,9 @@
 use vortex::array::ArrayRef;
 use vortex::array::DynArray;
 use vortex::array::IntoArray;
-use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::StructArray;
-use vortex::array::arrays::VarBinArray;
+use vortex::array::arrays::primitive::PrimitiveArray;
+use vortex::array::arrays::struct_::StructArray;
+use vortex::array::arrays::varbin::VarBinArray;
 use vortex::array::validity::Validity;
 use vortex::compressor::BtrBlocksCompressor;
 use vortex::dtype::DType;

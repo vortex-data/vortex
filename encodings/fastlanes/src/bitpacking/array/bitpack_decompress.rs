@@ -6,7 +6,7 @@ use itertools::Itertools;
 use vortex_array::ExecutionCtx;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::builders::UninitRange;

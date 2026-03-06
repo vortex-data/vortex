@@ -12,7 +12,7 @@ pub mod gpu {
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
-use vortex::array::arrays::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::patches::Patches;
 use vortex::array::validity::Validity;
 use vortex::array::vtable::ValidityHelper;
@@ -105,8 +105,8 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::ToCanonical;
     use vortex::array::VortexSessionExecute;
-    use vortex::array::arrays::PrimitiveArray;
-    use vortex::array::arrays::PrimitiveArrayParts;
+    use vortex::array::arrays::primitive::PrimitiveArray;
+    use vortex::array::arrays::primitive::PrimitiveArrayParts;
     use vortex::array::assert_arrays_eq;
     use vortex::array::buffer::BufferHandle;
     use vortex::array::builtins::ArrayBuiltins;

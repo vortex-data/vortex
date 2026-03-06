@@ -22,7 +22,7 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::ConstantArray;
+use crate::arrays::constant::ConstantArray;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;

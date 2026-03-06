@@ -14,7 +14,7 @@ use vortex::buffer::Buffer;
 use vortex::buffer::buffer;
 use vortex::session::VortexSession;
 use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;

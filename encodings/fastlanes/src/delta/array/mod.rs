@@ -4,7 +4,7 @@
 use fastlanes::FastLanes;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;

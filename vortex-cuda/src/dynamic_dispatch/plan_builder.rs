@@ -10,9 +10,9 @@
 use futures::executor::block_on;
 use vortex::array::ArrayRef;
 use vortex::array::DynArray;
-use vortex::array::arrays::DictVTable;
-use vortex::array::arrays::PrimitiveArrayParts;
-use vortex::array::arrays::PrimitiveVTable;
+use vortex::array::arrays::dict::DictVTable;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveVTable;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALPFloat;

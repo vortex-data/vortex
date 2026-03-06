@@ -11,7 +11,7 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArray;
 use crate::builtins::ArrayBuiltins;
 use crate::builtins::ExprBuiltins;
 use crate::dtype::DType;
@@ -220,7 +220,6 @@ mod tests {
 
     use crate::DynArray;
     use crate::IntoArray;
-    use crate::arrays::StructArray;
     use crate::dtype::DType;
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
@@ -232,6 +231,7 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::pack;
     use crate::expr::root;
+    use crate::scalar_fn::fns::get_item::StructArray;
     use crate::validity::Validity;
 
     fn test_array() -> StructArray {
@@ -345,9 +345,9 @@ mod tests {
     fn get_item_filter_list_field() {
         use vortex_mask::Mask;
 
-        use crate::arrays::BoolArray;
-        use crate::arrays::FilterArray;
-        use crate::arrays::ListArray;
+        use crate::arrays::bool::BoolArray;
+        use crate::arrays::filter::FilterArray;
+        use crate::arrays::list::ListArray;
 
         let list = ListArray::try_new(
             buffer![0f32, 1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11.].into_array(),

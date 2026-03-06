@@ -8,7 +8,7 @@ use rand::rngs::StdRng;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::varbinview::VarBinViewArray;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;

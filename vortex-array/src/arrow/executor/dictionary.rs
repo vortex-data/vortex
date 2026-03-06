@@ -17,11 +17,11 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
-use crate::arrays::DictArray;
-use crate::arrays::DictArrayParts;
-use crate::arrays::DictVTable;
+use crate::arrays::constant::ConstantArray;
+use crate::arrays::constant::ConstantVTable;
+use crate::arrays::dict::DictArray;
+use crate::arrays::dict::DictArrayParts;
+use crate::arrays::dict::DictVTable;
 use crate::arrow::ArrowArrayExecutor;
 
 pub(super) fn to_arrow_dictionary(
@@ -148,11 +148,11 @@ mod tests {
 
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::arrays::ConstantArray;
-    use crate::arrays::DictArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::VarBinViewArray;
+    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::varbinview::VarBinViewArray;
     use crate::arrow::ArrowArrayExecutor;
+    use crate::arrow::executor::dictionary::ConstantArray;
+    use crate::arrow::executor::dictionary::DictArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
     use crate::executor::VortexSessionExecute;

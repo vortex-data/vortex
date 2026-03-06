@@ -35,7 +35,7 @@ impl OperationsVTable<FoRVTable> for FoRVTable {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
 
     use crate::FoRArray;

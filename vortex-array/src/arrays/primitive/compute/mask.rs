@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveVTable;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -33,7 +33,7 @@ mod test {
     use rstest::rstest;
 
     use crate::IntoArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::compute::conformance::mask::test_mask_conformance;
 
     #[rstest]

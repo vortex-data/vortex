@@ -7,7 +7,7 @@ use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::dtype::UnsignedPType;

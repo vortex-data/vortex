@@ -34,7 +34,7 @@ use crate::LEGACY_SESSION;
 use crate::RecursiveCanonical;
 use crate::ToCanonical;
 use crate::VortexSessionExecute;
-use crate::arrays::ConstantArray;
+use crate::arrays::constant::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;

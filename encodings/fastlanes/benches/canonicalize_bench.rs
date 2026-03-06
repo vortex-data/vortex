@@ -10,7 +10,7 @@ use vortex_array::Canonical;
 use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::chunked::ChunkedArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::compute::warm_up_vtables;

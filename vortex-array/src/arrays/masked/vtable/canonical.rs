@@ -8,8 +8,8 @@ mod tests {
 
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::MaskedArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::masked::MaskedArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::dtype::Nullability;
     use crate::validity::Validity;
 

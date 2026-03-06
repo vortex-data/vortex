@@ -48,7 +48,7 @@ use crate::buffer::BufferHandle;
 ///
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
-/// use vortex_array::arrays::PrimitiveArray;
+/// use vortex_array::arrays::primitive::PrimitiveArray;
 /// use vortex_array::compute::sum;
 ///
 /// // Create from iterator using FromIterator impl

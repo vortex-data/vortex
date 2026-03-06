@@ -12,13 +12,13 @@ use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
-use crate::arrays::ExtensionArray;
-use crate::arrays::FixedSizeListArray;
-use crate::arrays::ListArray;
-use crate::arrays::ListViewArray;
-use crate::arrays::ListViewRebuildMode;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::StructArray;
+use crate::arrays::extension::ExtensionArray;
+use crate::arrays::fixed_size_list::FixedSizeListArray;
+use crate::arrays::list::ListArray;
+use crate::arrays::listview::ListViewArray;
+use crate::arrays::listview::ListViewRebuildMode;
+use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::struct_::StructArray;
 use crate::builders::PrimitiveBuilder;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
@@ -289,14 +289,14 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::arrays::BoolArray;
-    use crate::arrays::FixedSizeListArray;
-    use crate::arrays::ListArray;
-    use crate::arrays::ListViewArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
-    use crate::arrays::list_from_list_view;
-    use crate::arrays::list_view_from_list;
+    use crate::arrays::bool::BoolArray;
+    use crate::arrays::fixed_size_list::FixedSizeListArray;
+    use crate::arrays::list::ListArray;
+    use crate::arrays::listview::ListViewArray;
+    use crate::arrays::listview::list_from_list_view;
+    use crate::arrays::listview::list_view_from_list;
+    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::struct_::StructArray;
     use crate::assert_arrays_eq;
     use crate::dtype::FieldNames;
     use crate::validity::Validity;
@@ -620,8 +620,10 @@ mod tests {
         };
 
         let dtype = lv1.dtype().clone();
-        let chunked_listviews =
-            crate::arrays::ChunkedArray::try_new(vec![lv1.into_array(), lv2.into_array()], dtype)?;
+        let chunked_listviews = crate::arrays::chunked::ChunkedArray::try_new(
+            vec![lv1.into_array(), lv2.into_array()],
+            dtype,
+        )?;
 
         let fixed_list =
             FixedSizeListArray::new(chunked_listviews.into_array(), 1, Validity::NonNullable, 2);

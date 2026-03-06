@@ -467,7 +467,7 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldMask;
     use vortex_array::dtype::Nullability;

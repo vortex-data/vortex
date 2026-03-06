@@ -4,7 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::FilterKernel;
+use vortex_array::arrays::filter::FilterKernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -44,7 +44,7 @@ mod test {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_buffer::buffer;
 

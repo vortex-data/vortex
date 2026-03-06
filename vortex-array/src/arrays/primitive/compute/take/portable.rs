@@ -23,7 +23,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::primitive::compute::take::TakeImpl;
 use crate::dtype::NativePType;
 use crate::dtype::PType;

@@ -7,9 +7,9 @@ use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
 use crate::ArrayRef;
-use crate::arrays::StructArray;
 use crate::arrays::filter::execute::filter_validity;
 use crate::arrays::filter::execute::values_to_mask;
+use crate::arrays::struct_::StructArray;
 use crate::vtable::ValidityHelper;
 
 pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray {
@@ -45,10 +45,10 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::arrays::BoolArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
-    use crate::arrays::VarBinArray;
+    use crate::arrays::bool::BoolArray;
+    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::struct_::StructArray;
+    use crate::arrays::varbin::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::dtype::DType;

@@ -4,7 +4,7 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::FilterKernel;
+use vortex_array::arrays::filter::FilterKernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -41,7 +41,6 @@ impl FilterKernel for ALPRDVTable {
 mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::validity::Validity;
@@ -50,6 +49,7 @@ mod test {
 
     use crate::ALPRDFloat;
     use crate::RDEncoder;
+    use crate::alp_rd::PrimitiveArray;
 
     #[rstest]
     #[case(0.1f32, 0.2f32, 3e25f32)]

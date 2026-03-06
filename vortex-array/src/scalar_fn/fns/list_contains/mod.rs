@@ -21,12 +21,12 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::BoolArray;
-use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
-use crate::arrays::ListViewArray;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::ScalarFnArrayExt;
+use crate::arrays::bool::BoolArray;
+use crate::arrays::constant::ConstantArray;
+use crate::arrays::constant::ConstantVTable;
+use crate::arrays::listview::ListViewArray;
+use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -455,14 +455,9 @@ mod tests {
     use crate::ArrayRef;
     use crate::DynArray;
     use crate::IntoArray;
-    use crate::arrays::BoolArray;
-    use crate::arrays::ConstantArray;
-    use crate::arrays::ConstantVTable;
-    use crate::arrays::ListArray;
-    use crate::arrays::ListVTable;
-    use crate::arrays::ListViewArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::VarBinArray;
+    use crate::arrays::list::ListArray;
+    use crate::arrays::list::ListVTable;
+    use crate::arrays::varbin::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
     use crate::dtype::DType;
@@ -484,6 +479,11 @@ mod tests {
     use crate::expr::root;
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::list_contains::BoolArray;
+    use crate::scalar_fn::fns::list_contains::ConstantArray;
+    use crate::scalar_fn::fns::list_contains::ConstantVTable;
+    use crate::scalar_fn::fns::list_contains::ListViewArray;
+    use crate::scalar_fn::fns::list_contains::PrimitiveArray;
     use crate::validity::Validity;
 
     fn test_array() -> ArrayRef {

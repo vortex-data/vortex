@@ -7,8 +7,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 
-use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
+use crate::arrays::bool::BoolArray;
+use crate::arrays::bool::BoolVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::dtype::Nullability;

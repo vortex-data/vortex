@@ -5,10 +5,10 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::bool::BoolArray;
+use vortex_array::arrays::constant::ConstantArray;
+use vortex_array::arrays::primitive::PrimitiveArray;
+use vortex_array::arrays::varbinview::VarBinViewArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -359,13 +359,13 @@ pub fn runend_decode_varbinview(
 #[cfg(test)]
 mod test {
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
+    use crate::compress::PrimitiveArray;
     use crate::compress::runend_decode_primitive;
     use crate::compress::runend_encode;
 

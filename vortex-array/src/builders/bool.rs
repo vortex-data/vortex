@@ -12,7 +12,7 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
@@ -153,11 +153,11 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array::DynArray;
-    use crate::arrays::BoolArray;
-    use crate::arrays::ChunkedArray;
+    use crate::arrays::chunked::ChunkedArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::BoolBuilder;
+    use crate::builders::bool::BoolArray;
     use crate::builders::builder_with_capacity;
     use crate::canonical::ToCanonical;
     use crate::dtype::DType;

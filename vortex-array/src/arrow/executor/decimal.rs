@@ -19,7 +19,7 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::DecimalArray;
+use crate::arrays::decimal::DecimalArray;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::dtype::DecimalType;
 
@@ -205,9 +205,9 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::array::IntoArray;
-    use crate::arrays::DecimalArray;
     use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::IntoArrowArray;
+    use crate::arrow::executor::decimal::DecimalArray;
     use crate::builders::ArrayBuilder;
     use crate::builders::DecimalBuilder;
     use crate::dtype::DecimalDType;

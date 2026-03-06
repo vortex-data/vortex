@@ -5,8 +5,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DynArray;
-use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
+use crate::arrays::chunked::ChunkedArray;
+use crate::arrays::chunked::ChunkedVTable;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;
@@ -60,7 +60,7 @@ mod tests {
 
     use crate::DynArray;
     use crate::IntoArray;
-    use crate::arrays::ChunkedArray;
+    use crate::arrays::chunked::ChunkedArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;

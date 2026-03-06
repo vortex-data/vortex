@@ -21,11 +21,11 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::accessor::ArrayAccessor;
-use crate::arrays::BinaryView;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::VarBinVTable;
-use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
+use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::varbin::VarBinVTable;
+use crate::arrays::varbinview::VarBinViewArray;
+use crate::arrays::varbinview::VarBinViewVTable;
+use crate::arrays::varbinview::build_views::BinaryView;
 use crate::canonical::ToCanonical;
 use crate::dtype::DType;
 use crate::dtype::PType;
@@ -209,7 +209,7 @@ mod test {
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
-    use crate::arrays::VarBinArray;
+    use crate::arrays::varbin::VarBinArray;
     use crate::builders::dict::dict_encode;
 
     #[test]

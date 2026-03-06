@@ -14,7 +14,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArray;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
@@ -169,13 +169,13 @@ mod tests {
     use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
     use crate::expr::col;
     use crate::expr::pack;
     use crate::scalar_fn::ScalarFnVTableExt;
+    use crate::scalar_fn::fns::pack::StructArray;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 

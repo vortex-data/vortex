@@ -7,8 +7,8 @@ use vortex_buffer::buffer;
 
 use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::FixedSizeListArray;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::fixed_size_list::FixedSizeListArray;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;

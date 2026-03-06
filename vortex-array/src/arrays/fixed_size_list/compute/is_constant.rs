@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::FixedSizeListArray;
-use crate::arrays::FixedSizeListVTable;
+use crate::arrays::fixed_size_list::FixedSizeListArray;
+use crate::arrays::fixed_size_list::FixedSizeListVTable;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;

@@ -7,9 +7,9 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
-use crate::arrays::SliceReduce;
+use crate::arrays::extension::ExtensionArray;
+use crate::arrays::extension::ExtensionVTable;
+use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for ExtensionVTable {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

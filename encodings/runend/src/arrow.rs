@@ -5,7 +5,7 @@ use arrow_array::RunArray;
 use arrow_array::types::RunEndIndexType;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::scalar::PValue;
@@ -66,7 +66,6 @@ mod tests {
     use arrow_schema::Field;
     use vortex_array::IntoArray as _;
     use vortex_array::VortexSessionExecute as _;
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrow::ArrowArrayExecutor;
     use vortex_array::arrow::FromArrowArray;
     use vortex_array::assert_arrays_eq;
@@ -79,6 +78,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::RunEndArray;
+    use crate::arrow::PrimitiveArray;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());

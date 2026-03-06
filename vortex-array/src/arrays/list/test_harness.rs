@@ -7,7 +7,7 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::arrays::ListArray;
+use crate::arrays::list::ListArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
 use crate::dtype::DType;

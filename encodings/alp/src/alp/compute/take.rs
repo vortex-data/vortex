@@ -5,7 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
@@ -42,7 +42,7 @@ mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_buffer::buffer;
 

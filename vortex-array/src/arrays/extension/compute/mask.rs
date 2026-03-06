@@ -5,9 +5,9 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
-use crate::arrays::ScalarFnArrayExt;
+use crate::arrays::extension::ExtensionArray;
+use crate::arrays::extension::ExtensionVTable;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 use crate::scalar_fn::fns::mask::MaskReduce;

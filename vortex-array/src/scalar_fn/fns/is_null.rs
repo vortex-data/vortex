@@ -9,7 +9,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::ConstantArray;
+use crate::arrays::constant::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -122,8 +122,8 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::IntoArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
+    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::struct_::StructArray;
     use crate::dtype::DType;
     use crate::dtype::Field;
     use crate::dtype::FieldPath;

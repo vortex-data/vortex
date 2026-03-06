@@ -3,7 +3,7 @@
 
 use itertools::Itertools;
 use vortex::array::ExecutionCtx;
-use vortex::array::arrays::BoolArray;
+use vortex::array::arrays::bool::BoolArray;
 use vortex::buffer::BitBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;

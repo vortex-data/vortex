@@ -21,8 +21,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::ChunkedArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::chunked::ChunkedArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::compute::conformance::binary_numeric::test_binary_numeric_array;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::DType;

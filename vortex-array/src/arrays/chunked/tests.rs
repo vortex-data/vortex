@@ -8,11 +8,11 @@ use vortex_buffer::buffer;
 
 use crate::IntoArray;
 use crate::accessor::ArrayAccessor;
-use crate::arrays::ChunkedArray;
-use crate::arrays::ListArray;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::StructArray;
-use crate::arrays::VarBinViewArray;
+use crate::arrays::chunked::ChunkedArray;
+use crate::arrays::list::ListArray;
+use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::struct_::StructArray;
+use crate::arrays::varbinview::VarBinViewArray;
 use crate::assert_arrays_eq;
 use crate::canonical::ToCanonical;
 use crate::dtype::DType;

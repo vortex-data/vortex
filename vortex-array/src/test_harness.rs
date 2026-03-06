@@ -10,7 +10,7 @@ use vortex_error::VortexResult;
 
 use crate::DeserializeMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArray;
 
 /// Check that a named metadata matches its previous versioning.
 ///

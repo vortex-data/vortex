@@ -10,8 +10,8 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::StructArray;
-use crate::arrays::StructVTable;
+use crate::arrays::struct_::StructArray;
+use crate::arrays::struct_::StructVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 use crate::validity::Validity;
@@ -70,8 +70,8 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
+    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::struct_::StructArray;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::FieldNames;
     use crate::validity::Validity;

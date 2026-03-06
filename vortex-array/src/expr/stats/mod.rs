@@ -248,7 +248,7 @@ impl Display for Stat {
 mod test {
     use enum_iterator::all;
 
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::expr::stats::Stat;
 
     #[test]

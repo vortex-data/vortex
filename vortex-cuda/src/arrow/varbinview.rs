@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
-use vortex::array::arrays::VarBinViewArray;
-use vortex::array::arrays::VarBinViewArrayParts;
+use vortex::array::arrays::varbinview::VarBinViewArray;
+use vortex::array::arrays::varbinview::VarBinViewArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;

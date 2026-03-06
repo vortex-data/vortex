@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::arrays::DecimalArray;
-use vortex::array::arrays::PrimitiveArrayParts;
+use vortex::array::arrays::decimal::DecimalArray;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::encodings::decimal_byte_parts::DecimalBytePartsArrayParts;
 use vortex::encodings::decimal_byte_parts::DecimalBytePartsVTable;
 use vortex::error::VortexResult;
@@ -55,7 +55,7 @@ impl CudaExecute for DecimalBytePartsExecutor {
 mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
-    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::primitive::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;

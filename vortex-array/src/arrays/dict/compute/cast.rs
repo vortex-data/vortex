@@ -52,8 +52,8 @@ mod tests {
 
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::DictVTable;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
     use crate::builtins::ArrayBuiltins;

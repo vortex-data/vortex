@@ -3,8 +3,8 @@
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
+use crate::arrays::extension::ExtensionArray;
+use crate::arrays::extension::ExtensionVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
@@ -42,7 +42,7 @@ mod tests {
 
     use super::*;
     use crate::IntoArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::Nullability;

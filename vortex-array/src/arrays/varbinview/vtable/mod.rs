@@ -19,7 +19,7 @@ use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::Precision;
-use crate::arrays::BinaryView;
+use crate::arrays::varbinview::BinaryView;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::arrays::varbinview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;

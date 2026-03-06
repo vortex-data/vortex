@@ -8,8 +8,8 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
-use vortex_array::arrays::DictArray;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::dict::DictArray;
+use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
 
 fn main() {

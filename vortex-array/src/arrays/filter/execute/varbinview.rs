@@ -11,9 +11,9 @@ use vortex_mask::MaskValues;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
 use crate::arrays::filter::execute::values_to_mask;
+use crate::arrays::varbinview::VarBinViewArray;
+use crate::arrays::varbinview::VarBinViewVTable;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
 
@@ -41,7 +41,7 @@ fn arrow_filter_fn(array: &ArrayRef, mask: &Mask) -> vortex_error::VortexResult<
 #[cfg(test)]
 mod test {
     use crate::IntoArray;
-    use crate::arrays::VarBinViewArray;
+    use crate::arrays::varbinview::VarBinViewArray;
     use crate::compute::conformance::filter::test_filter_conformance;
 
     #[test]

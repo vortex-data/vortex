@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
+use crate::arrays::extension::ExtensionArray;
+use crate::arrays::extension::ExtensionVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;

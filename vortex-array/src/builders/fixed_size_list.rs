@@ -14,7 +14,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::FixedSizeListArray;
+use crate::arrays::fixed_size_list::FixedSizeListArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
@@ -106,7 +106,7 @@ impl FixedSizeListBuilder {
     /// [`FixedSizeListArray`] scalar (since a single list cannot know the size of other lists in
     /// fixed-size list arrays without accompanying metadata).
     ///
-    /// [`ListArray`]: crate::arrays::ListArray
+    /// [`ListArray`]: crate::arrays::list::ListArray
     pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
         let Some(elements) = value.elements() else {
             // If `elements` is `None`, then the `value` is a null value.
@@ -278,9 +278,9 @@ mod tests {
     use crate::IntoArray as _;
     use crate::ToCanonical;
     use crate::array::DynArray;
-    use crate::arrays::FixedSizeListArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::builders::ArrayBuilder;
+    use crate::builders::fixed_size_list::FixedSizeListArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::Nullability::Nullable;

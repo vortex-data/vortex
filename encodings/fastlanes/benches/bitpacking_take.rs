@@ -14,7 +14,7 @@ use vortex_array::IntoArray as _;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;

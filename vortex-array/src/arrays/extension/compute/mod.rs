@@ -19,8 +19,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::ExtensionArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::extension::ExtensionArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::Nullability;
@@ -91,8 +91,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::ExtensionArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::extension::ExtensionArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::Nullability;
     use crate::extension::datetime::TimeUnit;

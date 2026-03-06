@@ -42,7 +42,7 @@ impl ColumnExporter for AllInvalidExporter {
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::primitive::PrimitiveArray;
     use vortex_array::VortexSessionExecute;
 
     use super::*;

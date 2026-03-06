@@ -14,9 +14,9 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
-use crate::arrays::ConstantArray;
+use crate::arrays::bool::BoolArray;
+use crate::arrays::bool::BoolVTable;
+use crate::arrays::constant::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::Expression;
@@ -123,7 +123,6 @@ impl ScalarFnVTable for Not {
 mod tests {
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::BoolArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::expr::col;
@@ -131,6 +130,7 @@ mod tests {
     use crate::expr::not;
     use crate::expr::root;
     use crate::expr::test_harness;
+    use crate::scalar_fn::fns::not::BoolArray;
 
     #[test]
     fn invert_booleans() {

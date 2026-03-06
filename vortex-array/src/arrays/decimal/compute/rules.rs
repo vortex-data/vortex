@@ -7,12 +7,12 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
-use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
-use crate::arrays::SliceReduce;
-use crate::arrays::SliceReduceAdaptor;
+use crate::arrays::decimal::DecimalArray;
+use crate::arrays::decimal::DecimalVTable;
+use crate::arrays::masked::MaskedArray;
+use crate::arrays::masked::MaskedVTable;
+use crate::arrays::slice::SliceReduce;
+use crate::arrays::slice::SliceReduceAdaptor;
 use crate::match_each_decimal_value_type;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;

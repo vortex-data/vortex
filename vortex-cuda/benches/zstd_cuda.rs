@@ -12,7 +12,7 @@ use criterion::Throughput;
 use cudarc::driver::DevicePtrMut;
 use cudarc::driver::sys::CUevent_flags;
 use futures::executor::block_on;
-use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrays::varbinview::VarBinViewArray;
 use vortex::encodings::zstd::ZstdArray;
 use vortex::encodings::zstd::ZstdArrayParts;
 use vortex::error::VortexExpect;

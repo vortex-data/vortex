@@ -5,7 +5,7 @@ use itertools::Itertools;
 use itertools::MinMaxResult;
 use vortex_error::VortexExpect;
 
-use crate::arrays::DecimalArray;
+use crate::arrays::decimal::DecimalArray;
 use crate::dtype::DecimalType;
 use crate::dtype::i256;
 use crate::vtable::ValidityHelper;

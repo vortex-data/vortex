@@ -6,8 +6,8 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
+use crate::arrays::chunked::ChunkedArray;
+use crate::arrays::chunked::ChunkedVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 
@@ -80,8 +80,8 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
-    use crate::arrays::ChunkedArray;
-    use crate::arrays::ChunkedVTable;
+    use crate::arrays::chunked::ChunkedArray;
+    use crate::arrays::chunked::ChunkedVTable;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

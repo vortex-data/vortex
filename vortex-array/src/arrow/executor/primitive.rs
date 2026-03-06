@@ -10,7 +10,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;

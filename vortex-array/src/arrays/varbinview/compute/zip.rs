@@ -12,9 +12,9 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::BinaryView;
-use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
+use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::VarBinViewArray;
+use crate::arrays::varbinview::VarBinViewVTable;
 use crate::builders::DeduplicatedBuffers;
 use crate::builders::LazyBitBufferBuilder;
 use crate::scalar_fn::fns::zip::ZipKernel;
@@ -210,7 +210,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
-    use crate::arrays::VarBinViewArray;
+    use crate::arrays::varbinview::VarBinViewArray;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
     use crate::dtype::DType;

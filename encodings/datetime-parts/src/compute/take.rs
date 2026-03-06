@@ -6,7 +6,7 @@ use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::stats::Stat;
@@ -99,8 +99,8 @@ impl TakeExecute for DateTimePartsVTable {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::TemporalArray;
+    use vortex_array::arrays::datetime::TemporalArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_buffer::buffer;

@@ -7,7 +7,7 @@ use crate::DynArray;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
-use crate::arrays::ConstantArray;
+use crate::arrays::constant::ConstantArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::columnar::Columnar;
@@ -57,8 +57,8 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::arrays::BoolArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::bool::BoolArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::arrays::scalar_fn::array::ScalarFnArray;
     use crate::assert_arrays_eq;
     use crate::scalar_fn::ScalarFn;

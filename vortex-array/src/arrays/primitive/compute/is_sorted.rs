@@ -5,8 +5,8 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
+use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveVTable;
 use crate::compute::IsSortedIteratorExt;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;

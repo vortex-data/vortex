@@ -8,7 +8,7 @@
 #[divan::bench_group(items_count = 64_000u32, bytes_count = 256_000u32)]
 mod benchmarks {
     use divan::Bencher;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_btrblocks::CompressorStats;
     use vortex_btrblocks::GenerateStatsOptions;

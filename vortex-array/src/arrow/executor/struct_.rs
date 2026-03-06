@@ -16,11 +16,11 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::ChunkedVTable;
-use crate::arrays::ScalarFnVTable;
-use crate::arrays::StructArray;
-use crate::arrays::StructArrayParts;
-use crate::arrays::StructVTable;
+use crate::arrays::chunked::ChunkedVTable;
+use crate::arrays::scalar_fn::ScalarFnVTable;
+use crate::arrays::struct_::StructArray;
+use crate::arrays::struct_::StructArrayParts;
+use crate::arrays::struct_::StructVTable;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
@@ -208,8 +208,8 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::array;
     use crate::arrays;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
+    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::struct_::StructArray;
     use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::FromArrowArray;
     use crate::arrow::IntoArrowArray;
@@ -288,7 +288,8 @@ mod tests {
                 ),
                 (
                     "b",
-                    arrays::VarBinViewArray::from_iter_str(vec!["a", "b", "c"]).into_array(),
+                    arrays::varbinview::VarBinViewArray::from_iter_str(vec!["a", "b", "c"])
+                        .into_array(),
                 ),
             ]
             .as_slice(),
@@ -331,7 +332,8 @@ mod tests {
                 ),
                 (
                     "b",
-                    arrays::VarBinViewArray::from_iter_str(vec!["a", "b", "c"]).into_array(),
+                    arrays::varbinview::VarBinViewArray::from_iter_str(vec!["a", "b", "c"])
+                        .into_array(),
                 ),
             ]
             .as_slice(),

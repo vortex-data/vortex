@@ -226,8 +226,8 @@ mod test {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
-    use vortex_array::arrays::BoolArray;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::bool::BoolArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;

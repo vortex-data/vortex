@@ -10,7 +10,7 @@ use crate::Canonical;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::ConstantArray;
+use crate::arrays::constant::ConstantArray;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;

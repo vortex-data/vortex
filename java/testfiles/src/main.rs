@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use vortex::array::arrays::StructArray;
+use vortex::array::arrays::struct_::StructArray;
 use vortex::array::builders::{ArrayBuilder, DecimalBuilder, VarBinViewBuilder};
 use vortex::array::validity::Validity;
 use vortex::dtype::{DType, DecimalDType, Nullability};

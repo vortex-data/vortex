@@ -7,7 +7,7 @@ use num_traits::CheckedAdd;
 use num_traits::CheckedSub;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_integer_ptype;
@@ -144,7 +144,7 @@ mod tests {
     #[allow(unused_imports)]
     use itertools::Itertools;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
 
     use crate::sequence_encode;

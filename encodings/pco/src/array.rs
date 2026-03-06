@@ -24,8 +24,8 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::arrays::primitive::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
@@ -570,12 +570,12 @@ impl OperationsVTable<PcoVTable> for PcoVTable {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
     use crate::PcoArray;
+    use crate::array::PrimitiveArray;
 
     #[test]
     fn test_slice_nullable() {

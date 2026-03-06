@@ -12,8 +12,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
-use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
+use crate::arrays::decimal::DecimalArray;
+use crate::arrays::decimal::DecimalVTable;
 use crate::compute::SumKernel;
 use crate::compute::SumKernelAdapter;
 use crate::dtype::DType;
@@ -134,7 +134,7 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use crate::IntoArray;
-    use crate::arrays::DecimalArray;
+    use crate::arrays::decimal::DecimalArray;
     use crate::compute::sum;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;

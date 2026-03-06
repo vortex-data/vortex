@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::ListArray;
-use crate::arrays::ListVTable;
+use crate::arrays::list::ListArray;
+use crate::arrays::list::ListVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
@@ -41,10 +41,10 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::RecursiveCanonical;
     use crate::VortexSessionExecute;
-    use crate::arrays::BoolArray;
-    use crate::arrays::ListArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::VarBinArray;
+    use crate::arrays::bool::BoolArray;
+    use crate::arrays::list::ListArray;
+    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::varbin::VarBinArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;

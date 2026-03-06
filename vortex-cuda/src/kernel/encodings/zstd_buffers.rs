@@ -220,8 +220,8 @@ async fn validate_decompress_results(
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
-    use vortex::array::arrays::PrimitiveArray;
-    use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::arrays::primitive::PrimitiveArray;
+    use vortex::array::arrays::varbinview::VarBinViewArray;
     use vortex::array::assert_arrays_eq;
     use vortex::encodings::zstd::ZstdBuffersArray;
     use vortex::error::VortexExpect;

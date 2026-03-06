@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::NullArray;
-use crate::arrays::NullVTable;
+use crate::arrays::null::NullArray;
+use crate::arrays::null::NullVTable;
 use crate::scalar_fn::fns::mask::MaskReduce;
 
 impl MaskReduce for NullVTable {

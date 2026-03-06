@@ -12,8 +12,8 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
+use crate::arrays::constant::ConstantArray;
+use crate::arrays::constant::ConstantVTable;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
 

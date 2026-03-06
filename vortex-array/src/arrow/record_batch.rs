@@ -15,7 +15,7 @@ use crate::DynArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::IntoArray;
-use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArray;
 use crate::arrow::ArrowArrayExecutor;
 
 impl TryFrom<&dyn DynArray> for RecordBatch {
@@ -61,7 +61,7 @@ mod tests {
     use arrow_schema::FieldRef;
     use arrow_schema::Schema;
 
-    use crate::arrays::StructArray;
+    use crate::arrow::record_batch::StructArray;
     use crate::builders::ArrayBuilder;
     use crate::builders::ListBuilder;
     use crate::dtype::DType;

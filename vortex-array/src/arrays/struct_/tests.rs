@@ -5,8 +5,8 @@ use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
 use crate::IntoArray;
-use crate::arrays::BoolArray;
-use crate::arrays::ConstantArray;
+use crate::arrays::bool::BoolArray;
+use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::struct_::StructArray;
 use crate::arrays::varbin::VarBinArray;

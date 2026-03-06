@@ -4,8 +4,8 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
+use crate::arrays::chunked::ChunkedArray;
+use crate::arrays::chunked::ChunkedVTable;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;

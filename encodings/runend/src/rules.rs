@@ -3,10 +3,10 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::AnyScalarFn;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::ConstantVTable;
-use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::constant::ConstantArray;
+use vortex_array::arrays::constant::ConstantVTable;
+use vortex_array::arrays::scalar_fn::AnyScalarFn;
+use vortex_array::arrays::scalar_fn::ScalarFnArray;
 use vortex_array::dtype::DType;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;

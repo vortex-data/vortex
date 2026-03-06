@@ -147,7 +147,7 @@ impl VTable for NullVTable {
 ///
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
-/// use vortex_array::arrays::NullArray;
+/// use vortex_array::arrays::null::NullArray;
 /// use vortex_array::IntoArray;
 ///
 /// // Create a null array with 5 elements

@@ -7,7 +7,7 @@
 mod tests {
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
-    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::primitive::PrimitiveArray;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::ByteBufferMut;

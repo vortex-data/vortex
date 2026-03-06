@@ -27,8 +27,8 @@ use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
-use crate::arrays::BoolArray;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArray;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::is_sorted;
 use crate::dtype::DType;
@@ -1220,9 +1220,9 @@ mod test {
     use crate::LEGACY_SESSION;
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
-    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::patches::Patches;
+    use crate::patches::PrimitiveArray;
     use crate::search_sorted::SearchResult;
     use crate::validity::Validity;
 

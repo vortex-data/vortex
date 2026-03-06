@@ -14,7 +14,7 @@ use futures::Stream;
 use futures::stream;
 use futures::stream::StreamExt;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::constant::ConstantArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::Nullability;

@@ -14,8 +14,8 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::arrays::PrimitiveVTable;
-use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::primitive::PrimitiveVTable;
+use vortex_array::arrays::varbinview::VarBinViewArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -313,7 +313,7 @@ impl RunEndArray {
     /// # Examples
     ///
     /// ```
-    /// # use vortex_array::arrays::BoolArray;
+    /// # use vortex_array::arrays::bool::BoolArray;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
     /// # use vortex_error::VortexResult;
@@ -505,8 +505,7 @@ pub(super) fn run_end_canonicalize(
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::arrays::DictArray;
-    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::dict::DictArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -514,6 +513,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::RunEndArray;
+    use crate::array::VarBinViewArray;
 
     #[test]
     fn test_runend_constructor() {

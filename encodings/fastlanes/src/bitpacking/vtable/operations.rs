@@ -31,8 +31,8 @@ mod test {
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::SliceArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::slice::SliceArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
     use vortex_array::buffer::BufferHandle;

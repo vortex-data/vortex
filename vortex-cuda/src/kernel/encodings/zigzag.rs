@@ -9,8 +9,8 @@ use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveArray;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
@@ -98,7 +98,7 @@ where
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
-    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::primitive::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;

@@ -20,9 +20,9 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::BoolArray;
-    use crate::arrays::ListArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::bool::BoolArray;
+    use crate::arrays::list::ListArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;

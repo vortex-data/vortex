@@ -15,7 +15,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;

@@ -426,7 +426,7 @@ impl SequenceVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
     use vortex_array::expr::stats::Precision as StatPrecision;

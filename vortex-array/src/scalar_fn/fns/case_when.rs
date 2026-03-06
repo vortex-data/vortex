@@ -24,8 +24,8 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::BoolArray;
-use crate::arrays::ConstantArray;
+use crate::arrays::bool::BoolArray;
+use crate::arrays::constant::ConstantArray;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::scalar::Scalar;
@@ -256,9 +256,8 @@ mod tests {
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::VortexSessionExecute as _;
-    use crate::arrays::BoolArray;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
+    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::struct_::StructArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -273,6 +272,7 @@ mod tests {
     use crate::expr::root;
     use crate::expr::test_harness;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::case_when::BoolArray;
     use crate::session::ArraySession;
 
     static SESSION: LazyLock<VortexSession> =

@@ -258,7 +258,7 @@ impl<'a> LikeVariant<'a> {
 #[cfg(test)]
 mod tests {
     use crate::IntoArray;
-    use crate::arrays::BoolArray;
+    use crate::arrays::bool::BoolArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

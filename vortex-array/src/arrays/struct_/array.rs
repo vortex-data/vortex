@@ -74,7 +74,7 @@ use crate::vtable::ValidityHelper;
 /// case, any accessors that use column names will find the first column in sequence with the name.
 ///
 /// ```
-/// use vortex_array::arrays::StructArray;
+/// use vortex_array::arrays::struct_::StructArray;
 /// use vortex_array::validity::Validity;
 /// use vortex_array::dtype::FieldNames;
 /// use vortex_array::IntoArray;

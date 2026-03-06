@@ -5,8 +5,8 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
+use crate::arrays::decimal::DecimalArray;
+use crate::arrays::decimal::DecimalVTable;
 use crate::compute::IsSortedIteratorExt;
 use crate::compute::IsSortedKernel;
 use crate::compute::IsSortedKernelAdapter;
@@ -72,7 +72,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::DecimalArray;
+    use crate::arrays::decimal::DecimalArray;
     use crate::compute::is_sorted;
     use crate::compute::is_strict_sorted;
     use crate::dtype::DecimalDType;

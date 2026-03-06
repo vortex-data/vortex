@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::arrays::SharedVTable;
+use vortex::array::arrays::shared::SharedVTable;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 

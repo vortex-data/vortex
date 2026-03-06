@@ -4,7 +4,7 @@
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
-use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArray;
 
 impl BoolArray {
     pub fn opt_bool_vec(&self) -> Vec<Option<bool>> {

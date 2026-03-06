@@ -11,7 +11,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::StructArray;
+use vortex_array::arrays::struct_::StructArray;
 use vortex_array::expr::case_when;
 use vortex_array::expr::case_when_no_else;
 use vortex_array::expr::eq;

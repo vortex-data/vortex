@@ -6,9 +6,9 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
 use crate::arrays::filter::FilterReduce;
+use crate::arrays::masked::MaskedArray;
+use crate::arrays::masked::MaskedVTable;
 use crate::vtable::ValidityHelper;
 
 impl FilterReduce for MaskedVTable {
@@ -32,8 +32,8 @@ mod tests {
     use rstest::rstest;
 
     use crate::IntoArray;
-    use crate::arrays::MaskedArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::masked::MaskedArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::validity::Validity;
 

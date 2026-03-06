@@ -4,7 +4,7 @@
 use pyo3::prelude::*;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
-use vortex::array::arrays::DictVTable;
+use vortex::array::arrays::dict::DictVTable;
 use vortex::encodings::alp::ALPRDVTable;
 use vortex::encodings::alp::ALPVTable;
 use vortex::encodings::datetime_parts::DateTimePartsVTable;

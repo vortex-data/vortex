@@ -9,7 +9,7 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::ExtensionArray;
+use crate::arrays::extension::ExtensionArray;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::builder_with_capacity;
@@ -122,7 +122,7 @@ impl ArrayBuilder for ExtensionBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::dtype::Nullability;

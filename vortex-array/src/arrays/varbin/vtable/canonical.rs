@@ -7,12 +7,12 @@ use num_traits::AsPrimitive;
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::VarBinViewArray;
-use crate::arrays::build_views::MAX_BUFFER_LEN;
-use crate::arrays::build_views::build_views;
-use crate::arrays::build_views::offsets_to_lengths;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::varbin::VarBinArray;
+use crate::arrays::varbinview::VarBinViewArray;
+use crate::arrays::varbinview::build_views::MAX_BUFFER_LEN;
+use crate::arrays::varbinview::build_views::build_views;
+use crate::arrays::varbinview::build_views::offsets_to_lengths;
 use crate::match_each_integer_ptype;
 
 /// Converts a VarBinArray to its canonical form (VarBinViewArray).
@@ -44,9 +44,9 @@ pub(crate) fn varbin_to_canonical(
 mod tests {
     use rstest::rstest;
 
-    use crate::arrays::VarBinViewArray;
     use crate::arrays::varbin::VarBinArray;
     use crate::arrays::varbin::builder::VarBinBuilder;
+    use crate::arrays::varbinview::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
     use crate::dtype::DType;

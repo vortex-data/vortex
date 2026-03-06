@@ -7,14 +7,14 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::ConstantArray;
-use crate::arrays::ExactScalarFn;
-use crate::arrays::ScalarFnArrayExt;
-use crate::arrays::ScalarFnArrayView;
-use crate::arrays::SliceReduceAdaptor;
-use crate::arrays::StructArray;
-use crate::arrays::StructVTable;
-use crate::arrays::TakeReduceAdaptor;
+use crate::arrays::constant::ConstantArray;
+use crate::arrays::dict::TakeReduceAdaptor;
+use crate::arrays::scalar_fn::ExactScalarFn;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::arrays::scalar_fn::ScalarFnArrayView;
+use crate::arrays::slice::SliceReduceAdaptor;
+use crate::arrays::struct_::StructArray;
+use crate::arrays::struct_::StructVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -137,9 +137,9 @@ impl ArrayParentReduceRule<StructVTable> for StructGetItemRule {
 #[cfg(test)]
 mod tests {
     use crate::IntoArray;
-    use crate::arrays::ConstantArray;
-    use crate::arrays::StructArray;
-    use crate::arrays::VarBinViewArray;
+    use crate::arrays::struct_::StructArray;
+    use crate::arrays::struct_::compute::rules::ConstantArray;
+    use crate::arrays::varbinview::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;

@@ -7,9 +7,9 @@ use rstest::rstest;
 use vortex_buffer::buffer;
 
 use crate::IntoArray;
-use crate::arrays::BoolArray;
-use crate::arrays::ListViewArray;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArray;
+use crate::arrays::listview::ListViewArray;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;

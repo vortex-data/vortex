@@ -6,9 +6,9 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
-use crate::arrays::TakeReduce;
+use crate::arrays::dict::TakeReduce;
+use crate::arrays::masked::MaskedArray;
+use crate::arrays::masked::MaskedVTable;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 use crate::vtable::ValidityHelper;
@@ -39,8 +39,8 @@ mod tests {
     use rstest::rstest;
 
     use crate::IntoArray;
-    use crate::arrays::MaskedArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::masked::MaskedArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::validity::Validity;
 

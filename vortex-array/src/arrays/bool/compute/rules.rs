@@ -5,12 +5,12 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
-use crate::arrays::FilterReduceAdaptor;
-use crate::arrays::MaskedArray;
-use crate::arrays::MaskedVTable;
-use crate::arrays::SliceReduceAdaptor;
+use crate::arrays::bool::BoolArray;
+use crate::arrays::bool::BoolVTable;
+use crate::arrays::filter::FilterReduceAdaptor;
+use crate::arrays::masked::MaskedArray;
+use crate::arrays::masked::MaskedVTable;
+use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;

@@ -13,7 +13,7 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
-use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::chunked::ChunkedArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;

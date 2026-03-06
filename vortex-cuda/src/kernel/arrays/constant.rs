@@ -10,10 +10,10 @@ use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::arrays::ConstantArray;
-use vortex::array::arrays::ConstantVTable;
-use vortex::array::arrays::DecimalArray;
-use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::constant::ConstantArray;
+use vortex::array::arrays::constant::ConstantVTable;
+use vortex::array::arrays::decimal::DecimalArray;
+use vortex::array::arrays::primitive::PrimitiveArray;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_decimal_value_type;
 use vortex::array::match_each_native_simd_ptype;
@@ -193,7 +193,7 @@ where
 mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
-    use vortex::array::arrays::ConstantArray;
+    use vortex::array::arrays::constant::ConstantArray;
     use vortex::array::assert_arrays_eq;
     use vortex::dtype::NativePType;
     use vortex::error::VortexExpect;

@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use vortex_mask::MaskValues;
 
-use crate::arrays::DecimalArray;
+use crate::arrays::decimal::DecimalArray;
 use crate::arrays::filter::execute::buffer;
 use crate::arrays::filter::execute::filter_validity;
 use crate::match_each_decimal_value_type;
@@ -29,7 +29,7 @@ pub fn filter_decimal(array: &DecimalArray, mask: &Arc<MaskValues>) -> DecimalAr
 #[cfg(test)]
 mod test {
     use crate::IntoArray;
-    use crate::arrays::DecimalArray;
+    use crate::arrays::filter::execute::decimal::DecimalArray;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::dtype::DecimalDType;
 

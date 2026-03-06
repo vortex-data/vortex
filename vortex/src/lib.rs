@@ -187,8 +187,8 @@ mod test {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::primitive::PrimitiveArray;
+    use vortex_array::arrays::struct_::StructArray;
     use vortex_array::dtype::FieldNames;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
@@ -215,7 +215,7 @@ mod test {
         use arrow_array::RecordBatchReader;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
         use vortex::array::DynArray;
-        use vortex::array::arrays::ChunkedArray;
+        use vortex::array::arrays::chunked::ChunkedArray;
         use vortex::dtype::DType;
         use vortex::dtype::arrow::FromArrowType;
         use vortex_array::arrow::FromArrowArray;

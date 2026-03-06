@@ -5,8 +5,8 @@
 
 use divan::Bencher;
 use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::bool::BoolArray;
+use vortex_array::arrays::primitive::PrimitiveArray;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::validity::Validity;
 use vortex_btrblocks::CompressorStats;

@@ -16,7 +16,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray as _;
-use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArray;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -292,8 +292,7 @@ mod tests {
     use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
+    use crate::arrays::primitive::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
@@ -307,6 +306,7 @@ mod tests {
     use crate::expr::merge_opts;
     use crate::expr::root;
     use crate::scalar_fn::fns::merge::DuplicateHandling;
+    use crate::scalar_fn::fns::merge::StructArray;
     use crate::scalar_fn::fns::pack::Pack;
 
     fn primitive_field(array: &ArrayRef, field_path: &[&str]) -> VortexResult<PrimitiveArray> {

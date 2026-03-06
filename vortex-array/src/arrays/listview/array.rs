@@ -13,9 +13,9 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::ToCanonical;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
 use crate::arrays::bool;
+use crate::arrays::primitive::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveVTable;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
@@ -83,7 +83,7 @@ use crate::validity::Validity;
 /// # }
 /// ```
 ///
-/// [`ListArray`]: crate::arrays::ListArray
+/// [`ListArray`]: crate::arrays::list::ListArray
 #[derive(Clone, Debug)]
 pub struct ListViewArray {
     /// The [`DType`] of the list array.
@@ -98,7 +98,7 @@ pub struct ListViewArray {
     /// The `offsets` array indicating the start position of each list in elements.
     ///
     /// Since we also store `sizes`, this `offsets` field is allowed to be stored out-of-order
-    /// (which is different from [`ListArray`](crate::arrays::ListArray)),
+    /// (which is different from [`ListArray`](crate::arrays::list::ListArray)),
     offsets: ArrayRef,
 
     /// The `sizes` array indicating the length of each list.
@@ -108,7 +108,7 @@ pub struct ListViewArray {
     sizes: ArrayRef,
 
     // TODO(connor)[ListView]: Add the n+1 memory allocation optimization.
-    /// A flag denoting if the array is zero-copyable* to a [`ListArray`](crate::arrays::ListArray).
+    /// A flag denoting if the array is zero-copyable* to a [`ListArray`](crate::arrays::list::ListArray).
     ///
     /// We use this information to help us more efficiently rebuild / compact our data.
     ///
@@ -185,7 +185,7 @@ impl ListViewArray {
     /// This unsafe function does not check the validity of the data. Prefer calling [`new()`] or
     /// [`try_new()`] over this function, as they will check the validity of the data.
     ///
-    /// [`ListArray`]: crate::arrays::ListArray
+    /// [`ListArray`]: crate::arrays::list::ListArray
     /// [`new()`]: Self::new
     /// [`try_new()`]: Self::try_new
     ///
@@ -289,7 +289,7 @@ impl ListViewArray {
     /// This is an optimization flag that enables more efficient conversion to [`ListArray`] without
     /// needing to copy or reorganize the data.
     ///
-    /// [`ListArray`]: crate::arrays::ListArray
+    /// [`ListArray`]: crate::arrays::list::ListArray
     ///
     /// # Safety
     ///
@@ -330,7 +330,7 @@ impl ListViewArray {
     /// be converted into a [`ListArray`] in the future, and the caller wants to set the
     /// optimization flag to `true` with the unsafe [`with_zero_copy_to_list`] method.
     ///
-    /// [`ListArray`]: crate::arrays::ListArray
+    /// [`ListArray`]: crate::arrays::list::ListArray
     /// [`with_zero_copy_to_list`]: Self::with_zero_copy_to_list
     pub fn verify_is_zero_copy_to_list(&self) -> bool {
         validate_zctl(
@@ -434,7 +434,7 @@ impl ListViewArray {
     }
 
     /// Returns true if the `ListViewArray` is zero-copyable to a
-    /// [`ListArray`](crate::arrays::ListArray).
+    /// [`ListArray`](crate::arrays::list::ListArray).
     pub fn is_zero_copy_to_list(&self) -> bool {
         self.is_zero_copy_to_list
     }
@@ -492,7 +492,7 @@ where
 }
 
 /// Helper function to validate if the [`ListViewArray`] components are actually zero-copyable to
-/// [`ListArray`](crate::arrays::ListArray).
+/// [`ListArray`](crate::arrays::list::ListArray).
 fn validate_zctl(
     elements: &ArrayRef,
     offsets_primitive: PrimitiveArray,

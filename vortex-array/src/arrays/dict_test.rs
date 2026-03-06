@@ -14,11 +14,11 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use super::ChunkedArray;
-use super::DictArray;
-use super::PrimitiveArray;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::chunked::ChunkedArray;
+use crate::arrays::dict::DictArray;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::dtype::NativePType;
 use crate::validity::Validity;
 

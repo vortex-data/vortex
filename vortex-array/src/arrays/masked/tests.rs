@@ -8,7 +8,7 @@ use super::*;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::ToCanonical as _;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
