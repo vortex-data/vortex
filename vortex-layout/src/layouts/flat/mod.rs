@@ -129,6 +129,8 @@ impl VTable for FlatVTable {
 #[derive(Debug)]
 pub struct FlatLayoutEncoding;
 
+/// The terminal node of a layout tree. Stores a single chunk of array data as one serialized
+/// segment on disk.
 #[derive(Clone, Debug)]
 pub struct FlatLayout {
     row_count: u64,

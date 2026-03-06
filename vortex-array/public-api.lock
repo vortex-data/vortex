@@ -13328,7 +13328,7 @@ pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::reduce(&self, options:
 
 pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::return_dtype(&self, options: &Self::Options, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
-pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::serialize(&self, _options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
@@ -15232,7 +15232,7 @@ pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::reduce(&self, options:
 
 pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::return_dtype(&self, options: &Self::Options, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
-pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::serialize(&self, _options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 

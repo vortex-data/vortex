@@ -50,19 +50,17 @@ jobs:
   fuzz:
     name: "Run ${{ inputs.fuzz_target }}"
     timeout-minutes: 230  # almost 4 hours
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=${{ inputs.family }}
-      - image=${{ inputs.image }}
-      - disk=large
-      - extras=s3-cache
-      - tag=${{ inputs.fuzz_target }}-fuzz
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=arm64-medium/disk=large/tag={1}-fuzz', github.run_id, inputs.fuzz_target)
+          || 'ubuntu-latest' }}
     outputs:
       crashes_found: ${{ steps.check.outputs.crashes_found }}
       first_crash_name: ${{ steps.check.outputs.first_crash_name }}
       artifact_url: ${{ steps.upload_artifacts.outputs.artifact-url }}
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
 

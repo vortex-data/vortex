@@ -174,6 +174,9 @@ impl VTable for StructVTable {
 #[derive(Debug)]
 pub struct StructLayoutEncoding;
 
+/// Decomposes a struct-typed column into one child per field, enabling columnar projection.
+///
+/// Queries that only need a subset of fields can skip reading the rest entirely.
 #[derive(Clone, Debug)]
 pub struct StructLayout {
     row_count: u64,

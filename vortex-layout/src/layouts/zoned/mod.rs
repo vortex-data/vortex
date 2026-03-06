@@ -141,6 +141,9 @@ impl VTable for ZonedVTable {
 #[derive(Debug)]
 pub struct ZonedLayoutEncoding;
 
+/// Annotates a data layout with per-zone aggregate statistics (e.g. min, max, null count).
+///
+/// During reads, zone maps allow entire zones to be skipped when a filter predicate cannot match.
 #[derive(Clone, Debug)]
 pub struct ZonedLayout {
     dtype: DType,

@@ -33,13 +33,10 @@ jobs:
 
   bench:
     timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=c6id.8xlarge
-      - image=ubuntu24-full-x64
-      - spot=false
-      - extras=s3-cache
-      - tag=${{ matrix.benchmark.id }}
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/extras=s3-cache/tag={1}', github.run_id, matrix.benchmark.id)
+          || 'ubuntu-latest' }}
     strategy:
       matrix:
         benchmark:
@@ -53,6 +50,7 @@ jobs:
             formats: "parquet,lance,vortex"
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
       - uses: actions/checkout@v6

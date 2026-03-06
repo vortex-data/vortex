@@ -12,6 +12,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ListArray;
@@ -297,6 +298,10 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
 
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_list().into_array()
+    }
+
+    fn finish_into_canonical(&mut self) -> Canonical {
+        Canonical::List(self.finish_into_list().to_listview())
     }
 }
 

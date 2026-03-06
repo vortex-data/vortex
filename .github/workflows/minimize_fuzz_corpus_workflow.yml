@@ -34,13 +34,10 @@ env:
 jobs:
   minimize:
     name: "Minimize ${{ inputs.fuzz_target }}"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=${{ inputs.family }}
-      - image=${{ inputs.image }}
-      - disk=large
-      - extras=s3-cache
-      - tag=${{ inputs.fuzz_target }}-minimize
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=arm64-medium/disk=large/tag={1}-minimize', github.run_id, inputs.fuzz_target)
+          || 'ubuntu-latest' }}
     steps:
       - name: Bail if not on develop
         if: github.ref != 'refs/heads/develop'
@@ -49,6 +46,7 @@ jobs:
           exit 1
 
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
 
