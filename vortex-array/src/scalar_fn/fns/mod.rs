@@ -19,4 +19,5 @@ pub mod operators;
 pub mod pack;
 pub mod root;
 pub mod select;
+pub mod uuid_from_string;
 pub mod zip;
