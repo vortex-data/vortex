@@ -14,6 +14,138 @@ pub use vortex_buffer::UnalignedBitChunk
 
 pub use vortex_buffer::UnalignedBitChunkIterator
 
+pub mod vortex_buffer::trusted_len
+
+pub struct vortex_buffer::trusted_len::TrustedLenAdapter<I>
+
+impl<I: core::iter::traits::iterator::Iterator> core::iter::traits::iterator::Iterator for vortex_buffer::trusted_len::TrustedLenAdapter<I>
+
+pub type vortex_buffer::trusted_len::TrustedLenAdapter<I>::Item = <I as core::iter::traits::iterator::Iterator>::Item
+
+pub fn vortex_buffer::trusted_len::TrustedLenAdapter<I>::next(&mut self) -> core::option::Option<Self::Item>
+
+pub fn vortex_buffer::trusted_len::TrustedLenAdapter<I>::size_hint(&self) -> (usize, core::option::Option<usize>)
+
+impl<I: core::iter::traits::iterator::Iterator> vortex_buffer::trusted_len::TrustedLen for vortex_buffer::trusted_len::TrustedLenAdapter<I>
+
+pub unsafe trait vortex_buffer::trusted_len::TrustedLen: core::iter::traits::iterator::Iterator
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::Range<i16>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::Range<i32>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::Range<i64>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::Range<i8>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::Range<u16>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::Range<u32>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::Range<u64>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::Range<u8>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::Range<usize>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::RangeInclusive<i16>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::RangeInclusive<i32>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::RangeInclusive<i64>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::RangeInclusive<i8>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::RangeInclusive<u16>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::RangeInclusive<u32>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::RangeInclusive<u64>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::RangeInclusive<u8>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::step_by::StepBy<core::ops::range::RangeInclusive<usize>>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::Range<i16>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::Range<i32>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::Range<i64>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::Range<i8>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::Range<u16>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::Range<u32>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::Range<u64>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::Range<u8>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::Range<usize>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::RangeInclusive<i16>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::RangeInclusive<i32>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::RangeInclusive<i64>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::RangeInclusive<i8>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::RangeInclusive<u16>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::RangeInclusive<u32>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::RangeInclusive<u64>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::RangeInclusive<u8>
+
+impl vortex_buffer::trusted_len::TrustedLen for core::ops::range::RangeInclusive<usize>
+
+impl<'a, I, T: 'a, E: 'a> vortex_buffer::trusted_len::TrustedLen for itertools::process_results_impl::ProcessResults<'a, I, E> where I: vortex_buffer::trusted_len::TrustedLen<Item = core::result::Result<T, E>>
+
+impl<'a, I, T> vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::cloned::Cloned<I> where I: vortex_buffer::trusted_len::TrustedLen<Item = &'a T>, T: core::clone::Clone + 'a
+
+impl<'a, I, T> vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::copied::Copied<I> where I: vortex_buffer::trusted_len::TrustedLen<Item = &'a T>, T: core::marker::Copy + 'a
+
+impl<'a> vortex_buffer::trusted_len::TrustedLen for arrow_buffer::util::bit_chunk_iterator::BitChunkIterator<'a>
+
+impl<'a> vortex_buffer::trusted_len::TrustedLen for arrow_buffer::util::bit_chunk_iterator::UnalignedBitChunkIterator<'a>
+
+impl<'a> vortex_buffer::trusted_len::TrustedLen for arrow_buffer::util::bit_iterator::BitIterator<'a>
+
+impl<B, I, F> vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::map::Map<I, F> where I: vortex_buffer::trusted_len::TrustedLen, F: core::ops::function::FnMut(<I as core::iter::traits::iterator::Iterator>::Item) -> B
+
+impl<I, T> vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::enumerate::Enumerate<I> where I: vortex_buffer::trusted_len::TrustedLen<Item = T>
+
+impl<I: core::iter::traits::iterator::Iterator> vortex_buffer::trusted_len::TrustedLen for vortex_buffer::trusted_len::TrustedLenAdapter<I>
+
+impl<I> vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::skip::Skip<I> where I: vortex_buffer::trusted_len::TrustedLen
+
+impl<T, U> vortex_buffer::trusted_len::TrustedLen for core::iter::adapters::zip::Zip<T, U> where T: vortex_buffer::trusted_len::TrustedLen, U: vortex_buffer::trusted_len::TrustedLen
+
+impl<T, const N: usize> vortex_buffer::trusted_len::TrustedLen for core::array::iter::IntoIter<T, N>
+
+impl<T: core::clone::Clone> vortex_buffer::trusted_len::TrustedLen for core::iter::sources::repeat_n::RepeatN<T>
+
+impl<T: core::marker::Copy> vortex_buffer::trusted_len::TrustedLen for vortex_buffer::BufferIterator<T>
+
+impl<T> vortex_buffer::trusted_len::TrustedLen for alloc::vec::into_iter::IntoIter<T>
+
+impl<T> vortex_buffer::trusted_len::TrustedLen for core::slice::iter::Iter<'_, T>
+
+impl<T> vortex_buffer::trusted_len::TrustedLen for core::slice::iter::IterMut<'_, T>
+
+impl<T> vortex_buffer::trusted_len::TrustedLen for vortex_buffer::Iter<'_, T>
+
+pub trait vortex_buffer::trusted_len::TrustedLenExt: core::iter::traits::iterator::Iterator + core::marker::Sized
+
+pub unsafe fn vortex_buffer::trusted_len::TrustedLenExt::trusted_len(self) -> vortex_buffer::trusted_len::TrustedLenAdapter<Self>
+
+impl<I: core::iter::traits::iterator::Iterator> vortex_buffer::trusted_len::TrustedLenExt for I
+
+pub unsafe fn I::trusted_len(self) -> vortex_buffer::trusted_len::TrustedLenAdapter<Self>
+
 pub macro vortex_buffer::bitbuffer!
 
 pub macro vortex_buffer::bitbuffer_mut!
@@ -582,6 +714,8 @@ pub fn vortex_buffer::BufferIterator<T>::next(&mut self) -> core::option::Option
 
 pub fn vortex_buffer::BufferIterator<T>::size_hint(&self) -> (usize, core::option::Option<usize>)
 
+impl<T: core::marker::Copy> vortex_buffer::trusted_len::TrustedLen for vortex_buffer::BufferIterator<T>
+
 pub struct vortex_buffer::BufferMut<T>
 
 impl<T> vortex_buffer::BufferMut<T>
@@ -865,6 +999,8 @@ pub fn vortex_buffer::Iter<'a, T>::size_hint(&self) -> (usize, core::option::Opt
 impl<T> core::iter::traits::exact_size::ExactSizeIterator for vortex_buffer::Iter<'_, T>
 
 pub fn vortex_buffer::Iter<'_, T>::len(&self) -> usize
+
+impl<T> vortex_buffer::trusted_len::TrustedLen for vortex_buffer::Iter<'_, T>
 
 pub const vortex_buffer::ALIGNMENT_TO_HOST_COPY: vortex_buffer::Alignment
 
