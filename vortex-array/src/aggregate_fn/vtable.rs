@@ -11,11 +11,15 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
+use crate::ArrayRef;
 use crate::Canonical;
+use crate::DynArray;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
+use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 
@@ -72,17 +76,16 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         input_dtype: &DType,
     ) -> VortexResult<Self::GroupState>;
 
-    /// Reset the accumulator state back to the empty state.
-    fn state_reset(&self, state: &mut Self::GroupState);
+    /// Merge partial scalar state into the accumulator.
+    fn state_merge(&self, state: &mut Self::GroupState, partial: Scalar) -> VortexResult<()>;
 
-    /// Merge a scalar state into the accumulator, used for merging partial aggregates.
-    fn state_merge(&self, state: &mut Self::GroupState, other: Scalar) -> VortexResult<()>;
-
-    /// Return the aggregate result for the given accumulator state.
+    /// Flush the partial aggregate for the given accumulator state.
     ///
-    /// The returned scalar must have the same DType as specified by `return_dtype` for the
+    /// The returned scalar must have the same DType as specified by `state_dtype` for the
     /// options and input dtype used to construct the state.
-    fn state_result(&self, state: &Self::GroupState) -> Scalar;
+    ///
+    /// The internal state of the accumulator is reset to the empty state after flushing.
+    fn state_flush(&self, state: &mut Self::GroupState) -> VortexResult<Scalar>;
 
     /// Is the accumulator state "saturated", i.e. has it reached a state where the final result
     /// is fully determined.
@@ -95,6 +98,22 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         batch: &Canonical,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()>;
+
+    /// Finalize an array of accumulator states into an array of aggregate results.
+    ///
+    /// The provides `states` array has dtype as specified by `state_dtype`, the result array
+    /// must have dtype as specified by `return_dtype`.
+    fn finalize(&self, states: ArrayRef) -> VortexResult<ArrayRef>;
+
+    /// Finalize a scalar accumulator state into an aggregate result.
+    ///
+    /// The provided `state` has dtype as specified by `state_dtype`, the result scalar must have
+    /// dtype as specified by `return_dtype`.
+    fn finalize_scalar(&self, state: Scalar) -> VortexResult<Scalar> {
+        let array = ConstantArray::new(state, 1).into_array();
+        let result = self.finalize(array)?;
+        result.scalar_at(0)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

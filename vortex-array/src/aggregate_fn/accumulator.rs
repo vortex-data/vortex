@@ -25,8 +25,6 @@ pub type AccumulatorRef = Box<dyn DynAccumulator>;
 pub struct Accumulator<V: AggregateFnVTable> {
     /// The vtable of the aggregate function.
     vtable: V,
-    /// The options of the aggregate function.
-    options: V::Options,
     /// Type-erased aggregate function used for kernel dispatch.
     aggregate_fn: AggregateFnRef,
     /// The DType of the input.
@@ -51,11 +49,10 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         let return_dtype = vtable.return_dtype(&options, &dtype)?;
         let state_dtype = vtable.state_dtype(&options, &dtype)?;
         let current_state = vtable.state_new(&options, &dtype)?;
-        let aggregate_fn = AggregateFn::new(vtable.clone(), options.clone()).erased();
+        let aggregate_fn = AggregateFn::new(vtable.clone(), options).erased();
 
         Ok(Self {
             vtable,
-            options,
             aggregate_fn,
             dtype,
             return_dtype,
@@ -75,10 +72,15 @@ pub trait DynAccumulator: 'static + Send {
     /// Whether the accumulator's result is fully determined.
     fn is_saturated(&self) -> bool;
 
+    /// Flush the accumulation state and return the partial aggregate result as a scalar.
+    ///
+    /// Resets the accumulator state back to the initial state.
+    fn flush(&mut self) -> VortexResult<Scalar>;
+
     /// Finish the accumulation and return the final aggregate result as a scalar.
     ///
-    /// Resets the accumulator state back to the initial state after finishing.
-    fn finish(&mut self) -> Scalar;
+    /// Resets the accumulator state back to the initial state.
+    fn finish(&mut self) -> VortexResult<Scalar>;
 }
 
 impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
@@ -132,9 +134,36 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         self.vtable.state_is_saturated(&self.current_state)
     }
 
-    fn finish(&mut self) -> Scalar {
-        let result = self.vtable.state_result(&self.current_state);
-        self.vtable.state_reset(&mut self.current_state);
-        result
+    fn flush(&mut self) -> VortexResult<Scalar> {
+        let partial = self.vtable.state_flush(&mut self.current_state)?;
+
+        #[cfg(debug_assertions)]
+        {
+            vortex_ensure!(
+                partial.dtype() == &self.state_dtype,
+                "Aggregate kernel returned incorrect DType on flush: expected {}, got {}",
+                self.state_dtype,
+                partial.dtype(),
+            );
+        }
+
+        Ok(partial)
+    }
+
+    fn finish(&mut self) -> VortexResult<Scalar> {
+        let partial = self.flush()?;
+        let result = self.vtable.finalize_scalar(partial)?;
+
+        #[cfg(debug_assertions)]
+        {
+            vortex_ensure!(
+                result.dtype() == &self.return_dtype,
+                "Aggregate kernel returned incorrect DType on finalize: expected {}, got {}",
+                self.return_dtype,
+                result.dtype(),
+            );
+        }
+
+        Ok(result)
     }
 }

@@ -91,6 +91,10 @@ pub trait DynGroupedAccumulator: 'static + Send {
     /// Accumulate a list of groups into the accumulator.
     fn accumulate_list(&mut self, groups: &ArrayRef) -> VortexResult<()>;
 
+    /// Finish the accumulation and return the partial aggregate results for all groups.
+    /// Resets the accumulator state for the next round of accumulation.
+    fn flush(&mut self) -> VortexResult<ArrayRef>;
+
     /// Finish the accumulation and return the final aggregate results for all groups.
     /// Resets the accumulator state for the next round of accumulation.
     fn finish(&mut self) -> VortexResult<ArrayRef>;
@@ -124,9 +128,26 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
         }
     }
 
-    fn finish(&mut self) -> VortexResult<ArrayRef> {
+    fn flush(&mut self) -> VortexResult<ArrayRef> {
         let states = std::mem::replace(&mut self.states, vec![]);
         Ok(ChunkedArray::try_new(states, self.state_dtype.clone())?.into_array())
+    }
+
+    fn finish(&mut self) -> VortexResult<ArrayRef> {
+        let states = self.flush()?;
+        let results = self.vtable.finalize(states)?;
+
+        #[cfg(debug_assertions)]
+        {
+            vortex_ensure!(
+                results.dtype() == &self.return_dtype,
+                "Return DType mismatch: expected {}, got {}",
+                self.return_dtype,
+                results.dtype()
+            );
+        }
+
+        Ok(results)
     }
 }
 
@@ -202,7 +223,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             if validity.value(offset) {
                 let group = elements.slice(offset..offset + size)?;
                 accumulator.accumulate(&group)?;
-                states.append_scalar(&accumulator.finish())?;
+                states.append_scalar(&accumulator.finish()?)?;
             } else {
                 states.append_null()
             }
@@ -271,7 +292,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             if validity.value(i) {
                 let group = elements.slice(offset..offset + size)?;
                 accumulator.accumulate(&group)?;
-                states.append_scalar(&accumulator.finish())?;
+                states.append_scalar(&accumulator.finish()?)?;
             } else {
                 states.append_null()
             }
