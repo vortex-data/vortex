@@ -259,6 +259,7 @@ async fn main() -> Result<()> {
     reset_default_alloc_stats();
     reset_copy_stats();
     reset_io_request_stats();
+    reset_p2p_bench_stats();
     if let Some(pool) = pinned_pool.as_ref() {
         pool.reset_stats();
     }
@@ -905,6 +906,36 @@ fn read_env_bool(key: &str, default: bool) -> bool {
 static P2P_STREAM_REGISTRY: OnceLock<Mutex<Vec<std::sync::Arc<cudarc::driver::CudaStream>>>> =
     OnceLock::new();
 
+#[derive(Default)]
+struct P2pBenchStats {
+    request_sizes: Mutex<Vec<u64>>,
+    alloc_nanos: Mutex<Vec<u64>>,
+    memcpy_submit_nanos: Mutex<Vec<u64>>,
+}
+
+static P2P_BENCH_STATS: OnceLock<P2pBenchStats> = OnceLock::new();
+
+fn p2p_bench_stats() -> &'static P2pBenchStats {
+    P2P_BENCH_STATS.get_or_init(P2pBenchStats::default)
+}
+
+fn reset_p2p_bench_stats() {
+    let stats = p2p_bench_stats();
+    stats.request_sizes.lock().clear();
+    stats.alloc_nanos.lock().clear();
+    stats.memcpy_submit_nanos.lock().clear();
+}
+
+fn record_p2p_request_stats(length: usize, alloc_nanos: u64, memcpy_submit_nanos: u64) {
+    let stats = p2p_bench_stats();
+    stats
+        .request_sizes
+        .lock()
+        .push(u64::try_from(length).unwrap_or(u64::MAX));
+    stats.alloc_nanos.lock().push(alloc_nanos);
+    stats.memcpy_submit_nanos.lock().push(memcpy_submit_nanos);
+}
+
 fn register_p2p_stream(stream: &std::sync::Arc<cudarc::driver::CudaStream>) {
     let registry = P2P_STREAM_REGISTRY.get_or_init(|| Mutex::new(Vec::new()));
     let mut guard = registry.lock();
@@ -1383,14 +1414,20 @@ impl P2pReadSource {
         }
 
         let stream = self.next_stream();
+        let alloc_start = Instant::now();
         let device = unsafe { stream.alloc::<u8>(length) }
             .map_err(|e| vortex_err!("failed to allocate device buffer for p2p read: {e}"))?;
+        let alloc_nanos = u64::try_from(alloc_start.elapsed().as_nanos()).unwrap_or(u64::MAX);
         let (dst_ptr, _) = device.device_ptr(device.stream());
         let src_ptr = self.mapped.base_ptr + offset;
+        let memcpy_submit_start = Instant::now();
         unsafe {
             result::memcpy_dtod_async(dst_ptr, src_ptr, length, stream.cu_stream())
                 .map_err(|e| vortex_err!("p2p d2d copy failed at offset {offset}: {e}"))?;
         }
+        let memcpy_submit_nanos =
+            u64::try_from(memcpy_submit_start.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        record_p2p_request_stats(length, alloc_nanos, memcpy_submit_nanos);
         Ok(BufferHandle::new_device(std::sync::Arc::new(
             CudaDeviceBuffer::new(device),
         )))
@@ -2057,4 +2094,44 @@ fn print_stats(pinned_pool: Option<&PinnedByteBufferPool>) {
             stats.hits, stats.misses, stats.allocs, stats.puts
         );
     }
+    print_p2p_bench_stats();
+}
+
+fn print_p2p_bench_stats() {
+    let stats = p2p_bench_stats();
+    let request_sizes = stats.request_sizes.lock().clone();
+    if request_sizes.is_empty() {
+        return;
+    }
+
+    let alloc_nanos = stats.alloc_nanos.lock().clone();
+    let memcpy_submit_nanos = stats.memcpy_submit_nanos.lock().clone();
+
+    println!(
+        "p2p_requests: count={} size_mb_p50={:.2} size_mb_p95={:.2} size_mb_p99={:.2}",
+        request_sizes.len(),
+        percentile_u64(&request_sizes, 0.50) as f64 / (1024.0 * 1024.0),
+        percentile_u64(&request_sizes, 0.95) as f64 / (1024.0 * 1024.0),
+        percentile_u64(&request_sizes, 0.99) as f64 / (1024.0 * 1024.0)
+    );
+    println!(
+        "p2p_alloc_us: p50={:.2} p95={:.2} p99={:.2}",
+        percentile_u64(&alloc_nanos, 0.50) as f64 / 1_000.0,
+        percentile_u64(&alloc_nanos, 0.95) as f64 / 1_000.0,
+        percentile_u64(&alloc_nanos, 0.99) as f64 / 1_000.0
+    );
+    println!(
+        "p2p_memcpy_submit_us: p50={:.2} p95={:.2} p99={:.2}",
+        percentile_u64(&memcpy_submit_nanos, 0.50) as f64 / 1_000.0,
+        percentile_u64(&memcpy_submit_nanos, 0.95) as f64 / 1_000.0,
+        percentile_u64(&memcpy_submit_nanos, 0.99) as f64 / 1_000.0
+    );
+}
+
+fn percentile_u64(values: &[u64], percentile: f64) -> u64 {
+    debug_assert!((0.0..=1.0).contains(&percentile));
+    let mut sorted = values.to_vec();
+    sorted.sort_unstable();
+    let idx = ((sorted.len() - 1) as f64 * percentile).round() as usize;
+    sorted[idx]
 }
