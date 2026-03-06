@@ -374,9 +374,15 @@ impl VTable for ZstdBuffersVTable {
     ) -> VortexResult<ZstdBuffersArray> {
         let compressed_buffers: Vec<BufferHandle> = buffers.to_vec();
 
-        let child_arrays: Vec<ArrayRef> = (0..children.len())
-            .map(|i| children.get(i, dtype, len))
-            .collect::<VortexResult<Vec<_>>>()?;
+        let child_arrays: Vec<ArrayRef> = if children.len() == 1 && dtype.is_nullable() {
+            // Legacy zstd_buffers metadata does not record child dtypes. For existing files, the
+            // only child we expect on nullable arrays is validity, so decode it accordingly.
+            vec![children.get(0, &vortex_array::validity::Validity::DTYPE, len)?]
+        } else {
+            (0..children.len())
+                .map(|i| children.get(i, dtype, len))
+                .collect::<VortexResult<Vec<_>>>()?
+        };
 
         let array = ZstdBuffersArray {
             inner_encoding_id: array_id_from_string(&metadata.0.inner_encoding_id),
