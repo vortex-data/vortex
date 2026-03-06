@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
@@ -15,6 +18,19 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
 use crate::IntoArray;
+
+/// Maximum number of iterations to attempt when executing an array before giving up and returning
+/// an error.
+pub(crate) static MAX_ITERATIONS: LazyLock<usize> =
+    LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
+        Ok(val) => val
+            .parse::<usize>()
+            .unwrap_or_else(|e| vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")),
+        Err(VarError::NotPresent) => 128,
+        Err(VarError::NotUnicode(_)) => {
+            vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
+        }
+    });
 
 /// Marker trait for types that an [`ArrayRef`] can be executed into.
 ///

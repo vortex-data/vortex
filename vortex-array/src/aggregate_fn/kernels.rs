@@ -4,6 +4,8 @@
 //! Pluggable aggregate function kernels used to provide encoding-specific implementations of
 //! aggregate functions.
 
+use std::fmt::Debug;
+
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -16,7 +18,7 @@ use crate::scalar::Scalar;
 ///
 /// The provided array should be aggregated into a single scalar representing the state of a single
 /// group.
-pub trait DynAggregateKernel {
+pub trait DynAggregateKernel: 'static + Send + Sync + Debug {
     fn aggregate(
         &self,
         aggregate_fn: &AggregateFnRef,
@@ -35,7 +37,7 @@ pub trait DynAggregateKernel {
 /// corresponding group.
 ///
 /// Return `Ok(None)` if the kernel cannot be applied to the given aggregate function.
-pub trait DynGroupedAggregateKernel {
+pub trait DynGroupedAggregateKernel: 'static + Send + Sync + Debug {
     /// Aggregate each group in the provided `ListViewArray` and return an array of the
     /// aggregate states.
     fn grouped_aggregate(

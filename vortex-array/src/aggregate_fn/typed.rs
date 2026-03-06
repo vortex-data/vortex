@@ -19,6 +19,7 @@ use std::hash::Hasher;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AccumulatorRef;
@@ -40,11 +41,15 @@ pub(super) trait DynAggregateFn: 'static + Send + Sync + super::sealed::Sealed {
 
     fn return_dtype(&self, input_dtype: &DType) -> VortexResult<DType>;
     fn state_dtype(&self, input_dtype: &DType) -> VortexResult<DType>;
-    fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef>;
+    fn accumulator(
+        &self,
+        input_dtype: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<AccumulatorRef>;
     fn accumulator_grouped(
         &self,
         input_dtype: &DType,
-        capacity: usize,
+        session: &VortexSession,
     ) -> VortexResult<GroupedAccumulatorRef>;
 
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>>;
@@ -87,24 +92,29 @@ impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
         V::state_dtype(&self.vtable, &self.options, input_dtype)
     }
 
-    fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef> {
+    fn accumulator(
+        &self,
+        input_dtype: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<AccumulatorRef> {
         Ok(Box::new(Accumulator::try_new(
             self.vtable.clone(),
             self.options.clone(),
             input_dtype.clone(),
+            session.clone(),
         )?))
     }
 
     fn accumulator_grouped(
         &self,
         input_dtype: &DType,
-        capacity: usize,
+        session: &VortexSession,
     ) -> VortexResult<GroupedAccumulatorRef> {
-        Ok(Box::new(GroupedAccumulator::try_new_with_capacity(
+        Ok(Box::new(GroupedAccumulator::try_new(
             self.vtable.clone(),
             self.options.clone(),
             input_dtype.clone(),
-            capacity,
+            session.clone(),
         )?))
     }
 

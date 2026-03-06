@@ -15,6 +15,7 @@ use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::dtype::DType;
+use crate::executor::MAX_ITERATIONS;
 use crate::scalar::Scalar;
 
 /// Reference-counted type-erased accumulator.
@@ -93,17 +94,17 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             batch.dtype()
         );
 
-        let kernels = self.session.aggregate_fns().kernels;
+        let kernels = &self.session.aggregate_fns().kernels;
 
         let mut ctx = self.session.create_execution_ctx();
         let mut batch = batch.clone();
-        for _ in 0..64 {
+        for _ in 0..*MAX_ITERATIONS {
             if batch.is::<AnyCanonical>() {
                 break;
             }
 
             let kernel_key = (self.vtable.id(), batch.encoding_id());
-            if let Some(kernel) = kernels.get(&kernel_key) {
+            if let Some(kernel) = kernels.read().get(&kernel_key) {
                 if let Some(result) = kernel.aggregate(&self.aggregate_fn, &batch)? {
                     vortex_ensure!(
                         result.dtype() == &self.state_dtype,
@@ -132,7 +133,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
     }
 
     fn finish(&mut self) -> Scalar {
-        let result = self.vtable.state_result(self.current_state);
+        let result = self.vtable.state_result(&self.current_state);
         self.vtable.state_reset(&mut self.current_state);
         result
     }

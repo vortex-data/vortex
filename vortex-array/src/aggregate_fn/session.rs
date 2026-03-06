@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use parking_lot::RwLock;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
@@ -23,9 +24,9 @@ pub type AggregateFnRegistry = Registry<AggregateFnPluginRef>;
 pub struct AggregateFnSession {
     registry: AggregateFnRegistry,
 
-    pub(super) kernels: HashMap<(AggregateFnId, ArrayId), &'static dyn DynAggregateKernel>,
+    pub(super) kernels: RwLock<HashMap<(AggregateFnId, ArrayId), &'static dyn DynAggregateKernel>>,
     pub(super) grouped_kernels:
-        HashMap<(AggregateFnId, ArrayId), &'static dyn DynGroupedAggregateKernel>,
+        RwLock<HashMap<(AggregateFnId, ArrayId), &'static dyn DynGroupedAggregateKernel>>,
 }
 
 impl AggregateFnSession {

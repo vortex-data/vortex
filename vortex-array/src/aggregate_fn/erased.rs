@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 use vortex_utils::debug_with::DebugWith;
 
 use crate::aggregate_fn::AccumulatorRef;
@@ -84,8 +85,12 @@ impl AggregateFnRef {
     }
 
     /// Create an accumulator for streaming aggregation.
-    pub fn accumulator(&self, input_dtype: &DType) -> VortexResult<AccumulatorRef> {
-        self.0.accumulator(input_dtype)
+    pub fn accumulator(
+        &self,
+        input_dtype: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<AccumulatorRef> {
+        self.0.accumulator(input_dtype, session)
     }
 }
 

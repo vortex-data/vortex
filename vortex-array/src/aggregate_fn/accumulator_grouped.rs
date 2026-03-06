@@ -31,6 +31,7 @@ use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
+use crate::executor::MAX_ITERATIONS;
 use crate::match_each_integer_ptype;
 use crate::vtable::ValidityHelper;
 
@@ -116,7 +117,7 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
 
         // We first execute the groups until it is a ListView or FixedSizeList, since we only
         // dispatch the aggregate kernel over the elements of these arrays.
-        match groups.execute::<Canonical>(&mut ctx)? {
+        match groups.clone().execute::<Canonical>(&mut ctx)? {
             Canonical::List(groups) => self.accumulate_list_view(&groups, &mut ctx),
             Canonical::FixedSizeList(groups) => self.accumulate_fixed_size_list(&groups, &mut ctx),
             _ => vortex_panic!("We checked the DType above, so this should never happen"),
@@ -136,16 +137,17 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let mut elements = groups.elements().clone();
+        let session = self.session.clone();
 
-        let kernels = self.session.aggregate_fns().grouped_kernels;
+        let kernels = &session.aggregate_fns().grouped_kernels;
 
-        for _ in 0..64 {
+        for _ in 0..*MAX_ITERATIONS {
             if elements.is::<AnyCanonical>() {
                 break;
             }
 
             let kernel_key = (self.vtable.id(), elements.encoding_id());
-            if let Some(kernel) = kernels.get(&kernel_key) {
+            if let Some(kernel) = kernels.read().get(&kernel_key) {
                 // SAFETY: we assume that elements execution is safe
                 let groups = unsafe {
                     ListViewArray::new_unchecked(
@@ -166,15 +168,15 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         }
 
         // Otherwise, we iterate the offsets and sizes and accumulate each group one by one.
-        let elements = elements.execute::<Canonical>(ctx)?;
+        let elements = elements.execute::<Canonical>(ctx)?.into_array();
         let offsets = groups.offsets();
         let sizes = groups.sizes().cast(offsets.dtype().clone())?;
         let validity = groups.validity().to_mask(offsets.len());
 
-        match_each_integer_ptype!(offsets.ptype(), |O| {
-            let offsets = offsets.execute::<Buffer<O>>(ctx)?;
+        match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
+            let offsets = offsets.clone().execute::<Buffer<O>>(ctx)?;
             let sizes = sizes.execute::<Buffer<O>>(ctx)?;
-            self.accumulate_list_view_typed(&elements, offsets.as_ref(), sizes.as_ref(), validity)
+            self.accumulate_list_view_typed(&elements, offsets.as_ref(), sizes.as_ref(), &validity)
         })
     }
 
@@ -201,7 +203,6 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
                 let group = elements.slice(offset..offset + size)?;
                 accumulator.accumulate(&group)?;
                 states.append_scalar(&accumulator.finish())?;
-                accumulator.reset();
             } else {
                 states.append_null()
             }
@@ -217,7 +218,8 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
     ) -> VortexResult<()> {
         let mut elements = groups.elements().clone();
 
-        let kernels = self.session.aggregate_fns().grouped_kernels;
+        let session = self.session.clone();
+        let kernels = &session.aggregate_fns().grouped_kernels;
 
         for _ in 0..64 {
             if elements.is::<AnyCanonical>() {
@@ -225,7 +227,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             }
 
             let kernel_key = (self.vtable.id(), elements.encoding_id());
-            if let Some(kernel) = kernels.get(&kernel_key) {
+            if let Some(kernel) = kernels.read().get(&kernel_key) {
                 // SAFETY: we assume that elements execution is safe
                 let groups = unsafe {
                     FixedSizeListArray::new_unchecked(
@@ -247,26 +249,8 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             elements = elements.execute(ctx)?;
         }
 
-        // Otherwise, execute the batch until it is canonical and accumulate it into the state.
-        let canonical = elements.execute::<Canonical>(ctx)?;
-        // SAFETY: we assume that elements execution is safe
-        let groups = unsafe {
-            FixedSizeListArray::new_unchecked(
-                canonical.into_array(),
-                groups.list_size(),
-                groups.validity().clone(),
-                groups.len(),
-            )
-        };
-
-        self.push_result(self.vtable.accumulate_groups(&groups, ctx)?)
-    }
-
-    fn accumulate_fixed_size_list_typed(
-        &mut self,
-        groups: &FixedSizeListArray,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
+        // Otherwise, we iterate the offsets and sizes and accumulate each group one by one.
+        let elements = elements.execute::<Canonical>(ctx)?.into_array();
         let validity = groups.validity().to_mask(groups.len());
 
         let mut accumulator = Accumulator::try_new(
@@ -285,7 +269,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
 
         for i in 0..groups.len() {
             if validity.value(i) {
-                let group = groups.elements().slice(offset..offset + size)?;
+                let group = elements.slice(offset..offset + size)?;
                 accumulator.accumulate(&group)?;
                 states.append_scalar(&accumulator.finish())?;
             } else {
