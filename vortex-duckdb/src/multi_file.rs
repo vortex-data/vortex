@@ -41,6 +41,7 @@ impl DataSourceTableFunction for VortexMultiFileScan {
         let glob_url_str = glob_url_parameter.as_string();
         let glob_url = match Url::parse(glob_url_str.as_str()) {
             Ok(url) => Ok(url),
+            // TODO(myrrc): doesn't parse relative paths like FROM 'test.vortex'
             Err(_) => Url::from_file_path(Path::new(glob_url_str.as_str()))
                 .map_err(|_| vortex_err!("Neither URL nor path: '{}' ", glob_url_str.as_str())),
         }?;
