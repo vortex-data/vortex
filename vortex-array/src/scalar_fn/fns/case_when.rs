@@ -202,9 +202,9 @@ impl ScalarFnVTable for CaseWhen {
         let num_pairs = options.num_when_then_pairs as usize;
 
         let mut result: ArrayRef = if options.has_else {
-            args.get(num_pairs * 2)?
+            args.get(num_pairs * 2, ctx)?
         } else {
-            let then_dtype = args.get(1)?.dtype().as_nullable();
+            let then_dtype = args.get(1, ctx)?.dtype().as_nullable();
             ConstantArray::new(Scalar::null(then_dtype), row_count).into_array()
         };
 
@@ -212,8 +212,8 @@ impl ScalarFnVTable for CaseWhen {
         // A left-to-right filter approach could maintain an "unmatched" mask, narrow it
         // as conditions match, and exit early once all rows are resolved.
         for i in (0..num_pairs).rev() {
-            let condition = args.get(i * 2)?;
-            let then_value = args.get(i * 2 + 1)?;
+            let condition = args.get(i * 2, ctx)?;
+            let then_value = args.get(i * 2 + 1, ctx)?;
 
             let cond_bool = condition.execute::<BoolArray>(ctx)?;
             let mask = cond_bool.to_mask_fill_null_false();

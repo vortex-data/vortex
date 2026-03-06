@@ -17,7 +17,9 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::Columnar;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -299,7 +301,7 @@ pub trait SimplifyCtx {
 /// Arguments for expression execution.
 pub trait ExecutionArgs {
     /// Returns the input array at the given index.
-    fn get(&self, index: usize) -> VortexResult<ArrayRef>;
+    fn get(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
 
     /// Returns the number of inputs.
     fn num_inputs(&self) -> usize;
@@ -322,14 +324,20 @@ impl VecExecutionArgs {
 }
 
 impl ExecutionArgs for VecExecutionArgs {
-    fn get(&self, index: usize) -> VortexResult<ArrayRef> {
-        self.inputs.get(index).cloned().ok_or_else(|| {
-            vortex_err!(
-                "Input index {} out of bounds (num_inputs={})",
-                index,
-                self.inputs.len()
-            )
-        })
+    fn get(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(self
+            .inputs
+            .get(index)
+            .cloned()
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Input index {} out of bounds (num_inputs={})",
+                    index,
+                    self.inputs.len()
+                )
+            })?
+            .execute::<Columnar>(ctx)?
+            .into_array())
     }
 
     fn num_inputs(&self) -> usize {

@@ -79,9 +79,9 @@ impl ScalarFnVTable for IsNull {
         &self,
         _data: &Self::Options,
         args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let child = args.get(0)?;
+        let child = args.get(0, ctx)?;
         if let Some(scalar) = child.as_constant() {
             return Ok(ConstantArray::new(scalar.is_null(), args.row_count()).into_array());
         }

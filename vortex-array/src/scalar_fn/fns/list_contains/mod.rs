@@ -126,8 +126,8 @@ impl ScalarFnVTable for ListContains {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let list_array = args.get(0)?;
-        let value_array = args.get(1)?;
+        let list_array = args.get(0, ctx)?;
+        let value_array = args.get(1, ctx)?;
 
         if let Some(list_scalar) = list_array.as_constant()
             && let Some(value_scalar) = value_array.as_constant()

@@ -90,7 +90,7 @@ impl ScalarFnVTable for Not {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let child = args.get(0)?;
+        let child = args.get(0, ctx)?;
 
         // For constant boolean
         if let Some(scalar) = child.as_constant() {

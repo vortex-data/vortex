@@ -111,9 +111,9 @@ impl ScalarFnVTable for Zip {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let if_true = args.get(0)?;
-        let if_false = args.get(1)?;
-        let mask_array = args.get(2)?;
+        let if_true = args.get(0, ctx)?;
+        let if_false = args.get(1, ctx)?;
+        let mask_array = args.get(2, ctx)?;
 
         let mask = mask_array.execute::<BoolArray>(ctx)?.to_mask();
 

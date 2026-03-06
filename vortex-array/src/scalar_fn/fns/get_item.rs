@@ -111,7 +111,7 @@ impl ScalarFnVTable for GetItem {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let input = args.get(0)?.execute::<StructArray>(ctx)?;
+        let input = args.get(0, ctx)?.execute::<StructArray>(ctx)?;
         let field = input.unmasked_field_by_name(field_name).cloned()?;
 
         match input.dtype().nullability() {

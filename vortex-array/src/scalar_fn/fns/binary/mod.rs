@@ -128,10 +128,10 @@ impl ScalarFnVTable for Binary {
         &self,
         op: &Operator,
         args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let lhs = args.get(0)?;
-        let rhs = args.get(1)?;
+        let lhs = args.get(0, ctx)?;
+        let rhs = args.get(1, ctx)?;
 
         match op {
             Operator::Eq => execute_compare(&lhs, &rhs, CompareOperator::Eq),

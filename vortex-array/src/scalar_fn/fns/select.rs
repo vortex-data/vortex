@@ -145,7 +145,7 @@ impl ScalarFnVTable for Select {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let child = args.get(0)?.execute::<StructArray>(ctx)?;
+        let child = args.get(0, ctx)?.execute::<StructArray>(ctx)?;
 
         let result = match selection {
             FieldSelection::Include(f) => child.project(f.as_ref()),

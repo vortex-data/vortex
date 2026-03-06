@@ -141,10 +141,10 @@ impl ScalarFnVTable for Like {
         &self,
         options: &Self::Options,
         args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let child = args.get(0)?;
-        let pattern = args.get(1)?;
+        let child = args.get(0, ctx)?;
+        let pattern = args.get(1, ctx)?;
 
         arrow_like(&child, &pattern, *options)
     }

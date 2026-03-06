@@ -101,7 +101,7 @@ impl ScalarFnVTable for DynamicComparison {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         if let Some(scalar) = data.rhs.scalar() {
-            let lhs = args.get(0)?;
+            let lhs = args.get(0, ctx)?;
             let rhs = ConstantArray::new(scalar, args.row_count()).into_array();
 
             let delegate_args = VecExecutionArgs::new(vec![lhs, rhs], args.row_count());
@@ -110,7 +110,7 @@ impl ScalarFnVTable for DynamicComparison {
                 .execute(&delegate_args, ctx);
         }
         let ret_dtype =
-            DType::Bool(args.get(0)?.dtype().nullability() | data.rhs.dtype.nullability());
+            DType::Bool(args.get(0, ctx)?.dtype().nullability() | data.rhs.dtype.nullability());
 
         Ok(ConstantArray::new(
             Scalar::try_new(ret_dtype, Some(data.default.into()))?,

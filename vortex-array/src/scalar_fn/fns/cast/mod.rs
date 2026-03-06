@@ -107,7 +107,7 @@ impl ScalarFnVTable for Cast {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let input = args.get(0)?;
+        let input = args.get(0, ctx)?;
 
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
             return input.execute::<ArrayRef>(ctx)?.cast(target_dtype.clone());

@@ -299,9 +299,9 @@ impl ScalarFnVTable for Between {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let arr = args.get(0)?;
-        let lower = args.get(1)?;
-        let upper = args.get(2)?;
+        let arr = args.get(0, ctx)?;
+        let lower = args.get(1, ctx)?;
+        let upper = args.get(2, ctx)?;
 
         // canonicalize the arr and we might be able to run a between kernels over that.
         if !arr.is_canonical() {

@@ -98,8 +98,8 @@ impl ScalarFnVTable for FillNull {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let input = args.get(0)?;
-        let fill_value = args.get(1)?;
+        let input = args.get(0, ctx)?;
+        let fill_value = args.get(1, ctx)?;
 
         let fill_scalar = fill_value
             .as_constant()

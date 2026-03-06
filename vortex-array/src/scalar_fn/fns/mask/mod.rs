@@ -100,8 +100,8 @@ impl ScalarFnVTable for Mask {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let input = args.get(0)?;
-        let mask_array = args.get(1)?;
+        let input = args.get(0, ctx)?;
+        let mask_array = args.get(1, ctx)?;
 
         if let Some(result) = execute_constant(&input, &mask_array)? {
             return Ok(result);

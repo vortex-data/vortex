@@ -151,7 +151,7 @@ impl ScalarFnVTable for Merge {
         let mut duplicate_names = HashSet::<_>::new();
 
         for i in 0..args.num_inputs() {
-            let array = args.get(i)?.execute::<StructArray>(ctx)?;
+            let array = args.get(i, ctx)?.execute::<StructArray>(ctx)?;
             if array.dtype().is_nullable() {
                 vortex_bail!("merge expects non-nullable input");
             }

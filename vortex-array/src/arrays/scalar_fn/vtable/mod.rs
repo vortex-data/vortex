@@ -20,7 +20,6 @@ use vortex_session::VortexSession;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
-use crate::Columnar;
 use crate::DynArray;
 use crate::Executable;
 use crate::IntoArray;
@@ -198,14 +197,7 @@ impl VTable for ScalarFnVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
-        // Pre-execute children through the shared execution context so that shared
-        // sub-expressions are cached and deduplicated across sibling branches.
-        let children: Vec<ArrayRef> = array
-            .children
-            .iter()
-            .map(|child| Columnar::execute(child.clone(), ctx).map(|c| c.into_array()))
-            .collect::<VortexResult<_>>()?;
-        let args = VecExecutionArgs::new(children, array.len);
+        let args = VecExecutionArgs::new(array.children().to_vec(), array.len);
         array.scalar_fn.execute(&args, ctx)
     }
 

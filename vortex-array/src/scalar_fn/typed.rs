@@ -115,7 +115,7 @@ impl<V: ScalarFnVTable> DynScalarFn for ScalarFnInner<V> {
         #[cfg(debug_assertions)]
         let expected_dtype = {
             let args_dtypes: Vec<DType> = (0..args.num_inputs())
-                .map(|i| args.get(i).map(|a| a.dtype().clone()))
+                .map(|i| args.get(i, ctx).map(|a| a.dtype().clone()))
                 .collect::<VortexResult<_>>()?;
             V::return_dtype(&self.vtable, &self.options, &args_dtypes)
         }?;
