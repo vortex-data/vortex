@@ -30,24 +30,17 @@ pub(crate) fn u8_to_version(b: u8) -> VortexResult<Version> {
 ///
 /// Optionally records which UUID version the column contains (e.g. v4 random, v7
 /// sort-random). When `None`, the column may contain any mix of versions.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct UuidMetadata {
     /// The UUID version, if known.
     pub version: Option<Version>,
 }
 
-impl UuidMetadata {
-    /// Creates metadata with no version constraint.
-    pub fn any() -> Self {
-        Self { version: None }
-    }
-}
-
 impl fmt::Display for UuidMetadata {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.version {
-            None => write!(f, "UUID"),
-            Some(v) => write!(f, "UUID(v{})", v as u8),
+            None => write!(f, ""),
+            Some(v) => write!(f, "v{}", v as u8),
         }
     }
 }

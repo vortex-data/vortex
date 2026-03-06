@@ -14324,10 +14324,6 @@ pub struct vortex_array::extension::uuid::UuidMetadata
 
 pub vortex_array::extension::uuid::UuidMetadata::version: core::option::Option<uuid::Version>
 
-impl vortex_array::extension::uuid::UuidMetadata
-
-pub fn vortex_array::extension::uuid::UuidMetadata::any() -> Self
-
 impl core::clone::Clone for vortex_array::extension::uuid::UuidMetadata
 
 pub fn vortex_array::extension::uuid::UuidMetadata::clone(&self) -> vortex_array::extension::uuid::UuidMetadata
@@ -14337,6 +14333,10 @@ impl core::cmp::Eq for vortex_array::extension::uuid::UuidMetadata
 impl core::cmp::PartialEq for vortex_array::extension::uuid::UuidMetadata
 
 pub fn vortex_array::extension::uuid::UuidMetadata::eq(&self, other: &Self) -> bool
+
+impl core::default::Default for vortex_array::extension::uuid::UuidMetadata
+
+pub fn vortex_array::extension::uuid::UuidMetadata::default() -> vortex_array::extension::uuid::UuidMetadata
 
 impl core::fmt::Debug for vortex_array::extension::uuid::UuidMetadata
 

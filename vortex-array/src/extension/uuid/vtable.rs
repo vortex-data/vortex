@@ -165,7 +165,7 @@ mod tests {
     #[test]
     fn metadata_display_no_version() {
         let metadata = UuidMetadata { version: None };
-        assert_eq!(metadata.to_string(), "UUID");
+        assert_eq!(metadata.to_string(), "");
     }
 
     #[test]
@@ -173,19 +173,19 @@ mod tests {
         let metadata = UuidMetadata {
             version: Some(Version::Random),
         };
-        assert_eq!(metadata.to_string(), "UUID(v4)");
+        assert_eq!(metadata.to_string(), "v4");
 
         let metadata = UuidMetadata {
             version: Some(Version::SortRand),
         };
-        assert_eq!(metadata.to_string(), "UUID(v7)");
+        assert_eq!(metadata.to_string(), "v7");
     }
 
     #[rstest]
     #[case::non_nullable(Nullability::NonNullable)]
     #[case::nullable(Nullability::Nullable)]
     fn validate_correct_storage_dtype(#[case] nullability: Nullability) -> VortexResult<()> {
-        let metadata = UuidMetadata::any();
+        let metadata = UuidMetadata::default();
         let storage_dtype = uuid_storage_dtype(nullability);
         Uuid.validate_dtype(&metadata, &storage_dtype)
     }
@@ -198,7 +198,7 @@ mod tests {
             Nullability::NonNullable,
         );
         assert!(
-            Uuid.validate_dtype(&UuidMetadata::any(), &storage_dtype)
+            Uuid.validate_dtype(&UuidMetadata::default(), &storage_dtype)
                 .is_err()
         );
     }
@@ -211,7 +211,7 @@ mod tests {
             Nullability::NonNullable,
         );
         assert!(
-            Uuid.validate_dtype(&UuidMetadata::any(), &storage_dtype)
+            Uuid.validate_dtype(&UuidMetadata::default(), &storage_dtype)
                 .is_err()
         );
     }
@@ -224,7 +224,7 @@ mod tests {
             Nullability::NonNullable,
         );
         assert!(
-            Uuid.validate_dtype(&UuidMetadata::any(), &storage_dtype)
+            Uuid.validate_dtype(&UuidMetadata::default(), &storage_dtype)
                 .is_err()
         );
     }
@@ -233,7 +233,7 @@ mod tests {
     fn validate_rejects_non_fsl() {
         let storage_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
         assert!(
-            Uuid.validate_dtype(&UuidMetadata::any(), &storage_dtype)
+            Uuid.validate_dtype(&UuidMetadata::default(), &storage_dtype)
                 .is_err()
         );
     }
@@ -243,7 +243,7 @@ mod tests {
         let expected = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
             .map_err(|e| vortex_error::vortex_err!("{e}"))?;
 
-        let metadata = UuidMetadata::any();
+        let metadata = UuidMetadata::default();
         let storage_dtype = uuid_storage_dtype(Nullability::NonNullable);
         let children: Vec<Scalar> = expected
             .as_bytes()
@@ -336,7 +336,7 @@ mod tests {
         let v4_uuid = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
             .map_err(|e| vortex_error::vortex_err!("{e}"))?;
 
-        let metadata = UuidMetadata::any();
+        let metadata = UuidMetadata::default();
         let storage_value = uuid_storage_scalar(&v4_uuid);
         let storage_dtype = uuid_storage_dtype(Nullability::NonNullable);
 
