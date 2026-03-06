@@ -191,11 +191,18 @@ impl ScalarFnVTable for CaseWhen {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
+        // Inspired by https://datafusion.apache.org/blog/2026/02/02/datafusion_case/
+        //
+        // Implemented: short-circuit early exit; single-pass merge via `merge_case_branches`.
+        // Partial: single-branch uses `zip_impl` but THEN/ELSE still evaluated on the full batch.
+        //
+        // TODO: shrink input to `remaining` rows between WHEN iterations (batch reduction).
+        // TODO: project to only referenced columns before batch reduction (column projection).
+        // TODO: evaluate THEN/ELSE on compact matching/non-matching rows and merge without scatter.
+        // TODO: for constant WHEN/THEN values, compile to a hash table for a single-pass lookup.
         let row_count = args.row_count();
         let num_pairs = options.num_when_then_pairs as usize;
 
-        // Track unmatched rows; AND each condition with `remaining` to enforce first-match-wins
-        // and produce disjoint branch masks.
         let mut remaining = Mask::new_true(row_count);
         let mut branches: Vec<(Mask, ArrayRef)> = Vec::with_capacity(num_pairs);
 
