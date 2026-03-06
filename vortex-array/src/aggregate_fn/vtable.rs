@@ -70,14 +70,14 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType>;
 
     /// Return the partial accumulator state for an empty group.
-    fn new_partial(
+    fn empty_partial(
         &self,
         options: &Self::Options,
         input_dtype: &DType,
     ) -> VortexResult<Self::Partial>;
 
-    /// Merge partial scalar state into the accumulator.
-    fn merge_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()>;
+    /// Combine partial scalar state into the accumulator.
+    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()>;
 
     /// Flush the partial aggregate for the given accumulator state.
     ///

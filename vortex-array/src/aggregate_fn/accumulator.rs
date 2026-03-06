@@ -48,7 +48,7 @@ impl<V: AggregateFnVTable> Accumulator<V> {
     ) -> VortexResult<Self> {
         let return_dtype = vtable.return_dtype(&options, &dtype)?;
         let partial_dtype = vtable.partial_dtype(&options, &dtype)?;
-        let partial = vtable.new_partial(&options, &dtype)?;
+        let partial = vtable.empty_partial(&options, &dtype)?;
         let aggregate_fn = AggregateFn::new(vtable.clone(), options).erased();
 
         Ok(Self {
@@ -115,7 +115,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                     result.dtype(),
                     self.partial_dtype,
                 );
-                self.vtable.merge_partials(&mut self.partial, result)?;
+                self.vtable.combine_partials(&mut self.partial, result)?;
                 return Ok(());
             }
 

@@ -67,7 +67,7 @@ impl AggregateFnVTable for Sum {
         self.return_dtype(options, input_dtype)
     }
 
-    fn new_partial(
+    fn empty_partial(
         &self,
         options: &Self::Options,
         input_dtype: &DType,
@@ -93,7 +93,7 @@ impl AggregateFnVTable for Sum {
         })
     }
 
-    fn merge_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
+    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
         if other.is_null() {
             return Ok(());
         }
@@ -575,13 +575,13 @@ mod tests {
     #[test]
     fn sum_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut state = Sum.new_partial(&checked_opts(), &dtype)?;
+        let mut state = Sum.empty_partial(&checked_opts(), &dtype)?;
 
         let scalar1 = Scalar::primitive(100i64, Nullability::Nullable);
-        Sum.merge_partials(&mut state, scalar1)?;
+        Sum.combine_partials(&mut state, scalar1)?;
 
         let scalar2 = Scalar::primitive(50i64, Nullability::Nullable);
-        Sum.merge_partials(&mut state, scalar2)?;
+        Sum.combine_partials(&mut state, scalar2)?;
 
         let result = Sum.flush(&mut state)?;
         assert_eq!(result.as_primitive().typed_value::<i64>(), Some(150));
