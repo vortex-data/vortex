@@ -9,6 +9,7 @@ use std::fmt::Debug;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
@@ -23,6 +24,7 @@ pub trait DynAggregateKernel: 'static + Send + Sync + Debug {
         &self,
         aggregate_fn: &AggregateFnRef,
         batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Scalar>>;
 }
 

@@ -9,5 +9,7 @@ mod compute;
 mod vtable;
 pub use vtable::ChunkedVTable;
 
+pub(crate) mod aggregate;
+
 #[cfg(test)]
 mod tests;

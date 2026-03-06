@@ -12,7 +12,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray as _;
