@@ -100,7 +100,7 @@ impl LayoutChildren for OwnedLayoutChildren {
 pub(crate) struct ViewedLayoutChildren {
     flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
-    arra_read_ctx: ReadContext,
+    array_read_ctx: ReadContext,
     layout_read_ctx: ReadContext,
     layouts: LayoutRegistry,
 }
@@ -114,15 +114,15 @@ impl ViewedLayoutChildren {
     pub(super) unsafe fn new_unchecked(
         flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
-        read_ctx: ReadContext,
-        layout_ctx: ReadContext,
+        array_read_ctx: ReadContext,
+        layout_read_ctx: ReadContext,
         layouts: LayoutRegistry,
     ) -> Self {
         Self {
             flatbuffer,
             flatbuffer_loc,
-            arra_read_ctx: read_ctx,
-            layout_read_ctx: layout_ctx,
+            array_read_ctx,
+            layout_read_ctx,
             layouts,
         }
     }
@@ -150,7 +150,7 @@ impl LayoutChildren for ViewedLayoutChildren {
         let viewed_children = ViewedLayoutChildren {
             flatbuffer: self.flatbuffer.clone(),
             flatbuffer_loc: fb_child._tab.loc(),
-            arra_read_ctx: self.arra_read_ctx.clone(),
+            array_read_ctx: self.array_read_ctx.clone(),
             layout_read_ctx: self.layout_read_ctx.clone(),
             layouts: self.layouts.clone(),
         };
@@ -177,7 +177,7 @@ impl LayoutChildren for ViewedLayoutChildren {
                 .map(SegmentId::from)
                 .collect_vec(),
             &viewed_children,
-            &self.arra_read_ctx,
+            &self.array_read_ctx,
         )
     }
 

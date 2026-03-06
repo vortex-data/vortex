@@ -46,7 +46,7 @@ pub struct Footer {
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
     // The specific arrays used within the file, in the order they were registered.
-    read_ctx: ReadContext,
+    array_read_ctx: ReadContext,
     // The approximate size of the footer in bytes, used for caching and memory management.
     approx_byte_size: Option<usize>,
 }
@@ -56,13 +56,13 @@ impl Footer {
         root_layout: LayoutRef,
         segments: Arc<[SegmentSpec]>,
         statistics: Option<FileStatistics>,
-        read_ctx: ReadContext,
+        array_read_ctx: ReadContext,
     ) -> Self {
         Self {
             root_layout,
             segments,
             statistics,
-            read_ctx,
+            array_read_ctx,
             approx_byte_size: None,
         }
     }
@@ -125,7 +125,7 @@ impl Footer {
             root_layout,
             segments,
             statistics,
-            read_ctx: array_read_ctx,
+            array_read_ctx: array_read_ctx,
             approx_byte_size: Some(approx_byte_size),
         })
     }

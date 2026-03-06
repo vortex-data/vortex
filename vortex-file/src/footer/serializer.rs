@@ -95,7 +95,7 @@ impl FooterSerializer {
         let (buffer, footer_segment) = write_flatbuffer(
             &mut self.offset,
             &FooterFlatBufferWriter {
-                ctx: self.footer.read_ctx.clone(),
+                ctx: self.footer.array_read_ctx.clone(),
                 layout_ctx: ReadContext::new(layout_ctx.to_ids()),
                 segment_specs: self.footer.segments.clone(),
             },
