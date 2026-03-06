@@ -39,9 +39,10 @@ impl DataSourceTableFunction for VortexMultiFileScan {
 
         // Parse the URL and separate the base URL (keep scheme, host, etc.) from the path.
         let glob_url_str = glob_url_parameter.as_string();
+
         let glob_url = match Url::parse(glob_url_str.as_str()) {
             Ok(url) => Ok(url),
-            Err(_) => Url::from_file_path(Path::new(glob_url_str.as_str()))
+            Err(_) => Url::from_file_path(Path::new(glob_url_str.as_str()).canonicalize()?)
                 .map_err(|_| vortex_err!("Neither URL nor path: '{}' ", glob_url_str.as_str())),
         }?;
 

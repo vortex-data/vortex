@@ -348,7 +348,7 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
             StructArray::try_new(names, children, len, vector.validity_ref(len).to_validity())
                 .map(|a| a.into_array())
         }
-        _ => todo!("missing impl for {type_id:?}"),
+        _ => unimplemented!("missing impl for {type_id:?}"),
     }
 }
 

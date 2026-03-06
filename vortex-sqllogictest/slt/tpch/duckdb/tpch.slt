@@ -1,0 +1,6 @@
+# include ../../setup.slt
+
+
+# include ./create.slt.no
+# include ../results/*.slt.no
+# include ../drop.slt.no

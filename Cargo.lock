@@ -10431,11 +10431,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bigdecimal",
  "clap",
  "datafusion 52.1.0",
  "datafusion-sqllogictest",
  "futures",
  "indicatif",
+ "rstest",
  "sqllogictest",
  "thiserror 2.0.18",
  "tokio",
