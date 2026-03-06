@@ -23,8 +23,8 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::extension::ExtDType;
 use crate::expr::Expression;
+use crate::extension::EmptyMetadata;
 use crate::extension::uuid::Uuid;
-use crate::extension::uuid::UuidMetadata;
 use crate::extension::uuid::vtable::UUID_BYTE_LEN;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -90,7 +90,7 @@ impl ScalarFnVTable for UuidFromString {
             nullability,
         );
 
-        let ext_dtype = ExtDType::<Uuid>::try_new(UuidMetadata, storage_dtype)?.erased();
+        let ext_dtype = ExtDType::<Uuid>::try_new(EmptyMetadata, storage_dtype)?.erased();
 
         Ok(DType::Extension(ext_dtype))
     }
@@ -133,7 +133,7 @@ impl ScalarFnVTable for UuidFromString {
 
         // Wrap in FixedSizeList and Extension.
         let fsl = FixedSizeListArray::new(elements, UUID_BYTE_LEN as u32, validity, row_count);
-        let ext_dtype = ExtDType::<Uuid>::try_new(UuidMetadata, fsl.dtype().clone())?.erased();
+        let ext_dtype = ExtDType::<Uuid>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
 
         Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
     }
@@ -171,8 +171,8 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::extension::ExtVTable;
+    use crate::extension::EmptyMetadata;
     use crate::extension::uuid::Uuid;
-    use crate::extension::uuid::UuidMetadata;
     use crate::extension::uuid::vtable::UUID_BYTE_LEN;
     use crate::scalar_fn::EmptyOptions;
     use crate::scalar_fn::ScalarFn;
@@ -320,7 +320,7 @@ mod tests {
             .ok_or_else(|| vortex_error::vortex_err!("expected non-null scalar"))?;
 
         let native = Uuid.unpack_native(
-            &UuidMetadata,
+            &EmptyMetadata,
             ext_scalar.ext_dtype().storage_dtype(),
             storage_value,
         )?;

@@ -10,9 +10,6 @@
 //! [RFC 4122]: https://www.rfc-editor.org/rfc/rfc4122
 //! [canonical UUID extension]: https://arrow.apache.org/docs/format/CanonicalExtensions.html#uuid
 
-mod metadata;
-pub use metadata::UuidMetadata;
-
 pub(crate) mod vtable;
 
 /// The VTable for the UUID extension type.

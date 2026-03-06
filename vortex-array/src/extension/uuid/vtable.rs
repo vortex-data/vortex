@@ -11,8 +11,8 @@ use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
+use crate::extension::EmptyMetadata;
 use crate::extension::uuid::Uuid;
-use crate::extension::uuid::UuidMetadata;
 use crate::scalar::PValue;
 use crate::scalar::ScalarValue;
 
@@ -20,7 +20,7 @@ use crate::scalar::ScalarValue;
 pub(crate) const UUID_BYTE_LEN: usize = 16;
 
 impl ExtVTable for Uuid {
-    type Metadata = UuidMetadata;
+    type Metadata = EmptyMetadata;
     type NativeValue<'a> = uuid::Uuid;
 
     fn id(&self) -> ExtId {
@@ -32,7 +32,7 @@ impl ExtVTable for Uuid {
     }
 
     fn deserialize_metadata(&self, _metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(UuidMetadata)
+        Ok(EmptyMetadata)
     }
 
     fn validate_dtype(
@@ -111,17 +111,17 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::extension::ExtVTable;
+    use crate::extension::EmptyMetadata;
     use crate::extension::uuid::Uuid;
-    use crate::extension::uuid::UuidMetadata;
     use crate::extension::uuid::vtable::UUID_BYTE_LEN;
     use crate::scalar::Scalar;
 
     #[test]
     fn roundtrip_metadata() -> VortexResult<()> {
         let vtable = Uuid;
-        let bytes = vtable.serialize_metadata(&UuidMetadata)?;
+        let bytes = vtable.serialize_metadata(&EmptyMetadata)?;
         let deserialized = vtable.deserialize_metadata(&bytes)?;
-        assert_eq!(deserialized, UuidMetadata);
+        assert_eq!(deserialized, EmptyMetadata);
         Ok(())
     }
 
@@ -130,7 +130,7 @@ mod tests {
     #[case::nullable(Nullability::Nullable)]
     fn validate_correct_storage_dtype(#[case] nullability: Nullability) -> VortexResult<()> {
         let storage_dtype = uuid_storage_dtype(nullability);
-        Uuid.validate_dtype(&UuidMetadata, &storage_dtype)
+        Uuid.validate_dtype(&EmptyMetadata, &storage_dtype)
     }
 
     #[test]
@@ -140,7 +140,7 @@ mod tests {
             8,
             Nullability::NonNullable,
         );
-        assert!(Uuid.validate_dtype(&UuidMetadata, &storage_dtype).is_err());
+        assert!(Uuid.validate_dtype(&EmptyMetadata, &storage_dtype).is_err());
     }
 
     #[test]
@@ -150,7 +150,7 @@ mod tests {
             UUID_BYTE_LEN as u32,
             Nullability::NonNullable,
         );
-        assert!(Uuid.validate_dtype(&UuidMetadata, &storage_dtype).is_err());
+        assert!(Uuid.validate_dtype(&EmptyMetadata, &storage_dtype).is_err());
     }
 
     #[test]
@@ -160,13 +160,13 @@ mod tests {
             UUID_BYTE_LEN as u32,
             Nullability::NonNullable,
         );
-        assert!(Uuid.validate_dtype(&UuidMetadata, &storage_dtype).is_err());
+        assert!(Uuid.validate_dtype(&EmptyMetadata, &storage_dtype).is_err());
     }
 
     #[test]
     fn validate_rejects_non_fsl() {
         let storage_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
-        assert!(Uuid.validate_dtype(&UuidMetadata, &storage_dtype).is_err());
+        assert!(Uuid.validate_dtype(&EmptyMetadata, &storage_dtype).is_err());
     }
 
     #[test]
@@ -189,7 +189,7 @@ mod tests {
         let storage_value = storage_scalar
             .value()
             .ok_or_else(|| vortex_error::vortex_err!("expected non-null scalar"))?;
-        let result = Uuid.unpack_native(&UuidMetadata, &storage_dtype, storage_value)?;
+        let result = Uuid.unpack_native(&EmptyMetadata, &storage_dtype, storage_value)?;
         assert_eq!(result, expected);
         assert_eq!(result.to_string(), "550e8400-e29b-41d4-a716-446655440000");
         Ok(())
