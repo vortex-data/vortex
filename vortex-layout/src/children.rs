@@ -15,7 +15,6 @@ use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::layout as fbl;
 use vortex_session::registry::ReadContext;
 
-use crate::LayoutContext;
 use crate::LayoutRef;
 use crate::segments::SegmentId;
 use crate::session::LayoutRegistry;
@@ -101,8 +100,8 @@ impl LayoutChildren for OwnedLayoutChildren {
 pub(crate) struct ViewedLayoutChildren {
     flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
-    read_ctx: ReadContext,
-    layout_ctx: LayoutContext,
+    arra_read_ctx: ReadContext,
+    layout_read_ctx: ReadContext,
     layouts: LayoutRegistry,
 }
 
@@ -116,14 +115,14 @@ impl ViewedLayoutChildren {
         flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
         read_ctx: ReadContext,
-        layout_ctx: LayoutContext,
+        layout_ctx: ReadContext,
         layouts: LayoutRegistry,
     ) -> Self {
         Self {
             flatbuffer,
             flatbuffer_loc,
-            read_ctx,
-            layout_ctx,
+            arra_read_ctx: read_ctx,
+            layout_read_ctx: layout_ctx,
             layouts,
         }
     }
@@ -151,13 +150,13 @@ impl LayoutChildren for ViewedLayoutChildren {
         let viewed_children = ViewedLayoutChildren {
             flatbuffer: self.flatbuffer.clone(),
             flatbuffer_loc: fb_child._tab.loc(),
-            read_ctx: self.read_ctx.clone(),
-            layout_ctx: self.layout_ctx.clone(),
+            arra_read_ctx: self.arra_read_ctx.clone(),
+            layout_read_ctx: self.layout_read_ctx.clone(),
             layouts: self.layouts.clone(),
         };
 
         let encoding_id = self
-            .layout_ctx
+            .layout_read_ctx
             .resolve(fb_child.encoding())
             .ok_or_else(|| vortex_err!("Encoding not found: {}", fb_child.encoding()))?;
         let encoding = self.layouts.find(&encoding_id).ok_or_else(|| {
@@ -178,7 +177,7 @@ impl LayoutChildren for ViewedLayoutChildren {
                 .map(SegmentId::from)
                 .collect_vec(),
             &viewed_children,
-            &self.read_ctx,
+            &self.arra_read_ctx,
         )
     }
 

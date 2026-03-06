@@ -160,11 +160,6 @@ impl<T: Clone> Context<T> {
         Some(u16::try_from(idx).vortex_expect("checked already"))
     }
 
-    /// Resolve an interned ID by its index.
-    pub fn resolve(&self, idx: u16) -> Option<Id> {
-        self.ids.read().get(idx as usize).cloned()
-    }
-
     /// Get the list of interned IDs.
     pub fn to_ids(&self) -> Vec<Id> {
         self.ids.read().clone()

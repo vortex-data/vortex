@@ -45,7 +45,7 @@ static LAYOUT_VERIFIER: LazyLock<VerifierOptions> = LazyLock::new(|| {
 pub fn layout_from_flatbuffer(
     flatbuffer: FlatBuffer,
     dtype: &DType,
-    layout_ctx: &LayoutContext,
+    layout_ctx: &ReadContext,
     ctx: &ReadContext,
     layouts: &LayoutRegistry,
 ) -> VortexResult<LayoutRef> {
