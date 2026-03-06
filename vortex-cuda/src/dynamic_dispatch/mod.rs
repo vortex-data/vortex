@@ -20,7 +20,9 @@
 #![allow(clippy::cast_possible_truncation)]
 
 mod plan_builder;
+mod plan_from_flatbuffer;
 pub use plan_builder::build_plan;
+pub use plan_from_flatbuffer::build_plan_from_flatbuffer;
 
 include!(concat!(env!("OUT_DIR"), "/dynamic_dispatch.rs"));
 

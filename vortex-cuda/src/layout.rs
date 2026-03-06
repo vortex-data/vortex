@@ -102,6 +102,18 @@ pub struct CudaFlatLayout {
 }
 
 impl CudaFlatLayout {
+    /// The number of rows in this layout.
+    #[inline]
+    pub fn row_count(&self) -> u64 {
+        self.row_count
+    }
+
+    /// The logical data type of this layout.
+    #[inline]
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
     #[inline]
     pub fn segment_id(&self) -> SegmentId {
         self.segment_id

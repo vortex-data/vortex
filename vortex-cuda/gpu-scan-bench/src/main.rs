@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use cudarc::driver::{CudaFunction, DevicePtr, LaunchConfig, PushKernelArg};
 use futures::StreamExt;
 use tracing_perfetto::PerfettoLayer;
@@ -21,22 +21,36 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 use vortex::VortexSessionDefault;
+use vortex::array::ArrayContext;
 use vortex::array::arrays::{ChunkedVTable, StructVTable};
 use vortex::array::buffer::BufferHandle;
-use vortex::buffer::ByteBuffer;
+use vortex::buffer::{Alignment, ByteBuffer};
 use vortex::dtype::{DType, PType};
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::session::RuntimeSessionExt;
+use vortex::layout::layouts::flat::FlatVTable;
+use vortex::layout::segments::SegmentSource;
+use vortex::layout::{LayoutChildType, LayoutRef};
 use vortex::scan::SplitBy;
 use vortex::session::VortexSession;
-use vortex_cuda::dynamic_dispatch::{self, DynamicDispatchPlan};
-use vortex_cuda::layout::register_cuda_layout;
+use vortex::utils::aliases::hash_map::HashMap as VortexHashMap;
+use vortex_cuda::dynamic_dispatch::{self, DynamicDispatchPlan, build_plan_from_flatbuffer};
+use vortex_cuda::layout::{CudaFlatVTable, register_cuda_layout};
 use vortex_cuda::{CudaDeviceBuffer, CudaExecutionCtx, CudaSession, CudaSessionExt};
 
 // =====================================================================
 // CLI
 // =====================================================================
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ScanMode {
+    /// Standard path: open_buffer → scan → decode batches → GPU kernels.
+    Scan,
+    /// Zero-deserialization: walk layout tree → build plans directly from
+    /// flatbuffer metadata → GPU kernels. Bypasses ArrayRef construction.
+    DirectFb,
+}
 
 #[derive(Parser)]
 #[command(
@@ -76,6 +90,10 @@ struct Cli {
     /// Path to write Perfetto trace output.
     #[arg(long)]
     perfetto: Option<PathBuf>,
+
+    /// Scan mode: 'scan' (default) or 'direct-fb' (zero-deserialization).
+    #[arg(long, value_enum, default_value_t = ScanMode::Scan)]
+    mode: ScanMode,
 
     /// Output logs as JSON.
     #[arg(long)]
@@ -144,7 +162,10 @@ async fn main() -> VortexResult<()> {
     for i in 0..cli.iterations {
         let start = Instant::now();
         let file = cache.open(&path)?;
-        scan_file(&session, file, &mut cuda_ctx).await?;
+        match cli.mode {
+            ScanMode::Scan => scan_file(&session, file, &mut cuda_ctx).await?,
+            ScanMode::DirectFb => direct_scan_file(&session, file, &mut cuda_ctx).await?,
+        }
         times.push(start.elapsed());
         tracing::info!(
             "Iteration {}/{}: {:.3}s",
@@ -236,6 +257,7 @@ struct MmapFile {
     len: usize,
     cuda_ctx: Arc<cudarc::driver::CudaContext>,
     cuda_registered: AtomicBool,
+    warm: AtomicBool,
 }
 
 // SAFETY: The mmap memory is valid for the lifetime of MmapFile and
@@ -260,16 +282,19 @@ impl MmapFile {
             len,
             cuda_ctx,
             cuda_registered: AtomicBool::new(false),
+            warm: AtomicBool::new(false),
         })
     }
 
     /// Returns the underlying buffer for use with `open_buffer()`.
     ///
-    /// Pins pages via `cuMemHostRegister` on first call so the GPU can
-    /// read directly over NVLink-C2C without ATS faults. No-op on
-    /// subsequent calls.
+    /// First call returns unpinned pages (cold — I/O overlaps with decode).
+    /// Second call pins pages via `cuMemHostRegister` so subsequent GPU
+    /// scans get full NVLink-C2C bandwidth.
     fn buffer(&self) -> VortexResult<ByteBuffer> {
-        self.ensure_cuda_registered()?;
+        if self.warm.swap(true, Ordering::Relaxed) {
+            self.ensure_cuda_registered()?;
+        }
         Ok(self.buf.clone())
     }
 
@@ -466,6 +491,217 @@ fn decode_column(
     }
 
     drop((_output_guard, _plans_guard, keep_alive));
+    Ok(())
+}
+
+// =====================================================================
+// Direct-from-flatbuffer scan (zero deserialization)
+// =====================================================================
+
+/// Scan a [`MmapFile`] by walking the layout tree and building GPU dispatch
+/// plans directly from flatbuffer metadata — no ArrayRef construction.
+async fn direct_scan_file(
+    session: &VortexSession,
+    file: &MmapFile,
+    cuda_ctx: &mut CudaExecutionCtx,
+) -> VortexResult<()> {
+    // Direct-fb embeds raw host pointers into GPU plans — pages must be
+    // pinned via cuMemHostRegister (ATS faults are not sufficient here).
+    file.ensure_cuda_registered()?;
+    let vortex_file = session.open_options().open_buffer(file.buffer()?)?;
+    let footer = vortex_file.footer();
+    let segment_source = vortex_file.segment_source();
+    let root_layout = footer.layout();
+
+    let mut columns: Vec<(PType, Vec<FlatLeaf>)> = Vec::new();
+    for field_idx in 0..root_layout.nchildren() {
+        let field_layout = root_layout.child(field_idx)?;
+        let ptype = match field_layout.dtype() {
+            DType::Primitive(p, _) => *p,
+            _ => continue,
+        };
+        let mut leaves = Vec::new();
+        collect_flat_leaves(&field_layout, &mut leaves)?;
+        if !leaves.is_empty() {
+            columns.push((ptype, leaves));
+        }
+    }
+
+    let mut keep_alive: Vec<BufferHandle> = Vec::new();
+    for (ptype, leaves) in &columns {
+        decode_column_direct(
+            leaves,
+            *ptype,
+            segment_source.as_ref(),
+            cuda_ctx,
+            &mut keep_alive,
+        )?;
+    }
+
+    cuda_ctx.synchronize_stream()?;
+    drop(keep_alive);
+    Ok(())
+}
+
+/// Leaf metadata extracted from a `CudaFlatLayout` or `FlatLayout`.
+struct FlatLeaf {
+    array_tree: ByteBuffer,
+    segment_id: vortex::layout::segments::SegmentId,
+    host_buffers: Arc<VortexHashMap<u32, ByteBuffer>>,
+    row_count: u64,
+    dtype: DType,
+    ctx: ArrayContext,
+}
+
+/// Recursively collect flat leaves from the layout tree.
+fn collect_flat_leaves(layout: &LayoutRef, out: &mut Vec<FlatLeaf>) -> VortexResult<()> {
+    if let Some(cuda_flat) = layout.as_opt::<CudaFlatVTable>() {
+        out.push(FlatLeaf {
+            array_tree: cuda_flat.array_tree().clone(),
+            segment_id: cuda_flat.segment_id(),
+            host_buffers: cuda_flat.host_buffers().clone(),
+            row_count: cuda_flat.row_count(),
+            dtype: cuda_flat.dtype().clone(),
+            ctx: cuda_flat.array_ctx().clone(),
+        });
+        return Ok(());
+    }
+    if let Some(flat) = layout.as_opt::<FlatVTable>() {
+        out.push(FlatLeaf {
+            array_tree: flat.array_tree().cloned().unwrap_or_else(ByteBuffer::empty),
+            segment_id: flat.segment_id(),
+            host_buffers: Arc::new(VortexHashMap::new()),
+            row_count: flat.row_count(),
+            dtype: flat.dtype().clone(),
+            ctx: flat.array_ctx().clone(),
+        });
+        return Ok(());
+    }
+    for i in 0..layout.nchildren() {
+        if matches!(layout.child_type(i), LayoutChildType::Auxiliary(_)) {
+            continue;
+        }
+        collect_flat_leaves(&layout.child(i)?, out)?;
+    }
+    Ok(())
+}
+
+/// Resolve a leaf's segment into (array_tree, segment_data).
+fn resolve_leaf_segment(
+    leaf: &FlatLeaf,
+    segment_source: &dyn SegmentSource,
+) -> VortexResult<(ByteBuffer, BufferHandle)> {
+    let segment = futures::executor::block_on(segment_source.request(leaf.segment_id))?;
+    let segment = segment.ensure_aligned(Alignment::none())?;
+
+    if leaf.array_tree.is_empty() {
+        let host_buf = segment.try_to_host_sync()?;
+        if host_buf.len() < 4 {
+            vortex::error::vortex_bail!("segment too short for array tree suffix");
+        }
+        #[allow(clippy::cast_possible_truncation)]
+        let fb_len = u32::from_le_bytes(
+            host_buf.as_slice()[host_buf.len() - 4..]
+                .try_into()
+                .map_err(|_| vortex::error::vortex_err!("failed to read flatbuffer length"))?,
+        ) as usize;
+        let fb_off = host_buf.len() - 4 - fb_len;
+        Ok((
+            host_buf.slice(fb_off..fb_off + fb_len),
+            BufferHandle::new_host(host_buf.slice(0..fb_off).aligned(Alignment::none())),
+        ))
+    } else {
+        Ok((leaf.array_tree.clone(), segment))
+    }
+}
+
+/// Build plans directly from flatbuffer metadata and launch the GPU kernel.
+#[allow(clippy::cast_possible_truncation)]
+fn decode_column_direct(
+    leaves: &[FlatLeaf],
+    ptype: PType,
+    segment_source: &dyn SegmentSource,
+    ctx: &mut CudaExecutionCtx,
+    keep_alive: &mut Vec<BufferHandle>,
+) -> VortexResult<()> {
+    if leaves.is_empty() {
+        return Ok(());
+    }
+
+    let dtype = leaves[0].dtype.clone();
+    let mut plans: Vec<DynamicDispatchPlan> = Vec::with_capacity(leaves.len());
+    let mut chunk_lens: Vec<usize> = Vec::with_capacity(leaves.len());
+
+    for leaf in leaves {
+        let (array_tree, segment) = resolve_leaf_segment(leaf, segment_source)?;
+        match build_plan_from_flatbuffer(
+            &array_tree,
+            &segment,
+            &leaf.host_buffers,
+            leaf.row_count,
+            &dtype,
+            &leaf.ctx,
+            ctx,
+        ) {
+            Ok((plan, bufs)) => {
+                plans.push(plan);
+                chunk_lens.push(leaf.row_count as usize);
+                keep_alive.extend(bufs);
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, "direct-fb plan build failed, skipping");
+            }
+        }
+    }
+    if plans.is_empty() {
+        return Ok(());
+    }
+
+    let kernel_ptype = unsigned_ptype(ptype);
+    let smem_bytes = smem_for_ptype(&plans[0], ptype);
+
+    let total_elems: usize = chunk_lens.iter().map(|l| l.next_multiple_of(1024)).sum();
+    let output = CudaDeviceBuffer::new(ctx.device_alloc::<u32>(total_elems)?);
+    let output_view = output.as_view::<u32>();
+    let (base_ptr, _out_guard) = output_view.device_ptr(ctx.stream());
+
+    let mut offset: u64 = 0;
+    for (plan, &len) in plans.iter_mut().zip(&chunk_lens) {
+        plan.output_ptr = base_ptr + offset * 4;
+        plan.array_len = len as u64;
+        offset += len.next_multiple_of(1024) as u64;
+    }
+
+    let device_plans = ctx
+        .stream()
+        .clone_htod(&plans)
+        .map_err(|e| vortex::error::vortex_err!("copy plans to device: {e}"))?;
+    let (plans_ptr, _plans_guard) = device_plans.device_ptr(ctx.stream());
+
+    let ptype_str = kernel_ptype.to_string();
+    let function: CudaFunction =
+        ctx.load_function_with_suffixes("dynamic_dispatch", &["multi", &ptype_str])?;
+
+    let max_blocks = chunk_lens
+        .iter()
+        .map(|l| l.div_ceil(2048) as u32)
+        .max()
+        .unwrap_or(0);
+    let num_chunks = plans.len() as u32;
+
+    let mut builder = ctx.stream().launch_builder(&function);
+    builder.arg(&plans_ptr);
+    unsafe {
+        builder
+            .launch(LaunchConfig {
+                grid_dim: (max_blocks, num_chunks, 1),
+                block_dim: (64, 1, 1),
+                shared_mem_bytes: smem_bytes,
+            })
+            .map_err(|e| vortex::error::vortex_err!("kernel launch failed: {e}"))?;
+    }
+
+    drop((_out_guard, _plans_guard));
     Ok(())
 }
 
