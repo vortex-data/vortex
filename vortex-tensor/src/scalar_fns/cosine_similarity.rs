@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Cosine similarity expression for [`FixedShapeTensor`] arrays.
+//! Cosine similarity expression for [`FixedShapeTensor`](crate::FixedShapeTensor) arrays.
 
 use std::fmt::Formatter;
 
@@ -259,9 +259,9 @@ mod tests {
     use vortex::scalar_fn::EmptyOptions;
     use vortex::scalar_fn::ScalarFn;
 
-    use crate::CosineSimilarity;
     use crate::FixedShapeTensor;
     use crate::FixedShapeTensorMetadata;
+    use crate::scalar_fns::cosine_similarity::CosineSimilarity;
 
     /// Builds a [`FixedShapeTensor`] extension array from flat f64 elements and a logical shape.
     ///

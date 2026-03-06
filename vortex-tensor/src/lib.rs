@@ -6,11 +6,10 @@
 mod metadata;
 pub use metadata::FixedShapeTensorMetadata;
 
-mod cosine_similarity;
-pub use cosine_similarity::CosineSimilarity;
-
 mod proto;
 mod vtable;
+
+pub mod scalar_fns;
 
 /// The VTable for the Tensor extension type.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
