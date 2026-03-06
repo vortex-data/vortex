@@ -649,17 +649,10 @@ jobs:
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
-      - uses: actions/checkout@v5
-      - name: Install Visual Studio Build Tools (Windows)
-        if: matrix.os == 'windows-x64'
-        run: |
-          $flags = '-C debuginfo=0'
-          echo "RUSTFLAGS=$flags" >> $env:GITHUB_ENV
-          choco install visualstudio2022buildtools --package-parameters `
-            "--add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.26100 --passive" -y
+      - uses: actions/checkout@v6
       - name: Setup Python (Windows)
         if: matrix.os == 'windows-x64'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - id: setup-rust
