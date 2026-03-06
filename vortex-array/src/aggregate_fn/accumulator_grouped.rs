@@ -137,15 +137,12 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
         let states = self.flush()?;
         let results = self.vtable.finalize(states)?;
 
-        #[cfg(debug_assertions)]
-        {
-            vortex_ensure!(
-                results.dtype() == &self.return_dtype,
-                "Return DType mismatch: expected {}, got {}",
-                self.return_dtype,
-                results.dtype()
-            );
-        }
+        vortex_ensure!(
+            results.dtype() == &self.return_dtype,
+            "Return DType mismatch: expected {}, got {}",
+            self.return_dtype,
+            results.dtype()
+        );
 
         Ok(results)
     }

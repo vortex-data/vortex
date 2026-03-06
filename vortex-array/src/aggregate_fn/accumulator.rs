@@ -154,15 +154,12 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         let partial = self.flush()?;
         let result = self.vtable.finalize_scalar(partial)?;
 
-        #[cfg(debug_assertions)]
-        {
-            vortex_ensure!(
-                result.dtype() == &self.return_dtype,
-                "Aggregate kernel returned incorrect DType on finalize: expected {}, got {}",
-                self.return_dtype,
-                result.dtype(),
-            );
-        }
+        vortex_ensure!(
+            result.dtype() == &self.return_dtype,
+            "Aggregate kernel returned incorrect DType on finalize: expected {}, got {}",
+            self.return_dtype,
+            result.dtype(),
+        );
 
         Ok(result)
     }
