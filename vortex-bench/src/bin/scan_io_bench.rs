@@ -1157,7 +1157,13 @@ impl DeviceBuffer for PooledP2pDeviceBuffer {
             unsafe {
                 host_buffer.set_len(len);
             }
-            Ok(host_buffer.freeze().into_byte_buffer())
+            // Host copies may be sliced at arbitrary byte offsets during footer parsing, so the
+            // returned buffer must advertise byte alignment even if the backing allocation is more
+            // aligned than that.
+            Ok(host_buffer
+                .freeze()
+                .into_byte_buffer()
+                .aligned(Alignment::none()))
         }))
     }
 
