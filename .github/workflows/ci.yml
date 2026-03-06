@@ -732,7 +732,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=intel-bench/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
+          && format('runs-on={0}/runner=amd64-small/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
