@@ -12,8 +12,6 @@ pub fn vortex_session::registry::Context<T>::intern(&self, id: &vortex_session::
 
 pub fn vortex_session::registry::Context<T>::new(ids: alloc::vec::Vec<vortex_session::registry::Id>) -> Self
 
-pub fn vortex_session::registry::Context<T>::resolve(&self, idx: u16) -> core::option::Option<vortex_session::registry::Id>
-
 pub fn vortex_session::registry::Context<T>::to_ids(&self) -> alloc::vec::Vec<vortex_session::registry::Id>
 
 pub fn vortex_session::registry::Context<T>::with_registry(self, registry: vortex_session::registry::Registry<T>) -> Self

@@ -1954,7 +1954,7 @@ pub fn vortex_layout::layouts::zoned::ZonedVTable::segment_ids(_layout: &Self::L
 
 pub fn vortex_layout::layouts::zoned::ZonedVTable::with_children(layout: &mut Self::Layout, children: alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
-pub fn vortex_layout::layout_from_flatbuffer(flatbuffer: vortex_flatbuffers::FlatBuffer, dtype: &vortex_array::dtype::DType, layout_ctx: &vortex_layout::LayoutContext, ctx: &vortex_session::registry::ReadContext, layouts: &vortex_layout::session::LayoutRegistry) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+pub fn vortex_layout::layout_from_flatbuffer(flatbuffer: vortex_flatbuffers::FlatBuffer, dtype: &vortex_array::dtype::DType, layout_ctx: &vortex_session::registry::ReadContext, ctx: &vortex_session::registry::ReadContext, layouts: &vortex_layout::session::LayoutRegistry) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
 
 pub type vortex_layout::ArrayFuture = futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::array::ArrayRef>>
 

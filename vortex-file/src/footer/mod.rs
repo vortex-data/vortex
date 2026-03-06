@@ -125,7 +125,7 @@ impl Footer {
             root_layout,
             segments,
             statistics,
-            array_read_ctx: array_read_ctx,
+            array_read_ctx,
             approx_byte_size: Some(approx_byte_size),
         })
     }
