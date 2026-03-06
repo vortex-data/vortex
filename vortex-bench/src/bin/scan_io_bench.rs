@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
+use std::collections::BTreeMap;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::ops::Range;
 use std::path::Path;
 use std::path::PathBuf;
 #[cfg(target_os = "linux")]
@@ -55,6 +60,7 @@ use url::Url;
 use vortex::array::Array;
 use vortex::array::MaskFuture;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::buffer::DeviceBuffer;
 use vortex::array::expr::Expression;
 use vortex::array::expr::col;
 use vortex::array::expr::eq;
@@ -67,6 +73,7 @@ use vortex::array::expr::not_eq;
 use vortex::array::expr::root;
 use vortex::array::expr::select;
 use vortex::buffer::Alignment;
+use vortex::buffer::ByteBuffer;
 use vortex::buffer::ByteBufferMut;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
@@ -95,7 +102,6 @@ use vortex_bench::rdma_proto::OP_SIZE;
 use vortex_bench::rdma_proto::read_status;
 use vortex_bench::rdma_proto::read_string;
 use vortex_bench::rdma_proto::write_string;
-use vortex_cuda::CudaDeviceBuffer;
 use vortex_cuda::CudaSessionExt;
 use vortex_cuda::PinnedByteBufferPool;
 use vortex_cuda::PinnedDeviceAllocator;
@@ -911,6 +917,11 @@ struct P2pBenchStats {
     request_sizes: Mutex<Vec<u64>>,
     alloc_nanos: Mutex<Vec<u64>>,
     memcpy_submit_nanos: Mutex<Vec<u64>>,
+    pool_hits: AtomicU64,
+    pool_misses: AtomicU64,
+    pool_puts: AtomicU64,
+    pool_checked_out_bytes: AtomicU64,
+    pool_peak_checked_out_bytes: AtomicU64,
 }
 
 static P2P_BENCH_STATS: OnceLock<P2pBenchStats> = OnceLock::new();
@@ -924,6 +935,13 @@ fn reset_p2p_bench_stats() {
     stats.request_sizes.lock().clear();
     stats.alloc_nanos.lock().clear();
     stats.memcpy_submit_nanos.lock().clear();
+    stats.pool_hits.store(0, Ordering::Relaxed);
+    stats.pool_misses.store(0, Ordering::Relaxed);
+    stats.pool_puts.store(0, Ordering::Relaxed);
+    stats.pool_checked_out_bytes.store(0, Ordering::Relaxed);
+    stats
+        .pool_peak_checked_out_bytes
+        .store(0, Ordering::Relaxed);
 }
 
 fn record_p2p_request_stats(length: usize, alloc_nanos: u64, memcpy_submit_nanos: u64) {
@@ -934,6 +952,266 @@ fn record_p2p_request_stats(length: usize, alloc_nanos: u64, memcpy_submit_nanos
         .push(u64::try_from(length).unwrap_or(u64::MAX));
     stats.alloc_nanos.lock().push(alloc_nanos);
     stats.memcpy_submit_nanos.lock().push(memcpy_submit_nanos);
+}
+
+fn record_p2p_pool_hit() {
+    p2p_bench_stats().pool_hits.fetch_add(1, Ordering::Relaxed);
+}
+
+fn record_p2p_pool_miss() {
+    p2p_bench_stats()
+        .pool_misses
+        .fetch_add(1, Ordering::Relaxed);
+}
+
+fn record_p2p_pool_put() {
+    p2p_bench_stats().pool_puts.fetch_add(1, Ordering::Relaxed);
+}
+
+fn record_p2p_pool_checkout_bytes(bytes: usize) {
+    let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
+    let current = p2p_bench_stats()
+        .pool_checked_out_bytes
+        .fetch_add(bytes, Ordering::Relaxed)
+        .saturating_add(bytes);
+    let peak = &p2p_bench_stats().pool_peak_checked_out_bytes;
+    let mut prev = peak.load(Ordering::Relaxed);
+    while current > prev {
+        match peak.compare_exchange(prev, current, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => break,
+            Err(next) => prev = next,
+        }
+    }
+}
+
+fn record_p2p_pool_return_bytes(bytes: usize) {
+    let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
+    p2p_bench_stats()
+        .pool_checked_out_bytes
+        .fetch_sub(bytes, Ordering::Relaxed);
+}
+
+#[derive(Debug)]
+struct P2pDeviceBufferPool {
+    bins: Vec<Mutex<BTreeMap<usize, Vec<cudarc::driver::CudaSlice<u8>>>>>,
+}
+
+impl P2pDeviceBufferPool {
+    fn new(stream_count: usize) -> Self {
+        Self {
+            bins: (0..stream_count)
+                .map(|_| Mutex::new(BTreeMap::new()))
+                .collect(),
+        }
+    }
+
+    fn checkout(
+        &self,
+        stream_idx: usize,
+        stream: &std::sync::Arc<cudarc::driver::CudaStream>,
+        len: usize,
+    ) -> VortexResult<cudarc::driver::CudaSlice<u8>> {
+        let mut bins = self.bins[stream_idx].lock();
+        let chosen_cap = bins.range(len..).next().map(|(&cap, _)| cap);
+        if let Some(cap) = chosen_cap
+            && let Some(entry) = bins.get_mut(&cap)
+            && let Some(slice) = entry.pop()
+        {
+            if entry.is_empty() {
+                bins.remove(&cap);
+            }
+            drop(bins);
+            record_p2p_pool_hit();
+            record_p2p_pool_checkout_bytes(slice.len());
+            return Ok(slice);
+        }
+        drop(bins);
+
+        let slice = unsafe { stream.alloc::<u8>(len) }
+            .map_err(|e| vortex_err!("failed to allocate device buffer for p2p read: {e}"))?;
+        record_p2p_pool_miss();
+        record_p2p_pool_checkout_bytes(slice.len());
+        Ok(slice)
+    }
+
+    fn return_buffer(&self, stream_idx: usize, slice: cudarc::driver::CudaSlice<u8>) {
+        let len = slice.len();
+        self.bins[stream_idx]
+            .lock()
+            .entry(len)
+            .or_default()
+            .push(slice);
+        record_p2p_pool_put();
+        record_p2p_pool_return_bytes(len);
+    }
+}
+
+#[derive(Debug)]
+struct PooledP2pAllocation {
+    slice: Option<cudarc::driver::CudaSlice<u8>>,
+    stream: std::sync::Arc<cudarc::driver::CudaStream>,
+    pool: std::sync::Arc<P2pDeviceBufferPool>,
+    stream_idx: usize,
+}
+
+impl Drop for PooledP2pAllocation {
+    fn drop(&mut self) {
+        if let Some(slice) = self.slice.take() {
+            self.pool.return_buffer(self.stream_idx, slice);
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct PooledP2pDeviceBuffer {
+    allocation: std::sync::Arc<PooledP2pAllocation>,
+    offset: usize,
+    len: usize,
+    device_ptr: u64,
+    alignment: Alignment,
+}
+
+impl PooledP2pDeviceBuffer {
+    fn new(
+        slice: cudarc::driver::CudaSlice<u8>,
+        pool: std::sync::Arc<P2pDeviceBufferPool>,
+        stream_idx: usize,
+        len: usize,
+    ) -> Self {
+        let stream = slice.stream().clone();
+        let (device_ptr, _) = slice.device_ptr(&stream);
+        Self {
+            allocation: std::sync::Arc::new(PooledP2pAllocation {
+                slice: Some(slice),
+                stream,
+                pool,
+                stream_idx,
+            }),
+            offset: 0,
+            len,
+            device_ptr,
+            alignment: Alignment::of::<u8>(),
+        }
+    }
+}
+
+impl PartialEq for PooledP2pDeviceBuffer {
+    fn eq(&self, other: &Self) -> bool {
+        self.device_ptr == other.device_ptr && self.len == other.len && self.offset == other.offset
+    }
+}
+
+impl Eq for PooledP2pDeviceBuffer {}
+
+impl Hash for PooledP2pDeviceBuffer {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.device_ptr.hash(state);
+        self.len.hash(state);
+        self.offset.hash(state);
+    }
+}
+
+impl DeviceBuffer for PooledP2pDeviceBuffer {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn alignment(&self) -> Alignment {
+        self.alignment
+    }
+
+    fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer> {
+        futures::executor::block_on(self.copy_to_host(alignment)?)
+    }
+
+    fn copy_to_host(
+        &self,
+        alignment: Alignment,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
+        let stream = self.allocation.stream.clone();
+        let src_ptr = self.device_ptr + self.offset as u64;
+        let mut host_buffer = ByteBufferMut::with_capacity_aligned(self.len, alignment);
+        let len = self.len;
+        let allocation = self.allocation.clone();
+
+        unsafe {
+            sys::cuMemcpyDtoHAsync_v2(
+                host_buffer.spare_capacity_mut().as_mut_ptr().cast(),
+                src_ptr,
+                len,
+                stream.cu_stream(),
+            )
+            .result()
+            .map_err(|e| vortex_err!("Failed to schedule async copy to host: {}", e))?;
+        }
+
+        Ok(Box::pin(async move {
+            stream
+                .synchronize()
+                .map_err(|e| vortex_err!("Failed to synchronize CUDA stream: {e}"))?;
+            let _keep_alive = allocation;
+            unsafe {
+                host_buffer.set_len(len);
+            }
+            Ok(host_buffer.freeze().into_byte_buffer())
+        }))
+    }
+
+    fn slice(&self, range: Range<usize>) -> std::sync::Arc<dyn DeviceBuffer> {
+        assert!(
+            range.end <= self.len,
+            "Slice range end {} exceeds allocation size {}",
+            range.end,
+            self.len
+        );
+
+        let new_offset = self.offset + range.start;
+        let new_len = range.end - range.start;
+        let trailing = (self.device_ptr + new_offset as u64).trailing_zeros();
+        let exponent = u8::try_from(std::cmp::min(15, trailing)).unwrap_or(15);
+        let slice_align = Alignment::from_exponent(exponent);
+
+        assert!(
+            slice_align.is_aligned_to(self.alignment),
+            "slice must respect minimum alignment {}, min {}",
+            slice_align,
+            self.alignment
+        );
+
+        std::sync::Arc::new(Self {
+            allocation: self.allocation.clone(),
+            offset: new_offset,
+            len: new_len,
+            device_ptr: self.device_ptr,
+            alignment: self.alignment,
+        })
+    }
+
+    fn aligned(
+        self: std::sync::Arc<Self>,
+        alignment: Alignment,
+    ) -> VortexResult<std::sync::Arc<dyn DeviceBuffer>> {
+        let effective_ptr = self.device_ptr + self.offset as u64;
+        if effective_ptr % (*alignment as u64) == 0 {
+            Ok(std::sync::Arc::new(Self {
+                allocation: self.allocation.clone(),
+                offset: self.offset,
+                len: self.len,
+                device_ptr: self.device_ptr,
+                alignment,
+            }))
+        } else if alignment > Alignment::new(256) {
+            Err(vortex_err!("we do not support alignment greater than 256"))
+        } else {
+            Err(vortex_err!(
+                "some how we alloc a cuda buffer with alignment less than 256"
+            ))
+        }
+    }
 }
 
 fn register_p2p_stream(stream: &std::sync::Arc<cudarc::driver::CudaStream>) {
@@ -1345,6 +1623,7 @@ struct P2pReadSource {
     concurrency: usize,
     coalesce_config: Option<CoalesceConfig>,
     streams: std::sync::Arc<Vec<std::sync::Arc<cudarc::driver::CudaStream>>>,
+    pool: std::sync::Arc<P2pDeviceBufferPool>,
     next_stream: std::sync::Arc<AtomicUsize>,
     mapped: std::sync::Arc<P2pMappedRegion>,
 }
@@ -1385,6 +1664,7 @@ impl P2pReadSource {
         for stream in &streams {
             register_p2p_stream(stream);
         }
+        let pool = std::sync::Arc::new(P2pDeviceBufferPool::new(stream_count));
 
         Ok(Self {
             uri: std::sync::Arc::from(format!("p2p://{endpoint}/{key}")),
@@ -1392,14 +1672,15 @@ impl P2pReadSource {
             concurrency,
             coalesce_config,
             streams: std::sync::Arc::new(streams),
+            pool,
             next_stream: std::sync::Arc::new(AtomicUsize::new(0)),
             mapped: std::sync::Arc::new(P2pMappedRegion { context, base_ptr }),
         })
     }
 
-    fn next_stream(&self) -> &std::sync::Arc<cudarc::driver::CudaStream> {
+    fn next_stream(&self) -> (usize, &std::sync::Arc<cudarc::driver::CudaStream>) {
         let idx = self.next_stream.fetch_add(1, Ordering::Relaxed) % self.streams.len();
-        &self.streams[idx]
+        (idx, &self.streams[idx])
     }
 
     fn read_at_device(&self, offset: u64, length: usize) -> VortexResult<BufferHandle> {
@@ -1413,10 +1694,9 @@ impl P2pReadSource {
             ));
         }
 
-        let stream = self.next_stream();
+        let (stream_idx, stream) = self.next_stream();
         let alloc_start = Instant::now();
-        let device = unsafe { stream.alloc::<u8>(length) }
-            .map_err(|e| vortex_err!("failed to allocate device buffer for p2p read: {e}"))?;
+        let device = self.pool.checkout(stream_idx, stream, length)?;
         let alloc_nanos = u64::try_from(alloc_start.elapsed().as_nanos()).unwrap_or(u64::MAX);
         let (dst_ptr, _) = device.device_ptr(device.stream());
         let src_ptr = self.mapped.base_ptr + offset;
@@ -1429,7 +1709,7 @@ impl P2pReadSource {
             u64::try_from(memcpy_submit_start.elapsed().as_nanos()).unwrap_or(u64::MAX);
         record_p2p_request_stats(length, alloc_nanos, memcpy_submit_nanos);
         Ok(BufferHandle::new_device(std::sync::Arc::new(
-            CudaDeviceBuffer::new(device),
+            PooledP2pDeviceBuffer::new(device, self.pool.clone(), stream_idx, length),
         )))
     }
 }
@@ -2015,7 +2295,7 @@ impl LayoutReader for BenchLayoutReader {
     fn register_splits(
         &self,
         field_mask: &[vortex::dtype::FieldMask],
-        row_range: &std::ops::Range<u64>,
+        row_range: &Range<u64>,
         splits: &mut std::collections::BTreeSet<u64>,
     ) -> VortexResult<()> {
         self.inner.register_splits(field_mask, row_range, splits)
@@ -2023,7 +2303,7 @@ impl LayoutReader for BenchLayoutReader {
 
     fn pruning_evaluation(
         &self,
-        row_range: &std::ops::Range<u64>,
+        row_range: &Range<u64>,
         expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
@@ -2045,7 +2325,7 @@ impl LayoutReader for BenchLayoutReader {
 
     fn filter_evaluation(
         &self,
-        row_range: &std::ops::Range<u64>,
+        row_range: &Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
@@ -2058,7 +2338,7 @@ impl LayoutReader for BenchLayoutReader {
 
     fn projection_evaluation(
         &self,
-        row_range: &std::ops::Range<u64>,
+        row_range: &Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<vortex::array::ArrayRef>>> {
@@ -2126,12 +2406,26 @@ fn print_p2p_bench_stats() {
         percentile_u64(&memcpy_submit_nanos, 0.95) as f64 / 1_000.0,
         percentile_u64(&memcpy_submit_nanos, 0.99) as f64 / 1_000.0
     );
+    println!(
+        "p2p_pool: hits={} misses={} puts={} peak_checked_out_mb={:.2}",
+        stats.pool_hits.load(Ordering::Relaxed),
+        stats.pool_misses.load(Ordering::Relaxed),
+        stats.pool_puts.load(Ordering::Relaxed),
+        stats.pool_peak_checked_out_bytes.load(Ordering::Relaxed) as f64 / (1024.0 * 1024.0)
+    );
 }
 
 fn percentile_u64(values: &[u64], percentile: f64) -> u64 {
     debug_assert!((0.0..=1.0).contains(&percentile));
     let mut sorted = values.to_vec();
     sorted.sort_unstable();
-    let idx = ((sorted.len() - 1) as f64 * percentile).round() as usize;
+    let n = sorted.len() - 1;
+    let idx = if percentile <= 0.50 {
+        n / 2
+    } else if percentile <= 0.95 {
+        (n * 95) / 100
+    } else {
+        (n * 99) / 100
+    };
     sorted[idx]
 }
