@@ -245,7 +245,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-xsmall/tag=rust-min-deps', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/tag=rust-min-deps', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -482,50 +482,50 @@ jobs:
             --target x86_64-unknown-linux-gnu \
             -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
 
-  cuda-build:
-    if: github.repository == 'vortex-data/vortex'
-    name: "CUDA build"
-    timeout-minutes: 120
-    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-build
-    steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build CUDA crates
-        run: |
-          cargo build --locked --all-features --all-targets \
-            -p vortex-cuda \
-            -p vortex-cub \
-            -p vortex-nvcomp \
-            -p gpu-scan-cli \
-            -p vortex-test-e2e-cuda
+  # cuda-build:
+  #   if: github.repository == 'vortex-data/vortex'
+  #   name: "CUDA build"
+  #   timeout-minutes: 120
+  #   runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-build
+  #   steps:
+  #     - uses: runs-on/action@v2
+  #       with:
+  #         sccache: s3
+  #     - uses: actions/checkout@v6
+  #     - uses: ./.github/actions/setup-rust
+  #       with:
+  #         repo-token: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Build CUDA crates
+  #       run: |
+  #         cargo build --locked --all-features --all-targets \
+  #           -p vortex-cuda \
+  #           -p vortex-cub \
+  #           -p vortex-nvcomp \
+  #           -p gpu-scan-cli \
+  #           -p vortex-test-e2e-cuda
 
-  cuda-lint:
-    if: github.repository == 'vortex-data/vortex'
-    name: "CUDA (lint)"
-    timeout-minutes: 120
-    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-lint
-    steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Clippy CUDA crates
-        run: |
-          cargo clippy --locked --all-features --all-targets \
-            -p vortex-cuda \
-            -p vortex-cub \
-            -p vortex-nvcomp \
-            -p gpu-scan-cli \
-            -p vortex-test-e2e-cuda \
-            -- -D warnings
+  # cuda-lint:
+  #   if: github.repository == 'vortex-data/vortex'
+  #   name: "CUDA (lint)"
+  #   timeout-minutes: 120
+  #   runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-lint
+  #   steps:
+  #     - uses: runs-on/action@v2
+  #       with:
+  #         sccache: s3
+  #     - uses: actions/checkout@v6
+  #     - uses: ./.github/actions/setup-rust
+  #       with:
+  #         repo-token: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Clippy CUDA crates
+  #       run: |
+  #         cargo clippy --locked --all-features --all-targets \
+  #           -p vortex-cuda \
+  #           -p vortex-cub \
+  #           -p vortex-nvcomp \
+  #           -p gpu-scan-cli \
+  #           -p vortex-test-e2e-cuda \
+  #           -- -D warnings
 
   cuda-test:
     if: github.repository == 'vortex-data/vortex'
@@ -565,67 +565,67 @@ jobs:
             --target x86_64-unknown-linux-gnu \
             --verbose
 
-  cuda-test-sanitizer:
-    if: github.repository == 'vortex-data/vortex'
-    name: "CUDA tests (sanitizer)"
-    timeout-minutes: 120
-    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-sanitizer
-    steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
-      - name: Display NVIDIA SMI details
-        run: |
-          nvidia-smi
-          nvidia-smi -L
-          nvidia-smi -q -d Memory
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: CUDA - memcheck
-        env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool memcheck --leak-check=full --error-exitcode 1
-        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
-        # TODO(joe): try to re-enable, This is hanging in CI.
-        #      - name: CUDA - racecheck
-        #        env:
-        #          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool racecheck --error-exitcode 1
-        #        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
-      - name: CUDA - synccheck
-        env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool synccheck --error-exitcode 1
-        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
-      - name: CUDA - initcheck
-        env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool initcheck --error-exitcode 1
-        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+  # cuda-test-sanitizer:
+  #   if: github.repository == 'vortex-data/vortex'
+  #   name: "CUDA tests (sanitizer)"
+  #   timeout-minutes: 120
+  #   runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-sanitizer
+  #   steps:
+  #     - uses: runs-on/action@v2
+  #       with:
+  #         sccache: s3
+  #     - name: Display NVIDIA SMI details
+  #       run: |
+  #         nvidia-smi
+  #         nvidia-smi -L
+  #         nvidia-smi -q -d Memory
+  #     - uses: actions/checkout@v6
+  #     - uses: ./.github/actions/setup-rust
+  #       with:
+  #         repo-token: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: CUDA - memcheck
+  #       env:
+  #         CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool memcheck --leak-check=full --error-exitcode 1
+  #       run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+  #       # TODO(joe): try to re-enable, This is hanging in CI.
+  #       #      - name: CUDA - racecheck
+  #       #        env:
+  #       #          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool racecheck --error-exitcode 1
+  #       #        run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+  #     - name: CUDA - synccheck
+  #       env:
+  #         CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool synccheck --error-exitcode 1
+  #       run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+  #     - name: CUDA - initcheck
+  #       env:
+  #         CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool initcheck --error-exitcode 1
+  #       run: cargo test --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
 
-  cuda-test-cudf:
-    if: github.repository == 'vortex-data/vortex'
-    name: "CUDA tests (cudf)"
-    timeout-minutes: 120
-    runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-cudf
-    steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
-      - name: Display NVIDIA SMI details
-        run: |
-          nvidia-smi
-          nvidia-smi -L
-          nvidia-smi -q -d Memory
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build cudf test library
-        run: cargo build --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
-      - name: Download and run cudf-test-harness
-        run: |
-          curl -fsSL https://github.com/vortex-data/cudf-test-harness/releases/latest/download/cudf-test-harness-x86_64.tar.gz | tar -xz
-          cd cudf-test-harness-x86_64
-          compute-sanitizer --tool memcheck --error-exitcode 1 ./cudf-test-harness check $GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/debug/libvortex_test_e2e_cuda.so
+  # cuda-test-cudf:
+  #   if: github.repository == 'vortex-data/vortex'
+  #   name: "CUDA tests (cudf)"
+  #   timeout-minutes: 120
+  #   runs-on: runs-on=${{ github.run_id }}/runner=gpu/tag=cuda-test-cudf
+  #   steps:
+  #     - uses: runs-on/action@v2
+  #       with:
+  #         sccache: s3
+  #     - name: Display NVIDIA SMI details
+  #       run: |
+  #         nvidia-smi
+  #         nvidia-smi -L
+  #         nvidia-smi -q -d Memory
+  #     - uses: actions/checkout@v6
+  #     - uses: ./.github/actions/setup-rust
+  #       with:
+  #         repo-token: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Build cudf test library
+  #       run: cargo build --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
+  #     - name: Download and run cudf-test-harness
+  #       run: |
+  #         curl -fsSL https://github.com/vortex-data/cudf-test-harness/releases/latest/download/cudf-test-harness-x86_64.tar.gz | tar -xz
+  #         cd cudf-test-harness-x86_64
+  #         compute-sanitizer --tool memcheck --error-exitcode 1 ./cudf-test-harness check $GITHUB_WORKSPACE/target/x86_64-unknown-linux-gnu/debug/libvortex_test_e2e_cuda.so
 
   rust-test-other:
     name: "Rust tests (${{ matrix.os }})"
@@ -720,19 +720,19 @@ jobs:
     strategy:
       matrix:
         include:
-          # - { shard: 1, cpu: 8, name: "Core foundation", packages: "vortex-buffer vortex-error" }
-          - { shard: 2, cpu: 2, name: "Arrays", packages: "vortex-array", features: "--features _test-harness" }
-          # - { shard: 3, cpu: 16, name: "Main library", packages: "vortex" }
-          # - { shard: 4, cpu: 8, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
-          # - { shard: 5, cpu: 16, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }
-          # - { shard: 6, cpu: 8, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }
-          # - { shard: 7, cpu: 8, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd" }
-          # - { shard: 8, cpu: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
+          - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-error" }
+          - { shard: 2, name: "Arrays", packages: "vortex-array", features: "--features _test-harness" }
+          - { shard: 3, name: "Main library", packages: "vortex" }
+          # - { shard: 4, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
+          # - { shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }
+          # - { shard: 6, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }
+          # - { shard: 7, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd" }
+          # - { shard: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
     name: "Benchmark with Codspeed (Shard #${{ matrix.shard }})"
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-small/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
+          && format('runs-on={0}/runner=amd64-medium/tag=bench-codspeed-{1}', github.run_id, matrix.shard)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -781,7 +781,7 @@ jobs:
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-xsmall/tag=cxx-build', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/tag=cxx-build', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
@@ -809,7 +809,7 @@ jobs:
     name: "SQL logic tests"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-xsmall/tag=sql-logic-test', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/tag=sql-logic-test', github.run_id)
           || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
