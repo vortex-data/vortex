@@ -63,6 +63,13 @@ impl RowIdxLayoutReader {
     }
 
     fn partition_expr(&self, expr: &Expression) -> Partitioning {
+        // Fast path for the common case where the expression does not mention row_idx at all.
+        // In benchmark full scans this is typically just `root()`, and routing that through the
+        // generic partitioner shows up as avoidable CPU overhead.
+        if is_root(expr) {
+            return Partitioning::Child(expr.clone());
+        }
+
         let key = ExactExpr(expr.clone());
 
         // Check cache first with read-only lock.

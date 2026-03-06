@@ -60,6 +60,7 @@ use vortex::array::expr::col;
 use vortex::array::expr::eq;
 use vortex::array::expr::gt;
 use vortex::array::expr::gt_eq;
+use vortex::array::expr::is_root;
 use vortex::array::expr::lit;
 use vortex::array::expr::lt;
 use vortex::array::expr::lt_eq;
@@ -353,6 +354,18 @@ async fn main() -> Result<()> {
                     ScanMode::Io => unreachable!("io-only handled above"),
                 };
 
+                if should_use_direct_root_scan(&mode, &scan_projection, scan_filter.as_ref(), args.prune_segments)
+                {
+                    let file_rows = direct_root_scan(&file).await?;
+                    if !first_seen.load(Ordering::Relaxed)
+                        && !first_seen.swap(true, Ordering::Relaxed)
+                    {
+                        *first_latency.lock() = Some(start.elapsed().as_secs_f64());
+                    }
+                    drop(file);
+                    return Ok::<_, anyhow::Error>(file_rows);
+                }
+
                 let layout_reader = file.layout_reader()?;
                 let layout_reader = if args.prune_segments || bypass_filter {
                     std::sync::Arc::new(BenchLayoutReader::new(
@@ -474,6 +487,29 @@ fn build_scan_exprs(args: &Args) -> VortexResult<(Expression, Option<Expression>
     };
 
     Ok((projection, filter))
+}
+
+fn should_use_direct_root_scan(
+    mode: &ScanMode,
+    projection: &Expression,
+    filter: Option<&Expression>,
+    prune_segments: bool,
+) -> bool {
+    matches!(mode, ScanMode::Full | ScanMode::Decode)
+        && filter.is_none()
+        && !prune_segments
+        && is_root(projection)
+}
+
+async fn direct_root_scan(file: &vortex::file::VortexFile) -> Result<usize> {
+    let row_count = file.row_count();
+    let row_len = usize::try_from(row_count)
+        .map_err(|_| anyhow::anyhow!("row_count exceeds usize"))?;
+    let layout_reader = file.layout_reader()?;
+    let array = layout_reader
+        .projection_evaluation(&(0..row_count), &root(), MaskFuture::new_true(row_len))?
+        .await?;
+    Ok(array.len())
 }
 
 fn build_preset_exprs(preset: &Preset) -> VortexResult<(Expression, Option<Expression>)> {
