@@ -315,7 +315,9 @@ impl<V: VTable> DynArray for Array<V> {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(Mask::new_true(self.len())),
             Validity::AllInvalid => Ok(Mask::new_false(self.len())),
-            Validity::Array(a) => a.try_to_mask_fill_null_false(),
+            Validity::Array(a) => {
+                a.try_to_mask_fill_null_false(&mut LEGACY_SESSION.create_execution_ctx())
+            }
         }
     }
 
