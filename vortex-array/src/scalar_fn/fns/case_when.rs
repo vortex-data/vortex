@@ -231,7 +231,7 @@ impl ScalarFnVTable for CaseWhen {
             }
 
             let then_value = args.get(i * 2 + 1)?;
-            remaining = remaining.andnot(&cond_mask);
+            remaining = remaining.bitand_not(&cond_mask);
             branches.push((effective_mask, then_value));
         }
 
