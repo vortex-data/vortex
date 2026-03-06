@@ -37,8 +37,8 @@ use vortex_layout::LayoutEncodingId;
 use vortex_layout::LayoutRef;
 use vortex_layout::layout_from_flatbuffer;
 use vortex_layout::session::LayoutSessionExt;
-use vortex_session::registry::ReadContext;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]

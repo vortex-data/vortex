@@ -26,8 +26,8 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_session::registry::ReadContext;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty().with::<ArraySession>();

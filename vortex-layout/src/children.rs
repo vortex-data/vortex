@@ -14,6 +14,7 @@ use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::layout as fbl;
 use vortex_session::registry::ReadContext;
+
 use crate::LayoutContext;
 use crate::LayoutRef;
 use crate::segments::SegmentId;

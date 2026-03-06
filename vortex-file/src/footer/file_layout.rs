@@ -16,6 +16,7 @@ use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::footer as fb;
 use vortex_session::registry::ReadContext;
+
 use crate::footer::segment::SegmentSpec;
 
 /// A writer for serializing a file layout to a FlatBuffer.

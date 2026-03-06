@@ -23,8 +23,8 @@ use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::array as fba;
 use vortex_flatbuffers::array::Compression;
-use vortex_session::registry::ReadContext;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayContext;

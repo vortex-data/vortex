@@ -3,11 +3,13 @@
 
 use std::ops::Deref;
 use std::sync::Arc;
+
 use itertools::Itertools;
 use pyo3::pyclass;
 use pyo3::pymethods;
 use vortex::array::ArrayContext;
-use vortex::session::registry::{Id, ReadContext};
+use vortex::session::registry::Id;
+use vortex::session::registry::ReadContext;
 
 /// An ArrayContext captures an ordered set of encodings.
 ///

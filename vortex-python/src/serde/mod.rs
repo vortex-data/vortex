@@ -19,7 +19,8 @@ use crate::SESSION;
 use crate::arrays::PyArrayRef;
 use crate::error::PyVortexResult;
 use crate::install_module;
-use crate::serde::context::{PyArrayContext, PyReadContext};
+use crate::serde::context::PyArrayContext;
+use crate::serde::context::PyReadContext;
 use crate::serde::parts::PyArrayParts;
 
 /// Register serde functions and classes.

@@ -16,6 +16,7 @@ use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::layout;
 use vortex_session::registry::ReadContext;
+
 use crate::Layout;
 use crate::LayoutContext;
 use crate::LayoutRef;

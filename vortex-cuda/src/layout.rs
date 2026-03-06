@@ -63,8 +63,8 @@ use vortex::scalar::Scalar;
 use vortex::scalar::ScalarTruncation;
 use vortex::scalar::lower_bound;
 use vortex::scalar::upper_bound;
-use vortex::session::registry::ReadContext;
 use vortex::session::VortexSession;
+use vortex::session::registry::ReadContext;
 use vortex::utils::aliases::hash_map::HashMap;
 
 /// A buffer inlined into layout metadata for host-side access.

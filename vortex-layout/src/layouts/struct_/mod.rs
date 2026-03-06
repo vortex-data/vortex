@@ -19,9 +19,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_session::registry::ReadContext;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;

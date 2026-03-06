@@ -11,6 +11,7 @@ use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::WriteFlatBufferExt;
 use vortex_layout::LayoutContext;
 use vortex_session::registry::ReadContext;
+
 use crate::EOF_SIZE;
 use crate::Footer;
 use crate::MAGIC_BYTES;

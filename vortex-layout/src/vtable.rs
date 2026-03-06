@@ -10,8 +10,8 @@ use vortex_array::SerializeMetadata;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_session::registry::ReadContext;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::IntoLayout;
 use crate::Layout;

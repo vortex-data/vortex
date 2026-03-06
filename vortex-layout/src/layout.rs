@@ -327,6 +327,7 @@ mod private {
 mod tests {
     use rstest::rstest;
     use vortex_session::registry::ReadContext;
+
     use super::*;
 
     #[test]

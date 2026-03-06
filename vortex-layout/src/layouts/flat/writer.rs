@@ -25,6 +25,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::Handle;
 use vortex_session::registry::ReadContext;
+
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;

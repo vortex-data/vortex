@@ -83,7 +83,7 @@ impl ReadContext {
     pub fn resolve(&self, idx: u16) -> Option<Id> {
         self.ids.get(idx as usize).cloned()
     }
-    
+
     pub fn ids(&self) -> &[Id] {
         &self.ids
     }

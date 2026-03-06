@@ -15982,7 +15982,7 @@ pub fn vortex_array::serde::ArrayParts::buffer_lengths(&self) -> alloc::vec::Vec
 
 pub fn vortex_array::serde::ArrayParts::child(&self, idx: usize) -> vortex_array::serde::ArrayParts
 
-pub fn vortex_array::serde::ArrayParts::decode(&self, dtype: &vortex_array::dtype::DType, len: usize, ctx: &vortex_array::ArrayContext, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::serde::ArrayParts::decode(&self, dtype: &vortex_array::dtype::DType, len: usize, ctx: &vortex_session::registry::ReadContext, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::serde::ArrayParts::encoding_id(&self) -> u16
 

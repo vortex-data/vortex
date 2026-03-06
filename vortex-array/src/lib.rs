@@ -22,8 +22,8 @@ pub use executor::*;
 pub use hash::*;
 pub use mask_future::*;
 pub use metadata::*;
-use vortex_session::registry::Context;
 use vortex_session::VortexSession;
+use vortex_session::registry::Context;
 
 use crate::session::ArraySession;
 use crate::vtable::DynVTable;
