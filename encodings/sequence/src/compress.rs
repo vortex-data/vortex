@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Add;
+
 use num_traits::CheckedAdd;
 use num_traits::CheckedSub;
 use vortex_array::ArrayRef;
@@ -13,28 +15,64 @@ use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::PValue;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
+use vortex_buffer::trusted_len::TrustedLen;
 use vortex_error::VortexResult;
 
 use crate::SequenceArray;
 
+/// An iterator that yields `base, base + step, base + 2*step, ...` via repeated addition.
+struct SequenceIter<T> {
+    acc: T,
+    step: T,
+    remaining: usize,
+}
+
+impl<T: Copy + Add<Output = T>> Iterator for SequenceIter<T> {
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<T> {
+        if self.remaining == 0 {
+            return None;
+        }
+        let val = self.acc;
+        self.remaining -= 1;
+        if self.remaining > 0 {
+            self.acc = self.acc + self.step;
+        }
+        Some(val)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+// SAFETY: `size_hint` returns an exact count and `next` yields exactly that many items.
+unsafe impl<T: Copy + Add<Output = T>> TrustedLen for SequenceIter<T> {}
+
 /// Decompresses a [`SequenceArray`] into a [`PrimitiveArray`].
+#[inline]
 pub fn sequence_decompress(array: &SequenceArray) -> VortexResult<ArrayRef> {
+    fn decompress_inner<P: NativePType>(
+        base: P,
+        multiplier: P,
+        len: usize,
+        nullability: Nullability,
+    ) -> PrimitiveArray {
+        let values = BufferMut::from_trusted_len_iter(SequenceIter {
+            acc: base,
+            step: multiplier,
+            remaining: len,
+        });
+        PrimitiveArray::new(values, Validity::from(nullability))
+    }
+
     let prim = match_each_native_ptype!(array.ptype(), |P| {
         let base = array.base().cast::<P>()?;
         let multiplier = array.multiplier().cast::<P>()?;
-        let len = array.len();
-        // Construction validates len-1 fits in P (via try_last), so we
-        // can use an accumulator without per-element overflow checks.
-        let mut values = BufferMut::<P>::with_capacity(len);
-        let spare = values.spare_capacity_mut();
-        let mut acc = base;
-        for v in &mut spare[..len] {
-            v.write(acc);
-            acc += multiplier;
-        }
-        // SAFETY: we initialized exactly `len` elements above.
-        unsafe { values.set_len(len) };
-        PrimitiveArray::new(values, Validity::from(array.dtype().nullability()))
+        decompress_inner(base, multiplier, array.len(), array.dtype().nullability())
     });
     Ok(prim.into_array())
 }
@@ -143,5 +181,14 @@ mod tests {
 
         let encoded = sequence_encode(&primitive_array).unwrap();
         assert!(encoded.is_none());
+    }
+
+    #[test]
+    fn test_encode_all_u8_values() {
+        let primitive_array = PrimitiveArray::from_iter(0u8..=255);
+        let encoded = sequence_encode(&primitive_array).unwrap();
+        assert!(encoded.is_some());
+        let decoded = encoded.unwrap().to_primitive();
+        assert_arrays_eq!(decoded, primitive_array);
     }
 }
