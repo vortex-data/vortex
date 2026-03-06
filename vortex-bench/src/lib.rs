@@ -15,6 +15,7 @@ use clap::ValueEnum;
 use clickbench::ClickBenchBenchmark;
 use clickbench::Flavor;
 use fineweb::FinewebBenchmark;
+use flat_primitives::FlatPrimitivesBenchmark;
 use itertools::Itertools;
 use polarsignals::PolarSignalsBenchmark;
 use public_bi::PBIDataset;
@@ -41,6 +42,7 @@ pub mod datasets;
 pub mod display;
 pub mod downloadable_dataset;
 pub mod fineweb;
+pub mod flat_primitives;
 pub mod measurements;
 pub mod memory;
 pub mod output;
@@ -261,6 +263,8 @@ impl CompactionStrategy {
 pub enum BenchmarkArg {
     #[clap(name = "clickbench")]
     ClickBench,
+    #[clap(name = "flat-primitives")]
+    FlatPrimitives,
     #[clap(name = "tpch")]
     TpcH,
     #[clap(name = "tpcds")]
@@ -299,6 +303,10 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
             let flavor = opts.get_as::<Flavor>("flavor").unwrap_or_default();
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
             let benchmark = ClickBenchBenchmark::new(flavor, None, remote_data_dir)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::FlatPrimitives => {
+            let benchmark = FlatPrimitivesBenchmark::from_opts(opts)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::TpcH => {

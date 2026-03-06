@@ -52,6 +52,12 @@ pub enum BenchmarkDataset {
     Fineweb,
     #[serde(rename = "gharchive")]
     GhArchive,
+    #[serde(rename = "flat-primitives")]
+    FlatPrimitives {
+        files: usize,
+        rows_per_file: usize,
+        columns: usize,
+    },
 }
 
 impl BenchmarkDataset {
@@ -65,6 +71,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::PolarSignals { .. } => "polarsignals",
             BenchmarkDataset::Fineweb => "fineweb",
             BenchmarkDataset::GhArchive => "gharchive",
+            BenchmarkDataset::FlatPrimitives { .. } => "flat-primitives",
         }
     }
 }
@@ -85,6 +92,14 @@ impl Display for BenchmarkDataset {
             }
             BenchmarkDataset::Fineweb => write!(f, "fineweb"),
             BenchmarkDataset::GhArchive => write!(f, "gharchive"),
+            BenchmarkDataset::FlatPrimitives {
+                files,
+                rows_per_file,
+                columns,
+            } => write!(
+                f,
+                "flat-primitives(files={files},rows-per-file={rows_per_file},columns={columns})"
+            ),
         }
     }
 }
@@ -127,6 +142,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::PolarSignals { .. } => &["stacktraces"],
             BenchmarkDataset::Fineweb => &["fineweb"],
             BenchmarkDataset::GhArchive => &["events"],
+            BenchmarkDataset::FlatPrimitives { .. } => &["flat"],
         }
     }
 }
