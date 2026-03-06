@@ -50,7 +50,7 @@ jobs:
     name: "Python (lint)"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-small/tag=python-lint', github.run_id)
+          && format('runs-on={0}/runner=amd64-medium/tag=python-lint', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 120
     steps:
