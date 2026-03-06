@@ -87,7 +87,7 @@ impl Executable for Columnar {
                 return Ok(Columnar::Canonical(canonical.into()));
             }
 
-            // Otherwise execute the array one step
+            // Otherwise execute the array one step (cache is handled inside ArrayRef::execute)
             array = array.execute(ctx)?;
         }
 
