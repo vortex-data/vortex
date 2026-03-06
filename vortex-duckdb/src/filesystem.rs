@@ -53,7 +53,7 @@ pub(super) fn resolve_filesystem(
     let fs_config = fs_config.as_string();
 
     Ok(if fs_config.as_str() == "duckdb" {
-        tracing::info!(
+        tracing::debug!(
             "Using DuckDB's built-in filesystem for URL scheme '{}'",
             base_url.scheme()
         );
@@ -63,7 +63,7 @@ pub(super) fn resolve_filesystem(
             ctx.erase_lifetime()
         }))
     } else if fs_config.as_str() == "vortex" {
-        tracing::info!(
+        tracing::debug!(
             "Using Vortex's object store filesystem for URL scheme '{}'",
             base_url.scheme()
         );
