@@ -89,7 +89,7 @@ impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
     }
 
     fn state_dtype(&self, input_dtype: &DType) -> VortexResult<DType> {
-        V::state_dtype(&self.vtable, &self.options, input_dtype)
+        V::partial_dtype(&self.vtable, &self.options, input_dtype)
     }
 
     fn accumulator(

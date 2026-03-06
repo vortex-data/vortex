@@ -32,9 +32,9 @@ pub struct Accumulator<V: AggregateFnVTable> {
     /// The DType of the aggregate.
     return_dtype: DType,
     /// The DType of the accumulator state.
-    state_dtype: DType,
-    /// The current state of the accumulator, updated after each accumulate/merge call.
-    current_state: V::GroupState,
+    partial_dtype: DType,
+    /// The partial state of the accumulator, updated after each accumulate/merge call.
+    partial: V::Partial,
     /// A session used to lookup custom aggregate kernels.
     session: VortexSession,
 }
@@ -47,8 +47,8 @@ impl<V: AggregateFnVTable> Accumulator<V> {
         session: VortexSession,
     ) -> VortexResult<Self> {
         let return_dtype = vtable.return_dtype(&options, &dtype)?;
-        let state_dtype = vtable.state_dtype(&options, &dtype)?;
-        let current_state = vtable.state_new(&options, &dtype)?;
+        let partial_dtype = vtable.partial_dtype(&options, &dtype)?;
+        let partial = vtable.new_partial(&options, &dtype)?;
         let aggregate_fn = AggregateFn::new(vtable.clone(), options).erased();
 
         Ok(Self {
@@ -56,8 +56,8 @@ impl<V: AggregateFnVTable> Accumulator<V> {
             aggregate_fn,
             dtype,
             return_dtype,
-            state_dtype,
-            current_state,
+            partial_dtype,
+            partial,
             session,
         })
     }
@@ -110,12 +110,12 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                 && let Some(result) = kernel.aggregate(&self.aggregate_fn, &batch)?
             {
                 vortex_ensure!(
-                    result.dtype() == &self.state_dtype,
+                    result.dtype() == &self.partial_dtype,
                     "Aggregate kernel returned {}, expected {}",
                     result.dtype(),
-                    self.state_dtype,
+                    self.partial_dtype,
                 );
-                self.vtable.state_merge(&mut self.current_state, result)?;
+                self.vtable.merge_partials(&mut self.partial, result)?;
                 return Ok(());
             }
 
@@ -127,22 +127,22 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         let canonical = batch.execute::<Canonical>(&mut ctx)?;
 
         self.vtable
-            .state_accumulate(&mut self.current_state, &canonical, &mut ctx)
+            .accumulate(&mut self.partial, &canonical, &mut ctx)
     }
 
     fn is_saturated(&self) -> bool {
-        self.vtable.state_is_saturated(&self.current_state)
+        self.vtable.is_saturated(&self.partial)
     }
 
     fn flush(&mut self) -> VortexResult<Scalar> {
-        let partial = self.vtable.state_flush(&mut self.current_state)?;
+        let partial = self.vtable.flush(&mut self.partial)?;
 
         #[cfg(debug_assertions)]
         {
             vortex_ensure!(
-                partial.dtype() == &self.state_dtype,
+                partial.dtype() == &self.partial_dtype,
                 "Aggregate kernel returned incorrect DType on flush: expected {}, got {}",
-                self.state_dtype,
+                self.partial_dtype,
                 partial.dtype(),
             );
         }

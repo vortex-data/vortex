@@ -53,10 +53,10 @@ pub struct GroupedAccumulator<V: AggregateFnVTable> {
     dtype: DType,
     /// The DType of the aggregate.
     return_dtype: DType,
-    /// The DType of the accumulator state.
-    state_dtype: DType,
+    /// The DType of the partial accumulator state.
+    partial_dtype: DType,
     /// The accumulated state for prior batches of groups.
-    states: Vec<ArrayRef>,
+    partials: Vec<ArrayRef>,
     /// A session used to lookup custom aggregate kernels.
     session: VortexSession,
 }
@@ -70,7 +70,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
     ) -> VortexResult<Self> {
         let aggregate_fn = AggregateFn::new(vtable.clone(), options.clone()).erased();
         let return_dtype = vtable.return_dtype(&options, &dtype)?;
-        let state_dtype = vtable.state_dtype(&options, &dtype)?;
+        let partial_dtype = vtable.partial_dtype(&options, &dtype)?;
 
         Ok(Self {
             vtable,
@@ -78,8 +78,8 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             aggregate_fn,
             dtype,
             return_dtype,
-            state_dtype,
-            states: vec![],
+            partial_dtype,
+            partials: vec![],
             session,
         })
     }
@@ -129,8 +129,8 @@ impl<V: AggregateFnVTable> DynGroupedAccumulator for GroupedAccumulator<V> {
     }
 
     fn flush(&mut self) -> VortexResult<ArrayRef> {
-        let states = std::mem::take(&mut self.states);
-        Ok(ChunkedArray::try_new(states, self.state_dtype.clone())?.into_array())
+        let states = std::mem::take(&mut self.partials);
+        Ok(ChunkedArray::try_new(states, self.partial_dtype.clone())?.into_array())
     }
 
     fn finish(&mut self) -> VortexResult<ArrayRef> {
@@ -211,7 +211,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             self.dtype.clone(),
             self.session.clone(),
         )?;
-        let mut states = builder_with_capacity(&self.state_dtype, offsets.len());
+        let mut states = builder_with_capacity(&self.partial_dtype, offsets.len());
 
         for (offset, size) in offsets.iter().zip(sizes.iter()) {
             let offset = offset.to_usize().vortex_expect("Offset value is not usize");
@@ -277,7 +277,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             self.dtype.clone(),
             self.session.clone(),
         )?;
-        let mut states = builder_with_capacity(&self.state_dtype, groups.len());
+        let mut states = builder_with_capacity(&self.partial_dtype, groups.len());
 
         let mut offset = 0;
         let size = groups
@@ -301,12 +301,12 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
 
     fn push_result(&mut self, state: ArrayRef) -> VortexResult<()> {
         vortex_ensure!(
-            state.dtype() == &self.state_dtype,
+            state.dtype() == &self.partial_dtype,
             "State DType mismatch: expected {}, got {}",
-            self.state_dtype,
+            self.partial_dtype,
             state.dtype()
         );
-        self.states.push(state);
+        self.partials.push(state);
         Ok(())
     }
 }
