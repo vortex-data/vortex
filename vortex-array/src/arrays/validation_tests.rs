@@ -16,13 +16,10 @@ mod tests {
     use vortex_error::VortexError;
 
     use crate::IntoArray;
-    use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
-    use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListArray;
-    use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;

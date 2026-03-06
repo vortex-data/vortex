@@ -108,7 +108,6 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::Nullability;
 
     use crate::SequenceArray;
