@@ -72,7 +72,7 @@ pub fn vortex_sequence::SequenceVTable::fmt(&self, f: &mut core::fmt::Formatter<
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_sequence::SequenceVTable
 
-pub fn vortex_sequence::SequenceVTable::take(array: &vortex_sequence::SequenceArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_sequence::SequenceVTable::take(array: &vortex_sequence::SequenceArray, indices: &vortex_array::array::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_sequence::SequenceVTable
 
