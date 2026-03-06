@@ -76,10 +76,10 @@ impl ScalarFnVTable for CaseWhen {
         ScalarFnId::from("vortex.case_when")
     }
 
-    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         // let num_children = options.num_when_then_pairs * 2 + u32::from(options.has_else);
         // Ok(Some(pb::CaseWhenOpts { num_children }.encode_to_vec()))
-        // stablize the expr
+        // stabilize the expr
         vortex_bail!("cannot serialize")
     }
 
@@ -292,6 +292,7 @@ mod tests {
     // ==================== Serialization Tests ====================
 
     #[test]
+    #[should_panic(expected = "cannot serialize")]
     fn test_serialization_roundtrip() {
         let options = CaseWhenOptions {
             num_when_then_pairs: 1,
@@ -305,6 +306,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "cannot serialize")]
     fn test_serialization_no_else() {
         let options = CaseWhenOptions {
             num_when_then_pairs: 1,
@@ -461,6 +463,7 @@ mod tests {
     // ==================== N-ary Serialization Tests ====================
 
     #[test]
+    #[should_panic(expected = "cannot serialize")]
     fn test_serialization_roundtrip_nary() {
         let options = CaseWhenOptions {
             num_when_then_pairs: 3,
@@ -474,6 +477,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "cannot serialize")]
     fn test_serialization_roundtrip_nary_no_else() {
         let options = CaseWhenOptions {
             num_when_then_pairs: 4,
