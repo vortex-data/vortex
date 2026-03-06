@@ -421,7 +421,6 @@ impl IntoArray for Canonical {
 /// # Canonicalization
 ///
 /// This trait has a blanket implementation for all types implementing [ToCanonical].
-#[deprecated(note = "Use Array::execute instead")]
 pub trait ToCanonical {
     /// Canonicalize into a [`NullArray`] if the target is [`Null`](DType::Null) typed.
     fn to_null(&self) -> NullArray;

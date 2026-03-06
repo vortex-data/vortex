@@ -155,6 +155,7 @@ mod test {
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
         let primitive_values = decode_to_temporal(&date_times, &mut ctx)?
             .temporal_values()
+            .clone()
             .execute::<PrimitiveArray>(&mut ctx)?;
 
         assert_arrays_eq!(primitive_values, milliseconds);
