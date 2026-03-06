@@ -3,18 +3,30 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::ops::BitAnd;
 
+use itertools::Itertools;
+use num_traits::ToPrimitive;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_mask::AllOr;
 
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::arrays::BoolArray;
+use crate::arrays::DecimalArray;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::expr::stats::Stat;
+use crate::match_each_decimal_value_type;
+use crate::match_each_native_ptype;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 
@@ -38,7 +50,7 @@ impl Display for SumOptions {
 
 impl AggregateFnVTable for Sum {
     type Options = SumOptions;
-    type GroupState = Option<SumState>;
+    type GroupState = SumGroupState;
 
     fn id(&self) -> AggregateFnId {
         AggregateFnId::new_ref("vortex.sum")
@@ -56,54 +68,146 @@ impl AggregateFnVTable for Sum {
 
     fn state_new(
         &self,
-        _options: &Self::Options,
+        options: &Self::Options,
         input_dtype: &DType,
     ) -> VortexResult<Self::GroupState> {
-        Ok(Some(
-            match Stat::Sum
-                .dtype(input_dtype)
-                .ok_or_else(|| vortex_err!("Cannot sum {}", input_dtype))?
-            {
-                DType::Primitive(ptype, _) => match ptype {
-                    PType::U8 | PType::U16 | PType::U32 | PType::U64 => SumState::Unsigned(0),
-                    PType::I8 | PType::I16 | PType::I32 | PType::I64 => SumState::Signed(0),
-                    PType::F16 | PType::F32 | PType::F64 => SumState::Float(0.0),
-                },
-                DType::Decimal(decimal, _) => SumState::Decimal(DecimalValue::zero(&decimal)),
-                _ => vortex_panic!("Unsupported sum types"),
+        let return_dtype = Stat::Sum
+            .dtype(input_dtype)
+            .ok_or_else(|| vortex_err!("Cannot sum {}", input_dtype))?;
+
+        let initial = match &return_dtype {
+            DType::Primitive(ptype, _) => match ptype {
+                PType::U8 | PType::U16 | PType::U32 | PType::U64 => SumState::Unsigned(0),
+                PType::I8 | PType::I16 | PType::I32 | PType::I64 => SumState::Signed(0),
+                PType::F16 | PType::F32 | PType::F64 => SumState::Float(0.0),
             },
-        ))
+            DType::Decimal(decimal, _) => SumState::Decimal(DecimalValue::zero(decimal)),
+            _ => vortex_panic!("Unsupported sum type"),
+        };
+
+        Ok(SumGroupState {
+            checked: options.checked,
+            return_dtype,
+            current: Some(initial),
+        })
     }
 
     fn state_reset(&self, state: &mut Self::GroupState) {
-        todo!()
+        state.current = Some(make_zero_state(&state.return_dtype));
     }
 
     fn state_merge(&self, state: &mut Self::GroupState, other: Scalar) -> VortexResult<()> {
-        todo!()
+        if other.is_null() {
+            return Ok(());
+        }
+        let checked = state.checked;
+        let Some(ref mut inner) = state.current else {
+            return Ok(());
+        };
+        let saturated = match inner {
+            SumState::Unsigned(acc) => {
+                let val = other
+                    .as_primitive()
+                    .typed_value::<u64>()
+                    .ok_or_else(|| vortex_err!("Expected u64 scalar for unsigned sum merge"))?;
+                add_u64(acc, val, checked)
+            }
+            SumState::Signed(acc) => {
+                let val = other
+                    .as_primitive()
+                    .typed_value::<i64>()
+                    .ok_or_else(|| vortex_err!("Expected i64 scalar for signed sum merge"))?;
+                add_i64(acc, val, checked)
+            }
+            SumState::Float(acc) => {
+                let val = other
+                    .as_primitive()
+                    .typed_value::<f64>()
+                    .ok_or_else(|| vortex_err!("Expected f64 scalar for float sum merge"))?;
+                *acc += val;
+                false
+            }
+            SumState::Decimal(acc) => {
+                let val = other
+                    .as_decimal()
+                    .decimal_value()
+                    .ok_or_else(|| vortex_err!("Expected decimal scalar for decimal sum merge"))?;
+                match acc.checked_add(&val) {
+                    Some(r) => {
+                        *acc = r;
+                        false
+                    }
+                    None => true,
+                }
+            }
+        };
+        if saturated {
+            state.current = None;
+        }
+        Ok(())
     }
 
     fn state_result(&self, state: &Self::GroupState) -> Scalar {
-        todo!()
+        match &state.current {
+            None => Scalar::null(state.return_dtype.as_nullable()),
+            Some(SumState::Unsigned(v)) => Scalar::primitive(*v, Nullability::Nullable),
+            Some(SumState::Signed(v)) => Scalar::primitive(*v, Nullability::Nullable),
+            Some(SumState::Float(v)) => Scalar::primitive(*v, Nullability::Nullable),
+            Some(SumState::Decimal(v)) => {
+                let decimal_dtype = *state
+                    .return_dtype
+                    .as_decimal_opt()
+                    .vortex_expect("return dtype must be decimal");
+                Scalar::decimal(*v, decimal_dtype, Nullability::Nullable)
+            }
+        }
     }
 
     fn state_is_saturated(&self, state: &Self::GroupState) -> bool {
-        // On overflow, the state is set to `None`.
-        state.is_none()
+        state.current.is_none()
     }
 
     fn state_accumulate(
         &self,
         state: &mut Self::GroupState,
         batch: &Canonical,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        todo!()
+        let checked = state.checked;
+        let mut inner = match state.current.take() {
+            Some(inner) => inner,
+            None => return Ok(()),
+        };
+
+        let result = match batch {
+            Canonical::Primitive(p) => accumulate_primitive(&mut inner, p, checked),
+            Canonical::Bool(b) => accumulate_bool(&mut inner, b, checked),
+            Canonical::Decimal(d) => accumulate_decimal(&mut inner, d),
+            _ => vortex_bail!("Unsupported canonical type for sum: {}", batch.dtype()),
+        };
+
+        match result {
+            Ok(false) => state.current = Some(inner),
+            Ok(true) => {} // saturated: current stays None
+            Err(e) => {
+                state.current = Some(inner);
+                return Err(e);
+            }
+        }
+        Ok(())
     }
 }
 
-/// The state of a sum aggregate function, which may be used to optimize accumulation by
-/// short-circuiting
+/// The group state for a sum aggregate, containing the accumulated value and configuration
+/// needed for reset/result without external context.
+pub struct SumGroupState {
+    checked: bool,
+    return_dtype: DType,
+    /// The current accumulated state, or `None` if saturated (checked overflow).
+    current: Option<SumState>,
+}
+
+/// The accumulated sum value.
 ///
 // TODO(ngates): instead of an enum, we should use a Box<dyn State> to avoid dispatcher over the
 //  input type every time? Perhaps?
@@ -112,6 +216,205 @@ pub enum SumState {
     Signed(i64),
     Float(f64),
     Decimal(DecimalValue),
+}
+
+fn make_zero_state(return_dtype: &DType) -> SumState {
+    match return_dtype {
+        DType::Primitive(ptype, _) => match ptype {
+            PType::U8 | PType::U16 | PType::U32 | PType::U64 => SumState::Unsigned(0),
+            PType::I8 | PType::I16 | PType::I32 | PType::I64 => SumState::Signed(0),
+            PType::F16 | PType::F32 | PType::F64 => SumState::Float(0.0),
+        },
+        DType::Decimal(decimal, _) => SumState::Decimal(DecimalValue::zero(decimal)),
+        _ => vortex_panic!("Unsupported sum type"),
+    }
+}
+
+/// Add `val` to `acc`, returning true if overflow occurred (checked mode) or wrapping (unchecked).
+fn add_u64(acc: &mut u64, val: u64, checked: bool) -> bool {
+    if checked {
+        match acc.checked_add(val) {
+            Some(r) => {
+                *acc = r;
+                false
+            }
+            None => true,
+        }
+    } else {
+        *acc = acc.wrapping_add(val);
+        false
+    }
+}
+
+fn add_i64(acc: &mut i64, val: i64, checked: bool) -> bool {
+    if checked {
+        match acc.checked_add(val) {
+            Some(r) => {
+                *acc = r;
+                false
+            }
+            None => true,
+        }
+    } else {
+        *acc = acc.wrapping_add(val);
+        false
+    }
+}
+
+/// Accumulate a primitive array into the sum state.
+/// Returns Ok(true) if saturated (overflow), Ok(false) if not.
+fn accumulate_primitive(
+    inner: &mut SumState,
+    p: &PrimitiveArray,
+    checked: bool,
+) -> VortexResult<bool> {
+    let mask = p.validity_mask()?;
+    match mask.bit_buffer() {
+        AllOr::None => Ok(false),
+        AllOr::All => accumulate_primitive_all(inner, p, checked),
+        AllOr::Some(validity) => accumulate_primitive_valid(inner, p, validity, checked),
+    }
+}
+
+fn accumulate_primitive_all(
+    inner: &mut SumState,
+    p: &PrimitiveArray,
+    checked: bool,
+) -> VortexResult<bool> {
+    match inner {
+        SumState::Unsigned(acc) => match_each_native_ptype!(p.ptype(),
+            unsigned: |T| {
+                for &v in p.as_slice::<T>() {
+                    if add_u64(acc, v.to_u64().vortex_expect("unsigned to u64"), checked) {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            },
+            signed: |_T| { vortex_panic!("unsigned sum state with signed input") },
+            floating: |_T| { vortex_panic!("unsigned sum state with float input") }
+        ),
+        SumState::Signed(acc) => match_each_native_ptype!(p.ptype(),
+            unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
+            signed: |T| {
+                for &v in p.as_slice::<T>() {
+                    if add_i64(acc, v.to_i64().vortex_expect("signed to i64"), checked) {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            },
+            floating: |_T| { vortex_panic!("signed sum state with float input") }
+        ),
+        SumState::Float(acc) => match_each_native_ptype!(p.ptype(),
+            unsigned: |_T| { vortex_panic!("float sum state with unsigned input") },
+            signed: |_T| { vortex_panic!("float sum state with signed input") },
+            floating: |T| {
+                for &v in p.as_slice::<T>() {
+                    *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
+                }
+                Ok(false)
+            }
+        ),
+        SumState::Decimal(_) => vortex_panic!("decimal sum state with primitive input"),
+    }
+}
+
+fn accumulate_primitive_valid(
+    inner: &mut SumState,
+    p: &PrimitiveArray,
+    validity: &vortex_buffer::BitBuffer,
+    checked: bool,
+) -> VortexResult<bool> {
+    match inner {
+        SumState::Unsigned(acc) => match_each_native_ptype!(p.ptype(),
+            unsigned: |T| {
+                for (&v, valid) in p.as_slice::<T>().iter().zip_eq(validity.iter()) {
+                    if valid && add_u64(acc, v.to_u64().vortex_expect("unsigned to u64"), checked) {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            },
+            signed: |_T| { vortex_panic!("unsigned sum state with signed input") },
+            floating: |_T| { vortex_panic!("unsigned sum state with float input") }
+        ),
+        SumState::Signed(acc) => match_each_native_ptype!(p.ptype(),
+            unsigned: |_T| { vortex_panic!("signed sum state with unsigned input") },
+            signed: |T| {
+                for (&v, valid) in p.as_slice::<T>().iter().zip_eq(validity.iter()) {
+                    if valid && add_i64(acc, v.to_i64().vortex_expect("signed to i64"), checked) {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            },
+            floating: |_T| { vortex_panic!("signed sum state with float input") }
+        ),
+        SumState::Float(acc) => match_each_native_ptype!(p.ptype(),
+            unsigned: |_T| { vortex_panic!("float sum state with unsigned input") },
+            signed: |_T| { vortex_panic!("float sum state with signed input") },
+            floating: |T| {
+                for (&v, valid) in p.as_slice::<T>().iter().zip_eq(validity.iter()) {
+                    if valid {
+                        *acc += ToPrimitive::to_f64(&v).vortex_expect("float to f64");
+                    }
+                }
+                Ok(false)
+            }
+        ),
+        SumState::Decimal(_) => vortex_panic!("decimal sum state with primitive input"),
+    }
+}
+
+/// Accumulate a boolean array into the sum state (counts true values as u64).
+/// Returns Ok(true) if saturated (overflow), Ok(false) if not.
+fn accumulate_bool(inner: &mut SumState, b: &BoolArray, checked: bool) -> VortexResult<bool> {
+    let SumState::Unsigned(acc) = inner else {
+        vortex_panic!("expected unsigned sum state for bool input");
+    };
+
+    let mask = b.validity_mask()?;
+    let true_count = match mask.bit_buffer() {
+        AllOr::None => return Ok(false),
+        AllOr::All => b.to_bit_buffer().true_count() as u64,
+        AllOr::Some(validity) => b.to_bit_buffer().bitand(validity).true_count() as u64,
+    };
+
+    Ok(add_u64(acc, true_count, checked))
+}
+
+/// Accumulate a decimal array into the sum state.
+/// Returns Ok(true) if saturated (overflow), Ok(false) if not.
+fn accumulate_decimal(inner: &mut SumState, d: &DecimalArray) -> VortexResult<bool> {
+    let SumState::Decimal(acc) = inner else {
+        vortex_panic!("expected decimal sum state for decimal input");
+    };
+
+    let mask = d.validity_mask()?;
+    match mask.bit_buffer() {
+        AllOr::None => Ok(false),
+        AllOr::All => match_each_decimal_value_type!(d.values_type(), |T| {
+            for &v in d.buffer::<T>().iter() {
+                match acc.checked_add(&DecimalValue::from(v)) {
+                    Some(r) => *acc = r,
+                    None => return Ok(true),
+                }
+            }
+            Ok(false)
+        }),
+        AllOr::Some(validity) => match_each_decimal_value_type!(d.values_type(), |T| {
+            for (&v, valid) in d.buffer::<T>().iter().zip_eq(validity.iter()) {
+                if valid {
+                    match acc.checked_add(&DecimalValue::from(v)) {
+                        Some(r) => *acc = r,
+                        None => return Ok(true),
+                    }
+                }
+            }
+            Ok(false)
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -190,9 +493,10 @@ mod tests {
 
     #[test]
     fn sum_all_null() -> VortexResult<()> {
+        // Arrow semantics: sum of all nulls is zero (identity element)
         let arr = PrimitiveArray::from_option_iter([None::<i32>, None, None]).into_array();
         let result = run_sum(&arr, &checked_opts())?;
-        assert!(result.is_null());
+        assert_eq!(result.as_primitive().typed_value::<i64>(), Some(0));
         Ok(())
     }
 
@@ -343,9 +647,10 @@ mod tests {
 
     #[test]
     fn sum_bool_all_null() -> VortexResult<()> {
+        // Arrow semantics: sum of all nulls is zero (identity element)
         let arr = BoolArray::from_iter([None::<bool>, None, None]);
         let result = run_sum(&arr.into_array(), &checked_opts())?;
-        assert!(result.is_null());
+        assert_eq!(result.as_primitive().typed_value::<u64>(), Some(0));
         Ok(())
     }
 

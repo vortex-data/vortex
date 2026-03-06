@@ -18,6 +18,7 @@ use vortex_utils::debug_with::DebugWith;
 use crate::aggregate_fn::AccumulatorRef;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::GroupedAccumulatorRef;
 use crate::aggregate_fn::options::AggregateFnOptions;
 use crate::aggregate_fn::typed::AggregateFnInner;
 use crate::aggregate_fn::typed::DynAggregateFn;
@@ -91,6 +92,15 @@ impl AggregateFnRef {
         session: &VortexSession,
     ) -> VortexResult<AccumulatorRef> {
         self.0.accumulator(input_dtype, session)
+    }
+
+    /// Create a grouped accumulator for grouped streaming aggregation.
+    pub fn accumulator_grouped(
+        &self,
+        input_dtype: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<GroupedAccumulatorRef> {
+        self.0.accumulator_grouped(input_dtype, session)
     }
 }
 
