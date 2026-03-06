@@ -1187,7 +1187,7 @@ impl DeviceBuffer for PooledP2pDeviceBuffer {
             offset: new_offset,
             len: new_len,
             device_ptr: self.device_ptr,
-            alignment: self.alignment,
+            alignment: slice_align,
         })
     }
 
