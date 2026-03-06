@@ -7,15 +7,14 @@ use std::sync::Arc;
 
 use flatbuffers::Follow;
 use itertools::Itertools;
-use vortex_array::ArrayContext;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::layout as fbl;
+use vortex_session::registry::ReadContext;
 
-use crate::LayoutContext;
 use crate::LayoutRef;
 use crate::segments::SegmentId;
 use crate::session::LayoutRegistry;
@@ -101,8 +100,8 @@ impl LayoutChildren for OwnedLayoutChildren {
 pub(crate) struct ViewedLayoutChildren {
     flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
-    array_ctx: ArrayContext,
-    layout_ctx: LayoutContext,
+    array_read_ctx: ReadContext,
+    layout_read_ctx: ReadContext,
     layouts: LayoutRegistry,
 }
 
@@ -115,15 +114,15 @@ impl ViewedLayoutChildren {
     pub(super) unsafe fn new_unchecked(
         flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
-        array_ctx: ArrayContext,
-        layout_ctx: LayoutContext,
+        array_read_ctx: ReadContext,
+        layout_read_ctx: ReadContext,
         layouts: LayoutRegistry,
     ) -> Self {
         Self {
             flatbuffer,
             flatbuffer_loc,
-            array_ctx,
-            layout_ctx,
+            array_read_ctx,
+            layout_read_ctx,
             layouts,
         }
     }
@@ -151,13 +150,13 @@ impl LayoutChildren for ViewedLayoutChildren {
         let viewed_children = ViewedLayoutChildren {
             flatbuffer: self.flatbuffer.clone(),
             flatbuffer_loc: fb_child._tab.loc(),
-            array_ctx: self.array_ctx.clone(),
-            layout_ctx: self.layout_ctx.clone(),
+            array_read_ctx: self.array_read_ctx.clone(),
+            layout_read_ctx: self.layout_read_ctx.clone(),
             layouts: self.layouts.clone(),
         };
 
         let encoding_id = self
-            .layout_ctx
+            .layout_read_ctx
             .resolve(fb_child.encoding())
             .ok_or_else(|| vortex_err!("Encoding not found: {}", fb_child.encoding()))?;
         let encoding = self.layouts.find(&encoding_id).ok_or_else(|| {
@@ -178,7 +177,7 @@ impl LayoutChildren for ViewedLayoutChildren {
                 .map(SegmentId::from)
                 .collect_vec(),
             &viewed_children,
-            &self.array_ctx,
+            &self.array_read_ctx,
         )
     }
 

@@ -102,7 +102,10 @@ jobs:
       matrix:
         include: ${{ fromJSON(inputs.benchmark_matrix) }}
 
-    runs-on: runs-on=${{ github.run_id }}/family=${{ inputs.machine_type }}/image=ubuntu24-full-x64/spot=false/tag=${{ matrix.id }}${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '' }}
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/tag={1}{2}', github.run_id, matrix.id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          || 'ubuntu-latest' }}
     steps:
       - uses: runs-on/action@v2
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false

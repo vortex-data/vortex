@@ -3,14 +3,14 @@
 
 # Check a string table hashjoin with itself works correctly.
 
-include ./setup.slt
+include ../setup.slt
 
 query I
 COPY (SELECT '' as id) TO '$__TEST_DIR__/hashjoin.vortex';
 ----
 1
 
-query T
+query I
 SELECT first(t) AS sales
 FROM (
     SELECT id, 0 as t FROM read_vortex('$__TEST_DIR__/hashjoin.vortex')

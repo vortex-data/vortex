@@ -46,7 +46,7 @@ pub mod vortex_ipc::messages
 
 pub enum vortex_ipc::messages::DecoderMessage
 
-pub vortex_ipc::messages::DecoderMessage::Array((vortex_array::serde::ArrayParts, vortex_array::context::ArrayContext, usize))
+pub vortex_ipc::messages::DecoderMessage::Array((vortex_array::serde::ArrayParts, vortex_session::registry::ReadContext, usize))
 
 pub vortex_ipc::messages::DecoderMessage::Buffer(vortex_buffer::ByteBuffer)
 

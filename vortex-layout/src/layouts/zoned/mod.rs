@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 pub use builder::MAX_IS_TRUNCATED;
 pub use builder::MIN_IS_TRUNCATED;
-use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::dtype::DType;
@@ -23,6 +22,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
@@ -116,7 +116,7 @@ impl VTable for ZonedVTable {
         metadata: &ZonedMetadata,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        _ctx: &ArrayContext,
+        _ctx: &ReadContext,
     ) -> VortexResult<Self::Layout> {
         Ok(ZonedLayout {
             dtype: dtype.clone(),
@@ -141,6 +141,9 @@ impl VTable for ZonedVTable {
 #[derive(Debug)]
 pub struct ZonedLayoutEncoding;
 
+/// Annotates a data layout with per-zone aggregate statistics (e.g. min, max, null count).
+///
+/// During reads, zone maps allow entire zones to be skipped when a filter predicate cannot match.
 #[derive(Clone, Debug)]
 pub struct ZonedLayout {
     dtype: DType,

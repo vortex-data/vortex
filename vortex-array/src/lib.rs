@@ -18,14 +18,15 @@ use std::sync::LazyLock;
 pub use array::*;
 pub use canonical::*;
 pub use columnar::*;
-pub use context::*;
 pub use executor::*;
 pub use hash::*;
 pub use mask_future::*;
 pub use metadata::*;
 use vortex_session::VortexSession;
+use vortex_session::registry::Context;
 
 use crate::session::ArraySession;
+use crate::vtable::DynVTable;
 
 pub mod accessor;
 pub mod aggregate_fn;
@@ -40,7 +41,6 @@ pub mod builtins;
 mod canonical;
 mod columnar;
 pub mod compute;
-mod context;
 pub mod display;
 pub mod dtype;
 mod executor;
@@ -81,3 +81,5 @@ pub mod flatbuffers {
 //  here...
 pub static LEGACY_SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
+pub type ArrayContext = Context<&'static dyn DynVTable>;

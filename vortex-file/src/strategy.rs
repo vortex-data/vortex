@@ -139,7 +139,7 @@ impl Default for WriteStrategyBuilder {
             compressor: None,
             row_block_size: 8192,
             field_writers: HashMap::new(),
-            allow_encodings: None,
+            allow_encodings: Some(ALLOWED_ENCODINGS.clone()),
             flat_strategy: None,
         }
     }

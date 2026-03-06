@@ -25,16 +25,14 @@ jobs:
       fail-fast: false
       matrix:
         target: [file_io, array_ops, compress_roundtrip]
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m8g.large
-      - image=ubuntu24-full-arm64
-      - disk=large
-      - extras=s3-cache
-      - tag=fuzzer-cleanup-${{ matrix.target }}
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=arm64-medium/disk=large/tag=fuzzer-cleanup-{1}', github.run_id, matrix.target)
+          || 'ubuntu-latest' }}
     timeout-minutes: 60
     steps:
       - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
 

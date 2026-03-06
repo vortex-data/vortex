@@ -11,12 +11,11 @@ use std::sync::Arc;
 
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::WIPOffset;
-use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
 use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::footer as fb;
-use vortex_layout::LayoutContext;
+use vortex_session::registry::ReadContext;
 
 use crate::footer::segment::SegmentSpec;
 
@@ -26,9 +25,9 @@ use crate::footer::segment::SegmentSpec;
 /// which describes the structure of the data in the file.
 pub(crate) struct FooterFlatBufferWriter {
     /// The array context containing encodings used in the file.
-    pub(crate) ctx: ArrayContext,
+    pub(crate) ctx: ReadContext,
     /// The layout context containing the layouts used in the file.
-    pub(crate) layout_ctx: LayoutContext,
+    pub(crate) layout_ctx: ReadContext,
     /// Specifications for all segments in the file.
     pub(crate) segment_specs: Arc<[SegmentSpec]>,
 }
@@ -47,7 +46,7 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
 
         let array_specs = self
             .ctx
-            .to_ids()
+            .ids()
             .iter()
             .map(|e| {
                 let id = fbb.create_string(e.as_ref());
@@ -58,7 +57,7 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
 
         let layout_specs = self
             .layout_ctx
-            .to_ids()
+            .ids()
             .iter()
             .map(|e| {
                 let id = fbb.create_string(e.as_ref());

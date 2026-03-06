@@ -44,10 +44,14 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewArrayParts;
 use crate::arrays::VarBinViewVTable;
 use crate::arrays::constant_canonicalize;
-use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
+use crate::match_each_decimal_value_type;
+use crate::match_each_native_ptype;
 use crate::matcher::Matcher;
+use crate::validity::Validity;
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
 ///
@@ -140,10 +144,85 @@ macro_rules! match_each_canonical {
 }
 
 impl Canonical {
-    // TODO(connor): This can probably be specialized for each of the canonical arrays.
     /// Create an empty canonical array of the given dtype.
     pub fn empty(dtype: &DType) -> Canonical {
-        builder_with_capacity(dtype, 0).finish_into_canonical()
+        match dtype {
+            DType::Null => Canonical::Null(NullArray::new(0)),
+            DType::Bool(n) => Canonical::Bool(unsafe {
+                BoolArray::new_unchecked(BitBuffer::empty(), Validity::from(n))
+            }),
+            DType::Primitive(ptype, n) => {
+                match_each_native_ptype!(ptype, |P| {
+                    Canonical::Primitive(unsafe {
+                        PrimitiveArray::new_unchecked(Buffer::<P>::empty(), Validity::from(n))
+                    })
+                })
+            }
+            DType::Decimal(decimal_type, n) => {
+                match_each_decimal_value_type!(
+                    DecimalType::smallest_decimal_value_type(decimal_type),
+                    |D| {
+                        Canonical::Decimal(unsafe {
+                            DecimalArray::new_unchecked::<D>(
+                                Buffer::empty(),
+                                *decimal_type,
+                                Validity::from(n),
+                            )
+                        })
+                    }
+                )
+            }
+            DType::Utf8(n) => Canonical::VarBinView(unsafe {
+                VarBinViewArray::new_unchecked(
+                    Buffer::empty(),
+                    Arc::new([]),
+                    dtype.clone(),
+                    Validity::from(n),
+                )
+            }),
+            DType::Binary(n) => Canonical::VarBinView(unsafe {
+                VarBinViewArray::new_unchecked(
+                    Buffer::empty(),
+                    Arc::new([]),
+                    dtype.clone(),
+                    Validity::from(n),
+                )
+            }),
+            DType::Struct(struct_dtype, n) => Canonical::Struct(unsafe {
+                StructArray::new_unchecked(
+                    struct_dtype
+                        .fields()
+                        .map(|f| Canonical::empty(&f).into_array())
+                        .collect::<Arc<[_]>>(),
+                    struct_dtype.clone(),
+                    0,
+                    Validity::from(n),
+                )
+            }),
+            DType::List(dtype, n) => Canonical::List(unsafe {
+                ListViewArray::new_unchecked(
+                    Canonical::empty(dtype).into_array(),
+                    Canonical::empty(&DType::Primitive(PType::U8, Nullability::NonNullable))
+                        .into_array(),
+                    Canonical::empty(&DType::Primitive(PType::U8, Nullability::NonNullable))
+                        .into_array(),
+                    Validity::from(n),
+                )
+                .with_zero_copy_to_list(true)
+            }),
+            DType::FixedSizeList(elem_dtype, list_size, null) => Canonical::FixedSizeList(unsafe {
+                FixedSizeListArray::new_unchecked(
+                    Canonical::empty(elem_dtype).into_array(),
+                    *list_size,
+                    Validity::from(null),
+                    0,
+                )
+            }),
+            DType::Extension(ext_dtype) => Canonical::Extension(ExtensionArray::new(
+                ext_dtype.clone(),
+                Canonical::empty(ext_dtype.storage_dtype()).into_array(),
+            )),
+        }
     }
 
     pub fn len(&self) -> usize {
