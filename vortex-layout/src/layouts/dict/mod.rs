@@ -145,6 +145,10 @@ impl VTable for DictVTable {
 #[derive(Debug)]
 pub struct DictLayoutEncoding;
 
+/// Stores a shared dictionary of values alongside compact integer codes that index into it.
+///
+/// Useful for columns with many repeated values, where storing each value once and
+/// referencing it by index saves significant space.
 #[derive(Clone, Debug)]
 pub struct DictLayout {
     values: LayoutRef,
