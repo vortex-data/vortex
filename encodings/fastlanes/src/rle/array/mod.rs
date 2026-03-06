@@ -229,6 +229,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
+    use vortex_session::registry::ReadContext;
 
     use crate::RLEArray;
     use crate::test::SESSION;
@@ -458,7 +459,7 @@ mod tests {
             .decode(
                 &DType::Primitive(PType::U32, Nullability::NonNullable),
                 2048,
-                &ctx,
+                &ReadContext::new(ctx.to_ids()),
                 &SESSION,
             )
             .unwrap();
@@ -498,7 +499,12 @@ mod tests {
 
         let parts = ArrayParts::try_from(concat).unwrap();
         let decoded = parts
-            .decode(sliced.dtype(), sliced.len(), &ctx, &SESSION)
+            .decode(
+                sliced.dtype(),
+                sliced.len(),
+                &ReadContext::new(ctx.to_ids()),
+                &SESSION,
+            )
             .unwrap();
 
         let original_data = sliced.to_primitive();

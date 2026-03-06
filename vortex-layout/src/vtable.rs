@@ -5,13 +5,13 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
+use vortex_session::registry::ReadContext;
 
 use crate::IntoLayout;
 use crate::Layout;
@@ -73,7 +73,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        ctx: &ArrayContext,
+        ctx: &ReadContext,
     ) -> VortexResult<Self::Layout>;
 
     /// Replaces the children of the layout with the given layout references.

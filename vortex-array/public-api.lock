@@ -26,6 +26,384 @@ impl<T: vortex_array::dtype::NativePType> vortex_array::accessor::ArrayAccessor<
 
 pub fn vortex_array::arrays::PrimitiveArray::with_iterator<F, R>(&self, f: F) -> R where F: for<'a> core::ops::function::FnOnce(&mut dyn core::iter::traits::iterator::Iterator<Item = core::option::Option<&'a T>>) -> R
 
+pub mod vortex_array::aggregate_fn
+
+pub mod vortex_array::aggregate_fn::fns
+
+pub mod vortex_array::aggregate_fn::fns::sum
+
+pub enum vortex_array::aggregate_fn::fns::sum::SumState
+
+pub vortex_array::aggregate_fn::fns::sum::SumState::Decimal(vortex_array::scalar::DecimalValue)
+
+pub vortex_array::aggregate_fn::fns::sum::SumState::Float(f64)
+
+pub vortex_array::aggregate_fn::fns::sum::SumState::Signed(i64)
+
+pub vortex_array::aggregate_fn::fns::sum::SumState::Unsigned(u64)
+
+pub struct vortex_array::aggregate_fn::fns::sum::Sum
+
+impl core::clone::Clone for vortex_array::aggregate_fn::fns::sum::Sum
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::clone(&self) -> vortex_array::aggregate_fn::fns::sum::Sum
+
+impl core::fmt::Debug for vortex_array::aggregate_fn::fns::sum::Sum
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::sum::Sum
+
+pub type vortex_array::aggregate_fn::fns::sum::Sum::GroupState = vortex_array::aggregate_fn::fns::sum::SumGroupState
+
+pub type vortex_array::aggregate_fn::fns::sum::Sum::Options = vortex_array::aggregate_fn::fns::sum::SumOptions
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::finalize(&self, states: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::finalize_scalar(&self, state: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::state_accumulate(&self, state: &mut Self::GroupState, batch: &vortex_array::Canonical, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::state_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::state_flush(&self, state: &mut Self::GroupState) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::state_is_saturated(&self, state: &Self::GroupState) -> bool
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::state_merge(&self, state: &mut Self::GroupState, other: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::state_new(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::GroupState>
+
+pub struct vortex_array::aggregate_fn::fns::sum::SumGroupState
+
+pub struct vortex_array::aggregate_fn::fns::sum::SumOptions
+
+impl core::clone::Clone for vortex_array::aggregate_fn::fns::sum::SumOptions
+
+pub fn vortex_array::aggregate_fn::fns::sum::SumOptions::clone(&self) -> vortex_array::aggregate_fn::fns::sum::SumOptions
+
+impl core::cmp::Eq for vortex_array::aggregate_fn::fns::sum::SumOptions
+
+impl core::cmp::PartialEq for vortex_array::aggregate_fn::fns::sum::SumOptions
+
+pub fn vortex_array::aggregate_fn::fns::sum::SumOptions::eq(&self, other: &vortex_array::aggregate_fn::fns::sum::SumOptions) -> bool
+
+impl core::fmt::Debug for vortex_array::aggregate_fn::fns::sum::SumOptions
+
+pub fn vortex_array::aggregate_fn::fns::sum::SumOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::aggregate_fn::fns::sum::SumOptions
+
+pub fn vortex_array::aggregate_fn::fns::sum::SumOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::aggregate_fn::fns::sum::SumOptions
+
+pub fn vortex_array::aggregate_fn::fns::sum::SumOptions::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_array::aggregate_fn::fns::sum::SumOptions
+
+pub mod vortex_array::aggregate_fn::session
+
+pub struct vortex_array::aggregate_fn::session::AggregateFnSession
+
+impl vortex_array::aggregate_fn::session::AggregateFnSession
+
+pub fn vortex_array::aggregate_fn::session::AggregateFnSession::register<V: vortex_array::aggregate_fn::AggregateFnVTable>(&self, vtable: V)
+
+pub fn vortex_array::aggregate_fn::session::AggregateFnSession::registry(&self) -> &vortex_array::aggregate_fn::session::AggregateFnRegistry
+
+impl core::default::Default for vortex_array::aggregate_fn::session::AggregateFnSession
+
+pub fn vortex_array::aggregate_fn::session::AggregateFnSession::default() -> vortex_array::aggregate_fn::session::AggregateFnSession
+
+impl core::fmt::Debug for vortex_array::aggregate_fn::session::AggregateFnSession
+
+pub fn vortex_array::aggregate_fn::session::AggregateFnSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub trait vortex_array::aggregate_fn::session::AggregateFnSessionExt: vortex_session::SessionExt
+
+pub fn vortex_array::aggregate_fn::session::AggregateFnSessionExt::aggregate_fns(&self) -> vortex_session::Ref<'_, vortex_array::aggregate_fn::session::AggregateFnSession>
+
+impl<S: vortex_session::SessionExt> vortex_array::aggregate_fn::session::AggregateFnSessionExt for S
+
+pub fn S::aggregate_fns(&self) -> vortex_session::Ref<'_, vortex_array::aggregate_fn::session::AggregateFnSession>
+
+pub type vortex_array::aggregate_fn::session::AggregateFnRegistry = vortex_session::registry::Registry<vortex_array::aggregate_fn::AggregateFnPluginRef>
+
+pub struct vortex_array::aggregate_fn::Accumulator<V: vortex_array::aggregate_fn::AggregateFnVTable>
+
+impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_fn::Accumulator<V>
+
+pub fn vortex_array::aggregate_fn::Accumulator<V>::try_new(vtable: V, options: <V as vortex_array::aggregate_fn::AggregateFnVTable>::Options, dtype: vortex_array::dtype::DType, session: vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
+impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_fn::DynAccumulator for vortex_array::aggregate_fn::Accumulator<V>
+
+pub fn vortex_array::aggregate_fn::Accumulator<V>::accumulate(&mut self, batch: &vortex_array::ArrayRef) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::Accumulator<V>::finish(&mut self) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::Accumulator<V>::flush(&mut self) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::Accumulator<V>::is_saturated(&self) -> bool
+
+pub struct vortex_array::aggregate_fn::AggregateFn<V: vortex_array::aggregate_fn::AggregateFnVTable>(_)
+
+impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_fn::AggregateFn<V>
+
+pub fn vortex_array::aggregate_fn::AggregateFn<V>::erased(self) -> vortex_array::aggregate_fn::AggregateFnRef
+
+pub fn vortex_array::aggregate_fn::AggregateFn<V>::new(vtable: V, options: <V as vortex_array::aggregate_fn::AggregateFnVTable>::Options) -> Self
+
+pub fn vortex_array::aggregate_fn::AggregateFn<V>::options(&self) -> &<V as vortex_array::aggregate_fn::AggregateFnVTable>::Options
+
+pub fn vortex_array::aggregate_fn::AggregateFn<V>::vtable(&self) -> &V
+
+pub struct vortex_array::aggregate_fn::AggregateFnOptions<'a>
+
+impl vortex_array::aggregate_fn::AggregateFnOptions<'_>
+
+pub fn vortex_array::aggregate_fn::AggregateFnOptions<'_>::serialize(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+impl<'a> vortex_array::aggregate_fn::AggregateFnOptions<'a>
+
+pub fn vortex_array::aggregate_fn::AggregateFnOptions<'a>::as_any(&self) -> &'a dyn core::any::Any
+
+impl core::cmp::Eq for vortex_array::aggregate_fn::AggregateFnOptions<'_>
+
+impl core::cmp::PartialEq for vortex_array::aggregate_fn::AggregateFnOptions<'_>
+
+pub fn vortex_array::aggregate_fn::AggregateFnOptions<'_>::eq(&self, other: &Self) -> bool
+
+impl core::fmt::Debug for vortex_array::aggregate_fn::AggregateFnOptions<'_>
+
+pub fn vortex_array::aggregate_fn::AggregateFnOptions<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::aggregate_fn::AggregateFnOptions<'_>
+
+pub fn vortex_array::aggregate_fn::AggregateFnOptions<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::aggregate_fn::AggregateFnOptions<'_>
+
+pub fn vortex_array::aggregate_fn::AggregateFnOptions<'_>::hash<H: core::hash::Hasher>(&self, state: &mut H)
+
+pub struct vortex_array::aggregate_fn::AggregateFnRef(_)
+
+impl vortex_array::aggregate_fn::AggregateFnRef
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::accumulator(&self, input_dtype: &vortex_array::dtype::DType, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::AccumulatorRef>
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::accumulator_grouped(&self, input_dtype: &vortex_array::dtype::DType, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::GroupedAccumulatorRef>
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::as_<V: vortex_array::aggregate_fn::AggregateFnVTable>(&self) -> &<V as vortex_array::aggregate_fn::AggregateFnVTable>::Options
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::as_opt<V: vortex_array::aggregate_fn::AggregateFnVTable>(&self) -> core::option::Option<&<V as vortex_array::aggregate_fn::AggregateFnVTable>::Options>
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::is<V: vortex_array::aggregate_fn::AggregateFnVTable>(&self) -> bool
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::options(&self) -> vortex_array::aggregate_fn::AggregateFnOptions<'_>
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::return_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::state_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::vtable_ref<V: vortex_array::aggregate_fn::AggregateFnVTable>(&self) -> core::option::Option<&V>
+
+impl core::clone::Clone for vortex_array::aggregate_fn::AggregateFnRef
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::clone(&self) -> vortex_array::aggregate_fn::AggregateFnRef
+
+impl core::cmp::Eq for vortex_array::aggregate_fn::AggregateFnRef
+
+impl core::cmp::PartialEq for vortex_array::aggregate_fn::AggregateFnRef
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::eq(&self, other: &Self) -> bool
+
+impl core::fmt::Debug for vortex_array::aggregate_fn::AggregateFnRef
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::aggregate_fn::AggregateFnRef
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::aggregate_fn::AggregateFnRef
+
+pub fn vortex_array::aggregate_fn::AggregateFnRef::hash<H: core::hash::Hasher>(&self, state: &mut H)
+
+pub struct vortex_array::aggregate_fn::EmptyOptions
+
+impl core::clone::Clone for vortex_array::aggregate_fn::EmptyOptions
+
+pub fn vortex_array::aggregate_fn::EmptyOptions::clone(&self) -> vortex_array::aggregate_fn::EmptyOptions
+
+impl core::cmp::Eq for vortex_array::aggregate_fn::EmptyOptions
+
+impl core::cmp::PartialEq for vortex_array::aggregate_fn::EmptyOptions
+
+pub fn vortex_array::aggregate_fn::EmptyOptions::eq(&self, other: &vortex_array::aggregate_fn::EmptyOptions) -> bool
+
+impl core::fmt::Debug for vortex_array::aggregate_fn::EmptyOptions
+
+pub fn vortex_array::aggregate_fn::EmptyOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::aggregate_fn::EmptyOptions
+
+pub fn vortex_array::aggregate_fn::EmptyOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::aggregate_fn::EmptyOptions
+
+pub fn vortex_array::aggregate_fn::EmptyOptions::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_array::aggregate_fn::EmptyOptions
+
+pub struct vortex_array::aggregate_fn::GroupedAccumulator<V: vortex_array::aggregate_fn::AggregateFnVTable>
+
+impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_fn::GroupedAccumulator<V>
+
+pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::try_new(vtable: V, options: <V as vortex_array::aggregate_fn::AggregateFnVTable>::Options, dtype: vortex_array::dtype::DType, session: vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
+impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_fn::DynGroupedAccumulator for vortex_array::aggregate_fn::GroupedAccumulator<V>
+
+pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::accumulate_list(&mut self, groups: &vortex_array::ArrayRef) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::finish(&mut self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::flush(&mut self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub trait vortex_array::aggregate_fn::AggregateFnPlugin: 'static + core::marker::Send + core::marker::Sync
+
+pub fn vortex_array::aggregate_fn::AggregateFnPlugin::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::AggregateFnRef>
+
+pub fn vortex_array::aggregate_fn::AggregateFnPlugin::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_fn::AggregateFnPlugin for V
+
+pub fn V::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> core::result::Result<vortex_array::aggregate_fn::AggregateFnRef, vortex_error::VortexError>
+
+pub fn V::id(&self) -> arcref::ArcRef<str>
+
+pub trait vortex_array::aggregate_fn::AggregateFnVTable: 'static + core::marker::Sized + core::clone::Clone + core::marker::Send + core::marker::Sync
+
+pub type vortex_array::aggregate_fn::AggregateFnVTable::GroupState: 'static + core::marker::Send
+
+pub type vortex_array::aggregate_fn::AggregateFnVTable::Options: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + core::fmt::Display + core::cmp::PartialEq + core::cmp::Eq + core::hash::Hash
+
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::finalize(&self, states: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::finalize_scalar(&self, state: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::return_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::state_accumulate(&self, state: &mut Self::GroupState, batch: &vortex_array::Canonical, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::state_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::state_flush(&self, state: &mut Self::GroupState) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::state_is_saturated(&self, state: &Self::GroupState) -> bool
+
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::state_merge(&self, state: &mut Self::GroupState, partial: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::state_new(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::GroupState>
+
+impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::sum::Sum
+
+pub type vortex_array::aggregate_fn::fns::sum::Sum::GroupState = vortex_array::aggregate_fn::fns::sum::SumGroupState
+
+pub type vortex_array::aggregate_fn::fns::sum::Sum::Options = vortex_array::aggregate_fn::fns::sum::SumOptions
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::finalize(&self, states: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::finalize_scalar(&self, state: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::state_accumulate(&self, state: &mut Self::GroupState, batch: &vortex_array::Canonical, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::state_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::state_flush(&self, state: &mut Self::GroupState) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::state_is_saturated(&self, state: &Self::GroupState) -> bool
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::state_merge(&self, state: &mut Self::GroupState, other: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::state_new(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::GroupState>
+
+pub trait vortex_array::aggregate_fn::AggregateFnVTableExt: vortex_array::aggregate_fn::AggregateFnVTable
+
+pub fn vortex_array::aggregate_fn::AggregateFnVTableExt::bind(&self, options: Self::Options) -> vortex_array::aggregate_fn::AggregateFnRef
+
+impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_fn::AggregateFnVTableExt for V
+
+pub fn V::bind(&self, options: Self::Options) -> vortex_array::aggregate_fn::AggregateFnRef
+
+pub trait vortex_array::aggregate_fn::DynAccumulator: 'static + core::marker::Send
+
+pub fn vortex_array::aggregate_fn::DynAccumulator::accumulate(&mut self, batch: &vortex_array::ArrayRef) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::DynAccumulator::finish(&mut self) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::DynAccumulator::flush(&mut self) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::DynAccumulator::is_saturated(&self) -> bool
+
+impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_fn::DynAccumulator for vortex_array::aggregate_fn::Accumulator<V>
+
+pub fn vortex_array::aggregate_fn::Accumulator<V>::accumulate(&mut self, batch: &vortex_array::ArrayRef) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::Accumulator<V>::finish(&mut self) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::Accumulator<V>::flush(&mut self) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::Accumulator<V>::is_saturated(&self) -> bool
+
+pub trait vortex_array::aggregate_fn::DynGroupedAccumulator: 'static + core::marker::Send
+
+pub fn vortex_array::aggregate_fn::DynGroupedAccumulator::accumulate_list(&mut self, groups: &vortex_array::ArrayRef) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::DynGroupedAccumulator::finish(&mut self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::DynGroupedAccumulator::flush(&mut self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+impl<V: vortex_array::aggregate_fn::AggregateFnVTable> vortex_array::aggregate_fn::DynGroupedAccumulator for vortex_array::aggregate_fn::GroupedAccumulator<V>
+
+pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::accumulate_list(&mut self, groups: &vortex_array::ArrayRef) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::finish(&mut self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::GroupedAccumulator<V>::flush(&mut self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub type vortex_array::aggregate_fn::AccumulatorRef = alloc::boxed::Box<dyn vortex_array::aggregate_fn::DynAccumulator>
+
+pub type vortex_array::aggregate_fn::AggregateFnId = arcref::ArcRef<str>
+
+pub type vortex_array::aggregate_fn::AggregateFnPluginRef = alloc::sync::Arc<dyn vortex_array::aggregate_fn::AggregateFnPlugin>
+
+pub type vortex_array::aggregate_fn::GroupedAccumulatorRef = alloc::boxed::Box<dyn vortex_array::aggregate_fn::DynGroupedAccumulator>
+
 pub mod vortex_array::arrays
 
 pub mod vortex_array::arrays::build_views
@@ -15982,7 +16360,7 @@ pub fn vortex_array::serde::ArrayParts::buffer_lengths(&self) -> alloc::vec::Vec
 
 pub fn vortex_array::serde::ArrayParts::child(&self, idx: usize) -> vortex_array::serde::ArrayParts
 
-pub fn vortex_array::serde::ArrayParts::decode(&self, dtype: &vortex_array::dtype::DType, len: usize, ctx: &vortex_array::ArrayContext, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::serde::ArrayParts::decode(&self, dtype: &vortex_array::dtype::DType, len: usize, ctx: &vortex_session::registry::ReadContext, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::serde::ArrayParts::encoding_id(&self) -> u16
 

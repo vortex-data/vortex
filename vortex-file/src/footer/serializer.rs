@@ -10,6 +10,7 @@ use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::WriteFlatBufferExt;
 use vortex_layout::LayoutContext;
+use vortex_session::registry::ReadContext;
 
 use crate::EOF_SIZE;
 use crate::Footer;
@@ -94,8 +95,8 @@ impl FooterSerializer {
         let (buffer, footer_segment) = write_flatbuffer(
             &mut self.offset,
             &FooterFlatBufferWriter {
-                ctx: self.footer.array_ctx.clone(),
-                layout_ctx,
+                ctx: self.footer.array_read_ctx.clone(),
+                layout_ctx: ReadContext::new(layout_ctx.to_ids()),
                 segment_specs: self.footer.segments.clone(),
             },
         )?;

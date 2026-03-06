@@ -66,6 +66,29 @@ impl<T: Clone> Registry<T> {
     }
 }
 
+/// A [`ReadContext`] holds a set of interned IDs for use during deserialization, mapping
+/// u16 indices to IDs.
+#[derive(Clone, Debug)]
+pub struct ReadContext {
+    ids: Arc<[Id]>,
+}
+
+impl ReadContext {
+    /// Create a context with the given initial IDs.
+    pub fn new(ids: impl Into<Arc<[Id]>>) -> Self {
+        Self { ids: ids.into() }
+    }
+
+    /// Resolve an interned ID by its index.
+    pub fn resolve(&self, idx: u16) -> Option<Id> {
+        self.ids.get(idx as usize).cloned()
+    }
+
+    pub fn ids(&self) -> &[Id] {
+        &self.ids
+    }
+}
+
 /// A [`Context`] holds a set of interned IDs for use during serialization/deserialization, mapping
 /// IDs to u16 indices.
 ///
@@ -135,11 +158,6 @@ impl<T: Clone> Context<T> {
         );
         ids.push(id.clone());
         Some(u16::try_from(idx).vortex_expect("checked already"))
-    }
-
-    /// Resolve an interned ID by its index.
-    pub fn resolve(&self, idx: u16) -> Option<Id> {
-        self.ids.read().get(idx as usize).cloned()
     }
 
     /// Get the list of interned IDs.

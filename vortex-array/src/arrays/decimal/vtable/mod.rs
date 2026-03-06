@@ -239,6 +239,7 @@ impl DecimalVTable {
 mod tests {
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
+    use vortex_session::registry::ReadContext;
 
     use crate::ArrayContext;
     use crate::IntoArray;
@@ -273,7 +274,9 @@ mod tests {
         let concat = concat.freeze();
 
         let parts = ArrayParts::try_from(concat).unwrap();
-        let decoded = parts.decode(&dtype, 5, &ctx, &LEGACY_SESSION).unwrap();
+        let decoded = parts
+            .decode(&dtype, 5, &ReadContext::new(ctx.to_ids()), &LEGACY_SESSION)
+            .unwrap();
         assert!(decoded.is::<DecimalVTable>());
     }
 }

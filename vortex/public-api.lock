@@ -1,5 +1,7 @@
 pub mod vortex
 
+pub use vortex::aggregate_fn
+
 pub use vortex::compute
 
 pub use vortex::expr
