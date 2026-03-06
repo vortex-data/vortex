@@ -5,8 +5,9 @@ use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
@@ -22,7 +23,7 @@ impl CompareKernel for RunEndVTable {
         lhs: &RunEndArray,
         rhs: &ArrayRef,
         operator: CompareOperator,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(const_scalar) = rhs.as_constant() {
@@ -31,8 +32,8 @@ impl CompareKernel for RunEndVTable {
                 Operator::from(operator),
             )?;
             let decoded = runend_decode_bools(
-                lhs.ends().to_primitive(),
-                values.to_bool(),
+                lhs.ends().clone().execute::<PrimitiveArray>(ctx)?,
+                values.execute::<BoolArray>(ctx)?,
                 lhs.offset(),
                 lhs.len(),
             )?;

@@ -31,9 +31,9 @@ impl TakeExecute for RunEndVTable {
     fn take(
         array: &RunEndArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let primitive_indices = indices.to_primitive();
+        let primitive_indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
         let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |P| {
             primitive_indices

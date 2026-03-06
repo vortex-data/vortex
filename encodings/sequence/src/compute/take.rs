@@ -6,7 +6,6 @@ use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TakeExecute;
@@ -77,10 +76,10 @@ impl TakeExecute for SequenceVTable {
     fn take(
         array: &SequenceArray,
         indices: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let mask = indices.validity_mask()?;
-        let indices = indices.to_primitive();
+        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
 
         match_each_integer_ptype!(indices.ptype(), |T| {

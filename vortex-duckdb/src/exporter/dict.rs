@@ -11,7 +11,6 @@ use vortex::array::Canonical;
 use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
-use vortex::array::ToCanonical;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::ConstantVTable;
 use vortex::array::arrays::DictArray;
@@ -72,7 +71,7 @@ pub(crate) fn new_exporter_with_flatten(
     }
 
     let values_key = Arc::as_ptr(values).addr();
-    let codes = array.codes().to_primitive();
+    let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
 
     let exporter_values = if flatten {
         let canonical = cache
