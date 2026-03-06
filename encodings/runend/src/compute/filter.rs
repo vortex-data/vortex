@@ -8,8 +8,13 @@ use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+<<<<<<< HEAD
 use vortex_array::arrays::FilterKernel;
+=======
+use vortex_array::ToCanonical;
+>>>>>>> develop
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;

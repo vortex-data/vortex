@@ -248,8 +248,8 @@ mod test {
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::dict::DictArray;
     use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity;
     use crate::dtype::DType;

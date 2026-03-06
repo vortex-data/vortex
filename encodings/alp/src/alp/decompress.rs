@@ -5,8 +5,8 @@ use std::mem::transmute;
 
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::chunk_range;
-use vortex_array::arrays::patch_chunk;
+use vortex_array::arrays::primitive::chunk_range;
+use vortex_array::arrays::primitive::patch_chunk;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;

@@ -195,9 +195,9 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::IntoArray;
-    use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrow::ArrowArrayExecutor;
+    use crate::arrow::executor::run_end::ConstantArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType;

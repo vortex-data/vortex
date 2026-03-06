@@ -8,9 +8,9 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::SliceReduce;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
+use crate::arrays::slice::SliceReduce;
 use crate::vtable::ValidityHelper;
 
 impl SliceReduce for StructVTable {

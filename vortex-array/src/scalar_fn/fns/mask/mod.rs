@@ -17,7 +17,7 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
-use crate::arrays::mask_validity_canonical;
+use crate::arrays::masked::mask_validity_canonical;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;

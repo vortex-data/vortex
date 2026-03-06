@@ -317,10 +317,10 @@ mod tests {
     use crate::ToCanonical;
     use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
-    use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
+    use crate::builders::list::ListArray;
     use crate::builders::list::ListBuilder;
     use crate::dtype::DType;
     use crate::dtype::IntegerPType;

@@ -9,7 +9,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;

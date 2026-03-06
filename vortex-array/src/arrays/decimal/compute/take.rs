@@ -9,7 +9,7 @@ use crate::IntoArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::TakeExecute;
+use crate::arrays::dict::TakeExecute;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativeDecimalType;
 use crate::executor::ExecutionCtx;

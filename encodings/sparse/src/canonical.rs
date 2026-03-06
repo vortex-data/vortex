@@ -10,14 +10,13 @@ use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::arrays::build_views::BinaryView;
+use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::DecimalBuilder;
@@ -53,6 +52,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+use crate::ConstantArray;
 use crate::SparseArray;
 
 pub(super) fn execute_sparse(

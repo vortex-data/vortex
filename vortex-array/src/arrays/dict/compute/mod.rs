@@ -269,9 +269,9 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
+    use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
-    use crate::arrays::dict::DictArray;
     use crate::builders::dict::dict_encode;
     use crate::compute::conformance::consistency::test_array_consistency;
     use crate::dtype::DType;

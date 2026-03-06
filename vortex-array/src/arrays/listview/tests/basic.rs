@@ -16,7 +16,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::list_view_from_list;
+use crate::arrays::listview::list_view_from_list;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
 use crate::dtype::Nullability;

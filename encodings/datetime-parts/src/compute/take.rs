@@ -6,7 +6,7 @@ use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::stats::Stat;

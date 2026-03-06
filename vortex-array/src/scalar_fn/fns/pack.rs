@@ -170,12 +170,12 @@ mod tests {
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
     use crate::expr::col;
     use crate::expr::pack;
     use crate::scalar_fn::ScalarFnVTableExt;
+    use crate::scalar_fn::fns::pack::StructArray;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 

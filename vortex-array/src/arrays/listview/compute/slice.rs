@@ -9,7 +9,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
-use crate::arrays::SliceReduce;
+use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for ListViewVTable {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

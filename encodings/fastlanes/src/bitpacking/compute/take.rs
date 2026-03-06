@@ -10,7 +10,7 @@ use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;

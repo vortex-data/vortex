@@ -20,7 +20,7 @@ use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::Precision;
-use crate::arrays::extension::ExtensionArray;
+use crate::arrays::ExtensionArray;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;

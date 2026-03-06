@@ -20,9 +20,9 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::BinaryView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::compact::BufferUtilization;
+use crate::arrays::varbinview::build_views::BinaryView;
+use crate::arrays::varbinview::compact::BufferUtilization;
 use crate::builders::ArrayBuilder;
 use crate::builders::LazyBitBufferBuilder;
 use crate::canonical::Canonical;
@@ -836,10 +836,10 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::VarBinViewBuilder;
+    use crate::builders::varbinview::VarBinViewArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
 

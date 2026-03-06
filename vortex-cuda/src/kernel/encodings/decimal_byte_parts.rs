@@ -8,7 +8,7 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::DecimalArray;
-use vortex::array::arrays::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::encodings::decimal_byte_parts::DecimalBytePartsArrayParts;
 use vortex::encodings::decimal_byte_parts::DecimalBytePartsVTable;
 use vortex::error::VortexResult;

@@ -7,7 +7,7 @@ use std::ops::Range;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::SliceKernel;
+use vortex_array::arrays::slice::SliceKernel;
 use vortex_error::VortexResult;
 
 use crate::BitPackedArray;
@@ -56,6 +56,7 @@ mod tests {
     use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
     use vortex_array::session::ArraySession;
     use vortex_array::vtable::VTable;
@@ -70,7 +71,7 @@ mod tests {
 
     #[test]
     fn test_execute_parent_returns_bitpacked_slice() -> VortexResult<()> {
-        let values = vortex_array::arrays::PrimitiveArray::from_iter(0u32..2048);
+        let values = PrimitiveArray::from_iter(0u32..2048);
         let bitpacked = bitpack_encode(&values, 11, None)?;
 
         let slice_array = SliceArray::new(bitpacked.clone().into_array(), 500..1500);

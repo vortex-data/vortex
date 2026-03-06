@@ -6,7 +6,7 @@ use vortex_error::VortexResult;
 use super::DictVTable;
 use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::dict::DictArray;
+use crate::arrays::DictArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;

@@ -9,7 +9,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
-use crate::arrays::SliceReduce;
+use crate::arrays::slice::SliceReduce;
 use crate::vtable::ValidityHelper;
 
 impl SliceReduce for BoolVTable {

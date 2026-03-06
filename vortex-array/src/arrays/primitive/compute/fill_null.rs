@@ -10,8 +10,8 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
-use crate::arrays::primitive::PrimitiveArray;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
@@ -55,8 +55,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::arrays::BoolArray;
-    use crate::arrays::primitive::PrimitiveArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::primitive::compute::fill_null::BoolArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
