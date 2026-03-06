@@ -23,7 +23,6 @@ use vortex::encodings::alp::match_each_alp_float_ptype;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
-use vortex_cuda_macros::cuda_tests;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -116,7 +115,7 @@ where
     )))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -134,7 +133,7 @@ mod tests {
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_alp_decompression_f32() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -166,7 +165,7 @@ mod tests {
         let cpu_result = alp_array.to_canonical()?.into_array();
 
         let gpu_result = ALPExecutor
-            .execute(alp_array.to_array(), &mut cuda_ctx)
+            .execute(alp_array.into_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
             .into_host()

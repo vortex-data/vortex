@@ -9,7 +9,6 @@ use vortex::dtype::NativeDecimalType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 use vortex_cub::filter::CubFilterable;
-use vortex_cuda_macros::cuda_tests;
 
 use crate::CudaExecutionCtx;
 use crate::kernel::filter::filter_sized;
@@ -37,7 +36,7 @@ pub(super) async fn filter_decimal<D: NativeDecimalType + DeviceRepr + CubFilter
     )))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
@@ -85,7 +84,7 @@ mod tests {
         DecimalArray::from_iter([i256::from_i128(1), i256::from_i128(2), i256::from_i128(3), i256::from_i128(4), i256::from_i128(5)], DecimalDType::new(19, 5)),
         Mask::from_iter([false, true, false, true, false])
     )]
-    #[tokio::test]
+    #[crate::test]
     async fn test_gpu_filter_decimal(
         #[case] input: DecimalArray,
         #[case] mask: Mask,
@@ -110,7 +109,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_gpu_filter_decimal_large_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create CUDA execution context");

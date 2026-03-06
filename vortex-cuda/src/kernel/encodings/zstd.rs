@@ -31,7 +31,6 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::mask::AllOr;
-use vortex_cuda_macros::cuda_tests;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
 
@@ -341,7 +340,7 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
     }
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::VarBinViewArray;
@@ -353,7 +352,7 @@ mod tests {
     use super::*;
     use crate::session::CudaSession;
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_zstd_decompression_utf8() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -378,7 +377,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_zstd_decompression_multiple_frames() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
@@ -413,7 +412,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_cuda_zstd_decompression_sliced() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
