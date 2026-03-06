@@ -9,7 +9,6 @@ use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 use vortex_cub::filter::CubFilterable;
-use vortex_cuda_macros::cuda_tests;
 
 use crate::CudaExecutionCtx;
 use crate::kernel::filter::filter_sized;
@@ -37,7 +36,7 @@ where
     )))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex::array::IntoArray;
@@ -79,7 +78,7 @@ mod tests {
         PrimitiveArray::from_iter([1u32, 2, 3, 4, 5]),
         Mask::from_iter([false, false, false, false, false])
     )]
-    #[tokio::test]
+    #[crate::test]
     async fn test_gpu_filter(
         #[case] input: PrimitiveArray,
         #[case] mask: Mask,
@@ -104,7 +103,7 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
+    #[crate::test]
     async fn test_gpu_filter_large_array() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create CUDA execution context");

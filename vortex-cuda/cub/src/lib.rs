@@ -17,8 +17,6 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use vortex_cuda_macros::cuda_tests;
-
 /// Raw FFI type definitions and dynamically-loaded function pointers from bindgen.
 #[allow(
     non_upper_case_globals,
@@ -60,11 +58,11 @@ pub fn cub_library() -> Result<&'static sys::CubLibrary, CubError> {
         .map_err(|e| CubError::LibraryLoadError(e.clone()))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use crate::filter;
 
-    #[test]
+    #[vortex_cuda_macros::test]
     fn test_filter_temp_size_u64() -> Result<(), crate::CubError> {
         let temp_bytes = filter::filter_get_temp_size_u64(1000)?;
         // CUB requires some temporary storage
@@ -72,14 +70,14 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[vortex_cuda_macros::test]
     fn test_filter_temp_size_f64() -> Result<(), crate::CubError> {
         let temp_bytes = filter::filter_get_temp_size_f64(10000)?;
         assert!(temp_bytes > 0);
         Ok(())
     }
 
-    #[test]
+    #[vortex_cuda_macros::test]
     fn test_filter_temp_size_zero_items() -> Result<(), crate::CubError> {
         // Just verify the call doesn't fail with zero items
         let _temp_bytes = filter::filter_get_temp_size_u8(0)?;
