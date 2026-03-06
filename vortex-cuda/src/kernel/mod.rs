@@ -4,7 +4,6 @@
 //! CUDA kernel loading and management.
 
 use std::fmt::Debug;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -275,9 +274,58 @@ impl KernelLoader {
     ///
     /// The full path to the PTX file
     fn ptx_path_for_module(module_name: &str) -> PathBuf {
-        let kernels_dir = std::env::var("VORTEX_CUDA_KERNELS_DIR")
+        let kernels_dir = Self::kernels_dir();
+        kernels_dir.join(format!("{}.ptx", module_name))
+    }
+
+    /// Returns the path to the kernels directory.
+    fn kernels_dir() -> PathBuf {
+        let dir = std::env::var("VORTEX_CUDA_KERNELS_DIR")
             .unwrap_or_else(|_| env!("VORTEX_CUDA_KERNELS_DIR").to_string());
-        Path::new(&kernels_dir).join(format!("{}.ptx", module_name))
+        PathBuf::from(dir)
+    }
+
+    /// Pre-loads and JIT-compiles every PTX module in the kernels directory.
+    ///
+    /// This triggers the CUDA driver's PTX → SASS compilation for all modules
+    /// up front, so that subsequent `load_function` calls only need to look up
+    /// already-compiled modules from the cache.
+    pub fn preload_all_modules(&self, cuda_context: &Arc<CudaContext>) -> VortexResult<()> {
+        let dir = Self::kernels_dir();
+        let entries = std::fs::read_dir(&dir).map_err(|e| {
+            vortex_err!("Failed to read kernels directory {}: {}", dir.display(), e)
+        })?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| vortex_err!("Failed to read directory entry: {}", e))?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("ptx") {
+                let module_name = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .ok_or_else(|| vortex_err!("Invalid PTX filename: {}", path.display()))?;
+
+                // Skip if already cached.
+                if self.modules.contains_key(module_name) {
+                    continue;
+                }
+
+                let module = cuda_context
+                    .load_module(Ptx::from_file(&path))
+                    .map_err(|e| {
+                        vortex_err!(
+                            "Failed to preload CUDA module {}, ptx path {}: {}",
+                            module_name,
+                            path.display(),
+                            e
+                        )
+                    })?;
+
+                self.modules.insert(module_name.to_string(), module);
+            }
+        }
+
+        Ok(())
     }
 }
 

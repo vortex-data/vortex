@@ -98,6 +98,14 @@ impl CudaSession {
         self.kernels.get(array_id).map(|entry| *entry.value())
     }
 
+    /// Pre-loads and JIT-compiles every PTX module in the kernels directory.
+    ///
+    /// Call this before timed benchmarks to ensure CUDA JIT overhead is excluded
+    /// from measurements without needing a full warmup scan.
+    pub fn preload_all_modules(&self) -> VortexResult<()> {
+        self.kernel_loader.preload_all_modules(&self.context)
+    }
+
     /// Loads a CUDA kernel function by module name and type suffixes.
     ///
     /// This is a lower-level version of `load_function` that accepts string suffixes

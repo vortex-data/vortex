@@ -29,4 +29,3 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 vortex = { workspace = true, features = ["tokio", "unstable_encodings"] }
 vortex-cuda = { workspace = true, features = ["_test-harness", "unstable_encodings"] }
-vortex-cuda-macros = { workspace = true }
