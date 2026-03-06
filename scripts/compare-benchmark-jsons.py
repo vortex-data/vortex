@@ -64,22 +64,25 @@ improvement_threshold = 1.0 - (threshold_pct / 100.0)  # e.g., 0.7 for 30%, 0.9 
 regression_threshold = 1.0 + (threshold_pct / 100.0)  # e.g., 1.3 for 30%, 1.1 for 10%
 
 
-def compute_variance(runtimes):
-    """Compute sample variance from a list of runtimes."""
+def compute_cv_pct(runtimes):
+    """Compute coefficient of variation (std_dev / mean * 100) as a percentage."""
     if not isinstance(runtimes, list) or len(runtimes) < 2:
         return float("nan")
     n = len(runtimes)
     mean = sum(runtimes) / n
-    return sum((x - mean) ** 2 for x in runtimes) / (n - 1)
+    if mean == 0:
+        return float("nan")
+    variance = sum((x - mean) ** 2 for x in runtimes) / (n - 1)
+    return (variance**0.5 / mean) * 100
 
 
-# Compute variance from all_runtimes when available
+# Compute CV% from all_runtimes when available
 has_z_pr = "all_runtimes_pr" in df3.columns
 has_z_base = "all_runtimes_base" in df3.columns
 if has_z_pr:
-    df3["variance_pr"] = df3["all_runtimes_pr"].apply(compute_variance)
+    df3["cv_pct_pr"] = df3["all_runtimes_pr"].apply(compute_cv_pct)
 if has_z_base:
-    df3["variance_base"] = df3["all_runtimes_base"].apply(compute_variance)
+    df3["cv_pct_base"] = df3["all_runtimes_base"].apply(compute_cv_pct)
 
 # Generate summary statistics
 df3["ratio"] = df3["value_pr"] / df3["value_base"]
@@ -210,9 +213,9 @@ table_dict = {
 }
 
 if has_z_pr:
-    table_dict["variance PR"] = df3["variance_pr"]
+    table_dict["CV% PR"] = df3["cv_pct_pr"]
 if has_z_base:
-    table_dict["variance base"] = df3["variance_base"]
+    table_dict["CV% base"] = df3["cv_pct_base"]
 
 table_dict["remark"] = df3["remark"]
 table_df = pd.DataFrame(table_dict)
