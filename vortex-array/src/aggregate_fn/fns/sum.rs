@@ -51,7 +51,7 @@ impl Display for SumOptions {
 
 impl AggregateFnVTable for Sum {
     type Options = SumOptions;
-    type GroupState = SumGroupState;
+    type Partial = SumPartial;
 
     fn id(&self) -> AggregateFnId {
         AggregateFnId::new_ref("vortex.sum")
@@ -63,15 +63,15 @@ impl AggregateFnVTable for Sum {
             .ok_or_else(|| vortex_err!("Cannot sum {}", input_dtype))
     }
 
-    fn state_dtype(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType> {
+    fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType> {
         self.return_dtype(options, input_dtype)
     }
 
-    fn state_new(
+    fn empty_partial(
         &self,
         options: &Self::Options,
         input_dtype: &DType,
-    ) -> VortexResult<Self::GroupState> {
+    ) -> VortexResult<Self::Partial> {
         let return_dtype = Stat::Sum
             .dtype(input_dtype)
             .ok_or_else(|| vortex_err!("Cannot sum {}", input_dtype))?;
@@ -86,19 +86,19 @@ impl AggregateFnVTable for Sum {
             _ => vortex_panic!("Unsupported sum type"),
         };
 
-        Ok(SumGroupState {
+        Ok(SumPartial {
             checked: options.checked,
             return_dtype,
             current: Some(initial),
         })
     }
 
-    fn state_merge(&self, state: &mut Self::GroupState, other: Scalar) -> VortexResult<()> {
+    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
         if other.is_null() {
             return Ok(());
         }
-        let checked = state.checked;
-        let Some(ref mut inner) = state.current else {
+        let checked = partial.checked;
+        let Some(ref mut inner) = partial.current else {
             return Ok(());
         };
         let saturated = match inner {
@@ -139,19 +139,19 @@ impl AggregateFnVTable for Sum {
             }
         };
         if saturated {
-            state.current = None;
+            partial.current = None;
         }
         Ok(())
     }
 
-    fn state_flush(&self, state: &mut Self::GroupState) -> VortexResult<Scalar> {
-        let result = match &state.current {
-            None => Scalar::null(state.return_dtype.as_nullable()),
+    fn flush(&self, partial: &mut Self::Partial) -> VortexResult<Scalar> {
+        let result = match &partial.current {
+            None => Scalar::null(partial.return_dtype.as_nullable()),
             Some(SumState::Unsigned(v)) => Scalar::primitive(*v, Nullability::Nullable),
             Some(SumState::Signed(v)) => Scalar::primitive(*v, Nullability::Nullable),
             Some(SumState::Float(v)) => Scalar::primitive(*v, Nullability::Nullable),
             Some(SumState::Decimal(v)) => {
-                let decimal_dtype = *state
+                let decimal_dtype = *partial
                     .return_dtype
                     .as_decimal_opt()
                     .vortex_expect("return dtype must be decimal");
@@ -160,23 +160,24 @@ impl AggregateFnVTable for Sum {
         };
 
         // Reset the state
-        state.current = Some(make_zero_state(&state.return_dtype));
+        partial.current = Some(make_zero_state(&partial.return_dtype));
 
         Ok(result)
     }
 
-    fn state_is_saturated(&self, state: &Self::GroupState) -> bool {
-        state.current.is_none()
+    #[inline]
+    fn is_saturated(&self, partial: &Self::Partial) -> bool {
+        partial.current.is_none()
     }
 
-    fn state_accumulate(
+    fn accumulate(
         &self,
-        state: &mut Self::GroupState,
+        partial: &mut Self::Partial,
         batch: &Canonical,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let checked = state.checked;
-        let mut inner = match state.current.take() {
+        let checked = partial.checked;
+        let mut inner = match partial.current.take() {
             Some(inner) => inner,
             None => return Ok(()),
         };
@@ -189,28 +190,28 @@ impl AggregateFnVTable for Sum {
         };
 
         match result {
-            Ok(false) => state.current = Some(inner),
+            Ok(false) => partial.current = Some(inner),
             Ok(true) => {} // saturated: current stays None
             Err(e) => {
-                state.current = Some(inner);
+                partial.current = Some(inner);
                 return Err(e);
             }
         }
         Ok(())
     }
 
-    fn finalize(&self, states: ArrayRef) -> VortexResult<ArrayRef> {
-        Ok(states)
+    fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
+        Ok(partials)
     }
 
-    fn finalize_scalar(&self, state: Scalar) -> VortexResult<Scalar> {
-        Ok(state)
+    fn finalize_scalar(&self, partial: Scalar) -> VortexResult<Scalar> {
+        Ok(partial)
     }
 }
 
 /// The group state for a sum aggregate, containing the accumulated value and configuration
 /// needed for reset/result without external context.
-pub struct SumGroupState {
+pub struct SumPartial {
     checked: bool,
     return_dtype: DType,
     /// The current accumulated state, or `None` if saturated (checked overflow).
@@ -574,15 +575,15 @@ mod tests {
     #[test]
     fn sum_state_merge() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let mut state = Sum.state_new(&checked_opts(), &dtype)?;
+        let mut state = Sum.empty_partial(&checked_opts(), &dtype)?;
 
         let scalar1 = Scalar::primitive(100i64, Nullability::Nullable);
-        Sum.state_merge(&mut state, scalar1)?;
+        Sum.combine_partials(&mut state, scalar1)?;
 
         let scalar2 = Scalar::primitive(50i64, Nullability::Nullable);
-        Sum.state_merge(&mut state, scalar2)?;
+        Sum.combine_partials(&mut state, scalar2)?;
 
-        let result = Sum.state_flush(&mut state)?;
+        let result = Sum.flush(&mut state)?;
         assert_eq!(result.as_primitive().typed_value::<i64>(), Some(150));
         Ok(())
     }

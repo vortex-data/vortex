@@ -36,8 +36,8 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Options for this aggregate function.
     type Options: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Eq + Hash;
 
-    /// The accumulator state for a group.
-    type GroupState: 'static + Send;
+    /// The partial accumulator state for a single group.
+    type Partial: 'static + Send;
 
     /// Returns the ID of the aggregate function vtable.
     fn id(&self) -> AggregateFnId;
@@ -63,21 +63,21 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// The return [`DType`] of the aggregate.
     fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType>;
 
-    /// DType of the intermediate accumulator state.
+    /// DType of the intermediate partial accumulator state.
     ///
     /// Use a struct dtype when multiple fields are needed
     /// (e.g., Mean: `Struct { sum: f64, count: u64 }`).
-    fn state_dtype(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType>;
+    fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> VortexResult<DType>;
 
-    /// Return accumulator state for an empty group.
-    fn state_new(
+    /// Return the partial accumulator state for an empty group.
+    fn empty_partial(
         &self,
         options: &Self::Options,
         input_dtype: &DType,
-    ) -> VortexResult<Self::GroupState>;
+    ) -> VortexResult<Self::Partial>;
 
-    /// Merge partial scalar state into the accumulator.
-    fn state_merge(&self, state: &mut Self::GroupState, partial: Scalar) -> VortexResult<()>;
+    /// Combine partial scalar state into the accumulator.
+    fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()>;
 
     /// Flush the partial aggregate for the given accumulator state.
     ///
@@ -85,16 +85,16 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// options and input dtype used to construct the state.
     ///
     /// The internal state of the accumulator is reset to the empty state after flushing.
-    fn state_flush(&self, state: &mut Self::GroupState) -> VortexResult<Scalar>;
+    fn flush(&self, partial: &mut Self::Partial) -> VortexResult<Scalar>;
 
-    /// Is the accumulator state "saturated", i.e. has it reached a state where the final result
-    /// is fully determined.
-    fn state_is_saturated(&self, state: &Self::GroupState) -> bool;
+    /// Is the partial accumulator state is "saturated", i.e. has it reached a state where the
+    /// final result is fully determined.
+    fn is_saturated(&self, state: &Self::Partial) -> bool;
 
     /// Accumulate a new canonical array into the accumulator state.
-    fn state_accumulate(
+    fn accumulate(
         &self,
-        state: &mut Self::GroupState,
+        state: &mut Self::Partial,
         batch: &Canonical,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()>;
