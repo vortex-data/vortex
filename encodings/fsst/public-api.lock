@@ -52,6 +52,10 @@ impl vortex_array::array::IntoArray for vortex_fsst::FSSTArray
 
 pub fn vortex_fsst::FSSTArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_fsst::FSSTArray
+
+pub fn vortex_fsst::FSSTArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 pub struct vortex_fsst::FSSTMetadata
 
 impl vortex_fsst::FSSTMetadata
@@ -91,6 +95,10 @@ pub struct vortex_fsst::FSSTVTable
 impl vortex_fsst::FSSTVTable
 
 pub const vortex_fsst::FSSTVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_fsst::FSSTVTable
+
+pub fn vortex_fsst::FSSTVTable::clone(&self) -> vortex_fsst::FSSTVTable
 
 impl core::fmt::Debug for vortex_fsst::FSSTVTable
 

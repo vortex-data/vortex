@@ -42,6 +42,10 @@ impl vortex_array::array::IntoArray for vortex_pco::PcoArray
 
 pub fn vortex_pco::PcoArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_pco::PcoArray
+
+pub fn vortex_pco::PcoArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 impl vortex_array::vtable::validity::ValiditySliceHelper for vortex_pco::PcoArray
 
 pub fn vortex_pco::PcoArray::unsliced_validity_and_slice(&self) -> (&vortex_array::validity::Validity, usize, usize)
@@ -119,6 +123,10 @@ pub struct vortex_pco::PcoVTable
 impl vortex_pco::PcoVTable
 
 pub const vortex_pco::PcoVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_pco::PcoVTable
+
+pub fn vortex_pco::PcoVTable::clone(&self) -> vortex_pco::PcoVTable
 
 impl core::fmt::Debug for vortex_pco::PcoVTable
 

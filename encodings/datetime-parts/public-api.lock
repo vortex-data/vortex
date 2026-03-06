@@ -50,6 +50,10 @@ impl vortex_array::array::IntoArray for vortex_datetime_parts::DateTimePartsArra
 
 pub fn vortex_datetime_parts::DateTimePartsArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_datetime_parts::DateTimePartsArray
+
+pub fn vortex_datetime_parts::DateTimePartsArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 pub struct vortex_datetime_parts::DateTimePartsArrayParts
 
 pub vortex_datetime_parts::DateTimePartsArrayParts::days: vortex_array::array::ArrayRef
@@ -121,6 +125,10 @@ pub struct vortex_datetime_parts::DateTimePartsVTable
 impl vortex_datetime_parts::DateTimePartsVTable
 
 pub const vortex_datetime_parts::DateTimePartsVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_datetime_parts::DateTimePartsVTable
+
+pub fn vortex_datetime_parts::DateTimePartsVTable::clone(&self) -> vortex_datetime_parts::DateTimePartsVTable
 
 impl core::fmt::Debug for vortex_datetime_parts::DateTimePartsVTable
 

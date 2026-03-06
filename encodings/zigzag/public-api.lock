@@ -42,11 +42,19 @@ impl vortex_array::array::IntoArray for vortex_zigzag::ZigZagArray
 
 pub fn vortex_zigzag::ZigZagArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_zigzag::ZigZagArray
+
+pub fn vortex_zigzag::ZigZagArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 pub struct vortex_zigzag::ZigZagVTable
 
 impl vortex_zigzag::ZigZagVTable
 
 pub const vortex_zigzag::ZigZagVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_zigzag::ZigZagVTable
+
+pub fn vortex_zigzag::ZigZagVTable::clone(&self) -> vortex_zigzag::ZigZagVTable
 
 impl core::fmt::Debug for vortex_zigzag::ZigZagVTable
 

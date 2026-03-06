@@ -5,6 +5,7 @@ use std::ops::Deref;
 
 use pyo3::PyClass;
 use pyo3::prelude::*;
+use vortex::array::Array;
 use vortex::array::ArrayAdapter;
 use vortex::array::ArrayRef;
 use vortex::array::DynArray;
@@ -251,11 +252,13 @@ pub trait AsArrayRef<T> {
 
 impl<V: EncodingSubclass> AsArrayRef<<V::VTable as VTable>::Array> for PyRef<'_, V> {
     fn as_array_ref(&self) -> &<V::VTable as VTable>::Array {
-        self.as_super()
-            .inner()
-            .as_any()
-            .downcast_ref::<ArrayAdapter<V::VTable>>()
-            .vortex_expect("Failed to downcast array")
-            .as_inner()
+        let any = self.as_super().inner().as_any();
+        if let Some(array) = any.downcast_ref::<Array<V::VTable>>() {
+            array.data()
+        } else {
+            any.downcast_ref::<ArrayAdapter<V::VTable>>()
+                .vortex_expect("Failed to downcast array")
+                .as_inner()
+        }
     }
 }

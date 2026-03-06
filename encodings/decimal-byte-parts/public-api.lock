@@ -40,6 +40,10 @@ impl vortex_array::array::IntoArray for vortex_decimal_byte_parts::DecimalBytePa
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_decimal_byte_parts::DecimalBytePartsArray
+
+pub fn vortex_decimal_byte_parts::DecimalBytePartsArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 pub struct vortex_decimal_byte_parts::DecimalBytePartsArrayParts
 
 pub vortex_decimal_byte_parts::DecimalBytePartsArrayParts::dtype: vortex_array::dtype::DType
@@ -51,6 +55,10 @@ pub struct vortex_decimal_byte_parts::DecimalBytePartsVTable
 impl vortex_decimal_byte_parts::DecimalBytePartsVTable
 
 pub const vortex_decimal_byte_parts::DecimalBytePartsVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_decimal_byte_parts::DecimalBytePartsVTable
+
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::clone(&self) -> vortex_decimal_byte_parts::DecimalBytePartsVTable
 
 impl core::fmt::Debug for vortex_decimal_byte_parts::DecimalBytePartsVTable
 

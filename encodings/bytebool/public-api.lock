@@ -50,6 +50,10 @@ impl vortex_array::array::IntoArray for vortex_bytebool::ByteBoolArray
 
 pub fn vortex_bytebool::ByteBoolArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_bytebool::ByteBoolArray
+
+pub fn vortex_bytebool::ByteBoolArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 impl vortex_array::vtable::validity::ValidityHelper for vortex_bytebool::ByteBoolArray
 
 pub fn vortex_bytebool::ByteBoolArray::validity(&self) -> &vortex_array::validity::Validity
@@ -59,6 +63,10 @@ pub struct vortex_bytebool::ByteBoolVTable
 impl vortex_bytebool::ByteBoolVTable
 
 pub const vortex_bytebool::ByteBoolVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_bytebool::ByteBoolVTable
+
+pub fn vortex_bytebool::ByteBoolVTable::clone(&self) -> vortex_bytebool::ByteBoolVTable
 
 impl core::fmt::Debug for vortex_bytebool::ByteBoolVTable
 

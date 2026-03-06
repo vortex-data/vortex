@@ -164,6 +164,10 @@ impl vortex_array::array::IntoArray for vortex_fastlanes::BitPackedArray
 
 pub fn vortex_fastlanes::BitPackedArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_fastlanes::BitPackedArray
+
+pub fn vortex_fastlanes::BitPackedArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 impl vortex_array::vtable::validity::ValidityHelper for vortex_fastlanes::BitPackedArray
 
 pub fn vortex_fastlanes::BitPackedArray::validity(&self) -> &vortex_array::validity::Validity
@@ -187,6 +191,10 @@ pub struct vortex_fastlanes::BitPackedVTable
 impl vortex_fastlanes::BitPackedVTable
 
 pub const vortex_fastlanes::BitPackedVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_fastlanes::BitPackedVTable
+
+pub fn vortex_fastlanes::BitPackedVTable::clone(&self) -> vortex_fastlanes::BitPackedVTable
 
 impl core::fmt::Debug for vortex_fastlanes::BitPackedVTable
 
@@ -322,6 +330,10 @@ impl vortex_array::array::IntoArray for vortex_fastlanes::DeltaArray
 
 pub fn vortex_fastlanes::DeltaArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_fastlanes::DeltaArray
+
+pub fn vortex_fastlanes::DeltaArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 impl vortex_array::vtable::validity::ValidityChildSliceHelper for vortex_fastlanes::DeltaArray
 
 pub fn vortex_fastlanes::DeltaArray::unsliced_child_and_slice(&self) -> (&vortex_array::array::ArrayRef, usize, usize)
@@ -331,6 +343,10 @@ pub struct vortex_fastlanes::DeltaVTable
 impl vortex_fastlanes::DeltaVTable
 
 pub const vortex_fastlanes::DeltaVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_fastlanes::DeltaVTable
+
+pub fn vortex_fastlanes::DeltaVTable::clone(&self) -> vortex_fastlanes::DeltaVTable
 
 impl core::fmt::Debug for vortex_fastlanes::DeltaVTable
 
@@ -442,11 +458,19 @@ impl vortex_array::array::IntoArray for vortex_fastlanes::FoRArray
 
 pub fn vortex_fastlanes::FoRArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_fastlanes::FoRArray
+
+pub fn vortex_fastlanes::FoRArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 pub struct vortex_fastlanes::FoRVTable
 
 impl vortex_fastlanes::FoRVTable
 
 pub const vortex_fastlanes::FoRVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_fastlanes::FoRVTable
+
+pub fn vortex_fastlanes::FoRVTable::clone(&self) -> vortex_fastlanes::FoRVTable
 
 impl core::fmt::Debug for vortex_fastlanes::FoRVTable
 
@@ -596,6 +620,10 @@ impl vortex_array::array::IntoArray for vortex_fastlanes::RLEArray
 
 pub fn vortex_fastlanes::RLEArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_fastlanes::RLEArray
+
+pub fn vortex_fastlanes::RLEArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 impl vortex_array::vtable::validity::ValidityChildSliceHelper for vortex_fastlanes::RLEArray
 
 pub fn vortex_fastlanes::RLEArray::unsliced_child_and_slice(&self) -> (&vortex_array::array::ArrayRef, usize, usize)
@@ -605,6 +633,10 @@ pub struct vortex_fastlanes::RLEVTable
 impl vortex_fastlanes::RLEVTable
 
 pub const vortex_fastlanes::RLEVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_fastlanes::RLEVTable
+
+pub fn vortex_fastlanes::RLEVTable::clone(&self) -> vortex_fastlanes::RLEVTable
 
 impl core::fmt::Debug for vortex_fastlanes::RLEVTable
 

@@ -50,6 +50,10 @@ impl vortex_array::array::IntoArray for vortex_alp::ALPArray
 
 pub fn vortex_alp::ALPArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_alp::ALPArray
+
+pub fn vortex_alp::ALPArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 pub struct vortex_alp::ALPMetadata
 
 impl core::clone::Clone for vortex_alp::ALPMetadata
@@ -120,6 +124,10 @@ impl vortex_array::array::IntoArray for vortex_alp::ALPRDArray
 
 pub fn vortex_alp::ALPRDArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_alp::ALPRDArray
+
+pub fn vortex_alp::ALPRDArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 pub struct vortex_alp::ALPRDMetadata
 
 impl vortex_alp::ALPRDMetadata
@@ -151,6 +159,10 @@ pub struct vortex_alp::ALPRDVTable
 impl vortex_alp::ALPRDVTable
 
 pub const vortex_alp::ALPRDVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_alp::ALPRDVTable
+
+pub fn vortex_alp::ALPRDVTable::clone(&self) -> vortex_alp::ALPRDVTable
 
 impl core::fmt::Debug for vortex_alp::ALPRDVTable
 
@@ -239,6 +251,10 @@ pub struct vortex_alp::ALPVTable
 impl vortex_alp::ALPVTable
 
 pub const vortex_alp::ALPVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_alp::ALPVTable
+
+pub fn vortex_alp::ALPVTable::clone(&self) -> vortex_alp::ALPVTable
 
 impl core::fmt::Debug for vortex_alp::ALPVTable
 

@@ -66,6 +66,10 @@ impl vortex_array::array::IntoArray for vortex_runend::RunEndArray
 
 pub fn vortex_runend::RunEndArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_runend::RunEndArray
+
+pub fn vortex_runend::RunEndArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 impl<R: arrow_array::types::RunEndIndexType> vortex_array::arrow::FromArrowArray<&arrow_array::array::run_array::RunArray<R>> for vortex_runend::RunEndArray where <R as arrow_array::types::ArrowPrimitiveType>::Native: vortex_array::dtype::ptype::NativePType
 
 pub fn vortex_runend::RunEndArray::from_arrow(array: &arrow_array::array::run_array::RunArray<R>, nullable: bool) -> vortex_error::VortexResult<Self>
@@ -113,6 +117,10 @@ pub struct vortex_runend::RunEndVTable
 impl vortex_runend::RunEndVTable
 
 pub const vortex_runend::RunEndVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_runend::RunEndVTable
+
+pub fn vortex_runend::RunEndVTable::clone(&self) -> vortex_runend::RunEndVTable
 
 impl core::fmt::Debug for vortex_runend::RunEndVTable
 

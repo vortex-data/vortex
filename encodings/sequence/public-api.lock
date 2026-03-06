@@ -48,6 +48,10 @@ impl vortex_array::array::IntoArray for vortex_sequence::SequenceArray
 
 pub fn vortex_sequence::SequenceArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_sequence::SequenceArray
+
+pub fn vortex_sequence::SequenceArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 pub struct vortex_sequence::SequenceArrayParts
 
 pub vortex_sequence::SequenceArrayParts::base: vortex_array::scalar::typed_view::primitive::pvalue::PValue
@@ -65,6 +69,10 @@ pub struct vortex_sequence::SequenceVTable
 impl vortex_sequence::SequenceVTable
 
 pub const vortex_sequence::SequenceVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_sequence::SequenceVTable
+
+pub fn vortex_sequence::SequenceVTable::clone(&self) -> vortex_sequence::SequenceVTable
 
 impl core::fmt::Debug for vortex_sequence::SequenceVTable
 

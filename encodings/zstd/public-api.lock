@@ -52,6 +52,10 @@ impl vortex_array::array::IntoArray for vortex_zstd::ZstdArray
 
 pub fn vortex_zstd::ZstdArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_zstd::ZstdArray
+
+pub fn vortex_zstd::ZstdArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 impl vortex_array::vtable::validity::ValiditySliceHelper for vortex_zstd::ZstdArray
 
 pub fn vortex_zstd::ZstdArray::unsliced_validity_and_slice(&self) -> (&vortex_array::validity::Validity, usize, usize)
@@ -159,6 +163,10 @@ pub struct vortex_zstd::ZstdVTable
 impl vortex_zstd::ZstdVTable
 
 pub const vortex_zstd::ZstdVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_zstd::ZstdVTable
+
+pub fn vortex_zstd::ZstdVTable::clone(&self) -> vortex_zstd::ZstdVTable
 
 impl core::fmt::Debug for vortex_zstd::ZstdVTable
 

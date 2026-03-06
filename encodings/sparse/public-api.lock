@@ -66,6 +66,10 @@ impl vortex_array::array::IntoArray for vortex_sparse::SparseArray
 
 pub fn vortex_sparse::SparseArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl vortex_array::stats::array::HasArrayStats for vortex_sparse::SparseArray
+
+pub fn vortex_sparse::SparseArray::array_stats(&self) -> &vortex_array::stats::array::ArrayStats
+
 pub struct vortex_sparse::SparseMetadata
 
 impl core::fmt::Debug for vortex_sparse::SparseMetadata
@@ -77,6 +81,10 @@ pub struct vortex_sparse::SparseVTable
 impl vortex_sparse::SparseVTable
 
 pub const vortex_sparse::SparseVTable::ID: vortex_array::vtable::dyn_::ArrayId
+
+impl core::clone::Clone for vortex_sparse::SparseVTable
+
+pub fn vortex_sparse::SparseVTable::clone(&self) -> vortex_sparse::SparseVTable
 
 impl core::fmt::Debug for vortex_sparse::SparseVTable
 
