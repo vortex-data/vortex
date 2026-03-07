@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use itertools::Itertools as _;
 use prost::Message as _;
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -26,7 +27,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
@@ -92,15 +92,15 @@ impl VTable for ZstdVTable {
     }
 
     fn len(array: &ZstdArray) -> usize {
-        array.slice_stop - array.slice_start
+        array.common.len()
     }
 
     fn dtype(array: &ZstdArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &ZstdArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &ZstdArray, state: &mut H, precision: Precision) {
@@ -116,7 +116,7 @@ impl VTable for ZstdVTable {
         for frame in &array.frames {
             frame.array_hash(state, precision);
         }
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
         array.unsliced_validity.array_hash(state, precision);
         array.unsliced_n_rows.hash(state);
         array.slice_start.hash(state);
@@ -139,7 +139,7 @@ impl VTable for ZstdVTable {
                 return false;
             }
         }
-        array.dtype == other.dtype
+        array.common.dtype() == other.common.dtype()
             && array
                 .unsliced_validity
                 .array_eq(&other.unsliced_validity, precision)
@@ -263,7 +263,7 @@ impl VTable for ZstdVTable {
         );
 
         array.unsliced_validity = if children.is_empty() {
-            Validity::from(array.dtype.nullability())
+            Validity::from(array.common.dtype().nullability())
         } else {
             Validity::Array(children.into_iter().next().vortex_expect("checked"))
         };
@@ -296,10 +296,9 @@ pub struct ZstdArray {
     pub(crate) dictionary: Option<ByteBuffer>,
     pub(crate) frames: Vec<ByteBuffer>,
     pub(crate) metadata: ZstdMetadata,
-    dtype: DType,
+    pub(crate) common: ArrayCommon,
     pub(crate) unsliced_validity: Validity,
     unsliced_n_rows: usize,
-    stats_set: ArrayStats,
     slice_start: usize,
     slice_stop: usize,
 }
@@ -411,10 +410,9 @@ impl ZstdArray {
             dictionary,
             frames,
             metadata,
-            dtype,
+            common: ArrayCommon::new(n_rows, dtype),
             unsliced_validity: validity,
             unsliced_n_rows: n_rows,
-            stats_set: Default::default(),
             slice_start: 0,
             slice_stop: n_rows,
         }
@@ -691,8 +689,8 @@ impl ZstdArray {
     }
 
     fn byte_width(&self) -> usize {
-        if self.dtype.is_primitive() {
-            self.dtype.as_ptype().byte_width()
+        if self.common.dtype().is_primitive() {
+            self.common.dtype().as_ptype().byte_width()
         } else {
             1
         }
@@ -790,14 +788,15 @@ impl ZstdArray {
             );
 
             slice_validity = Validity::NonNullable;
-        } else if self.dtype.is_nullable() && slice_validity == Validity::NonNullable {
+        } else if self.common.dtype().is_nullable() && slice_validity == Validity::NonNullable {
             slice_validity = Validity::AllValid;
         }
         //
         // END OF IMPORTANT BLOCK
         //
 
-        match &self.dtype {
+        let dtype = self.common.dtype();
+        match dtype {
             DType::Primitive(..) => {
                 let slice_values_buffer = decompressed.slice(
                     (slice_value_idx_start - n_skipped_values) * byte_width
@@ -805,7 +804,7 @@ impl ZstdArray {
                 );
                 let primitive = PrimitiveArray::from_values_byte_buffer(
                     slice_values_buffer,
-                    self.dtype.as_ptype(),
+                    dtype.as_ptype(),
                     slice_validity,
                     slice_n_rows,
                 );
@@ -828,14 +827,14 @@ impl ZstdArray {
                             VarBinViewArray::new_unchecked(
                                 valid_views,
                                 Arc::from([decompressed]),
-                                self.dtype.clone(),
+                                dtype.clone(),
                                 slice_validity,
                             )
                         }
                         .into_array())
                     }
                     AllOr::None => Ok(ConstantArray::new(
-                        Scalar::null(self.dtype.clone()),
+                        Scalar::null(dtype.clone()),
                         slice_n_rows,
                     )
                     .into_array()),
@@ -858,7 +857,7 @@ impl ZstdArray {
                             VarBinViewArray::new_unchecked(
                                 views.freeze(),
                                 Arc::from([decompressed]),
-                                self.dtype.clone(),
+                                dtype.clone(),
                                 slice_validity,
                             )
                         }
@@ -866,7 +865,7 @@ impl ZstdArray {
                     }
                 }
             }
-            _ => vortex_panic!("Unsupported dtype for Zstd array: {}", self.dtype),
+            _ => vortex_panic!("Unsupported dtype for Zstd array: {}", dtype),
         }
     }
 
@@ -886,10 +885,12 @@ impl ZstdArray {
             self.slice_stop
         );
 
+        let new_start = self.slice_start + start;
+        let new_stop = self.slice_start + stop;
         ZstdArray {
-            slice_start: self.slice_start + start,
-            slice_stop: self.slice_start + stop,
-            stats_set: Default::default(),
+            common: ArrayCommon::new(new_stop - new_start, self.common.dtype().clone()),
+            slice_start: new_start,
+            slice_stop: new_stop,
             ..self.clone()
         }
     }
@@ -900,7 +901,7 @@ impl ZstdArray {
             dictionary: self.dictionary,
             frames: self.frames,
             metadata: self.metadata,
-            dtype: self.dtype,
+            dtype: self.common.into_dtype(),
             validity: self.unsliced_validity,
             n_rows: self.unsliced_n_rows,
             slice_start: self.slice_start,
@@ -909,7 +910,7 @@ impl ZstdArray {
     }
 
     pub(crate) fn dtype(&self) -> &DType {
-        &self.dtype
+        self.common.dtype()
     }
 
     pub(crate) fn slice_start(&self) -> usize {

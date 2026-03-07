@@ -4,19 +4,16 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
 use crate::DynArray;
-use crate::dtype::DType;
 use crate::scalar_fn::ScalarFnRef;
-use crate::stats::ArrayStats;
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnArray {
     pub(super) scalar_fn: ScalarFnRef,
-    pub(super) dtype: DType,
-    pub(super) len: usize,
+    pub(super) common: ArrayCommon,
     pub(super) children: Vec<ArrayRef>,
-    pub(super) stats: ArrayStats,
 }
 
 impl ScalarFnArray {
@@ -32,10 +29,8 @@ impl ScalarFnArray {
 
         Ok(Self {
             scalar_fn: bound,
-            dtype,
-            len,
+            common: ArrayCommon::new(len, dtype),
             children,
-            stats: Default::default(),
         })
     }
 

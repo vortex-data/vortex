@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -24,7 +25,6 @@ use vortex_array::scalar::PValue;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
@@ -69,29 +69,29 @@ impl VTable for RunEndVTable {
     }
 
     fn len(array: &RunEndArray) -> usize {
-        array.length
+        array.common.len()
     }
 
     fn dtype(array: &RunEndArray) -> &DType {
-        array.values.dtype()
+        array.common.dtype()
     }
 
     fn stats(array: &RunEndArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &RunEndArray, state: &mut H, precision: Precision) {
         array.ends.array_hash(state, precision);
         array.values.array_hash(state, precision);
         array.offset.hash(state);
-        array.length.hash(state);
+        array.common.len().hash(state);
     }
 
     fn array_eq(array: &RunEndArray, other: &RunEndArray, precision: Precision) -> bool {
         array.ends.array_eq(&other.ends, precision)
             && array.values.array_eq(&other.values, precision)
             && array.offset == other.offset
-            && array.length == other.length
+            && array.common.len() == other.common.len()
     }
 
     fn nbuffers(_array: &RunEndArray) -> usize {
@@ -209,11 +209,10 @@ impl VTable for RunEndVTable {
 
 #[derive(Clone, Debug)]
 pub struct RunEndArray {
+    common: ArrayCommon,
     ends: ArrayRef,
     values: ArrayRef,
     offset: usize,
-    length: usize,
-    stats_set: ArrayStats,
 }
 
 pub struct RunEndArrayParts {
@@ -359,13 +358,13 @@ impl RunEndArray {
         length: usize,
     ) -> VortexResult<Self> {
         Self::validate(&ends, &values, offset, length)?;
+        let dtype = values.dtype().clone();
 
         Ok(Self {
+            common: ArrayCommon::new(length, dtype),
             ends,
             values,
             offset,
-            length,
-            stats_set: Default::default(),
         })
     }
 
@@ -383,12 +382,12 @@ impl RunEndArray {
         offset: usize,
         length: usize,
     ) -> Self {
+        let dtype = values.dtype().clone();
         Self {
+            common: ArrayCommon::new(length, dtype),
             ends,
             values,
             offset,
-            length,
-            stats_set: Default::default(),
         }
     }
 

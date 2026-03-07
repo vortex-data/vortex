@@ -51,20 +51,20 @@ impl VTable for StructVTable {
     }
 
     fn len(array: &StructArray) -> usize {
-        array.len
+        array.common.len()
     }
 
     fn dtype(array: &StructArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &StructArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &StructArray, state: &mut H, precision: Precision) {
-        array.len.hash(state);
-        array.dtype.hash(state);
+        array.common.len().hash(state);
+        array.common.dtype().hash(state);
         for field in array.fields.iter() {
             field.array_hash(state, precision);
         }
@@ -72,8 +72,8 @@ impl VTable for StructVTable {
     }
 
     fn array_eq(array: &StructArray, other: &StructArray, precision: Precision) -> bool {
-        array.len == other.len
-            && array.dtype == other.dtype
+        array.common.len() == other.common.len()
+            && array.common.dtype() == other.common.dtype()
             && array.fields.len() == other.fields.len()
             && array
                 .fields
@@ -175,8 +175,8 @@ impl VTable for StructVTable {
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        let DType::Struct(struct_dtype, _nullability) = &array.dtype else {
-            vortex_bail!("Expected struct dtype, found {:?}", array.dtype)
+        let DType::Struct(struct_dtype, _nullability) = array.common.dtype() else {
+            vortex_bail!("Expected struct dtype, found {:?}", array.common.dtype())
         };
 
         // First child is validity (if present), followed by fields

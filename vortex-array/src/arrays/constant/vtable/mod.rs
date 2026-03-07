@@ -62,15 +62,15 @@ impl VTable for ConstantVTable {
     }
 
     fn len(array: &ConstantArray) -> usize {
-        array.len
+        array.common.len()
     }
 
     fn dtype(array: &ConstantArray) -> &DType {
-        array.scalar.dtype()
+        array.common.dtype()
     }
 
     fn stats(array: &ConstantArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -79,11 +79,11 @@ impl VTable for ConstantVTable {
         _precision: Precision,
     ) {
         array.scalar.hash(state);
-        array.len.hash(state);
+        array.common.len().hash(state);
     }
 
     fn array_eq(array: &ConstantArray, other: &ConstantArray, _precision: Precision) -> bool {
-        array.scalar == other.scalar && array.len == other.len
+        array.scalar == other.scalar && array.common.len() == other.common.len()
     }
 
     fn nbuffers(_array: &ConstantArray) -> usize {

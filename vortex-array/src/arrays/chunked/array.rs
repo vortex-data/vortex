@@ -14,6 +14,7 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
@@ -23,18 +24,15 @@ use crate::iter::ArrayIterator;
 use crate::iter::ArrayIteratorAdapter;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;
-use crate::stats::ArrayStats;
 use crate::stream::ArrayStream;
 use crate::stream::ArrayStreamAdapter;
 use crate::validity::Validity;
 
 #[derive(Clone, Debug)]
 pub struct ChunkedArray {
-    pub(super) dtype: DType,
-    pub(super) len: usize,
+    pub(super) common: ArrayCommon,
     pub(super) chunk_offsets: PrimitiveArray,
     pub(super) chunks: Vec<ArrayRef>,
-    pub(super) stats_set: ArrayStats,
 }
 
 impl ChunkedArray {
@@ -80,14 +78,14 @@ impl ChunkedArray {
 
         let chunk_offsets = PrimitiveArray::new(chunk_offsets_buf.freeze(), Validity::NonNullable);
 
+        let len: usize = curr_offset
+            .try_into()
+            .vortex_expect("chunk offset must fit in usize");
+
         Self {
-            dtype,
-            len: curr_offset
-                .try_into()
-                .vortex_expect("chunk offset must fit in usize"),
+            common: ArrayCommon::new(len, dtype),
             chunk_offsets,
             chunks,
-            stats_set: Default::default(),
         }
     }
 

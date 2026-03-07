@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -16,7 +17,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
@@ -52,15 +52,15 @@ impl VTable for ByteBoolVTable {
     }
 
     fn len(array: &ByteBoolArray) -> usize {
-        array.buffer.len()
+        array.common.len()
     }
 
     fn dtype(array: &ByteBoolArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &ByteBoolArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -68,13 +68,13 @@ impl VTable for ByteBoolVTable {
         state: &mut H,
         precision: Precision,
     ) {
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
         array.buffer.array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
     fn array_eq(array: &ByteBoolArray, other: &ByteBoolArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
+        array.common.dtype() == other.common.dtype()
             && array.buffer.array_eq(&other.buffer, precision)
             && array.validity.array_eq(&other.validity, precision)
     }
@@ -166,7 +166,7 @@ impl VTable for ByteBoolVTable {
         );
 
         array.validity = if children.is_empty() {
-            Validity::from(array.dtype.nullability())
+            Validity::from(array.common.dtype().nullability())
         } else {
             Validity::Array(children.into_iter().next().vortex_expect("checked"))
         };
@@ -200,10 +200,9 @@ impl VTable for ByteBoolVTable {
 
 #[derive(Clone, Debug)]
 pub struct ByteBoolArray {
-    dtype: DType,
+    common: ArrayCommon,
     buffer: BufferHandle,
     validity: Validity,
-    stats_set: ArrayStats,
 }
 
 #[derive(Debug)]
@@ -226,10 +225,9 @@ impl ByteBoolArray {
             );
         }
         Self {
-            dtype: DType::Bool(validity.nullability()),
+            common: ArrayCommon::new(length, DType::Bool(validity.nullability())),
             buffer,
             validity,
-            stats_set: Default::default(),
         }
     }
 

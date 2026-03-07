@@ -61,7 +61,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
             StructArray::try_new(
                 pack_options.names.clone(),
                 array.children.clone(),
-                array.len,
+                array.common.len(),
                 validity,
             )?
             .into_array(),
@@ -80,7 +80,9 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
             Ok(Some(Canonical::empty(array.dtype()).into_array()))
         } else {
             let result = array.scalar_at(0)?;
-            Ok(Some(ConstantArray::new(result, array.len).into_array()))
+            Ok(Some(
+                ConstantArray::new(result, array.common.len()).into_array(),
+            ))
         }
     }
 }
@@ -89,10 +91,12 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
 struct ScalarFnAbstractReduceRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
     fn reduce(&self, array: &ScalarFnArray) -> VortexResult<Option<ArrayRef>> {
-        if let Some(reduced) = array
-            .scalar_fn
-            .reduce(array, &ArrayReduceCtx { len: array.len })?
-        {
+        if let Some(reduced) = array.scalar_fn.reduce(
+            array,
+            &ArrayReduceCtx {
+                len: array.common.len(),
+            },
+        )? {
             return Ok(Some(
                 reduced
                     .as_any()

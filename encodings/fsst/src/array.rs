@@ -10,6 +10,7 @@ use std::sync::LazyLock;
 use fsst::Compressor;
 use fsst::Decompressor;
 use fsst::Symbol;
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -30,7 +31,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
@@ -85,19 +85,19 @@ impl VTable for FSSTVTable {
     }
 
     fn len(array: &FSSTArray) -> usize {
-        array.codes().len()
+        array.common.len()
     }
 
     fn dtype(array: &FSSTArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &FSSTArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &FSSTArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
         array.symbols.array_hash(state, precision);
         array.symbol_lengths.array_hash(state, precision);
         array.codes.as_ref().array_hash(state, precision);
@@ -105,7 +105,7 @@ impl VTable for FSSTVTable {
     }
 
     fn array_eq(array: &FSSTArray, other: &FSSTArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
+        array.common.dtype() == other.common.dtype()
             && array.symbols.array_eq(&other.symbols, precision)
             && array
                 .symbol_lengths
@@ -362,7 +362,7 @@ impl VTable for FSSTVTable {
 
 #[derive(Clone)]
 pub struct FSSTArray {
-    dtype: DType,
+    common: ArrayCommon,
     symbols: Buffer<Symbol>,
     symbol_lengths: Buffer<u8>,
     codes: VarBinArray,
@@ -370,7 +370,6 @@ pub struct FSSTArray {
     codes_array: ArrayRef,
     /// Lengths of the original values before compression, can be compressed.
     uncompressed_lengths: ArrayRef,
-    stats_set: ArrayStats,
 
     /// Memoized compressor used for push-down of compute by compressing the RHS.
     compressor: Arc<LazyLock<Compressor, Box<dyn Fn() -> Compressor + Send>>>,
@@ -379,7 +378,7 @@ pub struct FSSTArray {
 impl Debug for FSSTArray {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FSSTArray")
-            .field("dtype", &self.dtype)
+            .field("common", &self.common)
             .field("symbols", &self.symbols)
             .field("symbol_lengths", &self.symbol_lengths)
             .field("codes", &self.codes)
@@ -457,16 +456,16 @@ impl FSSTArray {
             Compressor::rebuild_from(symbols2.as_slice(), symbol_lengths2.as_slice())
         })
             as Box<dyn Fn() -> Compressor + Send>));
+        let len = codes.len();
         let codes_array = codes.clone().into_array();
 
         Self {
-            dtype,
+            common: ArrayCommon::new(len, dtype),
             symbols,
             symbol_lengths,
             codes,
             codes_array,
             uncompressed_lengths,
-            stats_set: Default::default(),
             compressor,
         }
     }

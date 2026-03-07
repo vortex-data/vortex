@@ -5,6 +5,7 @@ use std::ops::Range;
 
 use vortex_error::VortexResult;
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ScalarFnArray;
@@ -22,10 +23,8 @@ impl SliceReduce for ScalarFnVTable {
         Ok(Some(
             ScalarFnArray {
                 scalar_fn: array.scalar_fn.clone(),
-                dtype: array.dtype.clone(),
-                len: range.len(),
+                common: ArrayCommon::new(range.len(), array.common.dtype().clone()),
                 children,
-                stats: Default::default(),
             }
             .into_array(),
         ))

@@ -4,17 +4,15 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
-use crate::dtype::DType;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 #[derive(Clone, Debug)]
 pub struct MaskedArray {
     pub(super) child: ArrayRef,
     pub(super) validity: Validity,
-    pub(super) dtype: DType,
-    pub(super) stats: ArrayStats,
+    pub(super) common: ArrayCommon,
 }
 
 impl MaskedArray {
@@ -36,12 +34,12 @@ impl MaskedArray {
         // MaskedArray's nullability is determined solely by its validity, not the child's dtype.
         // The child can have nullable dtype but must not have any actual null values.
         let dtype = child.dtype().as_nullable();
+        let len = child.len();
 
         Ok(Self {
             child,
             validity,
-            dtype,
-            stats: ArrayStats::default(),
+            common: ArrayCommon::new(len, dtype),
         })
     }
 

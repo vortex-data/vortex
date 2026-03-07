@@ -58,27 +58,27 @@ impl VTable for MaskedVTable {
     }
 
     fn len(array: &MaskedArray) -> usize {
-        array.child.len()
+        array.common.len()
     }
 
     fn dtype(array: &MaskedArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &MaskedArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &MaskedArray, state: &mut H, precision: Precision) {
         array.child.array_hash(state, precision);
         array.validity.array_hash(state, precision);
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
     }
 
     fn array_eq(array: &MaskedArray, other: &MaskedArray, precision: Precision) -> bool {
         array.child.array_eq(&other.child, precision)
             && array.validity.array_eq(&other.validity, precision)
-            && array.dtype == other.dtype
+            && array.common.dtype() == other.common.dtype()
     }
 
     fn nbuffers(_array: &Self::Array) -> usize {
@@ -203,7 +203,7 @@ impl VTable for MaskedVTable {
         let validity = if let Some(validity_array) = iter.next() {
             Validity::Array(validity_array)
         } else {
-            Validity::from(array.dtype.nullability())
+            Validity::from(array.common.dtype().nullability())
         };
 
         let new_array = MaskedArray::try_new(child, validity)?;

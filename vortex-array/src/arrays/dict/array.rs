@@ -8,12 +8,12 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
-use crate::stats::ArrayStats;
 
 #[derive(Clone, prost::Message)]
 pub struct DictMetadata {
@@ -33,10 +33,9 @@ pub struct DictMetadata {
 
 #[derive(Debug, Clone)]
 pub struct DictArray {
+    pub(super) common: ArrayCommon,
     pub(super) codes: ArrayRef,
     pub(super) values: ArrayRef,
-    pub(super) stats_set: ArrayStats,
-    pub(super) dtype: DType,
     /// Indicates whether all dictionary values are definitely referenced by at least one code.
     /// `true` = all values are referenced (computed during encoding).
     /// `false` = unknown/might have unreferenced values.
@@ -62,11 +61,11 @@ impl DictArray {
         let dtype = values
             .dtype()
             .union_nullability(codes.dtype().nullability());
+        let len = codes.len();
         Self {
+            common: ArrayCommon::new(len, dtype),
             codes,
             values,
-            stats_set: Default::default(),
-            dtype,
             all_values_referenced: false,
         }
     }
@@ -124,7 +123,7 @@ impl DictArray {
         DictArrayParts {
             codes: self.codes,
             values: self.values,
-            dtype: self.dtype,
+            dtype: self.common.dtype().clone(),
         }
     }
 

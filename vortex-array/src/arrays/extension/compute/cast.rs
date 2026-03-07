@@ -72,7 +72,7 @@ mod tests {
         let storage = Buffer::<i64>::empty().into_array();
 
         let arr = ExtensionArray::new(ext_dtype.clone(), storage);
-        assert!(!arr.dtype.is_nullable());
+        assert!(!arr.common.dtype().is_nullable());
 
         let new_dtype = DType::Extension(ext_dtype).with_nullability(Nullability::Nullable);
 

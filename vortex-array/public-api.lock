@@ -2844,7 +2844,7 @@ pub fn vortex_array::arrays::null::NullVTable::child_name(_array: &vortex_array:
 
 pub fn vortex_array::arrays::null::NullVTable::deserialize(_bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_array::arrays::null::NullVTable::dtype(_array: &vortex_array::arrays::null::NullArray) -> &vortex_array::dtype::DType
+pub fn vortex_array::arrays::null::NullVTable::dtype(array: &vortex_array::arrays::null::NullArray) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::arrays::null::NullVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -6522,7 +6522,7 @@ pub fn vortex_array::arrays::null::NullVTable::child_name(_array: &vortex_array:
 
 pub fn vortex_array::arrays::null::NullVTable::deserialize(_bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_array::arrays::null::NullVTable::dtype(_array: &vortex_array::arrays::null::NullArray) -> &vortex_array::dtype::DType
+pub fn vortex_array::arrays::null::NullVTable::dtype(array: &vortex_array::arrays::null::NullArray) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::arrays::null::NullVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -21270,7 +21270,7 @@ pub fn vortex_array::arrays::null::NullVTable::child_name(_array: &vortex_array:
 
 pub fn vortex_array::arrays::null::NullVTable::deserialize(_bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_array::arrays::null::NullVTable::dtype(_array: &vortex_array::arrays::null::NullArray) -> &vortex_array::dtype::DType
+pub fn vortex_array::arrays::null::NullVTable::dtype(array: &vortex_array::arrays::null::NullArray) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::arrays::null::NullVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -21871,6 +21871,36 @@ pub fn vortex_array::ArrayAdapter<V>::child_count(&self) -> usize
 pub fn vortex_array::ArrayAdapter<V>::node_dtype(&self) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_array::ArrayAdapter<V>::scalar_fn(&self) -> core::option::Option<&vortex_array::scalar_fn::ScalarFnRef>
+
+pub struct vortex_array::ArrayCommon
+
+impl vortex_array::ArrayCommon
+
+pub fn vortex_array::ArrayCommon::dtype(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_array::ArrayCommon::dtype_mut(&mut self) -> &mut vortex_array::dtype::DType
+
+pub fn vortex_array::ArrayCommon::into_dtype(self) -> vortex_array::dtype::DType
+
+pub fn vortex_array::ArrayCommon::is_empty(&self) -> bool
+
+pub fn vortex_array::ArrayCommon::len(&self) -> usize
+
+pub fn vortex_array::ArrayCommon::new(len: usize, dtype: vortex_array::dtype::DType) -> Self
+
+pub fn vortex_array::ArrayCommon::new_with_stats(len: usize, dtype: vortex_array::dtype::DType, stats: vortex_array::stats::ArrayStats) -> Self
+
+pub fn vortex_array::ArrayCommon::set_len(&mut self, len: usize)
+
+pub fn vortex_array::ArrayCommon::stats(&self) -> &vortex_array::stats::ArrayStats
+
+impl core::clone::Clone for vortex_array::ArrayCommon
+
+pub fn vortex_array::ArrayCommon::clone(&self) -> vortex_array::ArrayCommon
+
+impl core::fmt::Debug for vortex_array::ArrayCommon
+
+pub fn vortex_array::ArrayCommon::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_array::CanonicalValidity(pub vortex_array::Canonical)
 

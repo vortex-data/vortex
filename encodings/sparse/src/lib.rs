@@ -6,6 +6,7 @@ use std::hash::Hash;
 
 use kernel::PARENT_KERNELS;
 use prost::Message as _;
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -25,7 +26,6 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
@@ -84,15 +84,15 @@ impl VTable for SparseVTable {
     }
 
     fn len(array: &SparseArray) -> usize {
-        array.patches.array_len()
+        array.common.len()
     }
 
     fn dtype(array: &SparseArray) -> &DType {
-        array.fill_scalar().dtype()
+        array.common.dtype()
     }
 
     fn stats(array: &SparseArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &SparseArray, state: &mut H, precision: Precision) {
@@ -262,9 +262,9 @@ impl VTable for SparseVTable {
 
 #[derive(Clone, Debug)]
 pub struct SparseArray {
+    common: ArrayCommon,
     patches: Patches,
     fill_value: Scalar,
-    stats_set: ArrayStats,
 }
 
 #[derive(Debug)]
@@ -306,11 +306,12 @@ impl SparseArray {
             }
         }
 
+        let dtype = fill_value.dtype().clone();
         Ok(Self {
+            common: ArrayCommon::new(len, dtype),
             // TODO(0ax1): handle chunk offsets
             patches: Patches::new(len, 0, indices, values, None)?,
             fill_value,
-            stats_set: Default::default(),
         })
     }
 
@@ -323,19 +324,23 @@ impl SparseArray {
             patches.values().dtype(),
             fill_value.dtype(),
         );
+        let len = patches.array_len();
+        let dtype = fill_value.dtype().clone();
 
         Ok(Self {
+            common: ArrayCommon::new(len, dtype),
             patches,
             fill_value,
-            stats_set: Default::default(),
         })
     }
 
     pub(crate) unsafe fn new_unchecked(patches: Patches, fill_value: Scalar) -> Self {
+        let len = patches.array_len();
+        let dtype = fill_value.dtype().clone();
         Self {
+            common: ArrayCommon::new(len, dtype),
             patches,
             fill_value,
-            stats_set: Default::default(),
         }
     }
 

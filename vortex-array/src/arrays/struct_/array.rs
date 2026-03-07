@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
@@ -17,7 +18,6 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::StructFields;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -141,11 +141,9 @@ use crate::vtable::ValidityHelper;
 /// ```
 #[derive(Clone, Debug)]
 pub struct StructArray {
-    pub(super) len: usize,
-    pub(super) dtype: DType,
+    pub(super) common: ArrayCommon,
     pub(super) fields: Arc<[ArrayRef]>,
     pub(super) validity: Validity,
-    pub(super) stats_set: ArrayStats,
 }
 
 pub struct StructArrayParts {
@@ -182,7 +180,7 @@ impl StructArray {
     }
 
     pub fn struct_fields(&self) -> &StructFields {
-        let Some(struct_dtype) = &self.dtype.as_struct_fields_opt() else {
+        let Some(struct_dtype) = &self.common.dtype().as_struct_fields_opt() else {
             unreachable!(
                 "struct arrays must have be a DType::Struct, this is likely an internal bug."
             )
@@ -279,11 +277,9 @@ impl StructArray {
             .vortex_expect("[Debug Assertion]: Invalid `StructArray` parameters");
 
         Self {
-            len: length,
-            dtype: DType::Struct(dtype, validity.nullability()),
+            common: ArrayCommon::new(length, DType::Struct(dtype, validity.nullability())),
             fields,
             validity,
-            stats_set: Default::default(),
         }
     }
 
@@ -354,7 +350,7 @@ impl StructArray {
     }
 
     pub fn into_parts(self) -> StructArrayParts {
-        let struct_fields = self.dtype.into_struct_fields();
+        let struct_fields = self.common.into_dtype().into_struct_fields();
         StructArrayParts {
             struct_fields,
             fields: self.fields,
@@ -450,7 +446,8 @@ impl StructArray {
 
         if let Ok(new_dtype) = struct_dtype.without_field(position) {
             self.fields = new_fields;
-            self.dtype = DType::Struct(new_dtype, self.dtype.nullability());
+            let nullability = self.common.dtype().nullability();
+            *self.common.dtype_mut() = DType::Struct(new_dtype, nullability);
             return Some(field);
         }
         None
@@ -467,6 +464,11 @@ impl StructArray {
 
         let children: Arc<[ArrayRef]> = self.fields.iter().cloned().chain(once(array)).collect();
 
-        Self::try_new_with_dtype(children, new_fields, self.len, self.validity.clone())
+        Self::try_new_with_dtype(
+            children,
+            new_fields,
+            self.common.len(),
+            self.validity.clone(),
+        )
     }
 }

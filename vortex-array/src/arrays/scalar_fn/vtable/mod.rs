@@ -17,6 +17,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayCommon;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
@@ -60,20 +61,20 @@ impl VTable for ScalarFnVTable {
     }
 
     fn len(array: &ScalarFnArray) -> usize {
-        array.len
+        array.common.len()
     }
 
     fn dtype(array: &ScalarFnArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &ScalarFnArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: Hasher>(array: &ScalarFnArray, state: &mut H, precision: Precision) {
-        array.len.hash(state);
-        array.dtype.hash(state);
+        array.common.len().hash(state);
+        array.common.dtype().hash(state);
         array.scalar_fn.hash(state);
         for child in &array.children {
             child.array_hash(state, precision);
@@ -81,10 +82,10 @@ impl VTable for ScalarFnVTable {
     }
 
     fn array_eq(array: &ScalarFnArray, other: &ScalarFnArray, precision: Precision) -> bool {
-        if array.len != other.len {
+        if array.common.len() != other.common.len() {
             return false;
         }
-        if array.dtype != other.dtype {
+        if array.common.dtype() != other.common.dtype() {
             return false;
         }
         if array.scalar_fn != other.scalar_fn {
@@ -176,10 +177,8 @@ impl VTable for ScalarFnVTable {
         Ok(ScalarFnArray {
             // This requires a new Arc, but we plan to remove this later anyway.
             scalar_fn: metadata.scalar_fn.clone(),
-            dtype: dtype.clone(),
-            len,
+            common: ArrayCommon::new(len, dtype.clone()),
             children,
-            stats: Default::default(),
         })
     }
 
@@ -196,7 +195,7 @@ impl VTable for ScalarFnVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn));
-        let args = VecExecutionArgs::new(array.children.clone(), array.len);
+        let args = VecExecutionArgs::new(array.children.clone(), array.common.len());
         array.scalar_fn.execute(&args, ctx)
     }
 
@@ -234,10 +233,8 @@ pub trait ScalarFnArrayExt: scalar_fn::ScalarFnVTable {
 
         Ok(ScalarFnArray {
             scalar_fn,
-            dtype,
-            len,
+            common: ArrayCommon::new(len, dtype),
             children,
-            stats: Default::default(),
         }
         .into_array())
     }

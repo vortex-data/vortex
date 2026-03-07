@@ -10,6 +10,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::ToCanonical;
@@ -19,7 +20,6 @@ use crate::arrays::bool;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 /// The canonical encoding for variable-length list arrays.
@@ -86,10 +86,8 @@ use crate::validity::Validity;
 /// [`ListArray`]: crate::arrays::ListArray
 #[derive(Clone, Debug)]
 pub struct ListViewArray {
-    /// The [`DType`] of the list array.
-    ///
-    /// This type **must** be the variant [`DType::List`].
-    pub(super) dtype: DType,
+    /// Common fields (len, dtype, stats) shared by all array types.
+    pub(super) common: ArrayCommon,
 
     /// The `elements` data array, where each list scalar is a _slice_ of the `elements` array, and
     /// each inner list element is a _scalar_ of the `elements` array.
@@ -122,9 +120,6 @@ pub struct ListViewArray {
     /// Note that this null map refers to which list scalars are null, **not** which sub-elements of
     /// list scalars are null. The `elements` array will track individual value nullability.
     pub(super) validity: Validity,
-
-    /// The stats for this array.
-    pub(super) stats_set: ArrayStats,
 }
 
 pub struct ListViewArrayParts {
@@ -169,14 +164,15 @@ impl ListViewArray {
     ) -> VortexResult<Self> {
         Self::validate(&elements, &offsets, &sizes, &validity)?;
 
+        let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
+        let len = offsets.len();
         Ok(Self {
-            dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
+            common: ArrayCommon::new(len, dtype),
             elements,
             offsets,
             sizes,
             validity,
             is_zero_copy_to_list: false,
-            stats_set: Default::default(),
         })
     }
 
@@ -210,14 +206,15 @@ impl ListViewArray {
                 .vortex_expect("Failed to crate `ListViewArray`");
         }
 
+        let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
+        let len = offsets.len();
         Self {
-            dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
+            common: ArrayCommon::new(len, dtype),
             elements,
             offsets,
             sizes,
             validity,
             is_zero_copy_to_list: false,
-            stats_set: Default::default(),
         }
     }
 
@@ -342,7 +339,12 @@ impl ListViewArray {
     }
 
     pub fn into_parts(self) -> ListViewArrayParts {
-        let dtype = self.dtype.into_list_element_opt().vortex_expect("is list");
+        let dtype = self
+            .common
+            .dtype()
+            .clone()
+            .into_list_element_opt()
+            .vortex_expect("is list");
         ListViewArrayParts {
             elements_dtype: dtype,
             elements: self.elements,

@@ -53,15 +53,15 @@ impl VTable for FixedSizeListVTable {
     }
 
     fn len(array: &FixedSizeListArray) -> usize {
-        array.len
+        array.common.len()
     }
 
     fn dtype(array: &FixedSizeListArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &FixedSizeListArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -69,11 +69,11 @@ impl VTable for FixedSizeListVTable {
         state: &mut H,
         precision: Precision,
     ) {
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
         array.elements().array_hash(state, precision);
         array.list_size().hash(state);
         array.validity.array_hash(state, precision);
-        array.len.hash(state);
+        array.common.len().hash(state);
     }
 
     fn array_eq(
@@ -81,11 +81,11 @@ impl VTable for FixedSizeListVTable {
         other: &FixedSizeListArray,
         precision: Precision,
     ) -> bool {
-        array.dtype == other.dtype
+        array.common.dtype() == other.common.dtype()
             && array.elements().array_eq(other.elements(), precision)
             && array.list_size() == other.list_size()
             && array.validity.array_eq(&other.validity, precision)
-            && array.len == other.len
+            && array.common.len() == other.common.len()
     }
 
     fn nbuffers(_array: &FixedSizeListArray) -> usize {
@@ -107,7 +107,7 @@ impl VTable for FixedSizeListVTable {
     fn child(array: &FixedSizeListArray, idx: usize) -> ArrayRef {
         match idx {
             0 => array.elements().clone(),
-            1 => validity_to_child(&array.validity, array.len())
+            1 => validity_to_child(&array.validity, array.common.len())
                 .vortex_expect("FixedSizeListArray validity child out of bounds"),
             _ => vortex_panic!("FixedSizeListArray child index {idx} out of bounds"),
         }
@@ -209,11 +209,11 @@ impl VTable for FixedSizeListVTable {
         let validity = if let Some(validity_array) = iter.next() {
             Validity::Array(validity_array)
         } else {
-            Validity::from(array.dtype.nullability())
+            Validity::from(array.common.dtype().nullability())
         };
 
         let new_array =
-            FixedSizeListArray::try_new(elements, array.list_size(), validity, array.len())?;
+            FixedSizeListArray::try_new(elements, array.list_size(), validity, array.common.len())?;
         *array = new_array;
         Ok(())
     }

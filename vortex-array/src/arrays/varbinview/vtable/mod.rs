@@ -58,15 +58,15 @@ impl VTable for VarBinViewVTable {
     }
 
     fn len(array: &VarBinViewArray) -> usize {
-        array.views_handle().len() / size_of::<BinaryView>()
+        array.common.len()
     }
 
     fn dtype(array: &VarBinViewArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &VarBinViewArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -74,7 +74,7 @@ impl VTable for VarBinViewVTable {
         state: &mut H,
         precision: Precision,
     ) {
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
         for buffer in array.buffers.iter() {
             buffer.array_hash(state, precision);
         }
@@ -83,7 +83,7 @@ impl VTable for VarBinViewVTable {
     }
 
     fn array_eq(array: &VarBinViewArray, other: &VarBinViewArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
+        array.common.dtype() == other.common.dtype()
             && array.buffers.len() == other.buffers.len()
             && array
                 .buffers

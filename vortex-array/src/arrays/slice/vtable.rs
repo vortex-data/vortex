@@ -55,15 +55,15 @@ impl VTable for SliceVTable {
     }
 
     fn len(array: &SliceArray) -> usize {
-        array.range.len()
+        array.common.len()
     }
 
     fn dtype(array: &SliceArray) -> &DType {
-        array.child.dtype()
+        array.common.dtype()
     }
 
     fn stats(array: &SliceArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: Hasher>(array: &SliceArray, state: &mut H, precision: Precision) {
@@ -134,11 +134,7 @@ impl VTable for SliceVTable {
     ) -> VortexResult<Self::Array> {
         assert_eq!(len, metadata.0.len());
         let child = children.get(0, dtype, metadata.0.end)?;
-        Ok(SliceArray {
-            child,
-            range: metadata.0.clone(),
-            stats: Default::default(),
-        })
+        SliceArray::try_new(child, metadata.0.clone())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

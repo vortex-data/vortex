@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
-use crate::stats::ArrayStats;
 
 /// An extension array that wraps another array with additional type information.
 ///
@@ -47,9 +47,8 @@ use crate::stats::ArrayStats;
 /// - Scalar access wraps storage scalars with extension metadata
 #[derive(Clone, Debug)]
 pub struct ExtensionArray {
-    pub(super) dtype: DType,
+    pub(super) common: ArrayCommon,
     pub(super) storage: ArrayRef,
-    pub(super) stats_set: ArrayStats,
 }
 
 impl ExtensionArray {
@@ -59,15 +58,15 @@ impl ExtensionArray {
             storage.dtype(),
             "ExtensionArray: storage_dtype must match storage array DType",
         );
+        let len = storage.len();
         Self {
-            dtype: DType::Extension(ext_dtype),
+            common: ArrayCommon::new(len, DType::Extension(ext_dtype)),
             storage,
-            stats_set: ArrayStats::default(),
         }
     }
 
     pub fn ext_dtype(&self) -> &ExtDTypeRef {
-        let DType::Extension(ext) = &self.dtype else {
+        let DType::Extension(ext) = self.common.dtype() else {
             unreachable!("ExtensionArray: dtype must be an ExtDType")
         };
         ext

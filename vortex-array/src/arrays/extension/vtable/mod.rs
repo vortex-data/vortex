@@ -47,15 +47,15 @@ impl VTable for ExtensionVTable {
     }
 
     fn len(array: &ExtensionArray) -> usize {
-        array.storage.len()
+        array.common.len()
     }
 
     fn dtype(array: &ExtensionArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &ExtensionArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -63,12 +63,13 @@ impl VTable for ExtensionVTable {
         state: &mut H,
         precision: Precision,
     ) {
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
         array.storage.array_hash(state, precision);
     }
 
     fn array_eq(array: &ExtensionArray, other: &ExtensionArray, precision: Precision) -> bool {
-        array.dtype == other.dtype && array.storage.array_eq(&other.storage, precision)
+        array.common.dtype() == other.common.dtype()
+            && array.storage.array_eq(&other.storage, precision)
     }
 
     fn nbuffers(_array: &ExtensionArray) -> usize {

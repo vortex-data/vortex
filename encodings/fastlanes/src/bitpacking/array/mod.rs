@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use fastlanes::BitPacking;
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
@@ -9,7 +10,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
-use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -37,13 +37,11 @@ pub struct BitPackedArray {
     /// The offset within the first block (created with a slice).
     /// 0 <= offset < 1024
     pub(super) offset: u16,
-    pub(super) len: usize,
-    pub(super) dtype: DType,
+    pub(super) common: ArrayCommon,
     pub(super) bit_width: u8,
     pub(super) packed: BufferHandle,
     pub(super) patches: Option<Patches>,
     pub(super) validity: Validity,
-    pub(super) stats_set: ArrayStats,
 }
 
 impl BitPackedArray {
@@ -78,13 +76,11 @@ impl BitPackedArray {
     ) -> Self {
         Self {
             offset,
-            len,
-            dtype,
+            common: ArrayCommon::new(len, dtype),
             bit_width,
             packed,
             patches,
             validity,
-            stats_set: Default::default(),
         }
     }
 
@@ -200,7 +196,7 @@ impl BitPackedArray {
     }
 
     pub fn ptype(&self) -> PType {
-        self.dtype.as_ptype()
+        self.common.dtype().as_ptype()
     }
 
     /// Underlying bit packed values as byte array
@@ -289,7 +285,7 @@ impl BitPackedArray {
         BitPackedArrayParts {
             offset: self.offset,
             bit_width: self.bit_width,
-            len: self.len,
+            len: self.common.len(),
             packed: self.packed,
             patches: self.patches,
             validity: self.validity,

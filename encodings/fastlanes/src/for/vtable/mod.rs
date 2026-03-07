@@ -52,15 +52,15 @@ impl VTable for FoRVTable {
     }
 
     fn len(array: &FoRArray) -> usize {
-        array.encoded().len()
+        array.common.len()
     }
 
     fn dtype(array: &FoRArray) -> &DType {
-        array.reference_scalar().dtype()
+        array.common.dtype()
     }
 
     fn stats(array: &FoRArray) -> StatsSetRef<'_> {
-        array.stats_set().to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &FoRArray, state: &mut H, precision: Precision) {

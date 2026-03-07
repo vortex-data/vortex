@@ -15,6 +15,7 @@ use pco::wrapped::ChunkDecompressor;
 use pco::wrapped::FileCompressor;
 use pco::wrapped::FileDecompressor;
 use prost::Message;
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -32,7 +33,6 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::half;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
@@ -94,19 +94,19 @@ impl VTable for PcoVTable {
     }
 
     fn len(array: &PcoArray) -> usize {
-        array.slice_stop - array.slice_start
+        array.common.len()
     }
 
     fn dtype(array: &PcoArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &PcoArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &PcoArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
         array.unsliced_validity.array_hash(state, precision);
         array.unsliced_n_rows.hash(state);
         array.slice_start.hash(state);
@@ -121,7 +121,7 @@ impl VTable for PcoVTable {
     }
 
     fn array_eq(array: &PcoArray, other: &PcoArray, precision: Precision) -> bool {
-        if array.dtype != other.dtype
+        if array.common.dtype() != other.common.dtype()
             || !array
                 .unsliced_validity
                 .array_eq(&other.unsliced_validity, precision)
@@ -253,7 +253,7 @@ impl VTable for PcoVTable {
         );
 
         if children.is_empty() {
-            array.unsliced_validity = Validity::from(array.dtype.nullability());
+            array.unsliced_validity = Validity::from(array.common.dtype().nullability());
         } else {
             array.unsliced_validity =
                 Validity::Array(children.into_iter().next().vortex_expect("validity child"));
@@ -317,10 +317,9 @@ pub struct PcoArray {
     pub(crate) chunk_metas: Vec<ByteBuffer>,
     pub(crate) pages: Vec<ByteBuffer>,
     pub(crate) metadata: PcoMetadata,
-    dtype: DType,
+    pub(crate) common: ArrayCommon,
     pub(crate) unsliced_validity: Validity,
     unsliced_n_rows: usize,
-    stats_set: ArrayStats,
     slice_start: usize,
     slice_stop: usize,
 }
@@ -338,10 +337,9 @@ impl PcoArray {
             chunk_metas,
             pages,
             metadata,
-            dtype,
+            common: ArrayCommon::new(len, dtype),
             unsliced_validity: validity,
             unsliced_n_rows: len,
-            stats_set: Default::default(),
             slice_start: 0,
             slice_stop: len,
         }
@@ -439,7 +437,7 @@ impl PcoArray {
     pub fn decompress(&self) -> VortexResult<PrimitiveArray> {
         // To start, we figure out which chunks and pages we need to decompress, and with
         // what value offset into the first such page.
-        let number_type = number_type_from_dtype(&self.dtype);
+        let number_type = number_type_from_dtype(self.common.dtype());
         let values_byte_buffer = match_number_enum!(
             number_type,
             NumberType<T> => {
@@ -449,10 +447,10 @@ impl PcoArray {
 
         Ok(PrimitiveArray::from_values_byte_buffer(
             values_byte_buffer,
-            self.dtype.as_ptype(),
+            self.common.dtype().as_ptype(),
             self.unsliced_validity
                 .slice(self.slice_start..self.slice_stop)?,
-            self.slice_stop - self.slice_start,
+            self.common.len(),
         ))
     }
 
@@ -530,16 +528,18 @@ impl PcoArray {
     }
 
     pub(crate) fn _slice(&self, start: usize, stop: usize) -> Self {
+        let new_start = self.slice_start + start;
+        let new_stop = self.slice_start + stop;
         PcoArray {
-            slice_start: self.slice_start + start,
-            slice_stop: self.slice_start + stop,
-            stats_set: Default::default(),
+            common: ArrayCommon::new(new_stop - new_start, self.common.dtype().clone()),
+            slice_start: new_start,
+            slice_stop: new_stop,
             ..self.clone()
         }
     }
 
     pub(crate) fn dtype(&self) -> &DType {
-        &self.dtype
+        self.common.dtype()
     }
 
     pub(crate) fn slice_start(&self) -> usize {

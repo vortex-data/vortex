@@ -12,13 +12,13 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::ArrayCommon;
 use crate::ToCanonical;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -70,10 +70,9 @@ use crate::buffer::BufferHandle;
 /// ```
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
-    pub(super) dtype: DType,
+    pub(super) common: ArrayCommon,
     pub(super) buffer: BufferHandle,
     pub(super) validity: Validity,
-    pub(super) stats_set: ArrayStats,
 }
 
 pub struct PrimitiveArrayParts {
@@ -95,11 +94,11 @@ impl PrimitiveArray {
         ptype: PType,
         validity: Validity,
     ) -> Self {
+        let len = handle.len() / ptype.byte_width();
         Self {
+            common: ArrayCommon::new(len, DType::Primitive(ptype, validity.nullability())),
             buffer: handle,
-            dtype: DType::Primitive(ptype, validity.nullability()),
             validity,
-            stats_set: ArrayStats::default(),
         }
     }
 
@@ -148,11 +147,12 @@ impl PrimitiveArray {
         Self::validate(&buffer, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `PrimitiveArray` parameters");
 
+        let byte_buffer = buffer.into_byte_buffer();
+        let len = byte_buffer.len() / T::PTYPE.byte_width();
         Self {
-            dtype: DType::Primitive(T::PTYPE, validity.nullability()),
-            buffer: BufferHandle::new_host(buffer.into_byte_buffer()),
+            common: ArrayCommon::new(len, DType::Primitive(T::PTYPE, validity.nullability())),
+            buffer: BufferHandle::new_host(byte_buffer),
             validity,
-            stats_set: Default::default(),
         }
     }
 
@@ -202,12 +202,12 @@ impl PrimitiveArray {
     }
 
     pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, validity: Validity) -> Self {
+        let len = handle.len() / ptype.byte_width();
         let dtype = DType::Primitive(ptype, validity.nullability());
         Self {
+            common: ArrayCommon::new(len, dtype),
             buffer: handle,
-            dtype,
             validity,
-            stats_set: ArrayStats::default(),
         }
     }
 

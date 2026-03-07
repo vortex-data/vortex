@@ -9,11 +9,10 @@ use async_lock::Mutex as AsyncMutex;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexResult;
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::dtype::DType;
-use crate::stats::ArrayStats;
 
 /// A lazily-executing array wrapper with a one-way transition from source to cached form.
 ///
@@ -24,18 +23,17 @@ pub struct SharedArray {
     source: ArrayRef,
     cached: Arc<OnceLock<SharedVortexResult<ArrayRef>>>,
     async_compute_lock: Arc<AsyncMutex<()>>,
-    pub(super) dtype: DType,
-    pub(super) stats: ArrayStats,
+    pub(super) common: ArrayCommon,
 }
 
 impl SharedArray {
     pub fn new(source: ArrayRef) -> Self {
+        let common = ArrayCommon::new(source.len(), source.dtype().clone());
         Self {
-            dtype: source.dtype().clone(),
             source,
             cached: Arc::new(OnceLock::new()),
             async_compute_lock: Arc::new(AsyncMutex::new(())),
-            stats: ArrayStats::default(),
+            common,
         }
     }
 
@@ -92,7 +90,7 @@ impl SharedArray {
     }
 
     pub(super) fn set_source(&mut self, source: ArrayRef) {
-        self.dtype = source.dtype().clone();
+        self.common = ArrayCommon::new(source.len(), source.dtype().clone());
         self.source = source;
         self.cached = Arc::new(OnceLock::new());
         self.async_compute_lock = Arc::new(AsyncMutex::new(()));

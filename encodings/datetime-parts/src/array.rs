@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -19,7 +20,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
@@ -82,15 +82,15 @@ impl VTable for DateTimePartsVTable {
     }
 
     fn len(array: &DateTimePartsArray) -> usize {
-        array.days.len()
+        array.common.len()
     }
 
     fn dtype(array: &DateTimePartsArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &DateTimePartsArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -98,7 +98,7 @@ impl VTable for DateTimePartsVTable {
         state: &mut H,
         precision: Precision,
     ) {
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
         array.days.array_hash(state, precision);
         array.seconds.array_hash(state, precision);
         array.subseconds.array_hash(state, precision);
@@ -109,7 +109,7 @@ impl VTable for DateTimePartsVTable {
         other: &DateTimePartsArray,
         precision: Precision,
     ) -> bool {
-        array.dtype == other.dtype
+        array.common.dtype() == other.common.dtype()
             && array.days.array_eq(&other.days, precision)
             && array.seconds.array_eq(&other.seconds, precision)
             && array.subseconds.array_eq(&other.subseconds, precision)
@@ -245,11 +245,10 @@ impl VTable for DateTimePartsVTable {
 
 #[derive(Clone, Debug)]
 pub struct DateTimePartsArray {
-    dtype: DType,
+    common: ArrayCommon,
     days: ArrayRef,
     seconds: ArrayRef,
     subseconds: ArrayRef,
-    stats_set: ArrayStats,
 }
 
 #[derive(Clone, Debug)]
@@ -299,11 +298,10 @@ impl DateTimePartsArray {
         }
 
         Ok(Self {
-            dtype,
+            common: ArrayCommon::new(length, dtype),
             days,
             seconds,
             subseconds,
-            stats_set: Default::default(),
         })
     }
 
@@ -313,18 +311,18 @@ impl DateTimePartsArray {
         seconds: ArrayRef,
         subseconds: ArrayRef,
     ) -> Self {
+        let len = days.len();
         Self {
-            dtype,
+            common: ArrayCommon::new(len, dtype),
             days,
             seconds,
             subseconds,
-            stats_set: Default::default(),
         }
     }
 
     pub fn into_parts(self) -> DateTimePartsArrayParts {
         DateTimePartsArrayParts {
-            dtype: self.dtype,
+            dtype: self.common.into_dtype(),
             days: self.days,
             seconds: self.seconds,
             subseconds: self.subseconds,

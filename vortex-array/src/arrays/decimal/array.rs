@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
+use crate::ArrayCommon;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
@@ -24,7 +25,6 @@ use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
 use crate::patches::Patches;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -87,11 +87,10 @@ use crate::vtable::ValidityHelper;
 /// ```
 #[derive(Clone, Debug)]
 pub struct DecimalArray {
-    pub(super) dtype: DType,
+    pub(super) common: ArrayCommon,
     pub(super) values: BufferHandle,
     pub(super) values_type: DecimalType,
     pub(super) validity: Validity,
-    pub(super) stats_set: ArrayStats,
 }
 
 pub struct DecimalArrayParts {
@@ -222,12 +221,13 @@ impl DecimalArray {
                 .vortex_expect("[Debug Assertion]: Invalid `DecimalArray` parameters");
         }
 
+        let dtype = DType::Decimal(decimal_dtype, validity.nullability());
+        let len = values.len() / values_type.byte_width();
         Self {
+            common: ArrayCommon::new(len, dtype),
             values,
             values_type,
-            dtype: DType::Decimal(decimal_dtype, validity.nullability()),
             validity,
-            stats_set: Default::default(),
         }
     }
 
@@ -279,7 +279,11 @@ impl DecimalArray {
     }
 
     pub fn into_parts(self) -> DecimalArrayParts {
-        let decimal_dtype = self.dtype.into_decimal_opt().vortex_expect("cannot fail");
+        let decimal_dtype = *self
+            .common
+            .dtype()
+            .as_decimal_opt()
+            .vortex_expect("cannot fail");
 
         DecimalArrayParts {
             decimal_dtype,
@@ -307,10 +311,10 @@ impl DecimalArray {
 
     /// Returns the decimal type information
     pub fn decimal_dtype(&self) -> DecimalDType {
-        if let DType::Decimal(decimal_dtype, _) = self.dtype {
-            decimal_dtype
+        if let DType::Decimal(decimal_dtype, _) = self.common.dtype() {
+            *decimal_dtype
         } else {
-            vortex_panic!("Expected Decimal dtype, got {:?}", self.dtype)
+            vortex_panic!("Expected Decimal dtype, got {:?}", self.common.dtype())
         }
     }
 

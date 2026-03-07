@@ -59,20 +59,20 @@ impl VTable for ChunkedVTable {
     }
 
     fn len(array: &ChunkedArray) -> usize {
-        array.len
+        array.common.len()
     }
 
     fn dtype(array: &ChunkedArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &ChunkedArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &ChunkedArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
-        array.len.hash(state);
+        array.common.dtype().hash(state);
+        array.common.len().hash(state);
         array.chunk_offsets.as_ref().array_hash(state, precision);
         for chunk in &array.chunks {
             chunk.array_hash(state, precision);
@@ -80,8 +80,8 @@ impl VTable for ChunkedVTable {
     }
 
     fn array_eq(array: &ChunkedArray, other: &ChunkedArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.len == other.len
+        array.common.dtype() == other.common.dtype()
+            && array.common.len() == other.common.len()
             && array
                 .chunk_offsets
                 .as_ref()
@@ -189,11 +189,9 @@ impl VTable for ChunkedVTable {
 
         // Construct directly using the struct fields to avoid recomputing chunk_offsets
         Ok(ChunkedArray {
-            dtype: dtype.clone(),
-            len,
+            common: crate::ArrayCommon::new(len, dtype.clone()),
             chunk_offsets,
             chunks,
-            stats_set: Default::default(),
         })
     }
 
@@ -222,8 +220,9 @@ impl VTable for ChunkedVTable {
         let total_len = chunk_offsets_buf
             .last()
             .ok_or_else(|| vortex_err!("chunk_offsets must not be empty"))?;
-        array.len = usize::try_from(*total_len)
+        let len = usize::try_from(*total_len)
             .map_err(|_| vortex_err!("total length {} exceeds usize range", total_len))?;
+        array.common.set_len(len);
 
         Ok(())
     }

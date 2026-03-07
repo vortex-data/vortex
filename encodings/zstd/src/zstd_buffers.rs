@@ -6,6 +6,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use prost::Message as _;
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -17,7 +18,6 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::session::ArraySessionExt;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
@@ -56,9 +56,7 @@ pub struct ZstdBuffersArray {
     uncompressed_sizes: Vec<u64>,
     buffer_alignments: Vec<u32>,
     children: Vec<ArrayRef>,
-    dtype: DType,
-    len: usize,
-    stats_set: ArrayStats,
+    pub(crate) common: ArrayCommon,
 }
 
 #[derive(Clone, Debug)]
@@ -172,12 +170,11 @@ impl ZstdBuffersArray {
             uncompressed_sizes,
             buffer_alignments,
             children,
-            dtype: array.dtype().clone(),
-            len: array.len(),
-            stats_set: Default::default(),
+            common: ArrayCommon::new(array.len(), array.dtype().clone()),
         };
         compressed
-            .stats_set
+            .common
+            .stats()
             .to_ref(compressed.as_ref())
             .inherit_from(array.statistics());
         Ok(compressed)
@@ -250,8 +247,8 @@ impl ZstdBuffersArray {
         let children = self.children.as_slice();
         inner_vtable.build(
             self.inner_encoding_id.clone(),
-            &self.dtype,
-            self.len,
+            self.common.dtype(),
+            self.common.len(),
             &self.inner_metadata,
             buffer_handles,
             &children,
@@ -334,15 +331,15 @@ impl VTable for ZstdBuffersVTable {
     }
 
     fn len(array: &ZstdBuffersArray) -> usize {
-        array.len
+        array.common.len()
     }
 
     fn dtype(array: &ZstdBuffersArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &ZstdBuffersArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -357,8 +354,8 @@ impl VTable for ZstdBuffersVTable {
         }
         array.uncompressed_sizes.hash(state);
         array.buffer_alignments.hash(state);
-        array.dtype.hash(state);
-        array.len.hash(state);
+        array.common.dtype().hash(state);
+        array.common.len().hash(state);
         for child in &array.children {
             child.array_hash(state, precision);
         }
@@ -375,8 +372,8 @@ impl VTable for ZstdBuffersVTable {
                 .all(|(a, b)| a.array_eq(b, precision))
             && array.uncompressed_sizes == other.uncompressed_sizes
             && array.buffer_alignments == other.buffer_alignments
-            && array.dtype == other.dtype
-            && array.len == other.len
+            && array.common.dtype() == other.common.dtype()
+            && array.common.len() == other.common.len()
             && array.children.len() == other.children.len()
             && array
                 .children
@@ -452,9 +449,7 @@ impl VTable for ZstdBuffersVTable {
             uncompressed_sizes: metadata.0.uncompressed_sizes.clone(),
             buffer_alignments: metadata.0.buffer_alignments.clone(),
             children: child_arrays,
-            dtype: dtype.clone(),
-            len,
-            stats_set: Default::default(),
+            common: ArrayCommon::new(len, dtype.clone()),
         };
 
         array.validate()?;
@@ -485,7 +480,7 @@ impl OperationsVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
 
 impl ValidityVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
     fn validity(array: &ZstdBuffersArray) -> VortexResult<vortex_array::validity::Validity> {
-        if !array.dtype.is_nullable() {
+        if !array.common.dtype().is_nullable() {
             return Ok(vortex_array::validity::Validity::NonNullable);
         }
 
@@ -553,8 +548,8 @@ mod tests {
     fn test_roundtrip(#[case] input: ArrayRef) -> VortexResult<()> {
         let compressed = ZstdBuffersArray::compress(&input, 3)?;
 
-        assert_eq!(compressed.len, input.len());
-        assert_eq!(&compressed.dtype, input.dtype());
+        assert_eq!(compressed.common.len(), input.len());
+        assert_eq!(compressed.common.dtype(), input.dtype());
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decompressed = compressed.into_array().execute::<ArrayRef>(&mut ctx)?;

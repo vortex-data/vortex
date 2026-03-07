@@ -37,7 +37,7 @@ impl BetweenKernel for DecimalVTable {
 
         // NOTE: we know that have checked before that the lower and upper bounds are not all null.
         let nullability =
-            arr.dtype.nullability() | lower.dtype().nullability() | upper.dtype().nullability();
+            arr.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
 
         match_each_decimal_value_type!(arr.values_type(), |D| {
             between_unpack::<D>(arr, lower, upper, nullability, options)

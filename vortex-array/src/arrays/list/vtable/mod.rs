@@ -60,26 +60,26 @@ impl VTable for ListVTable {
     }
 
     fn len(array: &ListArray) -> usize {
-        array.offsets.len().saturating_sub(1)
+        array.common.len()
     }
 
     fn dtype(array: &ListArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &ListArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &ListArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
         array.elements.array_hash(state, precision);
         array.offsets.array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
     fn array_eq(array: &ListArray, other: &ListArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
+        array.common.dtype() == other.common.dtype()
             && array.elements.array_eq(&other.elements, precision)
             && array.offsets.array_eq(&other.offsets, precision)
             && array.validity.array_eq(&other.validity, precision)
@@ -202,7 +202,7 @@ impl VTable for ListVTable {
         let validity = if let Some(validity_array) = iter.next() {
             Validity::Array(validity_array)
         } else {
-            Validity::from(array.dtype.nullability())
+            Validity::from(array.common.dtype().nullability())
         };
 
         let new_array = ListArray::try_new(elements, offsets, validity)?;

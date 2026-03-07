@@ -48,27 +48,27 @@ impl VTable for SharedVTable {
     }
 
     fn len(array: &SharedArray) -> usize {
-        array.current_array_ref().len()
+        array.common.len()
     }
 
     fn dtype(array: &SharedArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &SharedArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &SharedArray, state: &mut H, precision: Precision) {
         let current = array.current_array_ref();
         current.array_hash(state, precision);
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
     }
 
     fn array_eq(array: &SharedArray, other: &SharedArray, precision: Precision) -> bool {
         let current = array.current_array_ref();
         let other_current = other.current_array_ref();
-        current.array_eq(other_current, precision) && array.dtype == other.dtype
+        current.array_eq(other_current, precision) && array.common.dtype() == other.common.dtype()
     }
 
     fn nbuffers(_array: &Self::Array) -> usize {

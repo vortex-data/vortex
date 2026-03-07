@@ -7,10 +7,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::dtype::DType;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 /// The canonical encoding for fixed-size list arrays.
@@ -62,10 +62,8 @@ use crate::validity::Validity;
 /// ```
 #[derive(Clone, Debug)]
 pub struct FixedSizeListArray {
-    /// The [`DType`] of the fixed-size list.
-    ///
-    /// This type **must** be the variant [`DType::FixedSizeList`].
-    pub(super) dtype: DType,
+    /// Common fields (len, dtype, stats) shared by all array types.
+    pub(super) common: ArrayCommon,
 
     /// The `elements` data array, where each fixed-size list scalar is a _slice_ of the `elements`
     /// array, and each inner list element is a _scalar_ of the `elements` array.
@@ -85,18 +83,6 @@ pub struct FixedSizeListArray {
     /// sub-elements of fixed-size list scalars are null. The `elements` array will track individual
     /// value nullability.
     pub(super) validity: Validity,
-
-    /// The length of the array.
-    ///
-    /// Note that this is different from the size of each fixed-size list scalar (`list_size`).
-    ///
-    /// The main reason we need to store this (rather than calculate it on the fly via `list_size`
-    /// and `elements.len()`) is because in the degenerate case where `list_size == 0`, we cannot
-    /// use `0 / 0` to determine the length.
-    pub(super) len: usize,
-
-    /// The stats for this array.
-    pub(super) stats_set: ArrayStats,
 }
 
 impl FixedSizeListArray {
@@ -158,19 +144,20 @@ impl FixedSizeListArray {
             .vortex_expect("[Debug Assertion]: Invalid `FixedSizeListArray` parameters");
 
         let nullability = validity.nullability();
+        let dtype =
+            DType::FixedSizeList(Arc::new(elements.dtype().clone()), list_size, nullability);
 
         Self {
-            dtype: DType::FixedSizeList(Arc::new(elements.dtype().clone()), list_size, nullability),
+            common: ArrayCommon::new(len, dtype),
             elements,
             list_size,
             validity,
-            len,
-            stats_set: Default::default(),
         }
     }
 
     pub fn into_parts(self) -> (ArrayRef, Validity, DType) {
-        (self.elements, self.validity, self.dtype)
+        let dtype = self.common.dtype().clone();
+        (self.elements, self.validity, dtype)
     }
 
     /// Validates the components that would be used to create a [`FixedSizeListArray`].
@@ -226,10 +213,10 @@ impl FixedSizeListArray {
     /// Returns an error if the index is out of bounds or the slice operation fails.
     pub fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         debug_assert!(
-            index < self.len,
+            index < self.common.len(),
             "index {} out of bounds: the len is {}",
             index,
-            self.len,
+            self.common.len(),
         );
         debug_assert!(self.validity.is_valid(index).unwrap_or(false));
 

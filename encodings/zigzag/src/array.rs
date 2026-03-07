@@ -3,6 +3,7 @@
 
 use std::hash::Hash;
 
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -17,7 +18,6 @@ use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
@@ -52,24 +52,25 @@ impl VTable for ZigZagVTable {
     }
 
     fn len(array: &ZigZagArray) -> usize {
-        array.encoded.len()
+        array.common.len()
     }
 
     fn dtype(array: &ZigZagArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &ZigZagArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &ZigZagArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
         array.encoded.array_hash(state, precision);
     }
 
     fn array_eq(array: &ZigZagArray, other: &ZigZagArray, precision: Precision) -> bool {
-        array.dtype == other.dtype && array.encoded.array_eq(&other.encoded, precision)
+        array.common.dtype() == other.common.dtype()
+            && array.encoded.array_eq(&other.encoded, precision)
     }
 
     fn nbuffers(_array: &ZigZagArray) -> usize {
@@ -172,9 +173,8 @@ impl VTable for ZigZagVTable {
 
 #[derive(Clone, Debug)]
 pub struct ZigZagArray {
-    dtype: DType,
+    common: ArrayCommon,
     encoded: ArrayRef,
-    stats_set: ArrayStats,
 }
 
 #[derive(Debug)]
@@ -197,11 +197,11 @@ impl ZigZagArray {
 
         let dtype = DType::from(PType::try_from(&encoded_dtype)?.to_signed())
             .with_nullability(encoded_dtype.nullability());
+        let len = encoded.len();
 
         Ok(Self {
-            dtype,
+            common: ArrayCommon::new(len, dtype),
             encoded,
-            stats_set: Default::default(),
         })
     }
 

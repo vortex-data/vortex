@@ -10,6 +10,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
@@ -23,7 +24,6 @@ use crate::dtype::NativePType;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 /// A list array that stores variable-length lists of elements, similar to `Vec<Vec<T>>`.
@@ -80,11 +80,10 @@ use crate::validity::Validity;
 /// ```
 #[derive(Clone, Debug)]
 pub struct ListArray {
-    pub(super) dtype: DType,
+    pub(super) common: ArrayCommon,
     pub(super) elements: ArrayRef,
     pub(super) offsets: ArrayRef,
     pub(super) validity: Validity,
-    pub(super) stats_set: ArrayStats,
 }
 
 pub struct ListArrayParts {
@@ -145,12 +144,13 @@ impl ListArray {
         Self::validate(&elements, &offsets, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `ListViewArray` parameters");
 
+        let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
+        let len = offsets.len().saturating_sub(1);
         Self {
-            dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
+            common: ArrayCommon::new(len, dtype),
             elements,
             offsets,
             validity,
-            stats_set: Default::default(),
         }
     }
 
@@ -241,7 +241,7 @@ impl ListArray {
     /// Splits an array into its parts
     pub fn into_parts(self) -> ListArrayParts {
         ListArrayParts {
-            dtype: self.dtype,
+            dtype: self.common.dtype().clone(),
             elements: self.elements,
             offsets: self.offsets,
             validity: self.validity,
@@ -295,9 +295,9 @@ impl ListArray {
 
     /// Returns the element dtype of the list array.
     pub fn element_dtype(&self) -> &Arc<DType> {
-        match &self.dtype {
+        match self.common.dtype() {
             DType::List(element_dtype, _) => element_dtype,
-            _ => vortex_panic!("ListArray has invalid dtype {}", self.dtype),
+            _ => vortex_panic!("ListArray has invalid dtype {}", self.common.dtype()),
         }
     }
 

@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use itertools::Itertools;
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -23,7 +24,6 @@ use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
@@ -75,19 +75,19 @@ impl VTable for ALPRDVTable {
     }
 
     fn len(array: &ALPRDArray) -> usize {
-        array.left_parts.len()
+        array.common.len()
     }
 
     fn dtype(array: &ALPRDArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &ALPRDArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &ALPRDArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
         array.left_parts.array_hash(state, precision);
         array.left_parts_dictionary.array_hash(state, precision);
         array.right_parts.array_hash(state, precision);
@@ -96,7 +96,7 @@ impl VTable for ALPRDVTable {
     }
 
     fn array_eq(array: &ALPRDArray, other: &ALPRDArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
+        array.common.dtype() == other.common.dtype()
             && array.left_parts.array_eq(&other.left_parts, precision)
             && array
                 .left_parts_dictionary
@@ -357,13 +357,12 @@ impl VTable for ALPRDVTable {
 
 #[derive(Clone, Debug)]
 pub struct ALPRDArray {
-    dtype: DType,
+    common: ArrayCommon,
     left_parts: ArrayRef,
     left_parts_patches: Option<Patches>,
     left_parts_dictionary: Buffer<u16>,
     right_parts: ArrayRef,
     right_bit_width: u8,
-    stats_set: ArrayStats,
 }
 
 #[derive(Debug)]
@@ -428,14 +427,14 @@ impl ALPRDArray {
             })
             .transpose()?;
 
+        let len = left_parts.len();
         Ok(Self {
-            dtype,
+            common: ArrayCommon::new(len, dtype),
             left_parts,
             left_parts_dictionary,
             right_parts,
             right_bit_width,
             left_parts_patches,
-            stats_set: Default::default(),
         })
     }
 
@@ -449,14 +448,14 @@ impl ALPRDArray {
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> Self {
+        let len = left_parts.len();
         Self {
-            dtype,
+            common: ArrayCommon::new(len, dtype),
             left_parts,
             left_parts_patches,
             left_parts_dictionary,
             right_parts,
             right_bit_width,
-            stats_set: Default::default(),
         }
     }
 
@@ -465,7 +464,7 @@ impl ALPRDArray {
     /// Returns false if the logical type of the array values is f64.
     #[inline]
     pub fn is_f32(&self) -> bool {
-        matches!(&self.dtype, DType::Primitive(PType::F32, _))
+        matches!(self.common.dtype(), DType::Primitive(PType::F32, _))
     }
 
     /// The leftmost (most significant) bits of the floating point values stored in the array.

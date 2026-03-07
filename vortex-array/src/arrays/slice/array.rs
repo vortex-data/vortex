@@ -7,14 +7,14 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
-use crate::stats::ArrayStats;
 
 #[derive(Clone, Debug)]
 pub struct SliceArray {
     pub(super) child: ArrayRef,
     pub(super) range: Range<usize>,
-    pub(super) stats: ArrayStats,
+    pub(super) common: ArrayCommon,
 }
 
 pub struct SliceArrayParts {
@@ -31,10 +31,12 @@ impl SliceArray {
                 child.len()
             );
         }
+        let len = range.len();
+        let dtype = child.dtype().clone();
         Ok(Self {
             child,
             range,
-            stats: ArrayStats::default(),
+            common: ArrayCommon::new(len, dtype),
         })
     }
 

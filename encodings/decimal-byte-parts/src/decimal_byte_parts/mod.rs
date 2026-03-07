@@ -8,6 +8,7 @@ mod slice;
 use std::hash::Hash;
 
 use prost::Message as _;
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -28,7 +29,6 @@ use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
@@ -69,15 +69,15 @@ impl VTable for DecimalBytePartsVTable {
     }
 
     fn len(array: &DecimalBytePartsArray) -> usize {
-        array.msp.len()
+        array.common.len()
     }
 
     fn dtype(array: &DecimalBytePartsArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &DecimalBytePartsArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -85,7 +85,7 @@ impl VTable for DecimalBytePartsVTable {
         state: &mut H,
         precision: Precision,
     ) {
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
         array.msp.array_hash(state, precision);
     }
 
@@ -94,7 +94,7 @@ impl VTable for DecimalBytePartsVTable {
         other: &DecimalBytePartsArray,
         precision: Precision,
     ) -> bool {
-        array.dtype == other.dtype && array.msp.array_eq(&other.msp, precision)
+        array.common.dtype() == other.common.dtype() && array.msp.array_eq(&other.msp, precision)
     }
 
     fn nbuffers(_array: &DecimalBytePartsArray) -> usize {
@@ -216,8 +216,7 @@ pub struct DecimalBytePartsArray {
     //  other than the empty Vec.
     // Must update `DecimalBytePartsArrayParts` too.
     _lower_parts: Vec<ArrayRef>,
-    dtype: DType,
-    stats_set: ArrayStats,
+    common: ArrayCommon,
 }
 
 pub struct DecimalBytePartsArrayParts {
@@ -232,21 +231,21 @@ impl DecimalBytePartsArray {
         }
 
         let nullable = msp.dtype().nullability();
+        let len = msp.len();
         Ok(Self {
             msp,
             _lower_parts: Vec::new(),
-            dtype: DType::Decimal(decimal_dtype, nullable),
-            stats_set: Default::default(),
+            common: ArrayCommon::new(len, DType::Decimal(decimal_dtype, nullable)),
         })
     }
 
     pub(crate) unsafe fn new_unchecked(msp: ArrayRef, decimal_dtype: DecimalDType) -> Self {
         let nullable = msp.dtype().nullability();
+        let len = msp.len();
         Self {
             msp,
             _lower_parts: Vec::new(),
-            dtype: DType::Decimal(decimal_dtype, nullable),
-            stats_set: Default::default(),
+            common: ArrayCommon::new(len, DType::Decimal(decimal_dtype, nullable)),
         }
     }
 
@@ -254,12 +253,13 @@ impl DecimalBytePartsArray {
     pub fn into_parts(self) -> DecimalBytePartsArrayParts {
         DecimalBytePartsArrayParts {
             msp: self.msp,
-            dtype: self.dtype,
+            dtype: self.common.into_dtype(),
         }
     }
 
     pub fn decimal_dtype(&self) -> &DecimalDType {
-        self.dtype
+        self.common
+            .dtype()
             .as_decimal_opt()
             .vortex_expect("must be a decimal dtype")
     }
@@ -310,7 +310,7 @@ impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         // TODO(joe): extend this to support multiple parts.
         let value = primitive_scalar.as_::<i64>().vortex_expect("non-null");
         Scalar::try_new(
-            array.dtype.clone(),
+            array.common.dtype().clone(),
             Some(ScalarValue::Decimal(DecimalValue::I64(value))),
         )
     }

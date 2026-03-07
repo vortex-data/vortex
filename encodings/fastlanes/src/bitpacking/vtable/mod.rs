@@ -74,15 +74,15 @@ impl VTable for BitPackedVTable {
     }
 
     fn len(array: &BitPackedArray) -> usize {
-        array.len
+        array.common.len()
     }
 
     fn dtype(array: &BitPackedArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &BitPackedArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -91,8 +91,8 @@ impl VTable for BitPackedVTable {
         precision: Precision,
     ) {
         array.offset.hash(state);
-        array.len.hash(state);
-        array.dtype.hash(state);
+        array.common.len().hash(state);
+        array.common.dtype().hash(state);
         array.bit_width.hash(state);
         array.packed.array_hash(state, precision);
         array.patches.array_hash(state, precision);
@@ -101,8 +101,8 @@ impl VTable for BitPackedVTable {
 
     fn array_eq(array: &BitPackedArray, other: &BitPackedArray, precision: Precision) -> bool {
         array.offset == other.offset
-            && array.len == other.len
-            && array.dtype == other.dtype
+            && array.common.len() == other.common.len()
+            && array.common.dtype() == other.common.dtype()
             && array.bit_width == other.bit_width
             && array.packed.array_eq(&other.packed, precision)
             && array.patches.array_eq(&other.patches, precision)
@@ -141,7 +141,7 @@ impl VTable for BitPackedVTable {
                 idx,
             )
         } else if idx < pc + validity_nchildren(&array.validity) {
-            validity_to_child(&array.validity, array.len)
+            validity_to_child(&array.validity, array.common.len())
                 .vortex_expect("BitPackedArray child index out of bounds")
         } else {
             vortex_panic!("BitPackedArray child index {idx} out of bounds")

@@ -4,6 +4,7 @@
 use std::hash::Hash;
 
 use num_traits::cast::FromPrimitive;
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
@@ -74,11 +75,9 @@ pub struct SequenceArrayParts {
 #[derive(Clone, Debug)]
 /// An array representing the equation `A[i] = base + i * multiplier`.
 pub struct SequenceArray {
+    common: ArrayCommon,
     base: PValue,
     multiplier: PValue,
-    dtype: DType,
-    pub(crate) len: usize,
-    stats_set: ArrayStats,
 }
 
 impl SequenceArray {
@@ -162,16 +161,14 @@ impl SequenceArray {
         };
 
         Self {
+            common: ArrayCommon::new_with_stats(length, dtype, ArrayStats::from(stats_set)),
             base,
             multiplier,
-            dtype,
-            len: length,
-            stats_set: ArrayStats::from(stats_set),
         }
     }
 
     pub fn ptype(&self) -> PType {
-        self.dtype.as_ptype()
+        self.common.dtype().as_ptype()
     }
 
     pub fn base(&self) -> PValue {
@@ -203,7 +200,10 @@ impl SequenceArray {
     }
 
     pub(crate) fn index_value(&self, idx: usize) -> PValue {
-        assert!(idx < self.len, "index_value({idx}): index out of bounds");
+        assert!(
+            idx < self.common.len(),
+            "index_value({idx}): index out of bounds"
+        );
 
         match_each_native_ptype!(self.ptype(), |P| {
             let base = self.base.cast::<P>().vortex_expect("must be able to cast");
@@ -219,7 +219,7 @@ impl SequenceArray {
 
     /// Returns the validated final value of a sequence array
     pub fn last(&self) -> PValue {
-        Self::try_last(self.base, self.multiplier, self.ptype(), self.len)
+        Self::try_last(self.base, self.multiplier, self.ptype(), self.common.len())
             .vortex_expect("validated array")
     }
 
@@ -227,9 +227,9 @@ impl SequenceArray {
         SequenceArrayParts {
             base: self.base,
             multiplier: self.multiplier,
-            len: self.len,
-            ptype: self.dtype.as_ptype(),
-            nullability: self.dtype.nullability(),
+            len: self.common.len(),
+            ptype: self.common.dtype().as_ptype(),
+            nullability: self.common.dtype().nullability(),
         }
     }
 }
@@ -246,15 +246,15 @@ impl VTable for SequenceVTable {
     }
 
     fn len(array: &SequenceArray) -> usize {
-        array.len
+        array.common.len()
     }
 
     fn dtype(array: &SequenceArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &SequenceArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -264,15 +264,15 @@ impl VTable for SequenceVTable {
     ) {
         array.base.hash(state);
         array.multiplier.hash(state);
-        array.dtype.hash(state);
-        array.len.hash(state);
+        array.common.dtype().hash(state);
+        array.common.len().hash(state);
     }
 
     fn array_eq(array: &SequenceArray, other: &SequenceArray, _precision: Precision) -> bool {
         array.base == other.base
             && array.multiplier == other.multiplier
-            && array.dtype == other.dtype
-            && array.len == other.len
+            && array.common.dtype() == other.common.dtype()
+            && array.common.len() == other.common.len()
     }
 
     fn nbuffers(_array: &SequenceArray) -> usize {

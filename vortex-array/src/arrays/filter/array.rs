@@ -6,8 +6,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
-use crate::stats::ArrayStats;
 
 /// Decomposed parts of the filter array.
 pub struct FilterArrayParts {
@@ -30,8 +30,8 @@ pub struct FilterArray {
     /// The boolean mask selecting which elements to keep.
     pub(super) mask: Mask,
 
-    /// The stats for this array.
-    pub(super) stats: ArrayStats,
+    /// Common array fields (len, dtype, stats).
+    pub(super) common: ArrayCommon,
 }
 
 impl FilterArray {
@@ -48,10 +48,12 @@ impl FilterArray {
             mask.len()
         );
 
+        let len = mask.true_count();
+        let dtype = array.dtype().clone();
         Ok(Self {
             child: array,
             mask,
-            stats: ArrayStats::default(),
+            common: ArrayCommon::new(len, dtype),
         })
     }
 

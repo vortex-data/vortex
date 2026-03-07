@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::dtype::DType;
@@ -16,7 +17,7 @@ pub mod rle_decompress;
 
 #[derive(Clone, Debug)]
 pub struct RLEArray {
-    pub(super) dtype: DType,
+    pub(super) common: ArrayCommon,
     /// Run value in the dictionary.
     pub(super) values: ArrayRef,
     /// Chunk-local indices from all chunks. The start of each chunk is looked up in `values_idx_offsets`.
@@ -32,10 +33,8 @@ pub struct RLEArray {
     /// ```
     pub(super) values_idx_offsets: ArrayRef,
 
-    pub(super) stats_set: ArrayStats,
     // Offset relative to the start of the chunk.
     pub(super) offset: usize,
-    pub(super) length: usize,
 }
 
 impl RLEArray {
@@ -108,13 +107,11 @@ impl RLEArray {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
 
         Ok(Self {
-            dtype,
+            common: ArrayCommon::new(length, dtype),
             values,
             indices,
             values_idx_offsets,
-            stats_set: ArrayStats::default(),
             offset,
-            length,
         })
     }
 
@@ -136,29 +133,27 @@ impl RLEArray {
         length: usize,
     ) -> Self {
         Self {
-            dtype,
+            common: ArrayCommon::new(length, dtype),
             values,
             indices,
             values_idx_offsets,
-            stats_set: ArrayStats::default(),
             offset,
-            length,
         }
     }
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.length
+        self.common.len()
     }
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.length == 0
+        self.common.len() == 0
     }
 
     #[inline]
     pub fn dtype(&self) -> &DType {
-        &self.dtype
+        self.common.dtype()
     }
 
     #[inline]
@@ -209,7 +204,7 @@ impl RLEArray {
 
     #[inline]
     pub(crate) fn stats_set(&self) -> &ArrayStats {
-        &self.stats_set
+        self.common.stats()
     }
 }
 

@@ -60,25 +60,25 @@ impl VTable for BoolVTable {
     }
 
     fn len(array: &BoolArray) -> usize {
-        array.len
+        array.common.len()
     }
 
     fn dtype(array: &BoolArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &BoolArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &BoolArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
         array.to_bit_buffer().array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
     fn array_eq(array: &BoolArray, other: &BoolArray, precision: Precision) -> bool {
-        if array.dtype != other.dtype {
+        if array.common.dtype() != other.common.dtype() {
             return false;
         }
         array

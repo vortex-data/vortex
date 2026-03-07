@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
@@ -19,7 +20,7 @@ pub mod for_decompress;
 pub struct FoRArray {
     pub(super) encoded: ArrayRef,
     pub(super) reference: Scalar,
-    pub(super) stats_set: ArrayStats,
+    pub(super) common: ArrayCommon,
 }
 
 impl FoRArray {
@@ -33,18 +34,22 @@ impl FoRArray {
                 .with_nullability(encoded.dtype().nullability()),
         )?;
 
+        let len = encoded.len();
+        let dtype = reference.dtype().clone();
         Ok(Self {
             encoded,
             reference,
-            stats_set: Default::default(),
+            common: ArrayCommon::new(len, dtype),
         })
     }
 
     pub(crate) unsafe fn new_unchecked(encoded: ArrayRef, reference: Scalar) -> Self {
+        let len = encoded.len();
+        let dtype = reference.dtype().clone();
         Self {
             encoded,
             reference,
-            stats_set: Default::default(),
+            common: ArrayCommon::new(len, dtype),
         }
     }
 
@@ -65,6 +70,6 @@ impl FoRArray {
 
     #[inline]
     pub(crate) fn stats_set(&self) -> &ArrayStats {
-        &self.stats_set
+        self.common.stats()
     }
 }

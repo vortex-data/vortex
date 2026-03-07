@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::ArrayCommon;
 use crate::scalar::Scalar;
-use crate::stats::ArrayStats;
 
 #[derive(Clone, Debug)]
 pub struct ConstantArray {
     pub(super) scalar: Scalar,
-    pub(super) len: usize,
-    pub(super) stats_set: ArrayStats,
+    pub(super) common: ArrayCommon,
 }
 
 impl ConstantArray {
@@ -17,11 +16,8 @@ impl ConstantArray {
         S: Into<Scalar>,
     {
         let scalar = scalar.into();
-        Self {
-            scalar,
-            len,
-            stats_set: Default::default(),
-        }
+        let common = ArrayCommon::new(len, scalar.dtype().clone());
+        Self { scalar, common }
     }
 
     /// Returns the [`Scalar`] value of this constant array.

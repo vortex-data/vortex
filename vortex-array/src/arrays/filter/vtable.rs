@@ -56,15 +56,15 @@ impl VTable for FilterVTable {
     }
 
     fn len(array: &FilterArray) -> usize {
-        array.mask.true_count()
+        array.common.len()
     }
 
     fn dtype(array: &FilterArray) -> &DType {
-        array.child.dtype()
+        array.common.dtype()
     }
 
     fn stats(array: &FilterArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: Hasher>(array: &FilterArray, state: &mut H, precision: Precision) {
@@ -134,11 +134,7 @@ impl VTable for FilterVTable {
     ) -> VortexResult<Self::Array> {
         assert_eq!(len, metadata.0.true_count());
         let child = children.get(0, dtype, metadata.0.len())?;
-        Ok(FilterArray {
-            child,
-            mask: metadata.0.clone(),
-            stats: Default::default(),
-        })
+        FilterArray::try_new(child, metadata.0.clone())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

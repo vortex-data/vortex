@@ -13,13 +13,13 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::ArrayCommon;
 use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 /// A variable-length binary view array that stores strings and binary data efficiently.
@@ -83,11 +83,10 @@ use crate::validity::Validity;
 /// ```
 #[derive(Clone, Debug)]
 pub struct VarBinViewArray {
-    pub(super) dtype: DType,
+    pub(super) common: ArrayCommon,
     pub(super) buffers: Arc<[BufferHandle]>,
     pub(super) views: BufferHandle,
     pub(super) validity: Validity,
-    pub(super) stats_set: ArrayStats,
 }
 
 pub struct VarBinViewArrayParts {
@@ -244,12 +243,12 @@ impl VarBinViewArray {
         dtype: DType,
         validity: Validity,
     ) -> Self {
+        let len = views.len() / size_of::<BinaryView>();
         Self {
+            common: ArrayCommon::new(len, dtype),
             views,
             buffers,
-            dtype,
             validity,
-            stats_set: Default::default(),
         }
     }
 
@@ -345,7 +344,7 @@ impl VarBinViewArray {
     /// Splits the array into owned parts
     pub fn into_parts(self) -> VarBinViewArrayParts {
         VarBinViewArrayParts {
-            dtype: self.dtype,
+            dtype: self.common.dtype().clone(),
             buffers: self.buffers,
             views: self.views,
             validity: self.validity,

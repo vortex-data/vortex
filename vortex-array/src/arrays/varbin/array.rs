@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::ToCanonical;
@@ -17,16 +18,14 @@ use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 #[derive(Clone, Debug)]
 pub struct VarBinArray {
-    pub(super) dtype: DType,
+    pub(super) common: ArrayCommon,
     pub(super) bytes: BufferHandle,
     pub(super) offsets: ArrayRef,
     pub(super) validity: Validity,
-    pub(super) stats_set: ArrayStats,
 }
 
 impl VarBinArray {
@@ -154,12 +153,12 @@ impl VarBinArray {
         Self::validate(&offsets, &bytes, &dtype, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `VarBinArray` parameters");
 
+        let len = offsets.len().saturating_sub(1);
         Self {
-            dtype,
+            common: ArrayCommon::new(len, dtype),
             bytes,
             offsets,
             validity,
-            stats_set: Default::default(),
         }
     }
 
@@ -371,7 +370,12 @@ impl VarBinArray {
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
     /// the `offsets` array, and the `validity`.
     pub fn into_parts(self) -> (DType, BufferHandle, ArrayRef, Validity) {
-        (self.dtype, self.bytes, self.offsets, self.validity)
+        (
+            self.common.dtype().clone(),
+            self.bytes,
+            self.offsets,
+            self.validity,
+        )
     }
 }
 

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use fastlanes::FastLanes;
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -56,11 +57,9 @@ pub mod delta_decompress;
 #[derive(Clone, Debug)]
 pub struct DeltaArray {
     pub(super) offset: usize,
-    pub(super) len: usize,
-    pub(super) dtype: DType,
+    pub(super) common: ArrayCommon,
     pub(super) bases: ArrayRef,
     pub(super) deltas: ArrayRef,
-    pub(super) stats_set: ArrayStats,
 }
 
 impl DeltaArray {
@@ -141,13 +140,12 @@ impl DeltaArray {
         offset: usize,
         logical_len: usize,
     ) -> Self {
+        let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
         Self {
             offset,
-            len: logical_len,
-            dtype: bases.dtype().with_nullability(deltas.dtype().nullability()),
+            common: ArrayCommon::new(logical_len, dtype),
             bases,
             deltas,
-            stats_set: Default::default(),
         }
     }
 
@@ -170,17 +168,17 @@ impl DeltaArray {
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.len
+        self.common.len()
     }
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.len == 0
+        self.common.len() == 0
     }
 
     #[inline]
     pub fn dtype(&self) -> &DType {
-        &self.dtype
+        self.common.dtype()
     }
 
     #[inline]
@@ -201,7 +199,7 @@ impl DeltaArray {
 
     #[inline]
     pub(crate) fn stats_set(&self) -> &ArrayStats {
-        &self.stats_set
+        self.common.stats()
     }
 }
 

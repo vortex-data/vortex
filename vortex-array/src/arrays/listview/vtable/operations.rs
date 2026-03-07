@@ -21,7 +21,7 @@ impl OperationsVTable<ListViewVTable> for ListViewVTable {
         Ok(Scalar::list(
             Arc::new(list.dtype().clone()),
             children,
-            array.dtype.nullability(),
+            array.common.dtype().nullability(),
         ))
     }
 }

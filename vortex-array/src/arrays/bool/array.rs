@@ -9,12 +9,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::bool;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 /// A boolean array that stores true/false values in a compact bit-packed format.
@@ -51,12 +51,10 @@ use crate::validity::Validity;
 /// ```
 #[derive(Clone, Debug)]
 pub struct BoolArray {
-    pub(super) dtype: DType,
+    pub(super) common: ArrayCommon,
     pub(super) bits: BufferHandle,
     pub(super) offset: usize,
-    pub(super) len: usize,
     pub(super) validity: Validity,
-    pub(super) stats_set: ArrayStats,
 }
 
 pub struct BoolArrayParts {
@@ -101,12 +99,10 @@ impl BoolArray {
         let (offset, len, buffer) = bits.into_inner();
 
         Ok(Self {
-            dtype: DType::Bool(validity.nullability()),
+            common: ArrayCommon::new(len, DType::Bool(validity.nullability())),
             bits: BufferHandle::new_host(buffer),
             offset,
-            len,
             validity,
-            stats_set: ArrayStats::default(),
         })
     }
 
@@ -138,12 +134,10 @@ impl BoolArray {
         );
 
         Ok(Self {
-            dtype: DType::Bool(validity.nullability()),
+            common: ArrayCommon::new(len, DType::Bool(validity.nullability())),
             bits,
             offset,
-            len,
             validity,
-            stats_set: ArrayStats::default(),
         })
     }
 
@@ -159,12 +153,10 @@ impl BoolArray {
             let (offset, len, buffer) = bits.into_inner();
 
             Self {
-                dtype: DType::Bool(validity.nullability()),
+                common: ArrayCommon::new(len, DType::Bool(validity.nullability())),
                 bits: BufferHandle::new_host(buffer),
                 offset,
-                len,
                 validity,
-                stats_set: ArrayStats::default(),
             }
         }
     }
@@ -197,7 +189,7 @@ impl BoolArray {
         BoolArrayParts {
             bits: self.bits,
             offset: self.offset,
-            len: self.len,
+            len: self.common.len(),
             validity: self.validity,
         }
     }
@@ -219,7 +211,7 @@ impl BoolArray {
     pub fn to_bit_buffer(&self) -> BitBuffer {
         let buffer = self.bits.as_host().clone();
 
-        BitBuffer::new_with_offset(buffer, self.len, self.offset)
+        BitBuffer::new_with_offset(buffer, self.common.len(), self.offset)
     }
 
     /// Returns the underlying [`BitBuffer`] of the array

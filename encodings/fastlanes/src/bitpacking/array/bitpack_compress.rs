@@ -84,7 +84,8 @@ pub fn bitpack_encode(
         )
     };
     bitpacked
-        .stats_set
+        .common
+        .stats()
         .to_ref(bitpacked.as_ref())
         .inherit_from(array.statistics());
     Ok(bitpacked)
@@ -118,7 +119,8 @@ pub unsafe fn bitpack_encode_unchecked(
         )
     };
     bitpacked
-        .stats_set
+        .common
+        .stats()
         .to_ref(bitpacked.as_ref())
         .inherit_from(array.statistics());
     Ok(bitpacked)

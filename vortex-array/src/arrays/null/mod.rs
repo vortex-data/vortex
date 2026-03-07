@@ -8,6 +8,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayCommon;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
@@ -18,7 +19,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
@@ -43,23 +43,23 @@ impl VTable for NullVTable {
     }
 
     fn len(array: &NullArray) -> usize {
-        array.len
+        array.common.len()
     }
 
-    fn dtype(_array: &NullArray) -> &DType {
-        &DType::Null
+    fn dtype(array: &NullArray) -> &DType {
+        array.common.dtype()
     }
 
     fn stats(array: &NullArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &NullArray, state: &mut H, _precision: Precision) {
-        array.len.hash(state);
+        array.common.len().hash(state);
     }
 
     fn array_eq(array: &NullArray, other: &NullArray, _precision: Precision) -> bool {
-        array.len == other.len
+        array.common.len() == other.common.len()
     }
 
     fn nbuffers(_array: &NullArray) -> usize {
@@ -165,8 +165,7 @@ impl VTable for NullVTable {
 /// ```
 #[derive(Clone, Debug)]
 pub struct NullArray {
-    len: usize,
-    stats_set: ArrayStats,
+    common: ArrayCommon,
 }
 
 #[derive(Debug)]
@@ -179,8 +178,7 @@ impl NullVTable {
 impl NullArray {
     pub fn new(len: usize) -> Self {
         Self {
-            len,
-            stats_set: Default::default(),
+            common: ArrayCommon::new(len, DType::Null),
         }
     }
 }

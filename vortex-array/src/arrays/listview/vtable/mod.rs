@@ -66,16 +66,15 @@ impl VTable for ListViewVTable {
     }
 
     fn len(array: &ListViewArray) -> usize {
-        debug_assert_eq!(array.offsets().len(), array.sizes().len());
-        array.offsets().len()
+        array.common.len()
     }
 
     fn dtype(array: &ListViewArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &ListViewArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -83,7 +82,7 @@ impl VTable for ListViewVTable {
         state: &mut H,
         precision: Precision,
     ) {
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
         array.elements().array_hash(state, precision);
         array.offsets().array_hash(state, precision);
         array.sizes().array_hash(state, precision);
@@ -91,7 +90,7 @@ impl VTable for ListViewVTable {
     }
 
     fn array_eq(array: &ListViewArray, other: &ListViewArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
+        array.common.dtype() == other.common.dtype()
             && array.elements().array_eq(other.elements(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
             && array.sizes().array_eq(other.sizes(), precision)
@@ -230,7 +229,7 @@ impl VTable for ListViewVTable {
         let validity = if let Some(validity_array) = iter.next() {
             Validity::Array(validity_array)
         } else {
-            Validity::from(array.dtype.nullability())
+            Validity::from(array.common.dtype().nullability())
         };
 
         let new_array = ListViewArray::try_new(elements, offsets, sizes, validity)?;

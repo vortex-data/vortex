@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use vortex_array::ArrayCommon;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -20,7 +21,6 @@ use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
@@ -58,26 +58,26 @@ impl VTable for ALPVTable {
     }
 
     fn len(array: &ALPArray) -> usize {
-        array.encoded.len()
+        array.common.len()
     }
 
     fn dtype(array: &ALPArray) -> &DType {
-        &array.dtype
+        array.common.dtype()
     }
 
     fn stats(array: &ALPArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+        array.common.stats().to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &ALPArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
+        array.common.dtype().hash(state);
         array.encoded.array_hash(state, precision);
         array.exponents.hash(state);
         array.patches.array_hash(state, precision);
     }
 
     fn array_eq(array: &ALPArray, other: &ALPArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
+        array.common.dtype() == other.common.dtype()
             && array.encoded.array_eq(&other.encoded, precision)
             && array.exponents == other.exponents
             && array.patches.array_eq(&other.patches, precision)
@@ -261,9 +261,8 @@ impl VTable for ALPVTable {
 pub struct ALPArray {
     encoded: ArrayRef,
     patches: Option<Patches>,
-    dtype: DType,
+    common: ArrayCommon,
     exponents: Exponents,
-    stats_set: ArrayStats,
 }
 
 #[derive(Debug)]
@@ -428,12 +427,12 @@ impl ALPArray {
             _ => unreachable!(),
         };
 
+        let len = encoded.len();
         Ok(Self {
-            dtype,
+            common: ArrayCommon::new(len, dtype),
             encoded,
             exponents,
             patches,
-            stats_set: Default::default(),
         })
     }
 
@@ -447,17 +446,17 @@ impl ALPArray {
         patches: Option<Patches>,
         dtype: DType,
     ) -> Self {
+        let len = encoded.len();
         Self {
-            dtype,
+            common: ArrayCommon::new(len, dtype),
             encoded,
             exponents,
             patches,
-            stats_set: Default::default(),
         }
     }
 
     pub fn ptype(&self) -> PType {
-        self.dtype.as_ptype()
+        self.common.dtype().as_ptype()
     }
 
     pub fn encoded(&self) -> &ArrayRef {
@@ -476,7 +475,12 @@ impl ALPArray {
     /// Consumes the array and returns its parts.
     #[inline]
     pub fn into_parts(self) -> (ArrayRef, Exponents, Option<Patches>, DType) {
-        (self.encoded, self.exponents, self.patches, self.dtype)
+        (
+            self.encoded,
+            self.exponents,
+            self.patches,
+            self.common.into_dtype(),
+        )
     }
 }
 
