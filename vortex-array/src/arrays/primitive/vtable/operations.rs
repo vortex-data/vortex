@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
+use crate::arrays::primitive::vtable::PrimitiveArray;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;

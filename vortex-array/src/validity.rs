@@ -24,7 +24,7 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::ScalarFnArrayExt;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::sum;
 use crate::dtype::DType;
@@ -525,9 +525,9 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
+    use crate::validity::BoolArray;
     use crate::validity::Validity;
 
     #[rstest]

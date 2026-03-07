@@ -84,11 +84,11 @@ mod test {
     use crate::LEGACY_SESSION;
     use crate::RecursiveCanonical;
     use crate::VortexSessionExecute;
-    use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::binary::numeric::ConstantArray;
     use crate::scalar_fn::fns::operators::Operator;
 
     fn sub_scalar(array: &ArrayRef, scalar: impl Into<Scalar>) -> VortexResult<ArrayRef> {

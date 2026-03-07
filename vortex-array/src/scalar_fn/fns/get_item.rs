@@ -220,7 +220,6 @@ mod tests {
 
     use crate::DynArray;
     use crate::IntoArray;
-    use crate::arrays::StructArray;
     use crate::dtype::DType;
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
@@ -232,6 +231,7 @@ mod tests {
     use crate::expr::lit;
     use crate::expr::pack;
     use crate::expr::root;
+    use crate::scalar_fn::fns::get_item::StructArray;
     use crate::validity::Validity;
 
     fn test_array() -> StructArray {

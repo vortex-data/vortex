@@ -9,7 +9,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
-use crate::arrays::SliceReduce;
+use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for ScalarFnVTable {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

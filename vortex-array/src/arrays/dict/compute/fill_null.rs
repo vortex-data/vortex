@@ -92,8 +92,8 @@ mod tests {
 
     use crate::IntoArray;
     use crate::ToCanonical;
+    use crate::arrays::DictArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::dict::DictArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::Nullability;

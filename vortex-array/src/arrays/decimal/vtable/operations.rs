@@ -3,8 +3,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
+use crate::arrays::decimal::vtable::DecimalArray;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;

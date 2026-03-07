@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::arrays::DictVTable;
-use crate::arrays::TakeExecuteAdaptor;
+use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNullExecuteAdaptor;

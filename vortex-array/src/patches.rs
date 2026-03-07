@@ -1220,9 +1220,9 @@ mod test {
     use crate::LEGACY_SESSION;
     use crate::ToCanonical;
     use crate::VortexSessionExecute;
-    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::patches::Patches;
+    use crate::patches::PrimitiveArray;
     use crate::search_sorted::SearchResult;
     use crate::validity::Validity;
 

@@ -11,7 +11,7 @@ use arbitrary::Result;
 use arbitrary::Unstructured;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ArbitraryDictArray;
+use vortex_array::arrays::dict::ArbitraryDictArray;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_error::vortex_err;

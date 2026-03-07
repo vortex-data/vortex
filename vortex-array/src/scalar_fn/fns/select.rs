@@ -307,7 +307,6 @@ mod tests {
 
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::arrays::StructArray;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
     use crate::dtype::FieldNames;
@@ -320,6 +319,7 @@ mod tests {
     use crate::expr::select_exclude;
     use crate::expr::test_harness;
     use crate::scalar_fn::fns::select::Select;
+    use crate::scalar_fn::fns::select::StructArray;
 
     fn test_array() -> StructArray {
         StructArray::from_fields(&[

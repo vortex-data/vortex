@@ -8,7 +8,7 @@ use fsst::Symbol;
 use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::accessor::ArrayAccessor;
-use vortex_array::arrays::builder::VarBinBuilder;
+use vortex_array::arrays::varbin::builder::VarBinBuilder;
 use vortex_array::dtype::DType;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;

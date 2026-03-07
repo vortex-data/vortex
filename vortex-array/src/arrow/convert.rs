@@ -686,10 +686,10 @@ mod tests {
     use crate::arrays::ListViewVTable;
     use crate::arrays::PrimitiveVTable;
     use crate::arrays::StructVTable;
-    use crate::arrays::TemporalArray;
     use crate::arrays::VarBinVTable;
     use crate::arrays::VarBinViewVTable;
     use crate::arrow::FromArrowArray as _;
+    use crate::arrow::convert::TemporalArray;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;

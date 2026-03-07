@@ -11,7 +11,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
-use crate::arrays::SliceKernel;
+use crate::arrays::slice::SliceKernel;
 
 impl SliceKernel for ChunkedVTable {
     fn slice(

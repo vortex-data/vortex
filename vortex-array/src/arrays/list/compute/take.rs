@@ -10,7 +10,7 @@ use crate::IntoArray;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::TakeExecute;
+use crate::arrays::dict::TakeExecute;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::dtype::IntegerPType;
@@ -197,8 +197,8 @@ mod test {
     use crate::IntoArray as _;
     use crate::ToCanonical;
     use crate::arrays::BoolArray;
+    use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::list::ListArray;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

@@ -13,7 +13,7 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::Precision;
-use crate::arrays::shared::SharedArray;
+use crate::arrays::SharedArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;

@@ -29,7 +29,7 @@ pub fn filter_decimal(array: &DecimalArray, mask: &Arc<MaskValues>) -> DecimalAr
 #[cfg(test)]
 mod test {
     use crate::IntoArray;
-    use crate::arrays::DecimalArray;
+    use crate::arrays::filter::execute::decimal::DecimalArray;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::dtype::DecimalDType;
 
