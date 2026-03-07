@@ -47,6 +47,9 @@ use vortex_cuda::{CudaDeviceBuffer, CudaExecutionCtx, CudaSession, CudaSessionEx
 enum ScanMode {
     /// Standard path: open_buffer → scan → decode batches → GPU kernels.
     Scan,
+    /// Same as Scan but forced onto a single-threaded tokio runtime.
+    /// Isolates Arc contention cost vs inherent Arc cost.
+    ScanSt,
     /// Zero-deserialization: walk layout tree → build plans directly from
     /// flatbuffer metadata → GPU kernels. Bypasses ArrayRef construction.
     DirectFb,
@@ -137,10 +140,23 @@ fn init_tracing(json: bool, perfetto_path: Option<&Path>) -> VortexResult<()> {
 // Entrypoint
 // =====================================================================
 
-#[tokio::main]
-async fn main() -> VortexResult<()> {
+fn main() -> VortexResult<()> {
     let cli = Cli::parse();
     init_tracing(cli.json, cli.perfetto.as_deref())?;
+
+    // Build the tokio runtime: single-threaded for scan-st, multi-threaded otherwise.
+    let rt = match cli.mode {
+        ScanMode::ScanSt => tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| vortex::error::vortex_err!("rt build: {e}"))?,
+        _ => tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| vortex::error::vortex_err!("rt build: {e}"))?,
+    };
+
+    let _guard = rt.enter();
 
     // Session setup.
     let session = VortexSession::default().with_tokio();
@@ -162,10 +178,7 @@ async fn main() -> VortexResult<()> {
     for i in 0..cli.iterations {
         let start = Instant::now();
         let file = cache.open(&path)?;
-        match cli.mode {
-            ScanMode::Scan => scan_file(&session, file, &mut cuda_ctx).await?,
-            ScanMode::DirectFb => direct_scan_file(&session, file, &mut cuda_ctx).await?,
-        }
+        run_iteration(&rt, &cli.mode, &session, file, &mut cuda_ctx)?;
         times.push(start.elapsed());
         tracing::info!(
             "Iteration {}/{}: {:.3}s",
@@ -177,6 +190,22 @@ async fn main() -> VortexResult<()> {
 
     print_results(&cli, file_mb, &times);
     Ok(())
+}
+
+/// Synchronous wrapper so `run_iteration` appears in frame-pointer call stacks.
+/// Async fns compile to state machines that lose their name in stack unwinding.
+#[inline(never)]
+fn run_iteration(
+    rt: &tokio::runtime::Runtime,
+    mode: &ScanMode,
+    session: &VortexSession,
+    file: &MmapFile,
+    cuda_ctx: &mut CudaExecutionCtx,
+) -> VortexResult<()> {
+    match mode {
+        ScanMode::Scan | ScanMode::ScanSt => rt.block_on(scan_file(session, file, cuda_ctx)),
+        ScanMode::DirectFb => rt.block_on(direct_scan_file(session, file, cuda_ctx)),
+    }
 }
 
 // =====================================================================
