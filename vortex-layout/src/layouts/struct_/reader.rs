@@ -44,6 +44,7 @@ use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::layouts::partitioned::PartitionedExprEval;
 use crate::layouts::struct_::StructLayout;
+use crate::reader::debug_assert_mask_matches_row_range;
 use crate::segments::SegmentSource;
 
 pub struct StructReader {
@@ -249,6 +250,8 @@ impl LayoutReader for StructReader {
         expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
+        debug_assert_mask_matches_row_range(mask.len(), row_range, "struct pruning");
+
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
@@ -271,6 +274,8 @@ impl LayoutReader for StructReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
+        debug_assert_mask_matches_row_range(mask.len(), row_range, "struct filter");
+
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
@@ -308,6 +313,8 @@ impl LayoutReader for StructReader {
         expr: &Expression,
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
+        debug_assert_mask_matches_row_range(mask_fut.len(), row_range, "struct projection");
+
         let validity_fut = self
             .validity()?
             .map(|reader| reader.projection_evaluation(row_range, &root(), mask_fut.clone()))

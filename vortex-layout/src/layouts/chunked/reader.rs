@@ -27,6 +27,7 @@ use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
+use crate::reader::debug_assert_mask_matches_row_range;
 use crate::segments::SegmentSource;
 
 /// A [`LayoutReader`] for chunked layouts.
@@ -206,6 +207,8 @@ impl LayoutReader for ChunkedReader {
         expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
+        debug_assert_mask_matches_row_range(mask.len(), row_range, "chunked pruning");
+
         if row_range.is_empty() {
             return Ok(MaskFuture::ready(mask));
         }
@@ -252,6 +255,8 @@ impl LayoutReader for ChunkedReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
+        debug_assert_mask_matches_row_range(mask.len(), row_range, "chunked filter");
+
         if row_range.is_empty() {
             return Ok(mask);
         }
@@ -291,6 +296,8 @@ impl LayoutReader for ChunkedReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+        debug_assert_mask_matches_row_range(mask.len(), row_range, "chunked projection");
+
         let dtype = expr.return_dtype(self.dtype())?;
         if row_range.is_empty() {
             return Ok(

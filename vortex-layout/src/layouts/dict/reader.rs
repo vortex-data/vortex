@@ -34,6 +34,7 @@ use super::DictLayout;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::layouts::SharedArrayFuture;
+use crate::reader::debug_assert_mask_matches_row_range;
 use crate::segments::SegmentSource;
 
 pub struct DictReader {
@@ -156,10 +157,12 @@ impl LayoutReader for DictReader {
 
     fn pruning_evaluation(
         &self,
-        _row_range: &Range<u64>,
+        row_range: &Range<u64>,
         _expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
+        debug_assert_mask_matches_row_range(mask.len(), row_range, "dict pruning");
+
         // NOTE: we can get the values here, convert expression to the codes domain, and push down
         // to the codes child. We don't do that here because:
         // - Reading values only for an approx filter is expensive
@@ -173,6 +176,8 @@ impl LayoutReader for DictReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
+        debug_assert_mask_matches_row_range(mask.len(), row_range, "dict filter");
+
         // TODO(joe): fix up expr partitioning with fallible & null sensitive annotations
         let values_eval = self.values_eval(expr.clone());
 
@@ -205,6 +210,8 @@ impl LayoutReader for DictReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+        debug_assert_mask_matches_row_range(mask.len(), row_range, "dict projection");
+
         // TODO: fix up expr partitioning with fallible & null sensitive annotations
         let values_eval = self.values_eval(root());
         let codes_eval = self

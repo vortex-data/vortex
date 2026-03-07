@@ -39,6 +39,7 @@ use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::reader::debug_assert_mask_matches_row_range;
 use crate::segments::SegmentSource;
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
@@ -243,6 +244,8 @@ impl LayoutReader for ZonedReader {
         expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
+        debug_assert_mask_matches_row_range(mask.len(), row_range, "zoned pruning");
+
         tracing::debug!("Stats pruning evaluation: {} - {}", &self.name, expr);
         let data_eval = self
             .data_child()?
@@ -315,6 +318,7 @@ impl LayoutReader for ZonedReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
+        debug_assert_mask_matches_row_range(mask.len(), row_range, "zoned filter");
         self.data_child()?.filter_evaluation(row_range, expr, mask)
     }
 
@@ -324,6 +328,8 @@ impl LayoutReader for ZonedReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+        debug_assert_mask_matches_row_range(mask.len(), row_range, "zoned projection");
+
         // TODO(ngates): there are some projection expressions that we may also be able to
         //  short-circuit with statistics.
         self.data_child()?

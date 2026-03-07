@@ -15,6 +15,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
@@ -90,6 +91,35 @@ pub trait LayoutReader: 'static + Send + Sync {
 }
 
 pub type ArrayFuture = BoxFuture<'static, VortexResult<ArrayRef>>;
+
+#[cfg(debug_assertions)]
+#[inline]
+pub(crate) fn debug_assert_mask_matches_row_range(
+    mask_len: usize,
+    row_range: &Range<u64>,
+    context: &str,
+) {
+    let row_range_len = usize::try_from(
+        row_range
+            .end
+            .checked_sub(row_range.start)
+            .vortex_expect("row range underflow"),
+    )
+    .vortex_expect("row range length must fit usize");
+    debug_assert_eq!(
+        mask_len, row_range_len,
+        "{context}: mask length must match row range length"
+    );
+}
+
+#[cfg(not(debug_assertions))]
+#[inline]
+pub(crate) fn debug_assert_mask_matches_row_range(
+    _mask_len: usize,
+    _row_range: &Range<u64>,
+    _context: &str,
+) {
+}
 
 pub trait ArrayFutureExt {
     fn masked(self, mask: MaskFuture) -> Self;

@@ -24,6 +24,7 @@ use vortex_session::VortexSession;
 use crate::LayoutReader;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
+use crate::reader::debug_assert_mask_matches_row_range;
 use crate::segments::SegmentSource;
 
 /// The threshold of mask density below which we will evaluate the expression only over the
@@ -112,10 +113,11 @@ impl LayoutReader for FlatReader {
 
     fn pruning_evaluation(
         &self,
-        _row_range: &Range<u64>,
+        row_range: &Range<u64>,
         _expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
+        debug_assert_mask_matches_row_range(mask.len(), row_range, "flat pruning");
         Ok(MaskFuture::ready(mask))
     }
 
@@ -125,6 +127,8 @@ impl LayoutReader for FlatReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<MaskFuture> {
+        debug_assert_mask_matches_row_range(mask.len(), row_range, "flat filter");
+
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
@@ -183,6 +187,8 @@ impl LayoutReader for FlatReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+        debug_assert_mask_matches_row_range(mask.len(), row_range, "flat projection");
+
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
